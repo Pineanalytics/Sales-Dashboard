@@ -1,0 +1,35 @@
+// Prisma schema for the Sales Performance Dashboard.
+// SQLite by default for zero-config local/dev use; swap the datasource
+// provider + DATABASE_URL to "postgresql" for production if desired.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Snapshot {
+  id          String   @id @default(cuid())
+  uploadedAt  DateTime @default(now())
+  reportTitle String
+  data        String // JSON-serialized Dataset (see lib/types.ts)
+
+  @@index([uploadedAt])
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+}
