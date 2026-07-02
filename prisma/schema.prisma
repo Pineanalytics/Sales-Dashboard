@@ -1,14 +1,15 @@
 // Prisma schema for the Sales Performance Dashboard.
-// SQLite by default for zero-config local/dev use; swap the datasource
-// provider + DATABASE_URL to "postgresql" for production if desired.
+// Postgres (Supabase), connected via the pooled connection for app queries
+// and the direct connection for migrations/db push (see .env.example).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Snapshot {

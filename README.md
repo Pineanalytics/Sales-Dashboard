@@ -10,8 +10,10 @@ A production-grade Next.js dashboard for a Kenya-based distributor to track prin
 - **Recharts** for line/bar/doughnut/composed charts
 - **SheetJS (`xlsx`)** for parsing the uploaded workbook, shared between client preview and server persistence
 - **Zustand** for global client state (dataset, principal filter, active view)
-- **Prisma + SQLite** for persisting uploaded snapshots and user accounts (swappable to Postgres — see below)
+- **Prisma + Supabase (Postgres)** for persisting uploaded snapshots and user accounts
 - **Vitest** for parser unit tests
+
+Deploys to **Netlify** (via `@netlify/plugin-nextjs`) — see [Deploying to Netlify](#deploying-to-netlify) below.
 
 ## Getting started
 
@@ -23,8 +25,8 @@ A production-grade Next.js dashboard for a Kenya-based distributor to track prin
 
 ```bash
 npm install
-cp .env.example .env      # set DATABASE_URL and AUTH_SECRET (see below)
-npx prisma db push        # creates the local SQLite database
+cp .env.example .env      # set DATABASE_URL, DIRECT_URL and AUTH_SECRET (see below)
+npx prisma db push        # creates the Snapshot/User tables in Supabase
 npm run db:seed           # creates a starter admin + viewer account
 npm run dev
 ```
@@ -71,18 +73,19 @@ npm run lint
 - **Admin** — can upload a new monthly snapshot and manage user accounts (`/admin/users`).
 - **Viewer** — read-only access to every dashboard view; the upload control and admin pages are not rendered for them, and the underlying API routes reject non-admin requests server-side (not just hidden in the UI).
 
-Auth is enforced at the page/route level rather than in Proxy/Middleware: Next.js 16's Proxy convention always runs on the Node.js runtime with no way to opt into the Edge runtime, which Cloudflare's OpenNext adapter doesn't support. `app/(protected)/layout.tsx` requires a signed-in session for every page under it (the dashboard and `/admin/users`); each API route (`/api/upload`, `/api/dataset`, `/api/snapshots`) checks the session itself. `/admin/users` additionally requires the `ADMIN` role, checked both by `/api/upload` and inside the page itself.
+Auth is enforced at the page/route level rather than in Proxy/Middleware (deliberately host-portable — this avoided an incompatibility when the project briefly targeted Cloudflare Workers, and there's no reason to reintroduce it now). `app/(protected)/layout.tsx` requires a signed-in session for every page under it (the dashboard and `/admin/users`); each API route (`/api/upload`, `/api/dataset`, `/api/snapshots`) checks the session itself. `/admin/users` additionally requires the `ADMIN` role, checked both by `/api/upload` and inside the page itself.
 
 To create additional accounts, sign in as an admin and use **Manage users** in the header's account menu, or call `prisma.user.create(...)` directly (see `prisma/seed.mjs` for the exact shape — passwords are hashed with bcrypt, never stored in plain text).
 
 ## Environment variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | Prisma datasource connection string (relative paths resolve from `prisma/`, so this points at `prisma/dev.db`) | `file:./dev.db` |
-| `AUTH_SECRET` | Secret used to sign/encrypt session JWTs — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` | *(required, no default)* |
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Pooled Postgres connection string (used by Prisma Client at runtime — pooling matters in serverless environments like Netlify Functions, which can spin up many concurrent connections). Get it from the Supabase dashboard: **Project Settings → Connect → ORMs tab → Prisma**. |
+| `DIRECT_URL` | Direct (non-pooled) Postgres connection string, used only for `prisma db push`/migrations — PgBouncer's transaction pooling mode doesn't support the prepared statements migrations need. Same dashboard page as above. |
+| `AUTH_SECRET` | Secret used to sign/encrypt session JWTs — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 
-To swap to Postgres for production, change `prisma/schema.prisma`'s datasource `provider` to `"postgresql"` and set `DATABASE_URL` to your Postgres connection string, then run `npx prisma db push` (or `prisma migrate deploy`).
+This project's Supabase project is `pinefrostsales` (ref `addexxjwrxmjjqmcwkib`, region `eu-west-1`), under the Pineanalytics organization.
 
 ## Data model & parsing
 
@@ -127,9 +130,12 @@ prisma/seed.mjs       Creates the starter admin/viewer accounts
 tests/                Vitest unit tests + fixture workbook builder
 ```
 
-## Deploying to Vercel
+## Deploying to Netlify
 
-1. Push to a Git repo and import it into Vercel.
-2. Set `DATABASE_URL` and `AUTH_SECRET` in the Vercel project's environment variables. SQLite's local file won't persist across serverless deployments — point `DATABASE_URL` at a hosted Postgres/SQLite-compatible database (e.g. Vercel Postgres, Neon, Turso) for production and update `prisma/schema.prisma`'s provider accordingly.
-3. Vercel runs `npm run build`, which runs `prisma generate` via the `postinstall` script automatically.
-4. Run `npx prisma db push` (or set up a migration step) against the production database once before first deploy, then `npm run db:seed` (or create your first admin manually) so you have a way to sign in.
+1. Push to the Git repo and connect it as a new site in Netlify (Netlify auto-detects `netlify.toml` and the `@netlify/plugin-nextjs` plugin — no extra build config needed).
+2. In the Netlify site's environment variables, set `DATABASE_URL`, `DIRECT_URL`, and `AUTH_SECRET` (see [Environment variables](#environment-variables) above).
+3. Netlify runs `npm install` (which runs `prisma generate` via `postinstall`) then `npm run build`.
+4. Before the first deploy — or any time the schema changes — run `npx prisma db push` locally against the Supabase database (with `.env` pointing at it) to keep the schema in sync, then `npm run db:seed` once to create your first admin login.
+5. Netlify Functions run on a real Node.js runtime (not a restricted edge runtime), so Prisma, bcrypt, and NextAuth all work without adapter-specific workarounds.
+
+This project previously targeted Cloudflare Workers; that config has been removed in favor of Netlify + Supabase. Vercel would also work with no changes beyond setting the same environment variables there instead.
