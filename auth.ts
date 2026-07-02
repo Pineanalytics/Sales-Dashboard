@@ -22,14 +22,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = credentials?.email;
         const password = credentials?.password;
         if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
+          console.error("[authorize] missing email or password field");
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-        if (!user) return null;
+        let user;
+        try {
+          user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+        } catch (err) {
+          console.error("[authorize] prisma query threw:", err);
+          throw err;
+        }
+        if (!user) {
+          console.error("[authorize] no user row for email:", email.toLowerCase());
+          return null;
+        }
 
         const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) {
+          console.error("[authorize] bcrypt mismatch for user:", user.email, "hash length:", user.passwordHash.length);
+          return null;
+        }
 
         return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
