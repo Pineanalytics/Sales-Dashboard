@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { parseWorkbook, WorkbookParseError } from "@/lib/parseWorkbook";
 import { saveSnapshot } from "@/lib/datasetStore";
 import { auth } from "@/auth";
@@ -8,13 +9,31 @@ export const runtime = "nodejs";
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25MB
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
 
+/**
+ * Scheduled/headless uploads (e.g. the Power Query export automation) can't hold a
+ * browser session, so they authenticate with a shared secret in this header instead.
+ * Only active when UPLOAD_API_KEY is set; unset means the header path never matches.
+ */
+function hasValidApiKey(req: NextRequest): boolean {
+  const expected = process.env.UPLOAD_API_KEY;
+  if (!expected) return false;
+  const provided = req.headers.get("x-upload-api-key");
+  if (!provided) return false;
+  const expectedBuf = Buffer.from(expected);
+  const providedBuf = Buffer.from(provided);
+  if (expectedBuf.length !== providedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, providedBuf);
+}
+
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Sign in to upload a workbook." }, { status: 401 });
-  }
-  if (session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Only administrators can upload a new snapshot." }, { status: 403 });
+  if (!hasValidApiKey(req)) {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Sign in to upload a workbook." }, { status: 401 });
+    }
+    if (session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Only administrators can upload a new snapshot." }, { status: 403 });
+    }
   }
 
   let formData: FormData;

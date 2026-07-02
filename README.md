@@ -84,8 +84,13 @@ To create additional accounts, sign in as an admin and use **Manage users** in t
 | `DATABASE_URL` | Pooled Postgres connection string (used by Prisma Client at runtime — pooling matters in serverless environments like Netlify Functions, which can spin up many concurrent connections). Get it from the Supabase dashboard: **Project Settings → Connect → ORMs tab → Prisma**. |
 | `DIRECT_URL` | Direct (non-pooled) Postgres connection string, used only for `prisma db push`/migrations — PgBouncer's transaction pooling mode doesn't support the prepared statements migrations need. Same dashboard page as above. |
 | `AUTH_SECRET` | Secret used to sign/encrypt session JWTs — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
+| `UPLOAD_API_KEY` | Optional. Lets a headless script call `POST /api/upload` with an `x-upload-api-key` header instead of an interactive admin session — see [Automated uploads](#automated-uploads). Leave unset to disable this auth path entirely. |
 
 This project's Supabase project is `pinefrostsales` (ref `addexxjwrxmjjqmcwkib`, region `eu-west-1`), under the Pineanalytics organization.
+
+## Automated uploads
+
+`/api/upload` accepts a shared-secret header as an alternative to the interactive admin session, so a scheduled script can push a new snapshot without a browser: set `UPLOAD_API_KEY` in the environment, then send it as `x-upload-api-key` on the upload request. See `scripts/export-and-upload.ps1` for the reference implementation — it refreshes the source Power Query workbook, exports the 5 required sheets to a new `.xlsx`, and POSTs it automatically. Rotate the key by changing `UPLOAD_API_KEY` and updating the script; there's no separate revocation list since it's a single static secret.
 
 ## Data model & parsing
 
