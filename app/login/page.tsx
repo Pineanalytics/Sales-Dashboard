@@ -1,12 +1,17 @@
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { signIn } from "@/auth";
+import { auth, signIn } from "@/auth";
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const session = await auth();
+  if (session?.user) {
+    redirect("/");
+  }
+
   const { error } = await searchParams;
 
   async function login(formData: FormData) {

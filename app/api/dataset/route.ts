@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLatestSnapshot, getSnapshotById } from "@/lib/datasetStore";
+import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   const id = req.nextUrl.searchParams.get("id");
 
   try {

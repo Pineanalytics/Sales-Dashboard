@@ -71,7 +71,7 @@ npm run lint
 - **Admin** — can upload a new monthly snapshot and manage user accounts (`/admin/users`).
 - **Viewer** — read-only access to every dashboard view; the upload control and admin pages are not rendered for them, and the underlying API routes reject non-admin requests server-side (not just hidden in the UI).
 
-Every route except `/login` and NextAuth's own `/api/auth/*` endpoints requires a signed-in session (enforced in `proxy.ts`, Next.js 16's renamed `middleware` convention). `/admin/*` additionally requires the `ADMIN` role, checked both in `proxy.ts` and again inside the page itself.
+Auth is enforced at the page/route level rather than in Proxy/Middleware: Next.js 16's Proxy convention always runs on the Node.js runtime with no way to opt into the Edge runtime, which Cloudflare's OpenNext adapter doesn't support. `app/(protected)/layout.tsx` requires a signed-in session for every page under it (the dashboard and `/admin/users`); each API route (`/api/upload`, `/api/dataset`, `/api/snapshots`) checks the session itself. `/admin/users` additionally requires the `ADMIN` role, checked both by `/api/upload` and inside the page itself.
 
 To create additional accounts, sign in as an admin and use **Manage users** in the header's account menu, or call `prisma.user.create(...)` directly (see `prisma/seed.mjs` for the exact shape — passwords are hashed with bcrypt, never stored in plain text).
 
@@ -103,10 +103,12 @@ All routes below require a signed-in session; `/api/upload` additionally require
 
 ```
 app/                 Next.js routes
-  login/             Credentials sign-in page
-  admin/users/       Admin-only user management page + server actions
+  login/             Credentials sign-in page (public)
+  (protected)/       Route group requiring a session (layout.tsx enforces it)
+    page.tsx         Dashboard
+    admin/users/     Admin-only user management page + server actions
   api/auth/          NextAuth route handler
-  api/upload|dataset|snapshots/   Dashboard data API routes
+  api/upload|dataset|snapshots/   Dashboard data API routes (each checks its own session)
 components/
   dashboard/         Header, Sidebar, DashboardShell (view switching + principal filter)
   ui/                Shared KPI cards, badges, tables, gauges, animated counters, empty/loading states
@@ -119,7 +121,7 @@ lib/
   selectors.ts, trends.ts, stock.ts, insights.ts   View-level derived-data helpers
   store.ts           Zustand store
   db.ts, datasetStore.ts   Prisma client + snapshot persistence
-auth.ts, auth.config.ts, proxy.ts, types/next-auth.d.ts   Auth.js setup, route protection, session typing
+auth.ts, types/next-auth.d.ts   Auth.js setup + session typing (no Proxy/Middleware — see Authentication & roles above)
 prisma/schema.prisma  Snapshot + User models
 prisma/seed.mjs       Creates the starter admin/viewer accounts
 tests/                Vitest unit tests + fixture workbook builder
