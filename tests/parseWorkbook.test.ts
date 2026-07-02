@@ -112,7 +112,7 @@ describe("parseWorkbook", () => {
     expect(dataset.covTotal.ytdCoverage).toBe(280); // from the "Average" row, not a sum of principals
   });
 
-  it("scans the two-block Trended Revenue layout by label rather than fixed offsets", () => {
+  it("scans the Revenue-labelled block, carrying the year forward across blank column-A rows", () => {
     expect(dataset.trendedRevenue.totals["2025"][0]).toBe(100000);
     expect(dataset.trendedRevenue.totals["2026"][0]).toBe(120000);
     expect(dataset.trendedRevenue.totals["2026"][6]).toBeNull(); // July 2026 not yet reached
@@ -122,11 +122,15 @@ describe("parseWorkbook", () => {
     expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2025"][0]).toBe(60000);
     expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2026"][5]).toBe(85000);
     expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2026"][6]).toBeNull();
+    // "Upfield" has a blank column A (carries the year from the row above it).
     expect(dataset.trendedRevenue.byPrincipalKey["upfield"]["2025"][0]).toBe(40000);
   });
 
-  it("ignores explicit '<year> Total' rows in both Trended Revenue blocks", () => {
+  it("ignores explicit '<year> Total' rows and excludes sections other than 'Revenue.'", () => {
     expect(Object.keys(dataset.trendedRevenue.byPrincipalKey)).not.toContain("total");
+    // "EABL-Nairobi" in the Volume Cases section normalizes to the same "eabl" key as
+    // the Revenue section's "EABL" row — confirms Volume Cases (500) didn't clobber it.
+    expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2025"][0]).toBe(60000);
   });
 
   it("skips the Weekly Projection total row and fills in achieved % when blank", () => {

@@ -62,19 +62,27 @@ const stockRows: unknown[][] = [
 
 const MONTH_HEADER = ["", "", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+// Mirrors the real monthly export: a "Revenue." section title sits above the month
+// header, column A carries the year only on the first principal row of each year
+// (blank on the rows below it), and each year's total is a single "<year> Total"
+// row rather than a paired "<year>"/"Revenue." row. A second, differently-labelled
+// section (Volume Cases) follows with overlapping principal names to verify it's
+// excluded rather than merged into Trended Revenue.
 const trendedRevenueRows: unknown[][] = [
-  MONTH_HEADER,
-  ["2025", "Revenue.", 100000, 110000, 105000, 115000, 120000, 118000, 125000, 130000, 128000, 135000, 140000, 150000],
-  ["2026", "Revenue.", 120000, 125000, 130000, 135000, 140000, 145000, null, null, null, null, null, null],
-  ["", "YOY", 0.2, 0.136, 0.238, 0.174, 0.167, 0.229, null, null, null, null, null, null],
-  ["2025", "Total", 100000, 110000, 105000, 115000, 120000, 118000, 125000, 130000, 128000, 135000, 140000, 150000],
-  [""],
+  ["Revenue."],
   MONTH_HEADER,
   ["2025", "EABL", 60000, 65000, 62000, 68000, 70000, 69000, 72000, 75000, 74000, 78000, 80000, 85000],
+  ["", "Upfield", 40000, 45000, 43000, 47000, 50000, 49000, 53000, 55000, 54000, 57000, 60000, 65000],
+  ["2025 Total", "", 100000, 110000, 105000, 115000, 120000, 118000, 125000, 130000, 128000, 135000, 140000, 150000],
   ["2026", "EABL", 72000, 75000, 78000, 80000, 82000, 85000, null, null, null, null, null, null],
-  ["2025", "Upfield", 40000, 45000, 43000, 47000, 50000, 49000, 53000, 55000, 54000, 57000, 60000, 65000],
-  ["2026", "Upfield", 48000, 50000, 52000, 55000, 58000, 60000, null, null, null, null, null, null],
-  ["2026", "Total", 120000, 125000, 130000, 135000, 140000, 145000, null, null, null, null, null, null],
+  ["", "Upfield", 48000, 50000, 52000, 55000, 58000, 60000, null, null, null, null, null, null],
+  ["", "YOY", 0.2, 0.136, 0.238, 0.174, 0.167, 0.229, null, null, null, null, null, null],
+  ["2026 Total", "", 120000, 125000, 130000, 135000, 140000, 145000, null, null, null, null, null, null],
+  [""],
+  ["Volume Cases"],
+  MONTH_HEADER,
+  ["2025", "EABL-Nairobi", 500, 520, 510, 530, 540, 535, 545, 550, 548, 555, 560, 570],
+  ["2025 Total", "", 500, 520, 510, 530, 540, 535, 545, 550, 548, 555, 560, 570],
 ];
 
 const weeklyProjectionRows: unknown[][] = [

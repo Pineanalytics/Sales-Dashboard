@@ -519,10 +519,21 @@ function parseTrendedRevenue(wb: XLSX.WorkBook): TrendedRevenue {
   const byPrincipalKey: { [key: string]: { [year: string]: (number | null)[] } } = {};
 
   const yearRe = /^\d{4}$/;
+  const yearTotalRe = /^(\d{4})\s*total$/i;
 
   for (let h = 0; h < headerRows.length; h++) {
     const { rowIdx: headerRowIdx, colIdx: monthStartCol } = headerRows[h];
     const nextHeaderRowIdx = h + 1 < headerRows.length ? headerRows[h + 1].rowIdx : aoa.length;
+
+    // A section title (e.g. "Revenue.", "Volume Cases") may sit directly above the
+    // header row. Only the "Revenue" section feeds this sheet's totals/byPrincipalKey —
+    // other blocks (e.g. Volume Cases) share principal names that would otherwise
+    // collide in byPrincipalKey. A blank/missing title is treated as eligible so
+    // single-block layouts without a title row still parse.
+    const sectionLabel = str(aoa[headerRowIdx - 1]?.[0]).toLowerCase().replace(/\.$/, "").trim();
+    if (sectionLabel && sectionLabel !== "revenue") continue;
+
+    let currentYear: string | null = null;
 
     for (let r = headerRowIdx + 1; r < nextHeaderRowIdx; r++) {
       const row = aoa[r];
@@ -541,26 +552,42 @@ function parseTrendedRevenue(wb: XLSX.WorkBook): TrendedRevenue {
         continue;
       }
 
+      // Legacy layout: a "<year>" / "Revenue." row pair holds the yearly total.
       if (yearRe.test(colA) && colB.toLowerCase().replace(/\.$/, "") === "revenue") {
         totals[colA] = monthValues;
+        currentYear = colA;
         continue;
       }
 
-      if (yearRe.test(colA) && colB.toLowerCase().includes("total")) {
-        continue; // explicit "<year> Total" rows duplicate the totals row already captured
+      // Current layout: a single "<year> Total" cell in column A holds the yearly total.
+      const totalMatch = colA.match(yearTotalRe);
+      if (totalMatch) {
+        totals[totalMatch[1]] = monthValues;
+        continue;
       }
 
-      if (yearRe.test(colA) && colB) {
+      // Legacy layout: explicit "<year>" / "Total" row duplicates the totals row above — skip.
+      if (yearRe.test(colA) && colB.toLowerCase() === "total") {
+        continue;
+      }
+
+      // A year in column A starts a new per-principal block; blank rows below it
+      // (column A left empty in the source sheet) continue under that same year.
+      if (yearRe.test(colA)) {
+        currentYear = colA;
+      }
+
+      if (currentYear && colB) {
         const key = normalizePrincipalKey(colB);
         byPrincipalKey[key] = byPrincipalKey[key] || {};
-        byPrincipalKey[key][colA] = monthValues;
+        byPrincipalKey[key][currentYear] = monthValues;
         continue;
       }
     }
   }
 
   if (Object.keys(totals).length === 0) {
-    throw new WorkbookParseError(`Sheet "${sheetName}" has no portfolio "Revenue." rows keyed by year.`);
+    throw new WorkbookParseError(`Sheet "${sheetName}" has no "Revenue" section with yearly totals.`);
   }
 
   return { months: CANONICAL_MONTHS, totals, yoy, byPrincipalKey };
