@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import type { UserRole } from "@/types/next-auth";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   pages: {
     signIn: "/login",
   },
