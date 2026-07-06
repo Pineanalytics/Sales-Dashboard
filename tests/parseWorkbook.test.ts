@@ -110,6 +110,30 @@ describe("parseWorkbook", () => {
     expect(dataset.covTotal.currentProductiveCalls).toBe(253);
     expect(dataset.covTotal.currentProductivityPct).toBe(87.2);
     expect(dataset.covTotal.ytdCoverage).toBe(280); // from the "Average" row, not a sum of principals
+    expect(dataset.covTotal.source).toBe("Average");
+  });
+
+  it("handles the automated pivot export layout: no Average row, trailing Grand Total", () => {
+    // Mirrors what scripts/export-and-upload.ps1 produces from the source pivot:
+    // monthly totals but no "Average" row, and a final "Grand Total" row whose
+    // aggregation doesn't equal a YTD sum (it must be skipped, not treated as a
+    // month named "Grand").
+    const pivotCoverageRows: unknown[][] = [
+      ["COVERAGE REPORT"],
+      ["Month Name", "Principal", "Coverage.", "Productive Calls", "Productivity %"],
+      ["May", "EABL-Nyeri", 120, 100, 0.8333],
+      ["May Total", "", 270, 220, 0.8148],
+      ["June", "EABL-Nyeri", 130, 115, 0.8846],
+      ["June Total", "", 290, 253, 0.8724],
+      ["Grand Total", "", 290, 260, 0.8965],
+    ];
+    const ds = parseWorkbook(
+      buildFixtureWorkbook({ sheetOverrides: { "Coverage & Productivity": pivotCoverageRows } }),
+    );
+    expect(ds.coverageTrends.currentMonth).toBe("June"); // Grand Total skipped, not "Grand"
+    expect(ds.covTotal.source).toBe("Computed");
+    expect(ds.covTotal.ytdCoverage).toBe(280); // mean of 270 and 290
+    expect(ds.covTotal.productiveCalls).toBe(236.5); // mean of 220 and 253
   });
 
   it("scans the Revenue-labelled block, carrying the year forward across blank column-A rows", () => {

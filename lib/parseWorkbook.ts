@@ -277,6 +277,13 @@ function parseCoverage(wb: XLSX.WorkBook): { trends: CoverageTrends; total: Cove
       continue;
     }
 
+    // Pivot exports end with a "Grand Total" row whose aggregation doesn't match a
+    // YTD sum of the monthly totals (observed equal to the latest month alone) —
+    // skip it rather than letting it register as a month called "Grand".
+    if (!principal && /^grand\s*total$/i.test(monthName)) {
+      continue;
+    }
+
     if (!principal && /total$/i.test(monthName)) {
       const month = monthName.replace(/\s*total$/i, "").trim();
       totals.push({ month, principal: "Total", coverage, productiveCalls, productivityPct, isTotal: true });
@@ -291,8 +298,23 @@ function parseCoverage(wb: XLSX.WorkBook): { trends: CoverageTrends; total: Cove
   if (totals.length === 0) {
     throw new WorkbookParseError(`Sheet "${sheetName}" has no monthly "Total" rows.`);
   }
+
+  // Hand-prepared exports carry an explicit "Average" row; the automated pivot
+  // export doesn't, so fall back to the mean of the monthly Total rows (which is
+  // what that row held in the hand-prepared files).
+  let source: CoverageTotal["source"] = "Average";
   if (!average) {
-    throw new WorkbookParseError(`Sheet "${sheetName}" has no "Average" row.`);
+    const n = totals.length;
+    const avgCoverage = totals.reduce((s, t) => s + t.coverage, 0) / n;
+    const avgProductive = totals.reduce((s, t) => s + t.productiveCalls, 0) / n;
+    average = {
+      month: "Average",
+      principal: "Average",
+      coverage: round1(avgCoverage),
+      productiveCalls: round1(avgProductive),
+      productivityPct: avgCoverage > 0 ? round1((avgProductive / avgCoverage) * 100) : 0,
+    };
+    source = "Computed";
   }
 
   const currentTotal = totals[totals.length - 1];
@@ -303,7 +325,7 @@ function parseCoverage(wb: XLSX.WorkBook): { trends: CoverageTrends; total: Cove
     ytdCoverage: average.coverage,
     productiveCalls: average.productiveCalls,
     productivityPct: average.productivityPct,
-    source: "Average",
+    source,
     currentMonth,
     currentCoverage: currentTotal.coverage,
     currentProductiveCalls: currentTotal.productiveCalls,

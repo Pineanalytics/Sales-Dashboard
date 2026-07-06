@@ -53,7 +53,7 @@ export interface CoverageTotal {
   ytdCoverage: number;
   productiveCalls: number;
   productivityPct: number;
-  source: "Average";
+  source: "Average" | "Computed";
   currentMonth: string;
   currentCoverage: number;
   currentProductiveCalls: number;
