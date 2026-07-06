@@ -100,10 +100,23 @@ function Invoke-MultipartUpload {
     [System.Buffer]::BlockCopy($fileBytes, 0, $bodyBytes, $preambleBytes.Length, $fileBytes.Length)
     [System.Buffer]::BlockCopy($epilogueBytes, 0, $bodyBytes, $preambleBytes.Length + $fileBytes.Length, $epilogueBytes.Length)
 
-    return Invoke-RestMethod -Uri $Uri -Method Post `
-        -Headers @{ "x-upload-api-key" = $ApiKeyHeader } `
-        -ContentType "multipart/form-data; boundary=$boundary" `
-        -Body $bodyBytes
+    try {
+        return Invoke-RestMethod -Uri $Uri -Method Post `
+            -Headers @{ "x-upload-api-key" = $ApiKeyHeader } `
+            -ContentType "multipart/form-data; boundary=$boundary" `
+            -Body $bodyBytes
+    } catch [System.Net.WebException] {
+        # Surface the server's JSON error body (e.g. the parser's message) instead
+        # of just "400 Bad Request".
+        $resp = $_.Exception.Response
+        if ($resp -ne $null) {
+            $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
+            $body = $reader.ReadToEnd()
+            $reader.Close()
+            throw ("Upload rejected (HTTP " + [int]$resp.StatusCode + "): " + $body)
+        }
+        throw
+    }
 }
 
 if (-not $ApiKey) {
