@@ -31,7 +31,7 @@
 param(
     [string]$SourcePath = "D:\Reports & Extractions\SAP Extraction\Executive_Sales & Finance Dashboard_Pinefrost.xlsm",
     [string]$OutputPath = "C:\Users\IT\Downloads\Sales update.xlsx",
-    [string]$AppUrl = "https://pinefrostsales.netlify.app",
+    [string]$AppUrl = "https://pinefrostdb.netlify.app",
     [string]$ApiKey = $env:UPLOAD_API_KEY,
     [int]$RefreshTimeoutSeconds = 1200
 )
