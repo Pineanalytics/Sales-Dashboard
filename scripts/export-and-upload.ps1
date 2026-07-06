@@ -13,7 +13,7 @@
     3. Saves that workbook to -OutputPath.
     4. POSTs it to <AppUrl>/api/upload with the x-upload-api-key header.
 
-    The source workbook is never saved by this script — only read and refreshed
+    The source workbook is never saved by this script - only read and refreshed
     in memory, so it's safe to run even if you also have it open interactively
     (Excel will silently fall back to read-only for the second instance, which
     is all this script needs).
@@ -33,7 +33,11 @@ param(
     [string]$OutputPath = "C:\Users\IT\Downloads\Sales update.xlsx",
     [string]$AppUrl = "https://pinefrostdb.netlify.app",
     [string]$ApiKey = $env:UPLOAD_API_KEY,
-    [int]$RefreshTimeoutSeconds = 1200
+    [int]$RefreshTimeoutSeconds = 1200,
+    # Skip the Power Query/pivot refresh and export the workbook's last-saved data
+    # as-is. Useful for quickly retrying the export/upload steps after a failure,
+    # since a full refresh against SAP takes ~25 minutes.
+    [switch]$SkipRefresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,16 +130,20 @@ try {
     $srcWb = $excel.Workbooks.Open($SourcePath, $false, $false)
     $comObjects.Add($srcWb)
 
-    Write-Log "Refreshing all queries and pivot tables - this can take a while against SAP..."
-    $srcWb.RefreshAll()
-    Wait-QueriesDone -ExcelApp $excel -TimeoutSeconds $RefreshTimeoutSeconds
-    foreach ($sheetName in $SheetMap.Keys) {
-        $ws = $srcWb.Worksheets.Item($sheetName)
-        foreach ($pt in $ws.PivotTables()) {
-            try { $pt.RefreshTable() | Out-Null } catch {}
+    if ($SkipRefresh) {
+        Write-Log "Skipping refresh (-SkipRefresh) - exporting last-saved data."
+    } else {
+        Write-Log "Refreshing all queries and pivot tables - this can take a while against SAP..."
+        $srcWb.RefreshAll()
+        Wait-QueriesDone -ExcelApp $excel -TimeoutSeconds $RefreshTimeoutSeconds
+        foreach ($sheetName in $SheetMap.Keys) {
+            $ws = $srcWb.Worksheets.Item($sheetName)
+            foreach ($pt in $ws.PivotTables()) {
+                try { $pt.RefreshTable() | Out-Null } catch {}
+            }
         }
+        Write-Log "Refresh complete."
     }
-    Write-Log "Refresh complete."
 
     Write-Log "Building export workbook..."
     $destWb = $excel.Workbooks.Add()
@@ -150,10 +158,12 @@ try {
         $newSheet = $destWb.Worksheets.Add()
         $newSheet.Name = $targetName
         $newSheet.Range("A1").PasteSpecial($xlPasteValuesAndNumberFormats) | Out-Null
-        $excel.CutCopyMode = $false
+        # 0 = xlCopyModeNone. VBA accepts False here, but .NET interop can't cast
+        # Boolean to the XlCutCopyMode enum and throws.
+        $excel.CutCopyMode = 0
     }
 
-    # Excel seeds a new workbook with one default blank sheet ("Sheet1") — remove it,
+    # Excel seeds a new workbook with one default blank sheet ("Sheet1") - remove it,
     # leaving only the 5 renamed sheets above.
     foreach ($ws in @($destWb.Worksheets)) {
         if ($SheetMap.Values -notcontains $ws.Name) {
