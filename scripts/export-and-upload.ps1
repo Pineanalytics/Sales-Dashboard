@@ -158,9 +158,6 @@ try {
         $newSheet = $destWb.Worksheets.Add()
         $newSheet.Name = $targetName
         $newSheet.Range("A1").PasteSpecial($xlPasteValuesAndNumberFormats) | Out-Null
-        # 0 = xlCopyModeNone. VBA accepts False here, but .NET interop can't cast
-        # Boolean to the XlCutCopyMode enum and throws.
-        $excel.CutCopyMode = 0
     }
 
     # Excel seeds a new workbook with one default blank sheet ("Sheet1") - remove it,
