@@ -56,7 +56,7 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
         { name: "Target", value: currentSummary.target ?? 0, fill: "var(--accent-grey)" },
       ]
     : principals.map((p) => ({
-        name: p.principal.split("-")[0],
+        name: p.principal,
         value: p.achievementPct ?? 0,
         fill: tierBarColor[achievementTier(p.achievementPct)],
       }));

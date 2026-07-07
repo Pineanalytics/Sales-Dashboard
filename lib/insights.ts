@@ -8,6 +8,7 @@ import {
   type PeriodSelection,
 } from "./timeIntelligence";
 import { aggregateStockByPrincipal } from "./stock";
+import { normalizePrincipalKey } from "./normalize";
 
 export interface Insight {
   tier: Tier;
@@ -69,7 +70,7 @@ export function generatePrincipalInsights(dataset: Dataset, period: PeriodSelect
   const insights: Insight[] = [];
   const sales = summarizeSalesForPeriod(dataset, period, principalKey);
   const coverage = summarizeCoverageForPeriod(dataset, period, principalKey);
-  const stockRollup = aggregateStockByPrincipal(dataset).find((r) => r.key === principalKey);
+  const stockRollup = aggregateStockByPrincipal(dataset).find((r) => r.key === normalizePrincipalKey(principalKey));
 
   const achTier: Tier = sales.achievementPct === null ? "neutral" : sales.achievementPct >= 100 ? "good" : sales.achievementPct >= 60 ? "warn" : "bad";
   insights.push({

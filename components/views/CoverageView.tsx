@@ -16,25 +16,25 @@ import {
   summarizeCoverageForPeriod,
   summarizeCoverageByRep,
   summarizeCoverageByRepAcrossPrincipals,
+  type RoleCategory,
 } from "@/lib/timeIntelligence";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 const TOP_N_REPS = 12;
 
+const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
+
 export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProps) {
+  const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
+  const roleLabel = ROLE_LABEL[selectedRole];
 
-  const currentSummary = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, "primary");
-  const reps = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, "primary").sort((a, b) => b.coverage - a.coverage);
-
-  const secondarySummary = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, "secondary");
-  const secondaryReps = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, "secondary")
-    .sort((a, b) => b.coverage - a.coverage)
-    .slice(0, 10);
+  const currentSummary = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, selectedRole);
+  const reps = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, selectedRole).sort((a, b) => b.coverage - a.coverage);
 
   const monthsThisYear = getAvailableMonths(dataset, period.year);
   const monthlyTrend = CANONICAL_MONTHS.filter((m) => monthsThisYear.includes(m)).map((month) => {
-    const s = summarizeCoverageForPeriod(dataset, { kind: "MONTH", year: period.year, month }, selectedPrincipalKey, "primary");
+    const s = summarizeCoverageForPeriod(dataset, { kind: "MONTH", year: period.year, month }, selectedPrincipalKey, selectedRole);
     return { month, coverage: s.coverage, productive: s.productiveCalls, productivityPct: s.productivityPct };
   });
 
@@ -49,7 +49,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
     (r) =>
       monthKeys.has(`${r.year}|${r.monthIndex}`) &&
       (!selectedPrincipalKey || r.principalKey === selectedPrincipalKey) &&
-      r.salesRole.toLowerCase().includes("primary")
+      r.salesRole.toLowerCase().includes(selectedRole)
   );
   const byPrincipal = new Map<string, { name: string; coverage: number; productiveCalls: number }>();
   for (const r of rowsInPeriod) {
@@ -81,14 +81,38 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       ? `Productivity % by Rep (top ${Math.min(TOP_N_REPS, reps.length)})`
       : "Productivity % by Principal";
 
+  function handleSelectRole(role: RoleCategory) {
+    setSelectedRole(role);
+    setSelectedRep(null);
+  }
+
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted">Sales Role</span>
+        <div className="flex rounded-full bg-background-elevated p-0.5">
+          {(["primary", "secondary"] as const).map((role) => (
+            <button
+              key={role}
+              onClick={() => handleSelectRole(role)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
+                selectedRole === role
+                  ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                  : "text-muted-strong hover:text-primary-blue"
+              }`}
+            >
+              {ROLE_LABEL[role]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <KpiGrid>
-        <KpiCard accent="coverage" label={`${period.kind} Coverage (Primary)`} value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} />
-        <KpiCard accent="coverage" label={`${period.kind} Productive (Primary)`} value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} />
+        <KpiCard accent="coverage" label={`${period.kind} Coverage (${roleLabel})`} value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} />
+        <KpiCard accent="coverage" label={`${period.kind} Productive (${roleLabel})`} value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} />
         <KpiCard
           accent="coverage"
-          label={`${period.kind} Productivity (Primary)`}
+          label={`${period.kind} Productivity (${roleLabel})`}
           value={<AnimatedValue value={currentSummary.productivityPct} format={formatPercent} />}
         />
         <KpiCard accent="coverage" label={`${period.year} Monthly Avg Coverage`} value={<AnimatedValue value={avgCoverage} format={formatNumber} />} />
@@ -96,7 +120,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       </KpiGrid>
 
       <ChartGrid>
-        <SectionCard title={`${period.year} Coverage vs Productive Outlets (Primary)`}>
+        <SectionCard title={`${period.year} Coverage vs Productive Outlets (${roleLabel})`}>
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
@@ -140,7 +164,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       </ChartGrid>
 
       <SectionCard
-        title={`Rep Drill-Down (Primary) — ${period.kind} ${period.year}`}
+        title={`Rep Drill-Down (${roleLabel}) — ${period.kind} ${period.year}`}
         action={<span className="text-xs text-muted">Click a row to see that rep across every principal they serve</span>}
       >
         <TableWrap>
@@ -180,55 +204,6 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
             </TotalRow>
           </tbody>
         </TableWrap>
-      </SectionCard>
-
-      <SectionCard title="Secondary Sales — Additional Outlook">
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 min-[560px]:grid-cols-3 gap-4">
-            <KpiCard
-              accent="quarter"
-              size="md"
-              label={`${period.kind} Coverage (Secondary)`}
-              value={<AnimatedValue value={secondarySummary.coverage} format={formatNumber} />}
-            />
-            <KpiCard
-              accent="quarter"
-              size="md"
-              label={`${period.kind} Productive (Secondary)`}
-              value={<AnimatedValue value={secondarySummary.productiveCalls} format={formatNumber} />}
-            />
-            <KpiCard
-              accent="quarter"
-              size="md"
-              label={`${period.kind} Productivity (Secondary)`}
-              value={<AnimatedValue value={secondarySummary.productivityPct} format={formatPercent} />}
-            />
-          </div>
-          {secondaryReps.length > 0 ? (
-            <TableWrap>
-              <Thead>
-                <Th>Employee</Th>
-                <Th align="right">Outlets Covered</Th>
-                <Th align="right">Productive Outlets</Th>
-                <Th align="center">Productivity %</Th>
-              </Thead>
-              <tbody>
-                {secondaryReps.map((r) => (
-                  <tr key={r.employeeName}>
-                    <Td>{r.employeeName}</Td>
-                    <Td align="right">{formatNumber(r.coverage)}</Td>
-                    <Td align="right">{formatNumber(r.productiveCalls)}</Td>
-                    <Td align="center">
-                      <Badge tier={productivityTier(r.productivityPct)}>{r.productivityPct.toFixed(1)}%</Badge>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableWrap>
-          ) : (
-            <p className="text-xs text-muted">No secondary sales activity for this period.</p>
-          )}
-        </div>
       </SectionCard>
     </div>
   );

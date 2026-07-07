@@ -9,11 +9,14 @@ import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, stockActionTier, tierBarColor } from "@/lib/format";
 import { aggregateStockByPrincipal } from "@/lib/stock";
+import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const rollups = aggregateStockByPrincipal(dataset);
-  const selectedRollup = selectedPrincipalKey ? rollups.find((r) => r.key === selectedPrincipalKey) ?? null : null;
+  // selectedPrincipalKey is the raw Principal string (e.g. "EABL-Nyeri") — Stock has no
+  // location split in its source sheet, so it always rolls up by normalized brand key.
+  const selectedRollup = selectedPrincipalKey ? rollups.find((r) => r.key === normalizePrincipalKey(selectedPrincipalKey)) ?? null : null;
 
   const stockValue = selectedRollup ? selectedRollup.value : dataset.stockTotal.value;
   const itemCount = selectedRollup ? selectedRollup.itemCount : dataset.stockTotal.itemCount;

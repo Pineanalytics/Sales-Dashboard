@@ -120,7 +120,6 @@ export function Sidebar() {
 
           {principals.map((p) => {
             const active = selectedPrincipalKey === p.principalKey;
-            const shortName = p.principal.split("-")[0] || p.principal;
             return (
               <button
                 key={p.principalKey}
@@ -132,7 +131,7 @@ export function Sidebar() {
                 }`}
                 title={p.principal}
               >
-                <span className="truncate">{shortName}</span>
+                <span className="truncate">{p.principal}</span>
                 <AchievementBadge pct={p.achievementPct} />
               </button>
             );

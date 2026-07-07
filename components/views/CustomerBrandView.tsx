@@ -40,7 +40,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
           value: Math.max(0, totalRevenue - customers.slice(0, 7).reduce((s, c) => s + c.revenue, 0)),
         },
       ]
-    : principalShare.map((p) => ({ name: p.principal.split("-")[0], value: p.revenue }));
+    : principalShare.map((p) => ({ name: p.principal, value: p.revenue }));
 
   const topCustomersChart = customers.slice(0, 10).map((c) => ({ name: c.customerName, value: c.revenue }));
 

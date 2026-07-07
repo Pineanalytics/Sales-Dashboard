@@ -27,10 +27,10 @@ export function ProfitabilityView({ dataset, selectedPrincipalKey, period }: Vie
 
   const chartData = selected
     ? [
-        { name: selected.principal.split("-")[0], value: selected.grossMarginPct ?? 0, fill: tierBarColor[marginTier(selected.grossMarginPct)] },
+        { name: selected.principal, value: selected.grossMarginPct ?? 0, fill: tierBarColor[marginTier(selected.grossMarginPct)] },
         { name: "Portfolio Avg", value: portfolio.grossMarginPct ?? 0, fill: "var(--accent-grey)" },
       ]
-    : principals.map((p) => ({ name: p.principal.split("-")[0], value: p.grossMarginPct ?? 0, fill: tierBarColor[marginTier(p.grossMarginPct)] }));
+    : principals.map((p) => ({ name: p.principal, value: p.grossMarginPct ?? 0, fill: tierBarColor[marginTier(p.grossMarginPct)] }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -69,14 +69,14 @@ export function ProfitabilityView({ dataset, selectedPrincipalKey, period }: Vie
               accent="quarter"
               size="md"
               label="Highest Margin"
-              value={highest?.principal.split("-")[0] ?? "—"}
+              value={highest?.principal ?? "—"}
               sublabel={highest?.grossMarginPct !== undefined ? `${highest?.grossMarginPct?.toFixed(1)}%` : undefined}
             />
             <KpiCard
               accent="growth"
               size="md"
               label="Lowest Margin"
-              value={lowest?.principal.split("-")[0] ?? "—"}
+              value={lowest?.principal ?? "—"}
               sublabel={lowest?.grossMarginPct !== undefined ? `${lowest?.grossMarginPct?.toFixed(1)}%` : undefined}
             />
           </>

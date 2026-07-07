@@ -195,22 +195,24 @@ describe("summarizeSalesForPeriod — the null-target invariant", () => {
     expect(summary.grossMarginPct).toBe(15);
   });
 
-  it("filters by principalKey when provided", () => {
+  it("filters by the raw principal string (sales are location-granular, not rolled up by brand)", () => {
     const dataset = buildDataset({
       monthlySales: [
         salesRow({ principal: "EABL-Nyeri", principalKey: "eabl", year: "2026", month: "June", monthIndex: 5, revenue: 40000 }),
+        salesRow({ principal: "EABL-Nyahururu", principalKey: "eabl", year: "2026", month: "June", monthIndex: 5, revenue: 30000 }),
         salesRow({ principal: "Upfield-Nairobi", principalKey: "upfield", year: "2026", month: "June", monthIndex: 5, revenue: 60000 }),
       ],
     });
-    const eabl = summarizeSalesForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, "eabl");
-    expect(eabl.revenue).toBe(40000);
+    // Selecting one location must NOT pull in its same-brand sibling (EABL-Nyahururu).
+    const nyeri = summarizeSalesForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
+    expect(nyeri.revenue).toBe(40000);
     const all = summarizeSalesForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, null);
-    expect(all.revenue).toBe(100000);
+    expect(all.revenue).toBe(130000);
   });
 });
 
 describe("summarizeSalesByPrincipal", () => {
-  it("groups by normalized principalKey, rolling up multi-region rows onto one brand", () => {
+  it("groups by the raw principal string — same-brand different-location principals list separately", () => {
     const dataset = buildDataset({
       monthlySales: [
         salesRow({ principal: "EABL-Nyeri", principalKey: "eabl", year: "2026", month: "June", monthIndex: 5, revenue: 40000 }),
@@ -219,9 +221,10 @@ describe("summarizeSalesByPrincipal", () => {
       ],
     });
     const byPrincipal = summarizeSalesByPrincipal(dataset, { kind: "MTD", year: "2026", month: "June" });
-    expect(byPrincipal.get("eabl")?.revenue).toBe(70000);
-    expect(byPrincipal.get("upfield")?.revenue).toBe(60000);
-    expect(byPrincipal.size).toBe(2);
+    expect(byPrincipal.get("EABL-Nyeri")?.revenue).toBe(40000);
+    expect(byPrincipal.get("EABL-Nyahururu")?.revenue).toBe(30000);
+    expect(byPrincipal.get("Upfield-Nairobi")?.revenue).toBe(60000);
+    expect(byPrincipal.size).toBe(3);
   });
 });
 
@@ -247,10 +250,16 @@ describe("coverage summaries", () => {
     expect(jane.productiveCalls).toBe(125);
   });
 
-  it("summarizeCoverageByRep filters by principalKey", () => {
+  it("summarizeCoverageByRep filters by an already-normalized brand key", () => {
     const byRep = summarizeCoverageByRep(dataset, { kind: "MTD", year: "2026", month: "June" }, "eabl");
     expect(byRep).toHaveLength(2); // Jane Doe (EABL-Nyeri) + John Smith (EABL-Nyahururu)
     expect(byRep.every((r) => r.coverage > 0)).toBe(true);
+  });
+
+  it("summarizeCoverageByRep also accepts a raw location principal, normalizing it to the brand key — coverage has no location split, so selecting either EABL location shows the same combined reps", () => {
+    const byRep = summarizeCoverageByRep(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
+    expect(byRep).toHaveLength(2); // still both Jane Doe and John Smith, same as the "eabl" brand key
+    expect(byRep.find((r) => r.employeeName === "John Smith")?.coverage).toBe(60);
   });
 });
 
@@ -276,10 +285,12 @@ describe("brand & customer summaries", () => {
     expect(jane.revenue).toBe(70000);
   });
 
-  it("summarizeBrandCustomerByPrincipal rolls up multi-region principals onto one brand key", () => {
+  it("summarizeBrandCustomerByPrincipal groups by the raw principal string — locations stay separate", () => {
     const byPrincipal = summarizeBrandCustomerByPrincipal(dataset, { kind: "MTD", year: "2026", month: "June" });
-    const eabl = byPrincipal.find((p) => p.principalKey === "eabl")!;
-    expect(eabl.revenue).toBe(50000 + 30000);
+    const nyeri = byPrincipal.find((p) => p.principal === "EABL-Nyeri")!;
+    const nyahururu = byPrincipal.find((p) => p.principal === "EABL-Nyahururu")!;
+    expect(nyeri.revenue).toBe(50000);
+    expect(nyahururu.revenue).toBe(30000);
   });
 });
 

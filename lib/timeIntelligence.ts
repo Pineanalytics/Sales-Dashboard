@@ -1,7 +1,17 @@
 // Period aggregation over the monthly time-series arrays in Dataset. Nothing in
 // lib/types.ts is pre-aggregated to a "current" period anymore — which period is
 // "current" is a UI selection, resolved here on demand from raw monthly rows.
+//
+// Principal selection grain: the app-wide "selected principal" is the raw Principal
+// string (e.g. "EABL-Nyeri"), not the normalized brand key — so same-brand,
+// different-location principals (e.g. "EABL-Nyeri" vs "EABL-Nyahururu") list and
+// filter as distinct entries on the sales side (Sales vs Target, Brand & Customer).
+// Stock and Coverage & Productivity have no reliable location split in their source
+// sheets, so they intentionally stay rolled up by normalized brand key — their
+// summarize functions below normalize an incoming raw principal string before
+// matching, so selecting either location still shows the same combined figures.
 import type { Dataset, MonthlySalesRow, MonthlyCoverageRow } from "./types";
+import { normalizePrincipalKey } from "./normalize";
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -82,13 +92,31 @@ export function getAvailableMonths(dataset: Dataset, year: string): string[] {
   return CANONICAL_MONTHS.filter((_, i) => indices.has(i));
 }
 
-/** Default selection for a freshly-loaded dataset: MTD of the latest available month/year. */
-export function getDefaultPeriod(dataset: Dataset): PeriodSelection {
+/** MTD anchored to the real calendar month (not just whatever month the data happens to end
+ *  on — the sheet can carry future months that already have a target populated, e.g. December
+ *  entered ahead of time in July). Falls back to the latest month actually present in the
+ *  dataset if today's real year/month isn't there yet. */
+export function getCurrentMonthPeriod(dataset: Dataset): PeriodSelection {
   const years = getAvailableYears(dataset);
-  const year = years[years.length - 1] ?? "";
+  if (years.length === 0) return { kind: "MTD", year: "", month: undefined };
+
+  const now = new Date();
+  const realYear = String(now.getFullYear());
+  const realMonth = CANONICAL_MONTHS[now.getMonth()];
+
+  if (years.includes(realYear) && getAvailableMonths(dataset, realYear).includes(realMonth)) {
+    return { kind: "MTD", year: realYear, month: realMonth };
+  }
+
+  const year = years[years.length - 1];
   const months = getAvailableMonths(dataset, year);
   const month = months[months.length - 1];
   return { kind: "MTD", year, month };
+}
+
+/** Default selection for a freshly-loaded dataset. */
+export function getDefaultPeriod(dataset: Dataset): PeriodSelection {
+  return getCurrentMonthPeriod(dataset);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,16 +168,20 @@ function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[]): Period
   return { revenue, target, cogs, grossProfit, grossMarginPct, achievementPct, monthsIncluded: monthsWithData.size };
 }
 
+/** `principalKey` here is the raw Principal string (e.g. "EABL-Nyeri"), matched exactly —
+ *  sales are location-granular, not rolled up by brand. */
 export function summarizeSalesForPeriod(
   dataset: Dataset,
   selection: PeriodSelection,
   principalKey: string | null
 ): PeriodSalesSummary {
   const months = resolvePeriodMonths(selection);
-  const rows = principalKey ? dataset.monthlySales.filter((r) => r.principalKey === principalKey) : dataset.monthlySales;
+  const rows = principalKey ? dataset.monthlySales.filter((r) => r.principal === principalKey) : dataset.monthlySales;
   return summarizeSalesRows(rows, months);
 }
 
+/** Groups by the raw Principal string, not the normalized brand key, so same-brand
+ *  different-location principals (e.g. "EABL-Nyeri"/"EABL-Nyahururu") list separately. */
 export function summarizeSalesByPrincipal(
   dataset: Dataset,
   selection: PeriodSelection
@@ -157,18 +189,16 @@ export function summarizeSalesByPrincipal(
   const months = resolvePeriodMonths(selection);
   const keys = periodKeySet(months);
   const byKey = new Map<string, MonthlySalesRow[]>();
-  const displayNameByKey = new Map<string, string>();
 
   for (const r of dataset.monthlySales) {
     if (!keys.has(rowKey(r.year, r.monthIndex))) continue;
-    if (!byKey.has(r.principalKey)) byKey.set(r.principalKey, []);
-    byKey.get(r.principalKey)!.push(r);
-    if (!displayNameByKey.has(r.principalKey)) displayNameByKey.set(r.principalKey, r.principal);
+    if (!byKey.has(r.principal)) byKey.set(r.principal, []);
+    byKey.get(r.principal)!.push(r);
   }
 
   const result = new Map<string, PeriodSalesSummary & { principal: string; principalKey: string }>();
-  for (const [key, rows] of byKey) {
-    result.set(key, { ...summarizeSalesRows(rows, months), principal: displayNameByKey.get(key) ?? key, principalKey: key });
+  for (const [principal, rows] of byKey) {
+    result.set(principal, { ...summarizeSalesRows(rows, months), principal, principalKey: principal });
   }
   return result;
 }
@@ -208,6 +238,9 @@ function summarizeCoverageRows(rows: MonthlyCoverageRow[], months: MonthRef[]): 
   return { coverage, productiveCalls, productivityPct, monthsIncluded: monthsWithData.size };
 }
 
+/** `principalKey` may be a raw Principal string (e.g. "EABL-Nyeri") or an already-normalized
+ *  brand key — normalized either way before matching, since coverage has no reliable
+ *  location split and stays rolled up by brand regardless of which location was selected. */
 export function summarizeCoverageForPeriod(
   dataset: Dataset,
   selection: PeriodSelection,
@@ -215,8 +248,9 @@ export function summarizeCoverageForPeriod(
   roleCategory?: RoleCategory
 ): PeriodCoverageSummary {
   const months = resolvePeriodMonths(selection);
+  const brandKey = principalKey ? normalizePrincipalKey(principalKey) : null;
   const rows = dataset.monthlyCoverage.filter(
-    (r) => (!principalKey || r.principalKey === principalKey) && (!roleCategory || classifyRole(r.salesRole) === roleCategory)
+    (r) => (!brandKey || r.principalKey === brandKey) && (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
   return summarizeCoverageRows(rows, months);
 }
@@ -236,10 +270,11 @@ export function summarizeCoverageByRep(
   roleCategory?: RoleCategory
 ): RepCoverageSummary[] {
   const keys = periodKeySet(resolvePeriodMonths(selection));
+  const brandKey = principalKey ? normalizePrincipalKey(principalKey) : null;
   const filtered = dataset.monthlyCoverage.filter(
     (r) =>
       keys.has(rowKey(r.year, r.monthIndex)) &&
-      (!principalKey || r.principalKey === principalKey) &&
+      (!brandKey || r.principalKey === brandKey) &&
       (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
 
@@ -308,10 +343,12 @@ function marginFrom(revenue: number, grossProfit: number): number | null {
   return revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
 }
 
+/** `principalKey` is the raw Principal string, matched exactly — Brand & Customer is
+ *  location-granular like Sales vs Target, not rolled up by brand. */
 function filterBrandCustomer(dataset: Dataset, selection: PeriodSelection, principalKey: string | null) {
   const keys = periodKeySet(resolvePeriodMonths(selection));
   return dataset.monthlyBrandCustomer.filter(
-    (r) => keys.has(rowKey(r.year, r.monthIndex)) && (!principalKey || r.principalKey === principalKey)
+    (r) => keys.has(rowKey(r.year, r.monthIndex)) && (!principalKey || r.principal === principalKey)
   );
 }
 
@@ -380,6 +417,8 @@ export interface PrincipalBrandCustomerSummary {
   grossMarginPct: number | null;
 }
 
+/** Groups by the raw Principal string so same-brand different-location principals
+ *  show as distinct slices/rows, matching the rest of the sales side. */
 export function summarizeBrandCustomerByPrincipal(
   dataset: Dataset,
   selection: PeriodSelection
@@ -388,15 +427,15 @@ export function summarizeBrandCustomerByPrincipal(
   const rows = dataset.monthlyBrandCustomer.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
   const byPrincipal = new Map<string, { principal: string; principalKey: string; volume: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
-    const existing = byPrincipal.get(r.principalKey);
+    const existing = byPrincipal.get(r.principal);
     if (existing) {
       existing.volume += r.volume;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
-      byPrincipal.set(r.principalKey, {
+      byPrincipal.set(r.principal, {
         principal: r.principal,
-        principalKey: r.principalKey,
+        principalKey: r.principal,
         volume: r.volume,
         revenue: r.revenue,
         grossProfit: r.grossProfit,
