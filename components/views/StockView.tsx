@@ -53,7 +53,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
             <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={0} angle={-40} textAnchor="end" height={80} />
             <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
             <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="value" radius={[6, 6, 0, 0]}>
               {chartData.map((d, i) => (
                 <Cell key={i} fill={d.fill} />
               ))}

@@ -34,7 +34,7 @@ export default async function LoginPage({
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-navy to-primary-blue px-4">
       <div className="w-full max-w-sm rounded-2xl bg-surface p-8 shadow-[0_8px_24px_rgba(0,0,0,0.20)]">
-        <Image src="/pinefrost-logo.png" alt="Pinefrost Limited" width={64} height={64} className="h-14 w-14 rounded-lg object-contain" />
+        <Image src="/pinefrost-logo.png" alt="Pinefrost Limited" width={1014} height={810} className="h-20 w-auto rounded-lg object-contain" />
         <h1 className="mt-3 text-2xl font-bold text-primary-blue">Pinefrost Limited Performance Dashboard</h1>
         <p className="mt-1 text-sm text-muted">Sign in to view or manage sales reports.</p>
 
@@ -78,7 +78,7 @@ export default async function LoginPage({
 
           <button
             type="submit"
-            className="mt-2 rounded-full bg-button-blue px-4 py-3 text-sm font-semibold text-white transition-colors duration-300 hover:bg-button-blue-hover"
+            className="mt-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
           >
             Sign in
           </button>

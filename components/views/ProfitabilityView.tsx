@@ -92,7 +92,7 @@ export function ProfitabilityView({ dataset, selectedPrincipalKey, period }: Vie
             <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => `${Number(v).toFixed(1)}%`} />
             <ReferenceLine y={15} stroke="var(--accent-green)" strokeDasharray="4 4" strokeOpacity={0.5} />
             <ReferenceLine y={8} stroke="var(--accent-amber)" strokeDasharray="4 4" strokeOpacity={0.5} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="value" radius={[6, 6, 0, 0]}>
               {chartData.map((d, i) => (
                 <Cell key={i} fill={d.fill} />
               ))}

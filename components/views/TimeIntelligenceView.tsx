@@ -97,8 +97,8 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
             {priorYear ? (
               <Area type="monotone" dataKey={`Revenue ${priorYear}`} fill="var(--accent-grey)" stroke="var(--accent-grey)" fillOpacity={0.15} />
             ) : null}
-            <Bar dataKey="Revenue" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
-            <Line type="monotone" dataKey="Target" stroke="var(--accent-amber)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            <Bar dataKey="Revenue" fill="var(--primary-blue)" radius={[6, 6, 0, 0]} />
+            <Line type="monotone" dataKey="Target" stroke="var(--accent-grey)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
           </ComposedChart>
         </ResponsiveContainer>
       </SectionCard>

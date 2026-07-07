@@ -1,36 +1,48 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f8fb;
-  --background-elevated: #eef2f8;
+  /* Pinefrost Limited corporate palette. Semantic variable names below (primary-blue,
+     dark-navy, accent-*, etc.) are kept stable even where the underlying hue changed,
+     since every component references these names rather than raw hex — re-theming only
+     ever requires touching this file. */
+  --background: #f4f7fb;
+  --background-elevated: #eaf1fb;
   --surface: #ffffff;
-  --surface-hover: #eef3fc;
-  --surface-active: #e3ecfb;
-  --border: #d9d9d9;
-  --border-strong: #b9c2cc;
-  --foreground: #1a1a1a;
-  --muted: #6b7280;
-  --muted-strong: #495057;
+  --surface-hover: #eaf2fe;
+  --surface-active: #dce9fd;
+  --border: #dde5f2;
+  --border-strong: #b9c8e6;
+  --foreground: #10193a;
+  --muted: #5c6b8a;
+  --muted-strong: #33415c;
 
-  /* Fluent-inspired brand palette */
-  --primary-blue: #0a2a8a;
-  --secondary-blue: #005faf;
-  --dark-navy: #08245e;
-  --accent-blue: #2895e3;
-  --button-blue: #21698f;
-  --button-blue-hover: #0a2a8a;
+  /* Brand core */
+  --brand-navy: #0a1f52;
+  --brand-royal: #153d9a;
+  --brand-corporate: #0e63e7;
+  --brand-cyan: #25d8ff;
+  --brand-orange: #f7931e;
+  --brand-gold: #fdb515;
 
-  --accent-green: #00b050;
-  --accent-green-soft: #00b0501a;
-  --accent-amber: #ffc000;
-  --accent-amber-soft: #ffc0001f;
-  --accent-red: #ff0000;
-  --accent-red-soft: #ff00001a;
-  --accent-purple: #5c2d91;
-  --accent-purple-soft: #5c2d911a;
-  --accent-grey: #8a8886;
-  --accent-grey-soft: #8a88861a;
-  --accent-blue-soft: #2895e31a;
+  --primary-blue: #153d9a; /* Royal Blue */
+  --secondary-blue: #0e63e7; /* Corporate Blue */
+  --dark-navy: #0a1f52; /* Primary Navy */
+  --accent-blue: #25d8ff; /* Cyan Accent — glows, hover highlights, secondary chart series */
+  --button-blue: #153d9a;
+  --button-blue-hover: #0e63e7;
+
+  /* Tier colors: good=Corporate Blue, warn=Gold, bad=Orange (never red), neutral=slate-blue */
+  --accent-green: #0e63e7;
+  --accent-green-soft: #0e63e71a;
+  --accent-amber: #fdb515;
+  --accent-amber-soft: #fdb5151f;
+  --accent-red: #f7931e;
+  --accent-red-soft: #f7931e1a;
+  --accent-purple: #25d8ff;
+  --accent-purple-soft: #25d8ff1a;
+  --accent-grey: #8a94ae;
+  --accent-grey-soft: #8a94ae1a;
+  --accent-blue-soft: #25d8ff1a;
 
   --font-sans: "Segoe UI", "Segoe UI Variable", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
@@ -52,6 +64,13 @@
   --color-dark-navy: var(--dark-navy);
   --color-button-blue: var(--button-blue);
   --color-button-blue-hover: var(--button-blue-hover);
+
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-royal: var(--brand-royal);
+  --color-brand-corporate: var(--brand-corporate);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-gold: var(--brand-gold);
 
   --color-accent-blue: var(--accent-blue);
   --color-accent-blue-soft: var(--accent-blue-soft);
@@ -97,8 +116,18 @@ body {
 table tbody tr {
   transition: background-color 200ms ease;
 }
+/* Alternating rows read as a subtle tint under the base surface — the TotalRow's own
+   background (applied with Tailwind's `!` important-modifier) always wins over this. */
+table tbody tr:nth-child(even) {
+  background-color: var(--background-elevated);
+}
 table tbody tr:hover {
   background-color: var(--surface-hover);
+}
+
+/* Reusable soft cyan glow — active controls, selected sidebar items, button hover. */
+.shadow-cyan-glow {
+  box-shadow: 0 0 0 3px rgba(37, 216, 255, 0.25), 0 4px 14px rgba(37, 216, 255, 0.3);
 }
 
 /* Motion */

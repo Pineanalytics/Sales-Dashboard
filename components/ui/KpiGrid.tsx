@@ -7,7 +7,7 @@ export function KpiGrid({ children }: { children: ReactNode }) {
 
 export function SectionCard({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-2xl bg-surface p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(0,0,0,0.14)] hover:-translate-y-0.5">
+    <div className="rounded-2xl border-t-2 border-t-primary-blue bg-surface p-5 shadow-[0_1px_3px_rgba(10,31,82,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(10,31,82,0.12)] hover:-translate-y-0.5">
       {title || action ? (
         <div className="mb-4 flex items-center justify-between gap-2">
           {title ? <h3 className="text-lg font-semibold text-primary-blue">{title}</h3> : <span />}

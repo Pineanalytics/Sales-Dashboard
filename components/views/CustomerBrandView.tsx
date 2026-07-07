@@ -92,7 +92,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
               <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} interval={0} angle={-35} textAnchor="end" height={70} />
               <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
               <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
-              <Bar dataKey="value" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" fill="var(--primary-blue)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </SectionCard>

@@ -104,8 +104,8 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
               <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
               <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="coverage" name="Coverage" stroke="var(--accent-blue)" strokeWidth={2.5} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="productive" name="Productive" stroke="var(--accent-green)" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="coverage" name="Coverage" stroke="var(--primary-blue)" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="productive" name="Productive" stroke="var(--accent-blue)" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </SectionCard>
@@ -129,7 +129,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
               <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} interval={0} angle={-35} textAnchor="end" height={60} />
               <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
               <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => `${Number(v).toFixed(1)}%`} />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                 {productivityChartData.map((d, i) => (
                   <Cell key={i} fill={d.fill} />
                 ))}

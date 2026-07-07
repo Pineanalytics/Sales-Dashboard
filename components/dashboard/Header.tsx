@@ -23,7 +23,7 @@ import Link from "next/link";
 
 const HERO_BADGE_TIER_CLASS = {
   good: "bg-white/90 text-accent-green",
-  warn: "bg-white/90 text-amber-700",
+  warn: "bg-white/90 text-accent-amber",
   bad: "bg-white/90 text-accent-red",
   neutral: "bg-white/15 text-white border border-white/30",
 } as const;
@@ -79,7 +79,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
 
   return (
     <header className="sticky top-0 z-30">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(8,36,94,0.25)]">
+      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(10,31,82,0.25)]">
         <div className="flex items-start gap-3">
           <button
             className="md:hidden text-white/90 hover:text-white mt-1"
@@ -93,9 +93,9 @@ export function Header({ user }: { user: Session["user"] | null }) {
             <Image
               src="/pinefrost-logo.png"
               alt="Pinefrost Limited"
-              width={48}
-              height={48}
-              className="hidden sm:block h-10 w-10 md:h-12 md:w-12 shrink-0 rounded-lg object-contain"
+              width={1014}
+              height={810}
+              className="hidden sm:block h-12 md:h-14 w-auto shrink-0 rounded-lg object-contain"
             />
             <div className="min-w-0">
               <h1 className="text-[22px] md:text-[30px] font-bold text-white leading-tight truncate">
@@ -112,7 +112,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
           <div className="relative shrink-0">
             <button
               onClick={toggleHistory}
-              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors duration-300"
+              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
             >
               <History20Regular className="h-4 w-4" /> History
             </button>
@@ -146,7 +146,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="shrink-0 inline-flex items-center gap-2 rounded-full bg-button-blue px-4 py-2 text-xs font-semibold text-white hover:bg-button-blue-hover disabled:opacity-60 transition-colors duration-300 shadow-sm"
+                className="shrink-0 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-60 transition-all duration-300 shadow-sm"
               >
                 {uploading ? <Spinner className="h-3.5 w-3.5" /> : <ArrowUpload20Regular className="h-4 w-4" />}
                 {uploading ? "Processing…" : "Upload Excel"}
@@ -164,7 +164,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
           <div className="relative shrink-0">
             <button
               onClick={toggleAccount}
-              className="inline-flex items-center gap-2 rounded-full border border-white/40 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors duration-300"
+              className="inline-flex items-center gap-2 rounded-full border border-white/40 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
               aria-label="Account menu"
             >
               <PersonCircle20Regular className="h-5 w-5" />
@@ -210,7 +210,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
               <button
                 onClick={clearAllFilters}
                 disabled={!selectedPrincipalKey && !hasUserSelectedPeriod}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
               >
                 <Broom20Regular className="h-3.5 w-3.5" /> Clear All
               </button>

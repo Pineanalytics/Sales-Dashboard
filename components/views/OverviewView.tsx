@@ -52,7 +52,7 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
 
   const achievementChartData: { name: string; value: number; fill: string }[] = selected
     ? [
-        { name: "Revenue", value: currentSummary.revenue, fill: "var(--accent-blue)" },
+        { name: "Revenue", value: currentSummary.revenue, fill: "var(--primary-blue)" },
         { name: "Target", value: currentSummary.target ?? 0, fill: "var(--accent-grey)" },
       ]
     : principals.map((p) => ({
@@ -152,7 +152,7 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
               return (
                 <div key={p.principalKey} className="flex items-center gap-2 text-xs">
                   <span
-                    className={`w-28 shrink-0 truncate ${isSelected ? "text-accent-blue font-semibold" : "text-muted-strong"}`}
+                    className={`w-28 shrink-0 truncate ${isSelected ? "text-primary-blue font-semibold" : "text-muted-strong"}`}
                     title={p.principal}
                   >
                     {p.principal}
@@ -162,7 +162,7 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
                       className="h-full rounded-full"
                       style={{
                         width: `${Math.max(2, (p.revenue / topRevenue) * 100)}%`,
-                        background: isSelected ? "var(--accent-blue)" : tierBarColor[tier],
+                        background: isSelected ? "var(--primary-blue)" : tierBarColor[tier],
                       }}
                     />
                   </div>
@@ -187,8 +187,8 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
                 height={60}
               />
               <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
-              <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} cursor={{ fill: "rgba(10,42,138,0.06)" }} />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} cursor={{ fill: "rgba(21,61,154,0.08)" }} />
+              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                 {achievementChartData.map((entry, i) => (
                   <Cell key={i} fill={entry.fill} />
                 ))}

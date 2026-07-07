@@ -29,7 +29,7 @@ export function AchievementGauge({ pct, size = 48 }: AchievementGaugeProps) {
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e4e8ef" strokeWidth={strokeWidth} fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="var(--border)" strokeWidth={strokeWidth} fill="none" />
         <circle
           cx={size / 2}
           cy={size / 2}

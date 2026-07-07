@@ -86,23 +86,25 @@ export const tierBarColor: Record<Tier, string> = {
   neutral: "var(--accent-grey)",
 };
 
-/** Fixed KPI-card category taxonomy (left border accent) — a classification, not a value sentiment. */
+/** Fixed KPI-card category taxonomy — retained as a classification for call sites, but per
+ *  the Pinefrost brand system every card gets the same Royal Blue top border and Blue icon
+ *  regardless of category (the category no longer changes the card's color). */
 export type KpiAccent = "revenue" | "coverage" | "growth" | "mission" | "quarter";
 
 export const kpiAccentBorderClass: Record<KpiAccent, string> = {
-  revenue: "border-l-accent-blue",
-  coverage: "border-l-accent-green",
-  growth: "border-l-accent-red",
-  mission: "border-l-accent-amber",
-  quarter: "border-l-accent-purple",
+  revenue: "border-t-primary-blue",
+  coverage: "border-t-primary-blue",
+  growth: "border-t-primary-blue",
+  mission: "border-t-primary-blue",
+  quarter: "border-t-primary-blue",
 };
 
 export const kpiAccentIconClass: Record<KpiAccent, string> = {
-  revenue: "text-accent-blue",
-  coverage: "text-accent-green",
-  growth: "text-accent-red",
-  mission: "text-accent-amber",
-  quarter: "text-accent-purple",
+  revenue: "text-secondary-blue",
+  coverage: "text-secondary-blue",
+  growth: "text-secondary-blue",
+  mission: "text-secondary-blue",
+  quarter: "text-secondary-blue",
 };
 
 /** Strips the emoji prefix from a stock action string, keeping the label + a color tier. */

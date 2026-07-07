@@ -9,6 +9,7 @@ import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, formatPercent, productivityTier, marginTier, tierBarColor } from "@/lib/format";
 import { summarizeCoverageByRep, summarizeBrandCustomerByRep } from "@/lib/timeIntelligence";
+import { CHART_GRID_COLOR } from "@/components/charts/theme";
 
 export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: ViewProps) {
   const coverageByRep = summarizeCoverageByRep(dataset, period, selectedPrincipalKey);
@@ -68,11 +69,11 @@ export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: Vi
         <SectionCard title="Top 10 Reps by Revenue">
           <ResponsiveContainer width="100%" height={340}>
             <BarChart data={revenueChartData} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e4e8ef" />
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_COLOR} />
               <XAxis type="number" tickFormatter={(v) => formatCompact(v)} fontSize={11} />
               <YAxis type="category" dataKey="name" width={120} fontSize={11} />
               <Tooltip formatter={(v) => formatCompact(Number(v))} />
-              <Bar dataKey="value" fill="var(--accent-blue)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="value" fill="var(--primary-blue)" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </SectionCard>
@@ -83,11 +84,11 @@ export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: Vi
               data={topProductivityReps.map((r) => ({ name: r.employeeName, value: r.productivityPct }))}
               margin={{ top: 8, right: 8, left: 0, bottom: 32 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e4e8ef" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
               <XAxis dataKey="name" fontSize={11} interval={0} angle={-35} textAnchor="end" height={60} />
               <YAxis fontSize={11} />
               <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                 {topProductivityReps.map((r, i) => (
                   <Cell key={i} fill={tierBarColor[productivityTier(r.productivityPct)]} />
                 ))}

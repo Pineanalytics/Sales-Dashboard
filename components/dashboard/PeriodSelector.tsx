@@ -71,8 +71,8 @@ export function PeriodSelector() {
             <button
               key={k}
               onClick={() => update({ kind: k })}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors duration-300 ${
-                active ? "bg-white text-primary-blue shadow-sm" : "text-white/80 hover:text-white"
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                active ? "bg-white text-primary-blue shadow-cyan-glow" : "text-white/80 hover:text-brand-orange"
               }`}
             >
               {PERIOD_KIND_LABELS[k]}

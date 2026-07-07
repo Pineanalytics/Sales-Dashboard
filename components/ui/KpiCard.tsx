@@ -33,13 +33,13 @@ export function KpiCard({ label, value, sublabel, accent = "revenue", icon, size
 
   return (
     <div
-      className={`h-full rounded-2xl border-l-4 ${kpiAccentBorderClass[accent]} bg-surface p-6 flex flex-col gap-2 min-w-0 shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(0,0,0,0.14)] hover:-translate-y-1`}
+      className={`h-full rounded-2xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-6 flex flex-col gap-2 min-w-0 shadow-[0_1px_3px_rgba(10,31,82,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(10,31,82,0.12)] hover:-translate-y-1`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-normal text-muted truncate">{label}</span>
         {resolvedIcon ? <span className={`shrink-0 ${kpiAccentIconClass[accent]}`}>{resolvedIcon}</span> : null}
       </div>
-      <div className={`min-h-[56px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-foreground truncate`}>
+      <div className={`min-h-[56px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-brand-navy truncate`}>
         {value}
       </div>
       {sublabel ? <div className="text-[13px] text-muted-strong truncate">{sublabel}</div> : null}

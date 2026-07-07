@@ -77,13 +77,15 @@ export function Sidebar() {
               <button
                 key={key}
                 onClick={() => handleSelectView(key)}
-                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors duration-300 ${
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
                   active
-                    ? "bg-primary-blue text-white shadow-sm"
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
                     : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
                 }`}
               >
-                <Icon />
+                <span className={active ? "text-white" : "text-secondary-blue"}>
+                  <Icon />
+                </span>
                 {VIEW_LABELS[key]}
               </button>
             );
@@ -107,9 +109,9 @@ export function Sidebar() {
         <div className="px-3 pb-3 flex flex-col gap-2 overflow-y-auto flex-1 min-h-0">
           <button
             onClick={() => handleSelectPrincipal(null)}
-            className={`flex items-center justify-between rounded-full border px-4 py-2 text-sm font-medium transition-colors duration-300 ${
+            className={`flex items-center justify-between rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300 ${
               !selectedPrincipalKey
-                ? "bg-primary-blue border-primary-blue text-white shadow-sm"
+                ? "bg-gradient-to-r from-primary-blue to-secondary-blue border-transparent text-white shadow-cyan-glow"
                 : "bg-surface border-secondary-blue/30 text-muted-strong hover:border-secondary-blue hover:bg-accent-blue-soft"
             }`}
           >
@@ -123,9 +125,9 @@ export function Sidebar() {
               <button
                 key={p.principalKey}
                 onClick={() => handleSelectPrincipal(p.principalKey)}
-                className={`flex items-center justify-between gap-2 rounded-full border px-4 py-2 text-sm transition-colors duration-300 ${
+                className={`flex items-center justify-between gap-2 rounded-full border px-4 py-2 text-sm transition-all duration-300 ${
                   active
-                    ? "bg-primary-blue border-primary-blue text-white shadow-sm"
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue border-transparent text-white shadow-cyan-glow"
                     : "bg-surface border-border text-muted-strong hover:border-secondary-blue hover:bg-accent-blue-soft"
                 }`}
                 title={p.principal}
