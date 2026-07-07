@@ -1,6 +1,6 @@
 # Sales Performance Dashboard
 
-A production-grade Next.js dashboard for a Kenya-based distributor to track principal (brand/supplier) sales performance — revenue vs. target, coverage, profitability, stock, and forecasts — sourced from a monthly Excel export. Includes role-based accounts: **admins** upload the monthly workbook, **viewers** get read-only access to the processed report.
+A production-grade Next.js dashboard for a Kenya-based distributor to track principal (brand/supplier) sales performance — revenue vs. target, rep performance, coverage & productivity, customer/brand mix, profitability, and stock — sourced from a monthly Excel export carrying a full **monthly time series** (not just a single "current" snapshot). A global period selector lets any view be read for MTD, a specific past month, QTD, YTD, a full quarter (Q1–Q4), or a full half (H1/H2). Includes role-based accounts: **admins** upload the monthly workbook, **viewers** get read-only access to the processed report.
 
 ## Tech stack
 
@@ -9,7 +9,7 @@ A production-grade Next.js dashboard for a Kenya-based distributor to track prin
 - **Tailwind CSS v4** for the light Fluent-inspired theme, using CSS variables (`app/globals.css`) as design tokens
 - **Recharts** for line/bar/doughnut/composed charts
 - **SheetJS (`xlsx`)** for parsing the uploaded workbook, shared between client preview and server persistence
-- **Zustand** for global client state (dataset, principal filter, active view)
+- **Zustand** for global client state (dataset, principal filter, active view, selected period)
 - **Prisma + Supabase (Postgres)** for persisting uploaded snapshots and user accounts
 - **Vitest** for parser unit tests
 
@@ -59,7 +59,7 @@ node scripts/make-test-workbook.mjs
 npm test
 ```
 
-Covers percent-to-number conversion, principal normalization/stock-key collisions (e.g. `EABL-Nyeri` + `EABL-Nyahururu` → `eabl`), stock status thresholds (including the "No Sales Data" tier), the Trended Revenue two-block scanning logic, and header-row detection across layout variations — plus an end-to-end parse of a full fixture workbook.
+Covers percent-to-number conversion, principal normalization/stock-key collisions (e.g. `EABL-Nyeri` + `EABL-Nyahururu` → `eabl`), stock status thresholds (including the "No Sales Data" tier), header-row detection across layout variations, and — the single most important case in the whole time-series model — that a blank `Monthly Target` (true for every 2025 row) always resolves to `null` and is never coerced to `0` or silently summed into a partial total, whether for a single month or any multi-month period (MTD/QTD/YTD/H1/H2/Q1–Q4). Also covers period-math resolution (`resolvePeriodMonths`) for every period kind, plus an end-to-end parse of a full fixture workbook.
 
 ### Type-check & lint
 
@@ -94,9 +94,12 @@ This project's Supabase project is `pinefrostsales` (ref `addexxjwrxmjjqmcwkib`,
 
 ## Data model & parsing
 
-- `lib/types.ts` — the `Dataset` shape (principals, totals, coverage, trended revenue, weekly projection, stock) that the rest of the app depends on.
-- `lib/parseWorkbook.ts` — the single source of truth for turning an uploaded `.xlsx`/`.xls` `ArrayBuffer` into a `Dataset`. Used identically by `/api/upload` (server persistence) and can be reused client-side for instant preview. Locates each sheet's header row by content (not a fixed row index) since monthly exports pad the rows above it inconsistently. Throws a `WorkbookParseError` with a human-readable message if a required sheet or column is missing.
-- `lib/normalize.ts` — the principal → stock-key normalization rule (`name.split('-')[0].toLowerCase().replace(/[^a-z0-9]/g, '')`) used to roll up multi-region principal rows (e.g. `EABL-Nyeri`, `EABL-Nyahururu`) onto one brand for stock and trended-revenue lookups.
+The `Dataset` is a set of **monthly row arrays** (one row per Year+Month+Principal[+Rep/Customer]), not a single "current state" snapshot — which period is "current" is a UI selection resolved on demand, not baked in at parse/upload time.
+
+- `lib/types.ts` — `MonthlySalesRow`, `MonthlyCoverageRow`, `MonthlyBrandCustomerRow` (the three monthly time-series arrays), plus `WeeklyProjectionRow`/`StockItem`/`StockTotal` (unchanged) that make up the `Dataset` shape.
+- `lib/parseWorkbook.ts` — the single source of truth for turning an uploaded `.xlsx`/`.xls` `ArrayBuffer` into a `Dataset`, reading 5 sheets: `All Month Sales Vs Target`, `Calls & Productivity`, `Brand&Customer Listing`, `Stock Balances`, `Weekly Projection`. Used identically by `/api/upload` (server persistence) and can be reused client-side for instant preview. Locates each sheet's header row by content (not a fixed row index) since monthly exports pad the rows above it inconsistently. Throws a `WorkbookParseError` with a human-readable message if a required sheet or column is missing.
+- `lib/timeIntelligence.ts` — resolves a `PeriodSelection` (`MTD`/`MONTH`/`QTD`/`YTD`/`H1`/`H2`/`Q1`-`Q4`) into concrete months and aggregates the monthly rows over them (`summarizeSalesForPeriod`, `summarizeCoverageForPeriod`, `summarizeBrandCustomerByCustomer`/`ByRep`/`ByPrincipal`, etc.). **The one invariant that matters most**: `Monthly Target` is blank for every 2025 row and only populated from 2026 onward — if any month covered by a selected period is missing a target (or missing entirely), the period's `target` resolves to `null` for the whole period, never a partial sum masquerading as a complete one.
+- `lib/normalize.ts` — the principal → brand-key normalization rule (`name.split('-')[0].toLowerCase().replace(/[^a-z0-9]/g, '')`) used to roll up multi-region principal rows (e.g. `EABL-Nyeri`, `EABL-Nyahururu`) onto one brand across sales, coverage, brand/customer, and stock lookups alike.
 - Stock items carry 4 statuses: `OK`, `Running Out`, `Out of Stock - To Order`, and `No Sales Data` (has stock on hand but no recent run-rate to compute cover days from) — tracked separately throughout (`stockNoDataCount` / `noDataCount`) rather than folded into "OK".
 
 ## API routes
@@ -118,16 +121,17 @@ app/                 Next.js routes
   api/auth/          NextAuth route handler
   api/upload|dataset|snapshots/   Dashboard data API routes (each checks its own session)
 components/
-  dashboard/         Header, Sidebar, DashboardShell (view switching + principal filter)
+  dashboard/         Header, Sidebar, DashboardShell (view switching + principal filter), PeriodSelector (global period picker)
   ui/                Shared KPI cards, badges, tables, gauges, animated counters, empty/loading states
   charts/            Shared recharts theming
-  views/             The 7 dashboard views (Overview, YTD, Trends, Coverage, Profitability, Stock, H1)
+  views/             The 7 dashboard views (Overview, Time Intelligence, Coverage, Rep Performance, Customer & Brand, Profitability, Stock)
 lib/
-  types.ts           Dataset shape
+  types.ts           Dataset shape (monthly sales/coverage/brand-customer arrays + stock/weekly)
   parseWorkbook.ts   Excel → Dataset parser (client + server shared)
+  timeIntelligence.ts   Period resolution (MTD/QTD/YTD/H1/H2/Q1-Q4) + monthly-row aggregation
   format.ts          Number/percent formatting, tier/badge/KPI-accent color helpers
-  selectors.ts, trends.ts, stock.ts, insights.ts   View-level derived-data helpers
-  store.ts           Zustand store
+  selectors.ts, trends.ts, stock.ts, insights.ts   View-level derived-data helpers (period-aware)
+  store.ts           Zustand store (dataset, view, selected principal key, selected period)
   db.ts, datasetStore.ts   Prisma client + snapshot persistence
 auth.ts, types/next-auth.d.ts   Auth.js setup + session typing (no Proxy/Middleware — see Authentication & roles above)
 prisma/schema.prisma  Snapshot + User models

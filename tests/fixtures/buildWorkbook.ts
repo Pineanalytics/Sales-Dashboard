@@ -1,53 +1,62 @@
 import * as XLSX from "xlsx";
 
-const SALES_HEADER = [
-  "Principal",
-  "Current Month Target",
-  "MTD Target",
-  "MTD Revenue",
-  "Achieved Vs Full Target",
-  "Achieved Vs MTD Target",
-  "Balance Of Month",
-  "Revenue LMSP",
-  "MOM",
-  "Revenue LYSP",
-  "YOY",
-  "YTD Revenue.",
-  "Full Year Target",
-  "YTD Variance",
-  "YTD Vs Target",
-  "H1 Sales.",
-  "H1 Mission",
-  "H1 Variance",
-  "Average Sales",
-  "Gross Profit.",
-  "Gross Margin %",
-  "Next Month Forecast",
-  "Next Quarter Forecast",
+const MONTHLY_SALES_HEADER = [
+  "Year", "Month Name", "Location", "Principal",
+  "Revenue.", "Monthly Target", "Cost Of Goods.", "Gross Profit.", "Gross Margin %",
 ];
 
-const salesVsTargetRows: unknown[][] = [
-  ["JUNE 2026 MTD SALES VS TARGET & YTD ACTUALS"],
-  SALES_HEADER,
-  ["EABL-Nyeri", 100000, 50000, 45000, 0.45, 0.9, -5000, 40000, 0.125, 35000, 0.2857, 300000, 1200000, -20000, 0.9375, 250000, 260000, -10000, 42000, 54000, 0.12, 48000, 140000],
-  ["EABL-Nyahururu", 80000, 40000, 42000, 0.525, 1.05, 2000, 38000, 0.105, 30000, 0.4, 260000, 960000, 5000, 1.02, 230000, 225000, 5000, 39000, 46800, 0.18, 44000, 132000],
-  ["Upfield-Nairobi", 60000, 30000, 10000, 0.17, 0.33, -20000, 15000, -0.33, 9000, 0.11, 90000, 720000, -30000, 0.75, 70000, 100000, -30000, 15000, 9000, 0.1, 12000, 36000],
-  ["Weetabix-Meru", 20000, 0, 5000, 0.25, null, 5000, 4000, 0.25, 3000, 0.667, 40000, 240000, -2000, 0.95, 35000, 40000, -5000, 6000, 4000, 0.1, 6000, 18000],
-  ["Total Sales", 260000, 120000, 102000, 0.35, 0.85, -18000, 97000, 0.052, 77000, 0.32, 690000, 3120000, -47000, 0.9, 585000, 625000, -40000, 102000, 113800, 0.117, 110000, 326000],
+// Mirrors the real export: targets only exist from 2026 onward, so every 2025 row
+// has a blank Monthly Target cell (must parse to null, never 0). Two principals
+// ("EABL-Nyeri"/"EABL-Nyahururu") share a normalized brand key, and a trailing
+// "Grand Total" row must be excluded, matching the real pivot export's own totals.
+const monthlySalesRows: unknown[][] = [
+  ["MONTHLY SALES VS TARGET"],
+  MONTHLY_SALES_HEADER,
+  ["2025", "May", "Nyeri", "EABL-Nyeri", 100000, null, 88000, 12000, 0.12],
+  ["2025", "May", "Nyahururu", "EABL-Nyahururu", 80000, null, 70000, 10000, 0.125],
+  ["2025", "May", "Nairobi", "Upfield-Nairobi", 60000, null, 54000, 6000, 0.1],
+  ["2025", "May", "", "Total", 240000, null, 212000, 28000, 0.1167],
+  ["2026", "June", "Nyeri", "EABL-Nyeri", 110000, 120000, 95000, 15000, 0.1364],
+  ["2026", "June", "Nyahururu", "EABL-Nyahururu", 90000, 95000, 78000, 12000, 0.1333],
+  ["2026", "June", "Nairobi", "Upfield-Nairobi", 70000, 65000, 60000, 10000, 0.1429],
+  ["2026", "June", "", "Grand Total", 270000, 280000, 233000, 37000, 0.137],
 ];
 
-const coverageRows: unknown[][] = [
-  ["COVERAGE REPORT"],
-  ["Month Name", "Principal", "Coverage.", "Productive Calls", "Productivity %"],
-  ["May", "EABL-Nyeri", 120, 100, 0.8333],
-  ["May", "EABL-Nyahururu", 90, 70, 0.7778],
-  ["May", "Upfield-Nairobi", 60, 50, 0.8333],
-  ["May Total", "", 270, 220, 0.8148],
-  ["June", "EABL-Nyeri", 130, 115, 0.8846],
-  ["June", "EABL-Nyahururu", 95, 80, 0.8421],
-  ["June", "Upfield-Nairobi", 65, 58, 0.8923],
-  ["June Total", "", 290, 253, 0.8724],
-  ["Average", "", 280, 236.5, 0.8436],
+// No Year column (matches the real sheet) — parseWorkbook() backfills year from
+// monthlySales' max year (2026). Multiple reps per principal exercise the rep
+// drill-down; a row with Employee Name "Total" must be skipped.
+const monthlyCoverageRows: unknown[][] = [
+  ["EFFECTIVE COVERAGE MONTHLY"],
+  ["Month Name", "SalesRole", "Employee Name", "Principal", "Coverage.", "Productive Calls", "Productivity %"],
+  ["May", "Primary Sales", "Jane Doe", "EABL-Nyeri", 120, 100, 0.8333],
+  ["May", "Primary Sales", "John Smith", "EABL-Nyahururu", 90, 70, 0.7778],
+  ["May", "Primary Sales", "Jane Doe", "Upfield-Nairobi", 60, 50, 0.8333],
+  ["June", "Primary Sales", "Jane Doe", "EABL-Nyeri", 130, 115, 0.8846],
+  ["June", "Primary Sales", "John Smith", "EABL-Nyahururu", 95, 80, 0.8421],
+  ["June", "Primary Sales", "Jane Doe", "Upfield-Nairobi", 65, 58, 0.8923],
+  ["June", "Primary Sales", "Total", "", 290, 253, 0.8724],
+];
+
+// Two transaction-line rows share the same Year+Month+Principal+Rep+Customer
+// (Cash Customer / Jane Doe / EABL-Nyeri, June 2026) but different Item Name —
+// the parser must collapse these into one row, summing Volume/Revenue/GP and
+// deriving GP Margin % from the summed totals (never from a per-line percentage,
+// and never left at the source pivot's grain — see parseMonthlyBrandCustomer).
+const brandCustomerRows: unknown[][] = [
+  ["MONTHLY CUSTOMER,BRAND & REP PERFORMANCE"],
+  ["Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Item Name", "Volume", "Revenue", "GP", "GP Margin %"],
+  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Lager 500ml", 60, 30000, 4800, 0.16],
+  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Stout 330ml", 40, 20000, 3200, 0.16],
+  ["2026", "June", "EABL-Nyahururu", "John Smith", "Golden Marketing", "", 60, 30000, 4500, 0.15],
+  ["2026", "June", "Upfield-Nairobi", "Jane Doe", "Cash Customer", "", 40, 20000, 2000, 0.1],
+];
+
+// Matches the same rows without the optional Item Name/GP Margin % columns —
+// confirms neither column is required for the sheet to parse.
+const brandCustomerRowsNoOptionalCols: unknown[][] = [
+  ["MONTHLY CUSTOMER,BRAND & REP PERFORMANCE"],
+  ["Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP"],
+  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", 100, 50000, 8000],
 ];
 
 const stockRows: unknown[][] = [
@@ -58,31 +67,6 @@ const stockRows: unknown[][] = [
   ["Upfield-Nairobi", "Upfield Margarine 500g", 0, 0, 0, 500, 5, 0, ""],
   ["Weetabix-Meru", "Weetabix Original 500g", 8, 800, 900, null, null, null, ""],
   ["Total Balances", "", 70, 700, 7000, 4500, 45, 0, ""],
-];
-
-const MONTH_HEADER = ["", "", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-// Mirrors the real monthly export: a "Revenue." section title sits above the month
-// header, column A carries the year only on the first principal row of each year
-// (blank on the rows below it), and each year's total is a single "<year> Total"
-// row rather than a paired "<year>"/"Revenue." row. A second, differently-labelled
-// section (Volume Cases) follows with overlapping principal names to verify it's
-// excluded rather than merged into Trended Revenue.
-const trendedRevenueRows: unknown[][] = [
-  ["Revenue."],
-  MONTH_HEADER,
-  ["2025", "EABL", 60000, 65000, 62000, 68000, 70000, 69000, 72000, 75000, 74000, 78000, 80000, 85000],
-  ["", "Upfield", 40000, 45000, 43000, 47000, 50000, 49000, 53000, 55000, 54000, 57000, 60000, 65000],
-  ["2025 Total", "", 100000, 110000, 105000, 115000, 120000, 118000, 125000, 130000, 128000, 135000, 140000, 150000],
-  ["2026", "EABL", 72000, 75000, 78000, 80000, 82000, 85000, null, null, null, null, null, null],
-  ["", "Upfield", 48000, 50000, 52000, 55000, 58000, 60000, null, null, null, null, null, null],
-  ["", "YOY", 0.2, 0.136, 0.238, 0.174, 0.167, 0.229, null, null, null, null, null, null],
-  ["2026 Total", "", 120000, 125000, 130000, 135000, 140000, 145000, null, null, null, null, null, null],
-  [""],
-  ["Volume Cases"],
-  MONTH_HEADER,
-  ["2025", "EABL-Nairobi", 500, 520, 510, 530, 540, 535, 545, 550, 548, 555, 560, 570],
-  ["2025 Total", "", 500, 520, 510, 530, 540, 535, 545, 550, 548, 555, 560, 570],
 ];
 
 const weeklyProjectionRows: unknown[][] = [
@@ -103,10 +87,10 @@ export interface FixtureOptions {
 export function buildFixtureWorkbook(options: FixtureOptions = {}): ArrayBuffer {
   const wb = XLSX.utils.book_new();
   const sheets: [string, unknown[][]][] = [
-    ["Sales Vs Target", salesVsTargetRows],
-    ["Coverage & Productivity", coverageRows],
+    ["All Month Sales Vs Target", monthlySalesRows],
+    ["Calls & Productivity", monthlyCoverageRows],
+    ["Brand&Customer Listing", brandCustomerRows],
     ["Stock Balances", stockRows],
-    ["Trended Revenue", trendedRevenueRows],
     ["Weekly Projection", weeklyProjectionRows],
     ["Raw Data", [["unused"]]],
   ];
@@ -120,4 +104,4 @@ export function buildFixtureWorkbook(options: FixtureOptions = {}): ArrayBuffer 
   return out;
 }
 
-export { salesVsTargetRows };
+export { monthlySalesRows, brandCustomerRowsNoOptionalCols };

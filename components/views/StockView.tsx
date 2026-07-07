@@ -11,22 +11,23 @@ import { formatCompact, formatNumber, stockActionTier, tierBarColor } from "@/li
 import { aggregateStockByPrincipal } from "@/lib/stock";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
-export function StockView({ dataset, principal }: ViewProps) {
+export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const rollups = aggregateStockByPrincipal(dataset);
+  const selectedRollup = selectedPrincipalKey ? rollups.find((r) => r.key === selectedPrincipalKey) ?? null : null;
 
-  const stockValue = principal ? principal.stockValue : dataset.stockTotal.value;
-  const itemCount = principal ? principal.stockItemCount : dataset.stockTotal.itemCount;
-  const daysStock = principal ? principal.daysStock : dataset.stockTotal.daysStock;
-  const outOfStockCount = principal ? principal.stockOutOfStockCount : dataset.stockTotal.outOfStockCount;
-  const runningOutCount = principal ? principal.stockRunningOutCount : dataset.stockTotal.runningOutCount;
-  const noDataCount = principal ? principal.stockNoDataCount : dataset.stockTotal.noDataCount;
-  const action = principal ? principal.stockAction : dataset.stockTotal.action;
+  const stockValue = selectedRollup ? selectedRollup.value : dataset.stockTotal.value;
+  const itemCount = selectedRollup ? selectedRollup.itemCount : dataset.stockTotal.itemCount;
+  const daysStock = selectedRollup ? selectedRollup.daysStock : dataset.stockTotal.daysStock;
+  const outOfStockCount = selectedRollup ? selectedRollup.outOfStockCount : dataset.stockTotal.outOfStockCount;
+  const runningOutCount = selectedRollup ? selectedRollup.runningOutCount : dataset.stockTotal.runningOutCount;
+  const noDataCount = selectedRollup ? selectedRollup.noDataCount : dataset.stockTotal.noDataCount;
+  const action = selectedRollup ? selectedRollup.action : dataset.stockTotal.action;
 
-  const principalItems = principal
-    ? [...dataset.stockItems.filter((i) => i.key === principal.stockKey)].sort((a, b) => b.openingValue - a.openingValue)
+  const principalItems = selectedRollup
+    ? [...dataset.stockItems.filter((i) => i.key === selectedRollup.key)].sort((a, b) => b.openingValue - a.openingValue)
     : [];
 
-  const chartData = principal
+  const chartData = selectedRollup
     ? principalItems.slice(0, 15).map((i) => ({ name: i.item.slice(0, 18), value: i.openingValue, fill: tierBarColor[stockActionTier(i.action).tier] }))
     : [...rollups]
         .sort((a, b) => b.value - a.value)
@@ -45,7 +46,7 @@ export function StockView({ dataset, principal }: ViewProps) {
         <KpiCard accent="growth" size="md" label="Status" value={stockActionTier(action).label} />
       </KpiGrid>
 
-      <SectionCard title={principal ? `${principal.name} — Top Items by Stock Value` : "Stock Value by Principal (Top 18)"}>
+      <SectionCard title={selectedRollup ? `${selectedRollup.name} — Top Items by Stock Value` : "Stock Value by Principal (Top 18)"}>
         <ResponsiveContainer width="100%" height={340}>
           <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 44 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
@@ -61,8 +62,8 @@ export function StockView({ dataset, principal }: ViewProps) {
         </ResponsiveContainer>
       </SectionCard>
 
-      {principal ? (
-        <SectionCard title={`${principal.name} — Item Detail (top ${Math.min(80, principalItems.length)} of ${principalItems.length})`}>
+      {selectedRollup ? (
+        <SectionCard title={`${selectedRollup.name} — Item Detail (top ${Math.min(80, principalItems.length)} of ${principalItems.length})`}>
           <TableWrap>
             <Thead>
               <Th>Item</Th>
@@ -91,13 +92,13 @@ export function StockView({ dataset, principal }: ViewProps) {
               ))}
               <TotalRow>
                 <Td>Total ({principalItems.length} items)</Td>
-                <Td align="right">{formatCompact(principal.stockValue)}</Td>
-                <Td align="right">{formatNumber(principal.stockVolume)}</Td>
-                <Td align="right">{formatNumber(principal.stockPcs)}</Td>
-                <Td align="right">{principal.daysStock.toFixed(1)}</Td>
-                <Td align="right">{formatCompact(principal.rrWeekValue)}</Td>
+                <Td align="right">{formatCompact(selectedRollup.value)}</Td>
+                <Td align="right">{formatNumber(selectedRollup.volume)}</Td>
+                <Td align="right">{formatNumber(selectedRollup.pcs)}</Td>
+                <Td align="right">{selectedRollup.daysStock.toFixed(1)}</Td>
+                <Td align="right">{formatCompact(selectedRollup.rrWeekValue)}</Td>
                 <Td align="center">
-                  <StockStatusPill action={principal.stockAction} />
+                  <StockStatusPill action={selectedRollup.action} />
                 </Td>
               </TotalRow>
             </tbody>

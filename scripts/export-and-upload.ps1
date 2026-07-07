@@ -44,11 +44,11 @@ $ErrorActionPreference = "Stop"
 
 # Sheet in the source workbook -> sheet name the app's parser requires.
 $SheetMap = [ordered]@{
-    "Sales Preview"        = "Sales Vs Target"
-    "Calls & Productivity" = "Coverage & Productivity"
-    "Stock Listing"        = "Stock Balances"
-    "Full Year Trend"      = "Trended Revenue"
-    "Weekly Sales"         = "Weekly Projection"
+    "Stock Listing"             = "Stock Balances"
+    "Calls & Productivity"      = "Calls & Productivity"
+    "Brand&Customer Listing"    = "Brand&Customer Listing"
+    "All Month Sales Vs Target" = "All Month Sales Vs Target"
+    "Weekly Sales"              = "Weekly Projection"
 }
 
 $xlPasteValuesAndNumberFormats = 12

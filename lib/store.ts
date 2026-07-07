@@ -1,26 +1,27 @@
 import { create } from "zustand";
 import type { Dataset, DatasetSnapshotSummary } from "./types";
+import { getDefaultPeriod, type PeriodSelection } from "./timeIntelligence";
 
 export const VIEW_KEYS = [
   "overview",
-  "ytd",
-  "trends",
+  "timeIntelligence",
   "coverage",
+  "repPerformance",
+  "customerBrand",
   "profitability",
   "stock",
-  "h1",
 ] as const;
 
 export type ViewKey = (typeof VIEW_KEYS)[number];
 
 export const VIEW_LABELS: Record<ViewKey, string> = {
   overview: "Overview",
-  ytd: "YTD Performance",
-  trends: "Trends & Forecast",
-  coverage: "Coverage",
+  timeIntelligence: "Time Intelligence",
+  coverage: "Coverage & Productivity",
+  repPerformance: "Rep Performance",
+  customerBrand: "Customer & Brand",
   profitability: "Profitability",
   stock: "Stock Balance",
-  h1: "H1 Balances",
 };
 
 interface DashboardState {
@@ -28,13 +29,15 @@ interface DashboardState {
   status: "idle" | "loading" | "error";
   error: string | null;
   view: ViewKey;
-  selectedPrincipal: string | null; // Principal.name, or null for "All Principals"
+  selectedPrincipalKey: string | null; // normalized brand key, or null for "All Principals"
+  selectedPeriod: PeriodSelection;
   sidebarOpen: boolean;
   history: DatasetSnapshotSummary[];
 
   setDataset: (dataset: Dataset | null) => void;
   setView: (view: ViewKey) => void;
-  selectPrincipal: (name: string | null) => void;
+  selectPrincipal: (key: string | null) => void;
+  setPeriod: (period: PeriodSelection) => void;
   setSidebarOpen: (open: boolean) => void;
 
   fetchLatest: () => Promise<void>;
@@ -43,18 +46,28 @@ interface DashboardState {
   uploadFile: (file: File) => Promise<{ ok: boolean; error?: string }>;
 }
 
+const EMPTY_PERIOD: PeriodSelection = { kind: "MTD", year: "" };
+
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   dataset: null,
   status: "idle",
   error: null,
   view: "overview",
-  selectedPrincipal: null,
+  selectedPrincipalKey: null,
+  selectedPeriod: EMPTY_PERIOD,
   sidebarOpen: false,
   history: [],
 
-  setDataset: (dataset) => set({ dataset, status: "idle", error: null }),
+  setDataset: (dataset) =>
+    set({
+      dataset,
+      status: "idle",
+      error: null,
+      selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
+    }),
   setView: (view) => set({ view }),
-  selectPrincipal: (name) => set({ selectedPrincipal: name }),
+  selectPrincipal: (key) => set({ selectedPrincipalKey: key }),
+  setPeriod: (period) => set({ selectedPeriod: period }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
   fetchLatest: async () => {
@@ -63,7 +76,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const res = await fetch("/api/dataset", { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load dataset.");
-      set({ dataset: body.dataset, status: "idle" });
+      const dataset: Dataset = body.dataset;
+      set({ dataset, status: "idle", selectedPeriod: getDefaultPeriod(dataset) });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load dataset." });
     }
@@ -75,7 +89,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const res = await fetch(`/api/dataset?id=${encodeURIComponent(id)}`, { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load snapshot.");
-      set({ dataset: body.dataset, status: "idle", selectedPrincipal: null });
+      const dataset: Dataset = body.dataset;
+      set({ dataset, status: "idle", selectedPrincipalKey: null, selectedPeriod: getDefaultPeriod(dataset) });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load snapshot." });
     }
@@ -102,7 +117,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         set({ status: "error", error: body.error || "Upload failed." });
         return { ok: false, error: body.error || "Upload failed." };
       }
-      set({ dataset: body.dataset, status: "idle", error: null, selectedPrincipal: null });
+      const dataset: Dataset = body.dataset;
+      set({
+        dataset,
+        status: "idle",
+        error: null,
+        selectedPrincipalKey: null,
+        selectedPeriod: getDefaultPeriod(dataset),
+      });
       get().fetchHistory();
       return { ok: true };
     } catch (err) {

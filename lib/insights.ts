@@ -1,6 +1,13 @@
-import type { Dataset, Principal } from "./types";
+import type { Dataset } from "./types";
 import type { Tier } from "./format";
-import { daysCoverTier, marginTier, trendTier } from "./format";
+import { daysCoverTier, marginTier } from "./format";
+import {
+  summarizeSalesForPeriod,
+  summarizeSalesByPrincipal,
+  summarizeCoverageForPeriod,
+  type PeriodSelection,
+} from "./timeIntelligence";
+import { aggregateStockByPrincipal } from "./stock";
 
 export interface Insight {
   tier: Tier;
@@ -8,85 +15,80 @@ export interface Insight {
   text: string;
 }
 
-export function generatePortfolioInsights(dataset: Dataset): Insight[] {
-  const { totals, principals, covTotal, stockTotal } = dataset;
+export function generatePortfolioInsights(dataset: Dataset, period: PeriodSelection): Insight[] {
   const insights: Insight[] = [];
+  const sales = summarizeSalesForPeriod(dataset, period, null);
 
-  insights.push({
-    tier: totals.h1Variance >= 0 ? "good" : "bad",
-    title: totals.h1Variance >= 0 ? "H1 on track vs mission" : "H1 shortfall vs mission",
-    text:
-      totals.h1Variance >= 0
-        ? `Portfolio H1 sales are ahead of mission by ${totals.h1Variance.toLocaleString()}.`
-        : `Portfolio H1 sales are behind mission by ${Math.abs(totals.h1Variance).toLocaleString()} (${totals.h1Achieved.toFixed(1)}% achieved).`,
-  });
+  if (sales.achievementPct !== null) {
+    const tier: Tier = sales.achievementPct >= 100 ? "good" : sales.achievementPct >= 60 ? "warn" : "bad";
+    insights.push({
+      tier,
+      title: tier === "good" ? "Portfolio on track vs target" : "Portfolio behind target",
+      text: `Achieved ${sales.achievementPct.toFixed(1)}% of target (${sales.revenue.toLocaleString()} vs ${sales.target?.toLocaleString()}).`,
+    });
+  }
 
-  const onTarget = principals.filter((p) => p.achMTD !== null && p.achMTD >= 100);
+  const byPrincipal = Array.from(summarizeSalesByPrincipal(dataset, period).values());
+  const onTarget = byPrincipal.filter((p) => p.achievementPct !== null && p.achievementPct >= 100);
   if (onTarget.length > 0) {
     insights.push({
       tier: "good",
-      title: `${onTarget.length} principal${onTarget.length > 1 ? "s" : ""} at 100%+ MTD`,
+      title: `${onTarget.length} principal${onTarget.length > 1 ? "s" : ""} at 100%+ of target`,
       text: onTarget
         .slice(0, 5)
-        .map((p) => p.name)
+        .map((p) => p.principal)
         .join(", "),
     });
   }
 
-  const stockRisk = principals.filter((p) => p.stockOutOfStockCount > 0).sort((a, b) => b.stockOutOfStockCount - a.stockOutOfStockCount);
+  const stockRollups = aggregateStockByPrincipal(dataset);
+  const stockRisk = stockRollups.filter((r) => r.outOfStockCount > 0).sort((a, b) => b.outOfStockCount - a.outOfStockCount);
+  const totalOOS = stockRollups.reduce((s, r) => s + r.outOfStockCount, 0);
   if (stockRisk.length > 0) {
     insights.push({
       tier: "bad",
-      title: `${stockTotal.outOfStockCount} SKUs out of stock across ${stockRisk.length} principal${stockRisk.length > 1 ? "s" : ""}`,
+      title: `${totalOOS} SKUs out of stock across ${stockRisk.length} principal${stockRisk.length > 1 ? "s" : ""}`,
       text: `Highest risk: ${stockRisk
         .slice(0, 3)
-        .map((p) => `${p.name} (${p.stockOutOfStockCount})`)
+        .map((r) => `${r.name} (${r.outOfStockCount})`)
         .join(", ")}.`,
     });
   }
 
+  const coverage = summarizeCoverageForPeriod(dataset, period, null);
   insights.push({
-    tier: covTotal.currentProductivityPct >= 80 ? "good" : covTotal.currentProductivityPct >= 50 ? "warn" : "bad",
-    title: `Portfolio productivity ${covTotal.currentProductivityPct.toFixed(1)}%`,
-    text: `${covTotal.currentCoverage.toLocaleString()} outlets covered, ${covTotal.currentProductiveCalls.toLocaleString()} productive in ${covTotal.currentMonth}.`,
+    tier: coverage.productivityPct >= 80 ? "good" : coverage.productivityPct >= 50 ? "warn" : "bad",
+    title: `Portfolio productivity ${coverage.productivityPct.toFixed(1)}%`,
+    text: `${coverage.coverage.toLocaleString()} outlets covered, ${coverage.productiveCalls.toLocaleString()} productive.`,
   });
 
   return insights;
 }
 
-export function generatePrincipalInsights(principal: Principal): Insight[] {
+export function generatePrincipalInsights(dataset: Dataset, period: PeriodSelection, principalKey: string): Insight[] {
   const insights: Insight[] = [];
+  const sales = summarizeSalesForPeriod(dataset, period, principalKey);
+  const coverage = summarizeCoverageForPeriod(dataset, period, principalKey);
+  const stockRollup = aggregateStockByPrincipal(dataset).find((r) => r.key === principalKey);
 
-  const achTier: Tier = principal.achMTD === null ? "neutral" : principal.achMTD >= 100 ? "good" : principal.achMTD >= 60 ? "warn" : "bad";
+  const achTier: Tier = sales.achievementPct === null ? "neutral" : sales.achievementPct >= 100 ? "good" : sales.achievementPct >= 60 ? "warn" : "bad";
   insights.push({
     tier: achTier,
-    title: principal.achMTD === null ? "No MTD target set" : `MTD achievement ${principal.achMTD.toFixed(1)}%`,
+    title: sales.achievementPct === null ? "No target set for this period" : `Achievement ${sales.achievementPct.toFixed(1)}%`,
     text:
-      principal.achMTD === null
-        ? "This principal has no MTD target configured for the period."
-        : principal.achMTD >= 100
-          ? "Ahead of MTD target."
-          : principal.achMTD >= 60
-            ? "Tracking behind MTD target — monitor closely."
-            : "Significantly behind MTD target — needs intervention.",
+      sales.achievementPct === null
+        ? "No target is configured for this period."
+        : sales.achievementPct >= 100
+          ? "Ahead of target."
+          : sales.achievementPct >= 60
+            ? "Tracking behind target — monitor closely."
+            : "Significantly behind target — needs intervention.",
   });
 
-  const momTier = trendTier(principal.mom);
-  insights.push({
-    tier: momTier,
-    title: principal.mom === null ? "No MOM comparison" : `MOM ${principal.mom > 0 ? "+" : ""}${principal.mom.toFixed(1)}%`,
-    text:
-      principal.mom === null
-        ? "No prior month data available for comparison."
-        : principal.mom >= 0
-          ? "Revenue is trending up month-on-month."
-          : "Revenue is trending down month-on-month.",
-  });
-
-  const mTier = marginTier(principal.grossMarginPct);
+  const mTier = marginTier(sales.grossMarginPct);
   insights.push({
     tier: mTier,
-    title: principal.grossMarginPct === null ? "No margin data" : `Gross margin ${principal.grossMarginPct.toFixed(1)}%`,
+    title: sales.grossMarginPct === null ? "No margin data" : `Gross margin ${sales.grossMarginPct.toFixed(1)}%`,
     text:
       mTier === "good"
         ? "Healthy margin profile."
@@ -94,27 +96,35 @@ export function generatePrincipalInsights(principal: Principal): Insight[] {
           ? "Moderate margin — watch pricing and cost pressure."
           : mTier === "bad"
             ? "Thin margin — review pricing/discounting."
-            : "Margin data unavailable for this principal.",
+            : "Margin data unavailable for this period.",
   });
 
-  if (principal.stockOutOfStockCount > 0) {
-    insights.push({
-      tier: "bad",
-      title: `${principal.stockOutOfStockCount} SKU${principal.stockOutOfStockCount > 1 ? "s" : ""} out of stock`,
-      text: "Reorder urgently to avoid lost sales.",
-    });
-  } else {
-    const dTier = daysCoverTier(principal.daysStock);
-    insights.push({
-      tier: dTier,
-      title: `${principal.daysStock.toFixed(1)} days stock cover`,
-      text:
-        dTier === "warn"
-          ? "Cover is running long — consider reducing next order quantity."
-          : dTier === "good"
-            ? "Stock cover is within a healthy range."
-            : "Stock levels are tight — monitor run-rate closely.",
-    });
+  insights.push({
+    tier: coverage.productivityPct >= 80 ? "good" : coverage.productivityPct >= 50 ? "warn" : "bad",
+    title: `Productivity ${coverage.productivityPct.toFixed(1)}%`,
+    text: `${coverage.coverage.toLocaleString()} outlets covered, ${coverage.productiveCalls.toLocaleString()} productive.`,
+  });
+
+  if (stockRollup) {
+    if (stockRollup.outOfStockCount > 0) {
+      insights.push({
+        tier: "bad",
+        title: `${stockRollup.outOfStockCount} SKU${stockRollup.outOfStockCount > 1 ? "s" : ""} out of stock`,
+        text: "Reorder urgently to avoid lost sales.",
+      });
+    } else {
+      const dTier = daysCoverTier(stockRollup.daysStock);
+      insights.push({
+        tier: dTier,
+        title: `${stockRollup.daysStock.toFixed(1)} days stock cover`,
+        text:
+          dTier === "warn"
+            ? "Cover is running long — consider reducing next order quantity."
+            : dTier === "good"
+              ? "Stock cover is within a healthy range."
+              : "Stock levels are tight — monitor run-rate closely.",
+      });
+    }
   }
 
   return insights;

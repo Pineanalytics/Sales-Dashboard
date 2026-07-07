@@ -2,84 +2,52 @@
 // This is the exact shape produced by lib/parseWorkbook.ts and consumed by
 // every view/component in the app, as well as persisted (as JSON) by the
 // /api/upload route and read back by /api/dataset.
+//
+// v2: a monthly time-series model (one row per period/dimension combination)
+// rather than a single "current state" snapshot. Period aggregation (MTD,
+// YTD, quarters, halves, or any past month) is computed on demand from these
+// arrays by lib/timeIntelligence.ts — nothing here is pre-aggregated to a
+// "current" period, since which period is "current" is a UI selection now.
 
-export interface Principal {
-  name: string;
-  stockKey: string;
-  fullTarget: number;
-  currentMonthTarget: number;
-  mtdTarget: number;
-  mtdRev: number;
-  achFull: number;
-  achMTD: number | null;
-  balMonth: number;
-  revLMSP: number;
-  revLYSP: number;
-  mom: number | null;
-  yoy: number | null;
-  ytdRev: number;
-  ytdVariance: number;
-  ytdVsTarget: number | null;
-  avgSales: number;
-  h1Mission: number;
-  h1Sales: number;
-  h1Variance: number;
-  h1Achieved: number;
+export interface MonthlySalesRow {
+  year: string;
+  month: string;
+  monthIndex: number; // 0-11, Jan=0
+  location: string;
+  principal: string;
+  principalKey: string;
+  revenue: number;
+  target: number | null; // null when this period has no target — never fabricate/backfill
+  cogs: number;
   grossProfit: number;
   grossMarginPct: number | null;
-  nextMonthForecast: number;
-  nextQuarterForecast: number;
-  ytdCoverage: number;
-  productiveCalls: number;
-  productivityPct: number;
-  coverageMonth: string;
-  stockVolume: number;
-  stockPcs: number;
-  stockValue: number;
-  rrWeekValue: number;
-  rrWeekVolume: number;
-  daysStock: number;
-  stockAction: string;
-  stockItemCount: number;
-  stockOutOfStockCount: number;
-  stockRunningOutCount: number;
-  stockOkCount: number;
-  stockNoDataCount: number;
 }
 
-export type Totals = Omit<Principal, "name" | "stockKey" | "coverageMonth">;
-
-export interface CoverageTotal {
-  ytdCoverage: number;
-  productiveCalls: number;
-  productivityPct: number;
-  source: "Average" | "Computed";
-  currentMonth: string;
-  currentCoverage: number;
-  currentProductiveCalls: number;
-  currentProductivityPct: number;
-}
-
-export interface CoverageTrendRow {
+export interface MonthlyCoverageRow {
+  year: string;
   month: string;
+  monthIndex: number;
+  salesRole: string;
+  employeeName: string;
   principal: string;
+  principalKey: string;
   coverage: number;
   productiveCalls: number;
   productivityPct: number;
 }
 
-export interface CoverageTrends {
-  currentMonth: string;
-  totals: (CoverageTrendRow & { isTotal: true })[];
-  average: CoverageTrendRow;
-  rows: CoverageTrendRow[];
-}
-
-export interface TrendedRevenue {
-  months: string[];
-  totals: { [year: string]: (number | null)[] };
-  yoy: (number | null)[];
-  byPrincipalKey: { [normalizedKey: string]: { [year: string]: (number | null)[] } };
+export interface MonthlyBrandCustomerRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  principal: string;
+  principalKey: string;
+  salesEmployee: string;
+  customerName: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+  grossMarginPct: number | null;
 }
 
 export interface WeeklyProjectionRow {
@@ -125,11 +93,9 @@ export interface ReportMeta {
 }
 
 export interface Dataset {
-  principals: Principal[];
-  totals: Totals;
-  covTotal: CoverageTotal;
-  coverageTrends: CoverageTrends;
-  trendedRevenue: TrendedRevenue;
+  monthlySales: MonthlySalesRow[];
+  monthlyCoverage: MonthlyCoverageRow[];
+  monthlyBrandCustomer: MonthlyBrandCustomerRow[];
   weeklyProjection: WeeklyProjectionRow[];
   stockTotal: StockTotal;
   stockItems: StockItem[];

@@ -2,12 +2,9 @@ import * as XLSX from "xlsx";
 import { normalizePrincipalKey } from "./normalize";
 import type {
   Dataset,
-  Principal,
-  CoverageTotal,
-  CoverageTrends,
-  CoverageTrendRow,
-  TrendedRevenue,
-  WeeklyProjectionRow,
+  MonthlySalesRow,
+  MonthlyCoverageRow,
+  MonthlyBrandCustomerRow,
   StockItem,
   StockTotal,
   ReportMeta,
@@ -21,12 +18,17 @@ export class WorkbookParseError extends Error {
 }
 
 const SHEET_NAMES = {
-  salesVsTarget: "Sales Vs Target",
-  coverage: "Coverage & Productivity",
+  monthlySales: "All Month Sales Vs Target",
+  coverage: "Calls & Productivity",
+  brandCustomer: "Brand&Customer Listing",
   stock: "Stock Balances",
-  trendedRevenue: "Trended Revenue",
   weeklyProjection: "Weekly Projection",
 } as const;
+
+const CANONICAL_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 // ---------------------------------------------------------------------------
 // Generic cell / row helpers
@@ -110,229 +112,236 @@ function findHeaderRowIndex(aoa: unknown[][], firstCellName: string, sheetName: 
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sales Vs Target
-// ---------------------------------------------------------------------------
-
-const SALES_COLUMNS = [
-  "Principal",
-  "Current Month Target",
-  "MTD Target",
-  "MTD Revenue",
-  "Achieved Vs Full Target",
-  "Achieved Vs MTD Target",
-  "Balance Of Month",
-  "Revenue LMSP",
-  "MOM",
-  "Revenue LYSP",
-  "YOY",
-  "YTD Revenue.",
-  "Full Year Target",
-  "YTD Variance",
-  "YTD Vs Target",
-  "H1 Sales.",
-  "H1 Mission",
-  "H1 Variance",
-  "Average Sales",
-  "Gross Profit.",
-  "Gross Margin %",
-  "Next Month Forecast",
-  "Next Quarter Forecast",
-] as const;
-
-interface SalesRowParsed {
-  name: string;
-  fullTarget: number;
-  currentMonthTarget: number;
-  mtdTarget: number;
-  mtdRev: number;
-  achFull: number;
-  achMTD: number | null;
-  balMonth: number;
-  revLMSP: number;
-  revLYSP: number;
-  mom: number | null;
-  yoy: number | null;
-  ytdRev: number;
-  ytdVariance: number;
-  ytdVsTarget: number | null;
-  avgSales: number;
-  h1Mission: number;
-  h1Sales: number;
-  h1Variance: number;
-  h1Achieved: number;
-  grossProfit: number;
-  grossMarginPct: number | null;
-  nextMonthForecast: number;
-  nextQuarterForecast: number;
-}
-
-function parseSalesVsTarget(wb: XLSX.WorkBook): { rows: SalesRowParsed[]; total: SalesRowParsed; reportMeta: ReportMeta } {
-  const sheetName = SHEET_NAMES.salesVsTarget;
-  const aoa = sheetToAOA(wb, sheetName);
-
-  const headerRowIdx = findHeaderRowIndex(aoa, "Principal", sheetName);
-
-  let title = "";
+function findTitle(aoa: unknown[][], headerRowIdx: number): string {
   for (let rowIdx = headerRowIdx - 1; rowIdx >= 0; rowIdx--) {
     const row = aoa[rowIdx] ?? [];
     const cell = row.find((c) => !isBlank(c) && typeof c === "string");
-    if (cell) {
-      title = str(cell);
-      break;
-    }
+    if (cell) return str(cell);
   }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// All Month Sales Vs Target
+// ---------------------------------------------------------------------------
+
+const MONTHLY_SALES_COLUMNS = [
+  "Year",
+  "Month Name",
+  "Location",
+  "Principal",
+  "Revenue.",
+  "Monthly Target",
+  "Cost Of Goods.",
+  "Gross Profit.",
+  "Gross Margin %",
+] as const;
+
+function parseMonthlySales(wb: XLSX.WorkBook): { rows: MonthlySalesRow[]; reportMeta: ReportMeta } {
+  const sheetName = SHEET_NAMES.monthlySales;
+  const aoa = sheetToAOA(wb, sheetName);
+
+  const headerRowIdx = findHeaderRowIndex(aoa, "Year", sheetName);
+  const title = findTitle(aoa, headerRowIdx);
 
   const headerRow = aoa[headerRowIdx];
   const headerIndex = buildHeaderIndex(headerRow);
-  const colIdx: Record<(typeof SALES_COLUMNS)[number], number> = {} as never;
-  for (const col of SALES_COLUMNS) {
+  const colIdx: Record<(typeof MONTHLY_SALES_COLUMNS)[number], number> = {} as never;
+  for (const col of MONTHLY_SALES_COLUMNS) {
     colIdx[col] = requireCol(headerIndex, col, sheetName);
   }
 
   const dataRows = aoa.slice(headerRowIdx + 1);
-  const parsed: SalesRowParsed[] = [];
+  const rows: MonthlySalesRow[] = [];
 
   for (const row of dataRows) {
-    const name = str(row[colIdx["Principal"]]);
-    if (!name) continue;
+    const year = str(row[colIdx["Year"]]);
+    const month = str(row[colIdx["Month Name"]]);
+    const principal = str(row[colIdx["Principal"]]);
+    if (!year || !month || !principal) continue;
+    if (principal.toLowerCase().includes("total")) continue;
 
-    const mtdTarget = toNumber(row[colIdx["MTD Target"]]);
-    const h1Mission = toNumber(row[colIdx["H1 Mission"]]);
-    const h1Sales = toNumber(row[colIdx["H1 Sales."]]);
-
-    parsed.push({
-      name,
-      currentMonthTarget: toNumber(row[colIdx["Current Month Target"]]),
-      mtdTarget,
-      mtdRev: toNumber(row[colIdx["MTD Revenue"]]),
-      achFull: round1(toNumber(row[colIdx["Achieved Vs Full Target"]]) * 100),
-      achMTD: mtdTarget > 0 ? toPercent1(row[colIdx["Achieved Vs MTD Target"]]) : null,
-      balMonth: toNumber(row[colIdx["Balance Of Month"]]),
-      revLMSP: toNumber(row[colIdx["Revenue LMSP"]]),
-      mom: toPercent1(row[colIdx["MOM"]]),
-      revLYSP: toNumber(row[colIdx["Revenue LYSP"]]),
-      yoy: toPercent1(row[colIdx["YOY"]]),
-      ytdRev: toNumber(row[colIdx["YTD Revenue."]]),
-      fullTarget: toNumber(row[colIdx["Full Year Target"]]),
-      ytdVariance: toNumber(row[colIdx["YTD Variance"]]),
-      ytdVsTarget: toPercent1(row[colIdx["YTD Vs Target"]]),
-      h1Sales,
-      h1Mission,
-      h1Variance: toNumber(row[colIdx["H1 Variance"]]),
-      h1Achieved: h1Mission > 0 ? round1((h1Sales / h1Mission) * 100) : 0,
-      avgSales: toNumber(row[colIdx["Average Sales"]]),
+    rows.push({
+      year,
+      month,
+      monthIndex: CANONICAL_MONTHS.indexOf(month),
+      location: str(row[colIdx["Location"]]),
+      principal,
+      principalKey: normalizePrincipalKey(principal),
+      revenue: toNumber(row[colIdx["Revenue."]]),
+      // Only populated from 2026 onward in the source workbook — a blank cell must
+      // stay null (no target for the period), never coerced to 0.
+      target: toNullableNumber(row[colIdx["Monthly Target"]]),
+      cogs: toNumber(row[colIdx["Cost Of Goods."]]),
       grossProfit: toNumber(row[colIdx["Gross Profit."]]),
       grossMarginPct: toPercent1(row[colIdx["Gross Margin %"]]),
-      nextMonthForecast: toNumber(row[colIdx["Next Month Forecast"]]),
-      nextQuarterForecast: toNumber(row[colIdx["Next Quarter Forecast"]]),
     });
   }
 
-  const totalIdx = parsed.findIndex((r) => r.name.toLowerCase().includes("total"));
-  if (totalIdx === -1) {
-    throw new WorkbookParseError(
-      `Sheet "${sheetName}" has no "Total Sales" row — cannot compute portfolio totals.`
-    );
+  if (rows.length === 0) {
+    throw new WorkbookParseError(`Sheet "${sheetName}" contains no valid monthly sales rows.`);
   }
-  const [total] = parsed.splice(totalIdx, 1);
 
-  return { rows: parsed, total, reportMeta: { title, sheet: sheetName } };
+  return { rows, reportMeta: { title, sheet: sheetName } };
 }
 
 // ---------------------------------------------------------------------------
-// Coverage & Productivity
+// Calls & Productivity (monthly, rep-level)
 // ---------------------------------------------------------------------------
 
-const COVERAGE_COLUMNS = ["Month Name", "Principal", "Coverage.", "Productive Calls", "Productivity %"] as const;
+const MONTHLY_COVERAGE_COLUMNS = [
+  "Month Name",
+  "SalesRole",
+  "Employee Name",
+  "Principal",
+  "Coverage.",
+  "Productive Calls",
+  "Productivity %",
+] as const;
 
-function parseCoverage(wb: XLSX.WorkBook): { trends: CoverageTrends; total: CoverageTotal } {
+function parseMonthlyCoverage(wb: XLSX.WorkBook): MonthlyCoverageRow[] {
   const sheetName = SHEET_NAMES.coverage;
   const aoa = sheetToAOA(wb, sheetName);
 
   const headerRowIdx = findHeaderRowIndex(aoa, "Month Name", sheetName);
   const headerRow = aoa[headerRowIdx];
   const headerIndex = buildHeaderIndex(headerRow);
-  const colIdx: Record<(typeof COVERAGE_COLUMNS)[number], number> = {} as never;
-  for (const col of COVERAGE_COLUMNS) {
+  const colIdx: Record<(typeof MONTHLY_COVERAGE_COLUMNS)[number], number> = {} as never;
+  for (const col of MONTHLY_COVERAGE_COLUMNS) {
     colIdx[col] = requireCol(headerIndex, col, sheetName);
   }
 
   const dataRows = aoa.slice(headerRowIdx + 1);
-  const rows: CoverageTrendRow[] = [];
-  const totals: (CoverageTrendRow & { isTotal: true })[] = [];
-  let average: CoverageTrendRow | null = null;
+  const rows: MonthlyCoverageRow[] = [];
 
   for (const row of dataRows) {
-    const monthName = str(row[colIdx["Month Name"]]);
+    const month = str(row[colIdx["Month Name"]]);
+    const employeeName = str(row[colIdx["Employee Name"]]);
+    if (!month || !employeeName) continue;
+    if (employeeName.toLowerCase().includes("total")) continue;
+
+    rows.push({
+      // This sheet has no Year column; parseWorkbook() backfills it from the max
+      // year present in monthlySales once both sheets are parsed.
+      year: "",
+      month,
+      monthIndex: CANONICAL_MONTHS.indexOf(month),
+      salesRole: str(row[colIdx["SalesRole"]]),
+      employeeName,
+      principal: str(row[colIdx["Principal"]]),
+      principalKey: normalizePrincipalKey(str(row[colIdx["Principal"]])),
+      coverage: toNumber(row[colIdx["Coverage."]]),
+      productiveCalls: toNumber(row[colIdx["Productive Calls"]]),
+      productivityPct: toPercent1(row[colIdx["Productivity %"]]) ?? 0,
+    });
+  }
+
+  if (rows.length === 0) {
+    throw new WorkbookParseError(`Sheet "${sheetName}" contains no valid coverage rows.`);
+  }
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Brand & Customer Listing (monthly, rep + customer level)
+// ---------------------------------------------------------------------------
+
+const BRAND_CUSTOMER_COLUMNS = [
+  "Year",
+  "Month Name",
+  "Principal",
+  "Sales Employee",
+  "Customer Name",
+  "Volume",
+  "Revenue",
+  "GP",
+] as const;
+
+interface BrandCustomerAgg {
+  year: string;
+  month: string;
+  monthIndex: number;
+  principal: string;
+  principalKey: string;
+  salesEmployee: string;
+  customerName: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+}
+
+/**
+ * Parses the Brand&Customer sheet and collapses it to one row per
+ * Year+Month+Principal+Sales Employee+Customer, regardless of the grain the
+ * source pivot actually exports at. The pivot is meant to be pre-aggregated to
+ * that grain, but a live export was still ~101k transaction-line rows (one per
+ * Item Name) — serialized, that inflates the whole Dataset past Netlify
+ * Functions' response payload limit. Aggregating here makes correctness
+ * independent of how the user's pivot happens to be configured: a no-op if
+ * it's already at the target grain, a collapse if it isn't. "Item Name" is
+ * never read, and "GP Margin %" is always derived from the aggregated
+ * revenue/GP rather than trusted from a per-line column, since summing
+ * already-averaged percentages across collapsed rows would be wrong.
+ */
+function parseMonthlyBrandCustomer(wb: XLSX.WorkBook): MonthlyBrandCustomerRow[] {
+  const sheetName = SHEET_NAMES.brandCustomer;
+  const aoa = sheetToAOA(wb, sheetName);
+
+  const headerRowIdx = findHeaderRowIndex(aoa, "Year", sheetName);
+  const headerRow = aoa[headerRowIdx];
+  const headerIndex = buildHeaderIndex(headerRow);
+  const colIdx: Record<(typeof BRAND_CUSTOMER_COLUMNS)[number], number> = {} as never;
+  for (const col of BRAND_CUSTOMER_COLUMNS) {
+    colIdx[col] = requireCol(headerIndex, col, sheetName);
+  }
+
+  const dataRows = aoa.slice(headerRowIdx + 1);
+  const byKey = new Map<string, BrandCustomerAgg>();
+
+  for (const row of dataRows) {
+    const year = str(row[colIdx["Year"]]);
+    const month = str(row[colIdx["Month Name"]]);
+    const customerName = str(row[colIdx["Customer Name"]]);
+    if (!year || !month || !customerName) continue;
+    if (customerName.toLowerCase().includes("total")) continue;
+
     const principal = str(row[colIdx["Principal"]]);
-    if (!monthName && !principal) continue;
+    const principalKey = normalizePrincipalKey(principal);
+    const salesEmployee = str(row[colIdx["Sales Employee"]]);
+    const key = `${year}|${month}|${principalKey}|${salesEmployee}|${customerName}`;
 
-    const coverage = toNumber(row[colIdx["Coverage."]]);
-    const productiveCalls = toNumber(row[colIdx["Productive Calls"]]);
-    const productivityPct = round1(toNumber(row[colIdx["Productivity %"]]) * 100);
-
-    if (monthName.toLowerCase() === "average") {
-      average = { month: monthName, principal: "Average", coverage, productiveCalls, productivityPct };
-      continue;
+    let agg = byKey.get(key);
+    if (!agg) {
+      agg = {
+        year,
+        month,
+        monthIndex: CANONICAL_MONTHS.indexOf(month),
+        principal,
+        principalKey,
+        salesEmployee,
+        customerName,
+        volume: 0,
+        revenue: 0,
+        grossProfit: 0,
+      };
+      byKey.set(key, agg);
     }
-
-    // Pivot exports end with a "Grand Total" row whose aggregation doesn't match a
-    // YTD sum of the monthly totals (observed equal to the latest month alone) —
-    // skip it rather than letting it register as a month called "Grand".
-    if (!principal && /^grand\s*total$/i.test(monthName)) {
-      continue;
-    }
-
-    if (!principal && /total$/i.test(monthName)) {
-      const month = monthName.replace(/\s*total$/i, "").trim();
-      totals.push({ month, principal: "Total", coverage, productiveCalls, productivityPct, isTotal: true });
-      continue;
-    }
-
-    if (principal && monthName) {
-      rows.push({ month: monthName, principal, coverage, productiveCalls, productivityPct });
-    }
+    agg.volume += toNumber(row[colIdx["Volume"]]);
+    agg.revenue += toNumber(row[colIdx["Revenue"]]);
+    agg.grossProfit += toNumber(row[colIdx["GP"]]);
   }
 
-  if (totals.length === 0) {
-    throw new WorkbookParseError(`Sheet "${sheetName}" has no monthly "Total" rows.`);
+  const rows: MonthlyBrandCustomerRow[] = Array.from(byKey.values()).map((agg) => ({
+    ...agg,
+    grossMarginPct: agg.revenue > 0 ? round1((agg.grossProfit / agg.revenue) * 100) : null,
+  }));
+
+  if (rows.length === 0) {
+    throw new WorkbookParseError(`Sheet "${sheetName}" contains no valid customer/rep rows.`);
   }
 
-  // Hand-prepared exports carry an explicit "Average" row; the automated pivot
-  // export doesn't, so fall back to the mean of the monthly Total rows (which is
-  // what that row held in the hand-prepared files).
-  let source: CoverageTotal["source"] = "Average";
-  if (!average) {
-    const n = totals.length;
-    const avgCoverage = totals.reduce((s, t) => s + t.coverage, 0) / n;
-    const avgProductive = totals.reduce((s, t) => s + t.productiveCalls, 0) / n;
-    average = {
-      month: "Average",
-      principal: "Average",
-      coverage: round1(avgCoverage),
-      productiveCalls: round1(avgProductive),
-      productivityPct: avgCoverage > 0 ? round1((avgProductive / avgCoverage) * 100) : 0,
-    };
-    source = "Computed";
-  }
-
-  const currentTotal = totals[totals.length - 1];
-  const currentMonth = currentTotal.month;
-
-  const trends: CoverageTrends = { currentMonth, totals, average, rows };
-  const total: CoverageTotal = {
-    ytdCoverage: average.coverage,
-    productiveCalls: average.productiveCalls,
-    productivityPct: average.productivityPct,
-    source,
-    currentMonth,
-    currentCoverage: currentTotal.coverage,
-    currentProductiveCalls: currentTotal.productiveCalls,
-    currentProductivityPct: currentTotal.productivityPct,
-  };
-
-  return { trends, total };
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,22 +372,7 @@ export function stockStatus(days: number, value: number, rrWeekValue: number): s
   return "\u{1F7E2} OK";
 }
 
-interface StockAggregate {
-  key: string;
-  principal: string;
-  volume: number;
-  pcs: number;
-  value: number;
-  rrWeekValue: number;
-  rrWeekVolume: number;
-  itemCount: number;
-  outOfStockCount: number;
-  runningOutCount: number;
-  okCount: number;
-  noDataCount: number;
-}
-
-function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; byKey: Map<string, StockAggregate>; total: StockTotal } {
+function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; total: StockTotal } {
   const sheetName = SHEET_NAMES.stock;
   const aoa = sheetToAOA(wb, sheetName);
 
@@ -392,7 +386,6 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; byKey: Map<string,
 
   const dataRows = aoa.slice(headerRowIdx + 1);
   const items: StockItem[] = [];
-  const byKey = new Map<string, StockAggregate>();
 
   let totalVolume = 0;
   let totalPcs = 0;
@@ -431,32 +424,6 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; byKey: Map<string,
       action,
     });
 
-    const key = normalizePrincipalKey(principal);
-    let agg = byKey.get(key);
-    if (!agg) {
-      agg = {
-        key,
-        principal,
-        volume: 0,
-        pcs: 0,
-        value: 0,
-        rrWeekValue: 0,
-        rrWeekVolume: 0,
-        itemCount: 0,
-        outOfStockCount: 0,
-        runningOutCount: 0,
-        okCount: 0,
-        noDataCount: 0,
-      };
-      byKey.set(key, agg);
-    }
-    agg.volume += openingVolume;
-    agg.pcs += openingPcs;
-    agg.value += openingValue;
-    agg.rrWeekValue += rrWeekValue;
-    agg.rrWeekVolume += rrWeekVolume;
-    agg.itemCount += 1;
-
     const tier = action.includes("\u{1F534}")
       ? "bad"
       : action.includes("\u{1F7E1}")
@@ -464,19 +431,10 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; byKey: Map<string,
         : action.includes("\u{1F7E2}")
           ? "good"
           : "nodata";
-    if (tier === "bad") {
-      agg.outOfStockCount += 1;
-      totalOOS += 1;
-    } else if (tier === "warn") {
-      agg.runningOutCount += 1;
-      totalRunningOut += 1;
-    } else if (tier === "good") {
-      agg.okCount += 1;
-      totalOK += 1;
-    } else {
-      agg.noDataCount += 1;
-      totalNoData += 1;
-    }
+    if (tier === "bad") totalOOS += 1;
+    else if (tier === "warn") totalRunningOut += 1;
+    else if (tier === "good") totalOK += 1;
+    else totalNoData += 1;
 
     totalVolume += openingVolume;
     totalPcs += openingPcs;
@@ -505,114 +463,7 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; byKey: Map<string,
     action: stockStatus(totalDays, totalValue, totalRRValue),
   };
 
-  return { items, byKey, total };
-}
-
-// ---------------------------------------------------------------------------
-// Trended Revenue (irregular, scanned by label rather than fixed offsets)
-// ---------------------------------------------------------------------------
-
-const CANONICAL_MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-function findMonthHeaderCols(aoa: unknown[][]): { rowIdx: number; colIdx: number }[] {
-  const headers: { rowIdx: number; colIdx: number }[] = [];
-  aoa.forEach((row, rowIdx) => {
-    row.forEach((cell, colIdx) => {
-      if (str(cell).toLowerCase() === "january") headers.push({ rowIdx, colIdx });
-    });
-  });
-  return headers;
-}
-
-function parseTrendedRevenue(wb: XLSX.WorkBook): TrendedRevenue {
-  const sheetName = SHEET_NAMES.trendedRevenue;
-  const aoa = sheetToAOA(wb, sheetName);
-
-  const headerRows = findMonthHeaderCols(aoa);
-  if (headerRows.length === 0) {
-    throw new WorkbookParseError(`Sheet "${sheetName}" has no recognizable month header row (expected "January").`);
-  }
-
-  const totals: { [year: string]: (number | null)[] } = {};
-  let yoy: (number | null)[] = new Array(12).fill(null);
-  const byPrincipalKey: { [key: string]: { [year: string]: (number | null)[] } } = {};
-
-  const yearRe = /^\d{4}$/;
-  const yearTotalRe = /^(\d{4})\s*total$/i;
-
-  for (let h = 0; h < headerRows.length; h++) {
-    const { rowIdx: headerRowIdx, colIdx: monthStartCol } = headerRows[h];
-    const nextHeaderRowIdx = h + 1 < headerRows.length ? headerRows[h + 1].rowIdx : aoa.length;
-
-    // A section title (e.g. "Revenue.", "Volume Cases") may sit directly above the
-    // header row. Only the "Revenue" section feeds this sheet's totals/byPrincipalKey —
-    // other blocks (e.g. Volume Cases) share principal names that would otherwise
-    // collide in byPrincipalKey. A blank/missing title is treated as eligible so
-    // single-block layouts without a title row still parse.
-    const sectionLabel = str(aoa[headerRowIdx - 1]?.[0]).toLowerCase().replace(/\.$/, "").trim();
-    if (sectionLabel && sectionLabel !== "revenue") continue;
-
-    let currentYear: string | null = null;
-
-    for (let r = headerRowIdx + 1; r < nextHeaderRowIdx; r++) {
-      const row = aoa[r];
-      if (!row) continue;
-      const colA = str(row[0]);
-      const colB = str(row[1]);
-      if (!colA && !colB) continue;
-
-      const monthValues: (number | null)[] = [];
-      for (let i = 0; i < 12; i++) {
-        monthValues.push(toNullableNumber(row[monthStartCol + i]));
-      }
-
-      if (!colA && colB.toLowerCase() === "yoy") {
-        yoy = monthValues.map((v) => (v === null ? null : round1(v * 100)));
-        continue;
-      }
-
-      // Legacy layout: a "<year>" / "Revenue." row pair holds the yearly total.
-      if (yearRe.test(colA) && colB.toLowerCase().replace(/\.$/, "") === "revenue") {
-        totals[colA] = monthValues;
-        currentYear = colA;
-        continue;
-      }
-
-      // Current layout: a single "<year> Total" cell in column A holds the yearly total.
-      const totalMatch = colA.match(yearTotalRe);
-      if (totalMatch) {
-        totals[totalMatch[1]] = monthValues;
-        continue;
-      }
-
-      // Legacy layout: explicit "<year>" / "Total" row duplicates the totals row above — skip.
-      if (yearRe.test(colA) && colB.toLowerCase() === "total") {
-        continue;
-      }
-
-      // A year in column A starts a new per-principal block; blank rows below it
-      // (column A left empty in the source sheet) continue under that same year.
-      if (yearRe.test(colA)) {
-        currentYear = colA;
-      }
-
-      if (currentYear && colB) {
-        const key = normalizePrincipalKey(colB);
-        byPrincipalKey[key] = byPrincipalKey[key] || {};
-        byPrincipalKey[key][currentYear] = monthValues;
-        continue;
-      }
-    }
-  }
-
-  if (Object.keys(totals).length === 0) {
-    throw new WorkbookParseError(`Sheet "${sheetName}" has no "Revenue" section with yearly totals.`);
-  }
-
-  return { months: CANONICAL_MONTHS, totals, yoy, byPrincipalKey };
+  return { items, total };
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +479,7 @@ const WEEKLY_COLUMNS = [
   "Achieved Projection",
 ] as const;
 
-function parseWeeklyProjection(wb: XLSX.WorkBook): WeeklyProjectionRow[] {
+function parseWeeklyProjection(wb: XLSX.WorkBook): import("./types").WeeklyProjectionRow[] {
   const sheetName = SHEET_NAMES.weeklyProjection;
   const aoa = sheetToAOA(wb, sheetName);
 
@@ -641,7 +492,7 @@ function parseWeeklyProjection(wb: XLSX.WorkBook): WeeklyProjectionRow[] {
   }
 
   const dataRows = aoa.slice(headerRowIdx + 1);
-  const rows: WeeklyProjectionRow[] = [];
+  const rows: import("./types").WeeklyProjectionRow[] = [];
 
   for (const row of dataRows) {
     const principal = str(row[colIdx["Principal"]]);
@@ -673,109 +524,27 @@ function parseWeeklyProjection(wb: XLSX.WorkBook): WeeklyProjectionRow[] {
 // Top level assembly
 // ---------------------------------------------------------------------------
 
-function toPrincipal(row: SalesRowParsed, stockAgg: StockAggregate | undefined): Principal {
-  const daysStock = stockAgg ? weightedCoverDays(stockAgg.value, stockAgg.rrWeekValue) : 0;
-  return {
-    name: row.name,
-    stockKey: normalizePrincipalKey(row.name),
-    fullTarget: row.fullTarget,
-    currentMonthTarget: row.currentMonthTarget,
-    mtdTarget: row.mtdTarget,
-    mtdRev: row.mtdRev,
-    achFull: row.achFull,
-    achMTD: row.achMTD,
-    balMonth: row.balMonth,
-    revLMSP: row.revLMSP,
-    revLYSP: row.revLYSP,
-    mom: row.mom,
-    yoy: row.yoy,
-    ytdRev: row.ytdRev,
-    ytdVariance: row.ytdVariance,
-    ytdVsTarget: row.ytdVsTarget,
-    avgSales: row.avgSales,
-    h1Mission: row.h1Mission,
-    h1Sales: row.h1Sales,
-    h1Variance: row.h1Variance,
-    h1Achieved: row.h1Achieved,
-    grossProfit: row.grossProfit,
-    grossMarginPct: row.grossMarginPct,
-    nextMonthForecast: row.nextMonthForecast,
-    nextQuarterForecast: row.nextQuarterForecast,
-    // filled in below once coverage data is merged
-    ytdCoverage: 0,
-    productiveCalls: 0,
-    productivityPct: 0,
-    coverageMonth: "",
-    stockVolume: stockAgg?.volume ?? 0,
-    stockPcs: stockAgg?.pcs ?? 0,
-    stockValue: stockAgg?.value ?? 0,
-    rrWeekValue: stockAgg?.rrWeekValue ?? 0,
-    rrWeekVolume: stockAgg?.rrWeekVolume ?? 0,
-    daysStock,
-    stockAction: stockAgg ? stockStatus(daysStock, stockAgg.value, stockAgg.rrWeekValue) : "\u{26AA} No Sales Data",
-    stockItemCount: stockAgg?.itemCount ?? 0,
-    stockOutOfStockCount: stockAgg?.outOfStockCount ?? 0,
-    stockRunningOutCount: stockAgg?.runningOutCount ?? 0,
-    stockOkCount: stockAgg?.okCount ?? 0,
-    stockNoDataCount: stockAgg?.noDataCount ?? 0,
-  };
-}
-
 export function parseWorkbook(buffer: ArrayBuffer, uploadedAt?: string): Dataset {
   const wb = XLSX.read(buffer, { type: "array" });
 
-  const { rows: salesRows, total: salesTotal, reportMeta } = parseSalesVsTarget(wb);
-  const { trends: coverageTrends, total: covTotal } = parseCoverage(wb);
-  const { items: stockItems, byKey: stockByKey, total: stockTotal } = parseStock(wb);
-  const trendedRevenue = parseTrendedRevenue(wb);
+  const { rows: monthlySales, reportMeta } = parseMonthlySales(wb);
+  const monthlyCoverageRaw = parseMonthlyCoverage(wb);
+  const monthlyBrandCustomer = parseMonthlyBrandCustomer(wb);
+  const { items: stockItems, total: stockTotal } = parseStock(wb);
   const weeklyProjection = parseWeeklyProjection(wb);
 
-  const currentMonthCoverageRows = coverageTrends.rows.filter((r) => r.month === coverageTrends.currentMonth);
-
-  const principals: Principal[] = salesRows.map((row) => {
-    const stockAgg = stockByKey.get(normalizePrincipalKey(row.name));
-    const p = toPrincipal(row, stockAgg);
-    const covRow = currentMonthCoverageRows.find((c) => c.principal === row.name);
-    if (covRow) {
-      p.ytdCoverage = covRow.coverage;
-      p.productiveCalls = covRow.productiveCalls;
-      p.productivityPct = covRow.productivityPct;
-      p.coverageMonth = coverageTrends.currentMonth;
-    } else {
-      p.coverageMonth = coverageTrends.currentMonth;
-    }
-    return p;
-  });
-
-  const totalPrincipalShape: Principal = {
-    ...toPrincipal({ ...salesTotal, name: "Total Sales" }, undefined),
-    ytdCoverage: covTotal.currentCoverage,
-    productiveCalls: covTotal.currentProductiveCalls,
-    productivityPct: covTotal.currentProductivityPct,
-    stockVolume: stockTotal.volume,
-    stockPcs: stockTotal.pcs,
-    stockValue: stockTotal.value,
-    rrWeekValue: stockTotal.rrWeekValue,
-    rrWeekVolume: stockTotal.rrWeekVolume,
-    daysStock: stockTotal.daysStock,
-    stockAction: stockTotal.action,
-    stockItemCount: stockTotal.itemCount,
-    stockOutOfStockCount: stockTotal.outOfStockCount,
-    stockRunningOutCount: stockTotal.runningOutCount,
-    stockOkCount: stockTotal.okCount,
-    stockNoDataCount: stockTotal.noDataCount,
-  };
-  const { name: _name, stockKey: _stockKey, coverageMonth: _coverageMonth, ...totals } = totalPrincipalShape;
-  void _name;
-  void _stockKey;
-  void _coverageMonth;
+  // Calls & Productivity has no Year column; assume it covers a single year and
+  // derive it from the latest year present in the sheet that does have one.
+  const impliedYear = monthlySales.reduce((max, r) => (r.year > max ? r.year : max), "");
+  const monthlyCoverage: MonthlyCoverageRow[] = monthlyCoverageRaw.map((r) => ({
+    ...r,
+    year: impliedYear || r.year,
+  }));
 
   return {
-    principals,
-    totals,
-    covTotal,
-    coverageTrends,
-    trendedRevenue,
+    monthlySales,
+    monthlyCoverage,
+    monthlyBrandCustomer,
     weeklyProjection,
     stockTotal,
     stockItems,

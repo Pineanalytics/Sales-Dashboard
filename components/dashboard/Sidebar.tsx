@@ -2,49 +2,49 @@
 
 import {
   Board20Regular,
-  ArrowTrending20Regular,
   DataLine20Regular,
   PeopleTeam20Regular,
+  PersonCircle20Regular,
+  ChartMultiple20Regular,
   Money20Regular,
   Box20Regular,
-  Scales20Regular,
   Dismiss20Regular,
   Broom20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, VIEW_KEYS, VIEW_LABELS, type ViewKey } from "@/lib/store";
-import { principalsByMtdRevDesc } from "@/lib/selectors";
+import { principalsByRevenueDesc } from "@/lib/selectors";
 import { AchievementBadge } from "@/components/ui/Badge";
-import { normalizePrincipalKey } from "@/lib/normalize";
 
 const VIEW_ICONS: Record<ViewKey, FluentIcon> = {
   overview: Board20Regular,
-  ytd: ArrowTrending20Regular,
-  trends: DataLine20Regular,
+  timeIntelligence: DataLine20Regular,
   coverage: PeopleTeam20Regular,
+  repPerformance: PersonCircle20Regular,
+  customerBrand: ChartMultiple20Regular,
   profitability: Money20Regular,
   stock: Box20Regular,
-  h1: Scales20Regular,
 };
 
 export function Sidebar() {
   const dataset = useDashboardStore((s) => s.dataset);
   const view = useDashboardStore((s) => s.view);
   const setView = useDashboardStore((s) => s.setView);
-  const selectedPrincipal = useDashboardStore((s) => s.selectedPrincipal);
+  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const selectPrincipal = useDashboardStore((s) => s.selectPrincipal);
+  const period = useDashboardStore((s) => s.selectedPeriod);
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
 
-  const principals = dataset ? principalsByMtdRevDesc(dataset) : [];
+  const principals = dataset ? principalsByRevenueDesc(dataset, period) : [];
 
   function handleSelectView(v: ViewKey) {
     setView(v);
     setSidebarOpen(false);
   }
 
-  function handleSelectPrincipal(name: string | null) {
-    selectPrincipal(name);
+  function handleSelectPrincipal(key: string | null) {
+    selectPrincipal(key);
     setSidebarOpen(false);
   }
 
@@ -94,7 +94,7 @@ export function Sidebar() {
 
         <div className="px-3 pt-3 pb-1 flex items-center justify-between">
           <span className="text-[13px] font-semibold uppercase tracking-wide text-muted">Principals</span>
-          {selectedPrincipal ? (
+          {selectedPrincipalKey ? (
             <button
               onClick={() => handleSelectPrincipal(null)}
               className="flex items-center gap-1 text-xs text-muted hover:text-accent-red transition-colors duration-300"
@@ -108,7 +108,7 @@ export function Sidebar() {
           <button
             onClick={() => handleSelectPrincipal(null)}
             className={`flex items-center justify-between rounded-full border px-4 py-2 text-sm font-medium transition-colors duration-300 ${
-              !selectedPrincipal
+              !selectedPrincipalKey
                 ? "bg-primary-blue border-primary-blue text-white shadow-sm"
                 : "bg-surface border-secondary-blue/30 text-muted-strong hover:border-secondary-blue hover:bg-accent-blue-soft"
             }`}
@@ -117,27 +117,27 @@ export function Sidebar() {
           </button>
 
           {principals.map((p) => {
-            const active = selectedPrincipal === p.name;
-            const shortName = p.name.split("-")[0] || p.name;
+            const active = selectedPrincipalKey === p.principalKey;
+            const shortName = p.principal.split("-")[0] || p.principal;
             return (
               <button
-                key={p.name + normalizePrincipalKey(p.name)}
-                onClick={() => handleSelectPrincipal(p.name)}
+                key={p.principalKey}
+                onClick={() => handleSelectPrincipal(p.principalKey)}
                 className={`flex items-center justify-between gap-2 rounded-full border px-4 py-2 text-sm transition-colors duration-300 ${
                   active
                     ? "bg-primary-blue border-primary-blue text-white shadow-sm"
                     : "bg-surface border-border text-muted-strong hover:border-secondary-blue hover:bg-accent-blue-soft"
                 }`}
-                title={p.name}
+                title={p.principal}
               >
                 <span className="truncate">{shortName}</span>
-                <AchievementBadge pct={p.achMTD} />
+                <AchievementBadge pct={p.achievementPct} />
               </button>
             );
           })}
 
           {dataset && principals.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted">No principals in this dataset.</p>
+            <p className="px-3 py-2 text-xs text-muted">No principals in this period.</p>
           ) : null}
         </div>
       </aside>

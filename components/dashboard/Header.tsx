@@ -13,8 +13,10 @@ import {
 } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { Spinner } from "@/components/ui/Spinner";
-import { formatNumber, formatPercent, trendTier } from "@/lib/format";
+import { formatNumber, formatPercent } from "@/lib/format";
+import { summarizeSalesForPeriod, summarizeCoverageForPeriod } from "@/lib/timeIntelligence";
 import { signOutAction } from "@/app/actions";
+import { PeriodSelector } from "./PeriodSelector";
 import Link from "next/link";
 
 const HERO_BADGE_TIER_CLASS = {
@@ -37,10 +39,14 @@ export function Header({ user }: { user: Session["user"] | null }) {
   const status = useDashboardStore((s) => s.status);
   const error = useDashboardStore((s) => s.error);
   const history = useDashboardStore((s) => s.history);
+  const period = useDashboardStore((s) => s.selectedPeriod);
   const uploadFile = useDashboardStore((s) => s.uploadFile);
   const fetchHistory = useDashboardStore((s) => s.fetchHistory);
   const fetchSnapshot = useDashboardStore((s) => s.fetchSnapshot);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
+
+  const salesSummary = dataset ? summarizeSalesForPeriod(dataset, period, null) : null;
+  const coverageSummary = dataset ? summarizeCoverageForPeriod(dataset, period, null) : null;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -184,15 +190,20 @@ export function Header({ user }: { user: Session["user"] | null }) {
         </div>
 
         {dataset ? (
-          <div className="hidden lg:flex items-center gap-2 mt-4">
-            <HeroBadge tier={dataset.totals.h1Achieved >= 100 ? "good" : dataset.totals.h1Achieved >= 60 ? "warn" : "bad"}>
-              H1 Achieved {formatPercent(dataset.totals.h1Achieved)}
-            </HeroBadge>
-            <HeroBadge tier={trendTier(dataset.totals.h1Variance)}>
-              H1 Variance {dataset.totals.h1Variance > 0 ? "+" : ""}
-              {formatNumber(dataset.totals.h1Variance)}
-            </HeroBadge>
-            <HeroBadge tier="neutral">Coverage: {formatNumber(dataset.covTotal.currentCoverage)} outlets covered</HeroBadge>
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <PeriodSelector />
+            <div className="hidden lg:flex items-center gap-2">
+              {salesSummary?.achievementPct !== null && salesSummary?.achievementPct !== undefined ? (
+                <HeroBadge tier={salesSummary.achievementPct >= 100 ? "good" : salesSummary.achievementPct >= 60 ? "warn" : "bad"}>
+                  Achieved {formatPercent(salesSummary.achievementPct)}
+                </HeroBadge>
+              ) : (
+                <HeroBadge tier="neutral">No target for this period</HeroBadge>
+              )}
+              {coverageSummary ? (
+                <HeroBadge tier="neutral">Coverage: {formatNumber(coverageSummary.coverage)} outlets covered</HeroBadge>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

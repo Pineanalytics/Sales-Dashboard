@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseWorkbook, weightedCoverDays, stockStatus, WorkbookParseError } from "@/lib/parseWorkbook";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import { buildFixtureWorkbook, salesVsTargetRows } from "./fixtures/buildWorkbook";
+import { buildFixtureWorkbook, monthlySalesRows, brandCustomerRowsNoOptionalCols } from "./fixtures/buildWorkbook";
 
 describe("normalizePrincipalKey", () => {
   it("lowercases, strips punctuation and takes the segment before the first dash", () => {
@@ -42,119 +42,115 @@ describe("stock status thresholds", () => {
   });
 });
 
-describe("parseWorkbook", () => {
+describe("parseWorkbook — monthly sales vs target", () => {
   const dataset = parseWorkbook(buildFixtureWorkbook(), "2026-06-30T00:00:00.000Z");
 
   it("extracts the report title from the rows above the header", () => {
-    expect(dataset.reportMeta.title).toBe("JUNE 2026 MTD SALES VS TARGET & YTD ACTUALS");
+    expect(dataset.reportMeta.title).toBe("MONTHLY SALES VS TARGET");
   });
 
-  it("converts sheet fractions to 1-decimal percentages", () => {
-    const eabl = dataset.principals.find((p) => p.name === "EABL-Nyeri")!;
-    expect(eabl.achFull).toBe(45);
-    expect(eabl.achMTD).toBe(90);
-    expect(eabl.mom).toBe(12.5);
-    expect(eabl.yoy).toBe(28.6); // 0.2857 * 100 rounded to 1dp
-    expect(eabl.grossMarginPct).toBe(12);
+  it("excludes 'Total'/'Grand Total' rows and keeps only real principal rows", () => {
+    expect(dataset.monthlySales).toHaveLength(6);
+    expect(dataset.monthlySales.some((r) => r.principal.toLowerCase().includes("total"))).toBe(false);
   });
 
-  it("treats a zero/blank MTD target as no target set (achMTD = null)", () => {
-    const weetabix = dataset.principals.find((p) => p.name === "Weetabix-Meru")!;
-    expect(weetabix.mtdTarget).toBe(0);
-    expect(weetabix.achMTD).toBeNull();
+  it("treats a blank Monthly Target as null, never coerced to 0 — the key 2025-vs-2026 invariant", () => {
+    const may2025 = dataset.monthlySales.find((r) => r.year === "2025" && r.principal === "EABL-Nyeri")!;
+    expect(may2025.target).toBeNull();
+    const june2026 = dataset.monthlySales.find((r) => r.year === "2026" && r.principal === "EABL-Nyeri")!;
+    expect(june2026.target).toBe(120000);
   });
 
-  it("excludes the Total Sales row from principals and uses it for portfolio totals", () => {
-    expect(dataset.principals.some((p) => p.name.toLowerCase().includes("total"))).toBe(false);
-    expect(dataset.totals.mtdRev).toBe(102000);
+  it("converts Gross Margin % fractions to 1dp percentages", () => {
+    const june2026 = dataset.monthlySales.find((r) => r.year === "2026" && r.principal === "EABL-Nyeri")!;
+    expect(june2026.grossMarginPct).toBe(13.6);
   });
 
-  it("keys multi-region principal rows to the same normalized stock key", () => {
-    const nyeri = dataset.principals.find((p) => p.name === "EABL-Nyeri")!;
-    const nyahururu = dataset.principals.find((p) => p.name === "EABL-Nyahururu")!;
-    expect(nyeri.stockKey).toBe("eabl");
-    expect(nyahururu.stockKey).toBe("eabl");
-    // both share the same aggregated stock figures since they roll up to the same brand key
-    expect(nyeri.stockValue).toBe(nyahururu.stockValue);
-    expect(nyeri.stockValue).toBe(1000 + 5000 + 1000);
+  it("keys multi-region principal rows to the same normalized brand key", () => {
+    const nyeri = dataset.monthlySales.find((r) => r.principal === "EABL-Nyeri")!;
+    const nyahururu = dataset.monthlySales.find((r) => r.principal === "EABL-Nyahururu")!;
+    expect(nyeri.principalKey).toBe("eabl");
+    expect(nyahururu.principalKey).toBe("eabl");
   });
+
+  it("computes monthIndex from the month name", () => {
+    const june = dataset.monthlySales.find((r) => r.month === "June")!;
+    expect(june.monthIndex).toBe(5);
+    const may = dataset.monthlySales.find((r) => r.month === "May")!;
+    expect(may.monthIndex).toBe(4);
+  });
+});
+
+describe("parseWorkbook — monthly coverage (rep-level)", () => {
+  const dataset = parseWorkbook(buildFixtureWorkbook());
+
+  it("backfills the missing Year column from monthlySales' max year", () => {
+    expect(dataset.monthlyCoverage.every((r) => r.year === "2026")).toBe(true);
+  });
+
+  it("skips rows with Employee Name 'Total'", () => {
+    expect(dataset.monthlyCoverage).toHaveLength(6);
+    expect(dataset.monthlyCoverage.some((r) => r.employeeName.toLowerCase().includes("total"))).toBe(false);
+  });
+
+  it("keeps rep-level detail: multiple reps per principal, multiple months per rep", () => {
+    const janeRows = dataset.monthlyCoverage.filter((r) => r.employeeName === "Jane Doe");
+    expect(janeRows).toHaveLength(4); // Jane covers EABL-Nyeri + Upfield-Nairobi, in both May and June
+    const june = janeRows.filter((r) => r.month === "June");
+    expect(june).toHaveLength(2);
+  });
+
+  it("converts Productivity % fractions to 1dp percentages", () => {
+    const row = dataset.monthlyCoverage.find((r) => r.employeeName === "Jane Doe" && r.month === "May" && r.principal === "EABL-Nyeri")!;
+    expect(row.productivityPct).toBe(83.3);
+  });
+});
+
+describe("parseWorkbook — monthly brand & customer", () => {
+  it("collapses transaction-line rows to one row per Year+Month+Principal+Rep+Customer, summing Volume/Revenue/GP", () => {
+    const dataset = parseWorkbook(buildFixtureWorkbook());
+    // 4 raw rows in the fixture collapse to 3: the two EABL-Nyeri/Jane Doe/Cash
+    // Customer lines (different Item Name) merge into one.
+    expect(dataset.monthlyBrandCustomer).toHaveLength(3);
+    const row = dataset.monthlyBrandCustomer.find((r) => r.customerName === "Cash Customer" && r.principal === "EABL-Nyeri")!;
+    expect(row.volume).toBe(100);
+    expect(row.revenue).toBe(50000);
+    expect(row.grossProfit).toBe(8000);
+    // Derived from the summed totals (8000/50000*100), never from the per-line GP Margin % column.
+    expect(row.grossMarginPct).toBe(16);
+    expect(row.principalKey).toBe("eabl");
+  });
+
+  it("does not require an Item Name or GP Margin % column — derives margin from revenue/GP when absent", () => {
+    const buffer = buildFixtureWorkbook({
+      sheetOverrides: { "Brand&Customer Listing": brandCustomerRowsNoOptionalCols },
+    });
+    const dataset = parseWorkbook(buffer);
+    expect(dataset.monthlyBrandCustomer).toHaveLength(1);
+    const row = dataset.monthlyBrandCustomer[0];
+    expect(row.grossMarginPct).toBe(16); // derived: 8000/50000*100
+  });
+});
+
+describe("parseWorkbook — stock and weekly (unchanged sheets)", () => {
+  const dataset = parseWorkbook(buildFixtureWorkbook());
 
   it("recomputes aggregate stock days/status rather than trusting per-row values", () => {
-    const upfield = dataset.principals.find((p) => p.name === "Upfield-Nairobi")!;
-    expect(upfield.stockValue).toBe(0);
-    expect(upfield.stockAction).toContain("Out of Stock");
-    expect(upfield.stockOutOfStockCount).toBe(1);
+    const upfieldItems = dataset.stockItems.filter((i) => i.principal === "Upfield-Nairobi");
+    expect(upfieldItems).toHaveLength(1);
+    expect(upfieldItems[0].openingValue).toBe(0);
+    expect(upfieldItems[0].action).toContain("Out of Stock");
 
-    const eabl = dataset.principals.find((p) => p.name === "EABL-Nyeri")!;
-    // value=7000, rr=4000 -> days = 7000/4000*7 = 12.25, rounded to 1dp = 12.3
-    expect(eabl.daysStock).toBeCloseTo(12.3, 5);
-    expect(eabl.stockAction).toContain("Running Out");
-    expect(eabl.stockItemCount).toBe(3);
-    expect(eabl.stockOutOfStockCount).toBe(1);
-    expect(eabl.stockRunningOutCount).toBe(1);
-    expect(eabl.stockOkCount).toBe(1);
+    const eablItems = dataset.stockItems.filter((i) => i.key === "eabl");
+    expect(eablItems).toHaveLength(3); // 2 EABL-Nyeri items + 1 EABL-Nyahururu item, same normalized key
   });
 
   it("flags items with stock but no recent run-rate as No Sales Data, not OK", () => {
-    const weetabix = dataset.principals.find((p) => p.name === "Weetabix-Meru")!;
-    expect(weetabix.stockValue).toBe(900);
-    expect(weetabix.stockAction).toContain("No Sales Data");
-    expect(weetabix.stockNoDataCount).toBe(1);
-    expect(weetabix.stockOkCount).toBe(0);
+    const weetabixItems = dataset.stockItems.filter((i) => i.principal === "Weetabix-Meru");
+    expect(weetabixItems).toHaveLength(1);
+    expect(weetabixItems[0].openingValue).toBe(900);
+    expect(weetabixItems[0].action).toContain("No Sales Data");
     expect(dataset.stockTotal.noDataCount).toBeGreaterThanOrEqual(1);
-  });
-
-  it("derives the current coverage month from the last monthly Total row, not by summing principal rows", () => {
-    expect(dataset.coverageTrends.currentMonth).toBe("June");
-    expect(dataset.covTotal.currentCoverage).toBe(290);
-    expect(dataset.covTotal.currentProductiveCalls).toBe(253);
-    expect(dataset.covTotal.currentProductivityPct).toBe(87.2);
-    expect(dataset.covTotal.ytdCoverage).toBe(280); // from the "Average" row, not a sum of principals
-    expect(dataset.covTotal.source).toBe("Average");
-  });
-
-  it("handles the automated pivot export layout: no Average row, trailing Grand Total", () => {
-    // Mirrors what scripts/export-and-upload.ps1 produces from the source pivot:
-    // monthly totals but no "Average" row, and a final "Grand Total" row whose
-    // aggregation doesn't equal a YTD sum (it must be skipped, not treated as a
-    // month named "Grand").
-    const pivotCoverageRows: unknown[][] = [
-      ["COVERAGE REPORT"],
-      ["Month Name", "Principal", "Coverage.", "Productive Calls", "Productivity %"],
-      ["May", "EABL-Nyeri", 120, 100, 0.8333],
-      ["May Total", "", 270, 220, 0.8148],
-      ["June", "EABL-Nyeri", 130, 115, 0.8846],
-      ["June Total", "", 290, 253, 0.8724],
-      ["Grand Total", "", 290, 260, 0.8965],
-    ];
-    const ds = parseWorkbook(
-      buildFixtureWorkbook({ sheetOverrides: { "Coverage & Productivity": pivotCoverageRows } }),
-    );
-    expect(ds.coverageTrends.currentMonth).toBe("June"); // Grand Total skipped, not "Grand"
-    expect(ds.covTotal.source).toBe("Computed");
-    expect(ds.covTotal.ytdCoverage).toBe(280); // mean of 270 and 290
-    expect(ds.covTotal.productiveCalls).toBe(236.5); // mean of 220 and 253
-  });
-
-  it("scans the Revenue-labelled block, carrying the year forward across blank column-A rows", () => {
-    expect(dataset.trendedRevenue.totals["2025"][0]).toBe(100000);
-    expect(dataset.trendedRevenue.totals["2026"][0]).toBe(120000);
-    expect(dataset.trendedRevenue.totals["2026"][6]).toBeNull(); // July 2026 not yet reached
-    expect(dataset.trendedRevenue.yoy[0]).toBe(20);
-    expect(dataset.trendedRevenue.yoy[6]).toBeNull();
-
-    expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2025"][0]).toBe(60000);
-    expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2026"][5]).toBe(85000);
-    expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2026"][6]).toBeNull();
-    // "Upfield" has a blank column A (carries the year from the row above it).
-    expect(dataset.trendedRevenue.byPrincipalKey["upfield"]["2025"][0]).toBe(40000);
-  });
-
-  it("ignores explicit '<year> Total' rows and excludes sections other than 'Revenue.'", () => {
-    expect(Object.keys(dataset.trendedRevenue.byPrincipalKey)).not.toContain("total");
-    // "EABL-Nairobi" in the Volume Cases section normalizes to the same "eabl" key as
-    // the Revenue section's "EABL" row — confirms Volume Cases (500) didn't clobber it.
-    expect(dataset.trendedRevenue.byPrincipalKey["eabl"]["2025"][0]).toBe(60000);
   });
 
   it("skips the Weekly Projection total row and fills in achieved % when blank", () => {
@@ -176,13 +172,12 @@ describe("parseWorkbook validation", () => {
 describe("header row detection is layout-tolerant", () => {
   it("finds the header whether there's a blank row above the title or not", () => {
     // Exports vary month to month — some have a blank row above the title, some don't.
-    // The parser locates the header by content ("Principal" in column A), not a fixed index.
+    // The parser locates the header by content ("Year" in column A), not a fixed index.
     const withBlankRow = buildFixtureWorkbook({
-      sheetOverrides: { "Sales Vs Target": [[""], ...salesVsTargetRows] },
+      sheetOverrides: { "All Month Sales Vs Target": [[""], ...monthlySalesRows] },
     });
     const dataset = parseWorkbook(withBlankRow);
-    expect(dataset.reportMeta.title).toBe("JUNE 2026 MTD SALES VS TARGET & YTD ACTUALS");
-    expect(dataset.totals.mtdRev).toBe(102000);
-    expect(dataset.principals.find((p) => p.name === "EABL-Nyeri")?.mtdRev).toBe(45000);
+    expect(dataset.reportMeta.title).toBe("MONTHLY SALES VS TARGET");
+    expect(dataset.monthlySales.find((r) => r.principal === "EABL-Nyeri" && r.year === "2025")?.revenue).toBe(100000);
   });
 });

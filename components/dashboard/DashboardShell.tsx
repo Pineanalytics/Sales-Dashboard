@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import type { Session } from "next-auth";
 import { useDashboardStore } from "@/lib/store";
 import type { Dataset } from "@/lib/types";
-import { findPrincipal } from "@/lib/selectors";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { FullPageSpinner } from "@/components/ui/Spinner";
@@ -12,12 +11,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular } from "@fluentui/react-icons";
 
 import { OverviewView } from "@/components/views/OverviewView";
-import { YtdView } from "@/components/views/YtdView";
-import { TrendsView } from "@/components/views/TrendsView";
+import { TimeIntelligenceView } from "@/components/views/TimeIntelligenceView";
 import { CoverageView } from "@/components/views/CoverageView";
+import { RepPerformanceView } from "@/components/views/RepPerformanceView";
+import { CustomerBrandView } from "@/components/views/CustomerBrandView";
 import { ProfitabilityView } from "@/components/views/ProfitabilityView";
 import { StockView } from "@/components/views/StockView";
-import { H1View } from "@/components/views/H1View";
 
 export function DashboardShell({
   initialDataset,
@@ -29,7 +28,8 @@ export function DashboardShell({
   const storeDataset = useDashboardStore((s) => s.dataset);
   const status = useDashboardStore((s) => s.status);
   const view = useDashboardStore((s) => s.view);
-  const selectedPrincipal = useDashboardStore((s) => s.selectedPrincipal);
+  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
+  const period = useDashboardStore((s) => s.selectedPeriod);
   const setDataset = useDashboardStore((s) => s.setDataset);
 
   // The store starts empty (it's a client-side singleton with no knowledge of
@@ -43,8 +43,6 @@ export function DashboardShell({
     if (initialDataset) setDataset(initialDataset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const principal = dataset ? findPrincipal(dataset, selectedPrincipal) : null;
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -62,13 +60,21 @@ export function DashboardShell({
             />
           ) : (
             <div key={view} className="animate-fade-in flex flex-col gap-6">
-              {view === "overview" && <OverviewView dataset={dataset} principal={principal} />}
-              {view === "ytd" && <YtdView dataset={dataset} principal={principal} />}
-              {view === "trends" && <TrendsView dataset={dataset} principal={principal} />}
-              {view === "coverage" && <CoverageView dataset={dataset} principal={principal} />}
-              {view === "profitability" && <ProfitabilityView dataset={dataset} principal={principal} />}
-              {view === "stock" && <StockView dataset={dataset} principal={principal} />}
-              {view === "h1" && <H1View dataset={dataset} principal={principal} />}
+              {view === "overview" && <OverviewView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />}
+              {view === "timeIntelligence" && (
+                <TimeIntelligenceView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+              )}
+              {view === "coverage" && <CoverageView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />}
+              {view === "repPerformance" && (
+                <RepPerformanceView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+              )}
+              {view === "customerBrand" && (
+                <CustomerBrandView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+              )}
+              {view === "profitability" && (
+                <ProfitabilityView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+              )}
+              {view === "stock" && <StockView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />}
             </div>
           )}
         </main>

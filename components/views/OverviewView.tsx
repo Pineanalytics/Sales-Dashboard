@@ -7,12 +7,13 @@ import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { AchievementBadge, Badge } from "@/components/ui/Badge";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
-import { TrendPercent, SignedCompact } from "@/components/ui/TrendValue";
 import { InsightsPanel } from "@/components/ui/InsightsPanel";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, achievementTier, tierBarColor } from "@/lib/format";
-import { principalsByMtdRevDesc, summarizeTargets } from "@/lib/selectors";
+import { principalsByRevenueDesc, summarizeTargets } from "@/lib/selectors";
 import { generatePortfolioInsights, generatePrincipalInsights } from "@/lib/insights";
+import { summarizeSalesForPeriod, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
+import { weeklyRowsFor, aggregateWeekly } from "@/lib/trends";
 import {
   CHART_GRID_COLOR,
   CHART_AXIS_COLOR,
@@ -20,23 +21,37 @@ import {
   tooltipLabelStyle,
 } from "@/components/charts/theme";
 
-export function OverviewView({ dataset, principal }: ViewProps) {
-  const principals = principalsByMtdRevDesc(dataset);
-  const summary = summarizeTargets(dataset.principals);
-  const insights = principal ? generatePrincipalInsights(principal) : generatePortfolioInsights(dataset);
-  const topMtd = principals[0]?.mtdRev || 1;
+export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProps) {
+  const principals = principalsByRevenueDesc(dataset, period);
+  const summary = summarizeTargets(principals);
+  const insights = selectedPrincipalKey
+    ? generatePrincipalInsights(dataset, period, selectedPrincipalKey)
+    : generatePortfolioInsights(dataset, period);
 
-  const achievementChartData: { name: string; value: number; fill: string }[] = principal
+  const selected = principals.find((p) => p.principalKey === selectedPrincipalKey) ?? null;
+  const currentSummary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
+
+  const ytdPeriod: PeriodSelection = { kind: "YTD", year: period.year, month: period.month };
+  const ytdSummary = summarizeSalesForPeriod(dataset, ytdPeriod, selectedPrincipalKey);
+
+  const weeklyRows = weeklyRowsFor(dataset, selectedPrincipalKey);
+  const weekly = aggregateWeekly(weeklyRows);
+
+  const topRevenue = principals[0]?.revenue || 1;
+
+  const achievementChartData: { name: string; value: number; fill: string }[] = selected
     ? [
-        { name: "MTD Rev", value: principal.mtdRev, fill: "var(--accent-blue)" },
-        { name: "MTD Target", value: principal.mtdTarget, fill: "var(--accent-grey)" },
-        { name: "Full Target", value: principal.fullTarget, fill: "var(--accent-purple)" },
+        { name: "Revenue", value: currentSummary.revenue, fill: "var(--accent-blue)" },
+        { name: "Target", value: currentSummary.target ?? 0, fill: "var(--accent-grey)" },
       ]
     : principals.map((p) => ({
-        name: p.name.split("-")[0],
-        value: p.achMTD ?? 0,
-        fill: tierBarColor[achievementTier(p.achMTD)],
+        name: p.principal.split("-")[0],
+        value: p.achievementPct ?? 0,
+        fill: tierBarColor[achievementTier(p.achievementPct)],
       }));
+
+  const periodMonths = resolvePeriodMonths(period);
+  const periodLabel = periodMonths.length > 1 ? `${period.kind} ${period.year}` : `${period.month ?? ""} ${period.year}`.trim();
 
   return (
     <div className="flex flex-col gap-6">
@@ -47,10 +62,10 @@ export function OverviewView({ dataset, principal }: ViewProps) {
         <Badge tier="neutral">{summary.noTarget} no target</Badge>
         <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-strong">
           <span>
-            MTD Rev: <b className="text-foreground">{formatCompact(dataset.totals.mtdRev)}</b>
+            {periodLabel} Revenue: <b className="text-foreground">{formatCompact(currentSummary.revenue)}</b>
           </span>
           <span>
-            Gross Profit: <b className="text-foreground">{formatCompact(dataset.totals.grossProfit)}</b>
+            Gross Profit: <b className="text-foreground">{formatCompact(currentSummary.grossProfit)}</b>
           </span>
           <span>
             Stock Value: <b className="text-foreground">{formatCompact(dataset.stockTotal.value)}</b>
@@ -62,72 +77,49 @@ export function OverviewView({ dataset, principal }: ViewProps) {
       </div>
 
       <KpiGrid>
-        {principal ? (
-          <>
-            <KpiCard accent="revenue" label="MTD Revenue" value={<AnimatedValue value={principal.mtdRev} format={formatCompact} />} />
-            <KpiCard accent="mission" label="MTD Target" value={<AnimatedValue value={principal.mtdTarget} format={formatCompact} />} />
-            <KpiCard accent="mission" label="Achievement" value={<AchievementGauge pct={principal.achMTD} />} />
-            <KpiCard
-              accent="growth"
-              label="Balance of Month"
-              value={<AnimatedValue value={principal.balMonth} format={formatCompact} />}
-              sublabel={<SignedCompact value={principal.balMonth} />}
-            />
-            <KpiCard accent="growth" label="MOM" value={<TrendPercent value={principal.mom} />} />
-            <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={principal.ytdRev} format={formatCompact} />} />
-          </>
-        ) : (
-          <>
-            <KpiCard accent="revenue" label="MTD Revenue" value={<AnimatedValue value={dataset.totals.mtdRev} format={formatCompact} />} />
-            <KpiCard accent="mission" label="MTD Target" value={<AnimatedValue value={dataset.totals.mtdTarget} format={formatCompact} />} />
-            <KpiCard
-              accent="mission"
-              label="MTD Achievement"
-              value={<AchievementGauge pct={dataset.totals.achMTD} />}
-            />
-            <KpiCard
-              accent="growth"
-              label="Balance of Month"
-              value={<AnimatedValue value={dataset.totals.balMonth} format={formatCompact} />}
-              sublabel={<SignedCompact value={dataset.totals.balMonth} />}
-            />
-            <KpiCard accent="revenue" label="Avg Monthly Sales" value={<AnimatedValue value={dataset.totals.avgSales} format={formatCompact} />} />
-            <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={dataset.totals.ytdRev} format={formatCompact} />} />
-          </>
-        )}
+        <KpiCard accent="revenue" label={`${periodLabel} Revenue`} value={<AnimatedValue value={currentSummary.revenue} format={formatCompact} />} />
+        <KpiCard
+          accent="mission"
+          label={`${periodLabel} Target`}
+          value={currentSummary.target !== null ? <AnimatedValue value={currentSummary.target} format={formatCompact} /> : "N/A"}
+        />
+        <KpiCard accent="mission" label="Achievement" value={<AchievementGauge pct={currentSummary.achievementPct} />} />
+        <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
+        <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={ytdSummary.revenue} format={formatCompact} />} />
+        <KpiCard accent="growth" label="Weekly Revenue" value={<AnimatedValue value={weekly.weeklyRevenue} format={formatCompact} />} />
       </KpiGrid>
 
       <ChartGrid>
-        <SectionCard title="MTD Revenue Ranking">
+        <SectionCard title={`${periodLabel} Revenue Ranking`}>
           <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
             {principals.map((p) => {
-              const tier = achievementTier(p.achMTD);
-              const isSelected = principal?.name === p.name;
+              const tier = achievementTier(p.achievementPct);
+              const isSelected = selectedPrincipalKey === p.principalKey;
               return (
-                <div key={p.name} className="flex items-center gap-2 text-xs">
+                <div key={p.principalKey} className="flex items-center gap-2 text-xs">
                   <span
                     className={`w-28 shrink-0 truncate ${isSelected ? "text-accent-blue font-semibold" : "text-muted-strong"}`}
-                    title={p.name}
+                    title={p.principal}
                   >
-                    {p.name}
+                    {p.principal}
                   </span>
                   <div className="flex-1 h-2.5 rounded-full bg-background-elevated overflow-hidden">
                     <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${Math.max(2, (p.mtdRev / topMtd) * 100)}%`,
+                        width: `${Math.max(2, (p.revenue / topRevenue) * 100)}%`,
                         background: isSelected ? "var(--accent-blue)" : tierBarColor[tier],
                       }}
                     />
                   </div>
-                  <span className="w-16 shrink-0 text-right tabular-nums text-muted-strong">{formatCompact(p.mtdRev)}</span>
+                  <span className="w-16 shrink-0 text-right tabular-nums text-muted-strong">{formatCompact(p.revenue)}</span>
                 </div>
               );
             })}
           </div>
         </SectionCard>
 
-        <SectionCard title={principal ? `${principal.name} — MTD vs Target` : "MTD Achievement by Principal (%)"}>
+        <SectionCard title={selected ? `${selected.principal} — Revenue vs Target` : "Achievement by Principal (%)"}>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={achievementChartData} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
@@ -160,45 +152,31 @@ export function OverviewView({ dataset, principal }: ViewProps) {
         <TableWrap>
           <Thead>
             <Th>Principal</Th>
-            <Th align="right">MTD Rev</Th>
-            <Th align="right">MTD Target</Th>
+            <Th align="right">Revenue</Th>
+            <Th align="right">Target</Th>
             <Th align="center">Achievement</Th>
-            <Th align="right">Balance</Th>
-            <Th align="right">MOM</Th>
-            <Th align="right">YTD Rev</Th>
+            <Th align="right">Gross Profit</Th>
           </Thead>
           <tbody>
             {principals.map((p) => (
-              <tr key={p.name} className={principal?.name === p.name ? "bg-accent-blue-soft" : ""}>
-                <Td>{p.name}</Td>
-                <Td align="right">{formatCompact(p.mtdRev)}</Td>
-                <Td align="right">{formatCompact(p.mtdTarget)}</Td>
+              <tr key={p.principalKey} className={selectedPrincipalKey === p.principalKey ? "bg-accent-blue-soft" : ""}>
+                <Td>{p.principal}</Td>
+                <Td align="right">{formatCompact(p.revenue)}</Td>
+                <Td align="right">{p.target !== null ? formatCompact(p.target) : "N/A"}</Td>
                 <Td align="center">
-                  <AchievementBadge pct={p.achMTD} />
+                  <AchievementBadge pct={p.achievementPct} />
                 </Td>
-                <Td align="right">
-                  <SignedCompact value={p.balMonth} />
-                </Td>
-                <Td align="right">
-                  <TrendPercent value={p.mom} />
-                </Td>
-                <Td align="right">{formatCompact(p.ytdRev)}</Td>
+                <Td align="right">{formatCompact(p.grossProfit)}</Td>
               </tr>
             ))}
             <TotalRow>
               <Td>Total</Td>
-              <Td align="right">{formatCompact(dataset.totals.mtdRev)}</Td>
-              <Td align="right">{formatCompact(dataset.totals.mtdTarget)}</Td>
+              <Td align="right">{formatCompact(currentSummary.revenue)}</Td>
+              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.target) : "N/A"}</Td>
               <Td align="center">
-                <AchievementBadge pct={dataset.totals.achMTD} />
+                <AchievementBadge pct={currentSummary.achievementPct} />
               </Td>
-              <Td align="right">
-                <SignedCompact value={dataset.totals.balMonth} />
-              </Td>
-              <Td align="right">
-                <TrendPercent value={dataset.totals.mom} />
-              </Td>
-              <Td align="right">{formatCompact(dataset.totals.ytdRev)}</Td>
+              <Td align="right">{formatCompact(currentSummary.grossProfit)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>

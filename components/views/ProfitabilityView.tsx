@@ -8,76 +8,82 @@ import { Badge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatPercent, marginTier, tierBarColor } from "@/lib/format";
-import { principalsByMtdRevDesc } from "@/lib/selectors";
+import { principalsByRevenueDesc } from "@/lib/selectors";
+import { summarizeSalesForPeriod } from "@/lib/timeIntelligence";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 const MARGIN_LABEL = { good: "Healthy", warn: "Moderate", bad: "Thin", neutral: "N/A" } as const;
 
-export function ProfitabilityView({ dataset, principal }: ViewProps) {
-  const principals = principalsByMtdRevDesc(dataset);
+export function ProfitabilityView({ dataset, selectedPrincipalKey, period }: ViewProps) {
+  const principals = principalsByRevenueDesc(dataset, period);
+  const selected = principals.find((p) => p.principalKey === selectedPrincipalKey) ?? null;
+  const portfolio = summarizeSalesForPeriod(dataset, period, null);
 
-  const withMargin = dataset.principals.filter((p) => p.grossMarginPct !== null);
+  const withMargin = principals.filter((p) => p.grossMarginPct !== null);
   const highest = [...withMargin].sort((a, b) => (b.grossMarginPct ?? 0) - (a.grossMarginPct ?? 0))[0];
   const lowest = [...withMargin].sort((a, b) => (a.grossMarginPct ?? 0) - (b.grossMarginPct ?? 0))[0];
-  const portfolioAvgMargin = dataset.totals.grossMarginPct;
 
-  const tier = marginTier(principal ? principal.grossMarginPct : dataset.totals.grossMarginPct);
+  const tier = marginTier(selected ? selected.grossMarginPct : portfolio.grossMarginPct);
 
-  const chartData = principal
+  const chartData = selected
     ? [
-        { name: principal.name.split("-")[0], value: principal.grossMarginPct ?? 0, fill: tierBarColor[marginTier(principal.grossMarginPct)] },
-        { name: "Portfolio Avg", value: portfolioAvgMargin ?? 0, fill: "var(--accent-grey)" },
+        { name: selected.principal.split("-")[0], value: selected.grossMarginPct ?? 0, fill: tierBarColor[marginTier(selected.grossMarginPct)] },
+        { name: "Portfolio Avg", value: portfolio.grossMarginPct ?? 0, fill: "var(--accent-grey)" },
       ]
-    : principals.map((p) => ({ name: p.name.split("-")[0], value: p.grossMarginPct ?? 0, fill: tierBarColor[marginTier(p.grossMarginPct)] }));
+    : principals.map((p) => ({ name: p.principal.split("-")[0], value: p.grossMarginPct ?? 0, fill: tierBarColor[marginTier(p.grossMarginPct)] }));
 
   return (
     <div className="flex flex-col gap-6">
       <KpiGrid>
-        {principal ? (
+        {selected ? (
           <>
-            <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={principal.grossProfit} format={formatCompact} />} />
+            <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={selected.grossProfit} format={formatCompact} />} />
             <KpiCard
               accent="quarter"
               label="Gross Margin %"
-              value={principal.grossMarginPct !== null ? <AnimatedValue value={principal.grossMarginPct} format={formatPercent} /> : "N/A"}
+              value={selected.grossMarginPct !== null ? <AnimatedValue value={selected.grossMarginPct} format={formatPercent} /> : "N/A"}
             />
-            <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={principal.ytdRev} format={formatCompact} />} />
+            <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={<AnimatedValue value={selected.revenue} format={formatCompact} />} />
             <KpiCard accent="quarter" size="md" label="Margin Tier" value={MARGIN_LABEL[tier]} />
             <KpiCard
               accent="growth"
               label="Vs Portfolio Avg"
-              value={portfolioAvgMargin !== null && principal.grossMarginPct !== null ? `${(principal.grossMarginPct - portfolioAvgMargin).toFixed(1)}pp` : "—"}
+              value={
+                portfolio.grossMarginPct !== null && selected.grossMarginPct !== null
+                  ? `${(selected.grossMarginPct - portfolio.grossMarginPct).toFixed(1)}pp`
+                  : "—"
+              }
             />
           </>
         ) : (
           <>
-            <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={dataset.totals.grossProfit} format={formatCompact} />} />
+            <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={portfolio.grossProfit} format={formatCompact} />} />
             <KpiCard
               accent="quarter"
               label="Gross Margin %"
-              value={dataset.totals.grossMarginPct !== null ? <AnimatedValue value={dataset.totals.grossMarginPct} format={formatPercent} /> : "N/A"}
+              value={portfolio.grossMarginPct !== null ? <AnimatedValue value={portfolio.grossMarginPct} format={formatPercent} /> : "N/A"}
             />
-            <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={dataset.totals.ytdRev} format={formatCompact} />} />
+            <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={<AnimatedValue value={portfolio.revenue} format={formatCompact} />} />
             <KpiCard accent="quarter" size="md" label="Margin Tier" value={MARGIN_LABEL[tier]} />
             <KpiCard
               accent="quarter"
               size="md"
               label="Highest Margin"
-              value={highest?.name.split("-")[0] ?? "—"}
+              value={highest?.principal.split("-")[0] ?? "—"}
               sublabel={highest?.grossMarginPct !== undefined ? `${highest?.grossMarginPct?.toFixed(1)}%` : undefined}
             />
             <KpiCard
               accent="growth"
               size="md"
               label="Lowest Margin"
-              value={lowest?.name.split("-")[0] ?? "—"}
+              value={lowest?.principal.split("-")[0] ?? "—"}
               sublabel={lowest?.grossMarginPct !== undefined ? `${lowest?.grossMarginPct?.toFixed(1)}%` : undefined}
             />
           </>
         )}
       </KpiGrid>
 
-      <SectionCard title={principal ? `${principal.name} vs Portfolio Average Margin` : "Gross Margin % by Principal"}>
+      <SectionCard title={selected ? `${selected.principal} vs Portfolio Average Margin` : "Gross Margin % by Principal"}>
         <ResponsiveContainer width="100%" height={340}>
           <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
@@ -99,34 +105,31 @@ export function ProfitabilityView({ dataset, principal }: ViewProps) {
         <TableWrap>
           <Thead>
             <Th>Principal</Th>
+            <Th align="right">Revenue</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="center">Margin %</Th>
-            <Th align="right">YTD Revenue</Th>
-            <Th align="right">Avg Monthly Sales</Th>
           </Thead>
           <tbody>
-            {(principal ? [principal] : principals).map((p) => (
-              <tr key={p.name} className={principal?.name === p.name ? "bg-accent-blue-soft" : ""}>
-                <Td>{p.name}</Td>
+            {(selected ? [selected] : principals).map((p) => (
+              <tr key={p.principalKey} className={selectedPrincipalKey === p.principalKey ? "bg-accent-blue-soft" : ""}>
+                <Td>{p.principal}</Td>
+                <Td align="right">{formatCompact(p.revenue)}</Td>
                 <Td align="right">{formatCompact(p.grossProfit)}</Td>
                 <Td align="center">
                   <Badge tier={marginTier(p.grossMarginPct)}>{p.grossMarginPct !== null ? `${p.grossMarginPct.toFixed(1)}%` : "N/A"}</Badge>
                 </Td>
-                <Td align="right">{formatCompact(p.ytdRev)}</Td>
-                <Td align="right">{formatCompact(p.avgSales)}</Td>
               </tr>
             ))}
-            {!principal ? (
+            {!selected ? (
               <TotalRow>
                 <Td>Total</Td>
-                <Td align="right">{formatCompact(dataset.totals.grossProfit)}</Td>
+                <Td align="right">{formatCompact(portfolio.revenue)}</Td>
+                <Td align="right">{formatCompact(portfolio.grossProfit)}</Td>
                 <Td align="center">
-                  <Badge tier={marginTier(dataset.totals.grossMarginPct)}>
-                    {dataset.totals.grossMarginPct !== null ? `${dataset.totals.grossMarginPct.toFixed(1)}%` : "N/A"}
+                  <Badge tier={marginTier(portfolio.grossMarginPct)}>
+                    {portfolio.grossMarginPct !== null ? `${portfolio.grossMarginPct.toFixed(1)}%` : "N/A"}
                   </Badge>
                 </Td>
-                <Td align="right">{formatCompact(dataset.totals.ytdRev)}</Td>
-                <Td align="right">{formatCompact(dataset.totals.avgSales)}</Td>
               </TotalRow>
             ) : null}
           </tbody>
