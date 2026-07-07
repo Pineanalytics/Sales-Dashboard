@@ -123,7 +123,15 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
           label={`${periodLabel} Target`}
           value={currentSummary.target !== null ? <AnimatedValue value={currentSummary.target} format={formatCompact} /> : "N/A"}
         />
-        <KpiCard accent="mission" label="Achievement" value={<AchievementGauge pct={currentSummary.achievementPct} />} />
+        <KpiCard
+          accent="mission"
+          label="Achievement"
+          value={
+            <div className="flex w-full justify-center">
+              <AchievementGauge pct={currentSummary.achievementPct} size={72} />
+            </div>
+          }
+        />
         <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
         {hasUserSelectedPeriod ? (
           <KpiCard

@@ -10,7 +10,8 @@ interface AchievementGaugeProps {
 
 /** Circular progress ring with an animated fill and a bold center percentage — used for achievement-style KPIs. */
 export function AchievementGauge({ pct, size = 48 }: AchievementGaugeProps) {
-  const strokeWidth = 5;
+  const strokeWidth = Math.min(8, Math.max(4, Math.round(size / 9)));
+  const fontSize = Math.max(11, Math.round(size * 0.22));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const tier = achievementTier(pct);
@@ -43,7 +44,7 @@ export function AchievementGauge({ pct, size = 48 }: AchievementGaugeProps) {
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-xs font-bold tabular-nums" style={{ color }}>
+        <span className="font-bold tabular-nums" style={{ color, fontSize }}>
           {pct === null ? "N/T" : `${pct.toFixed(0)}%`}
         </span>
       </div>

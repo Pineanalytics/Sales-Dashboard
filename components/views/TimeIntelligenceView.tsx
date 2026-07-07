@@ -65,7 +65,16 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
           label={`${period.kind} Target`}
           value={currentSummary.target !== null ? <AnimatedValue value={currentSummary.target} format={formatCompact} /> : "N/A"}
         />
-        <KpiCard accent="mission" label="Achievement" value={<AchievementGauge pct={currentSummary.achievementPct} />} size="md" />
+        <KpiCard
+          accent="mission"
+          label="Achievement"
+          size="md"
+          value={
+            <div className="flex w-full justify-center">
+              <AchievementGauge pct={currentSummary.achievementPct} size={72} />
+            </div>
+          }
+        />
         <KpiCard accent="quarter" label="Gross Margin" value={formatPercent(currentSummary.grossMarginPct)} size="md" />
         <KpiCard
           accent="growth"
