@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
+import Image from "next/image";
 import { auth, signIn } from "@/auth";
 
 export default async function LoginPage({
@@ -33,7 +34,8 @@ export default async function LoginPage({
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-navy to-primary-blue px-4">
       <div className="w-full max-w-sm rounded-2xl bg-surface p-8 shadow-[0_8px_24px_rgba(0,0,0,0.20)]">
-        <h1 className="text-2xl font-bold text-primary-blue">Sales Performance Dashboard</h1>
+        <Image src="/pinefrost-logo.png" alt="Pinefrost Limited" width={64} height={64} className="h-14 w-14 rounded-lg object-contain" />
+        <h1 className="mt-3 text-2xl font-bold text-primary-blue">Pinefrost Limited Performance Dashboard</h1>
         <p className="mt-1 text-sm text-muted">Sign in to view or manage sales reports.</p>
 
         <form action={login} className="mt-6 flex flex-col gap-4">

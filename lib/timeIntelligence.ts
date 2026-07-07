@@ -114,26 +114,25 @@ function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[]): Period
   let cogs = 0;
   let grossProfit = 0;
   let targetSum = 0;
-  let hasNullTarget = false;
-  const monthsWithTarget = new Set<string>();
+  let hasAnyTarget = false;
 
   for (const r of matched) {
     revenue += r.revenue;
     cogs += r.cogs;
     grossProfit += r.grossProfit;
-    if (r.target === null) {
-      hasNullTarget = true;
-    } else {
+    if (r.target !== null) {
       targetSum += r.target;
-      monthsWithTarget.add(rowKey(r.year, r.monthIndex));
+      hasAnyTarget = true;
     }
   }
 
-  // The period's target is only meaningful if every requested month is both present
-  // in the data AND has a non-null target — a partial sum must never masquerade as
-  // a complete one (this is the invariant the 2025-vs-2026 target split depends on).
-  const allMonthsHaveTarget = months.length > 0 && months.every((m) => monthsWithTarget.has(rowKey(m.year, m.monthIndex)));
-  const target = !hasNullTarget && allMonthsHaveTarget ? targetSum : null;
+  // Target is null only when there is truly zero target data anywhere in the
+  // matched rows (e.g. all of 2025) — the invariant that must never be broken is
+  // "never fabricate a number when there's no data at all." It deliberately does
+  // NOT go back to null just because one row among many (e.g. a single principal
+  // not yet targeted for a given month) lacks one; summing whatever targets exist
+  // is far more useful than blanking the whole period over one row's gap.
+  const target = hasAnyTarget ? targetSum : null;
 
   const grossMarginPct = revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
   const achievementPct = target !== null && target > 0 ? round1((revenue / target) * 100) : null;
@@ -185,6 +184,18 @@ export interface PeriodCoverageSummary {
   monthsIncluded: number;
 }
 
+/** The source sheet's SalesRole values are "Primary Sales"/"Secondary Sales" (plus
+ *  blank-employee "*Average" pivot rows already filtered out at parse time) — classify
+ *  by substring rather than exact match so casing/wording drift doesn't silently drop rows. */
+export type RoleCategory = "primary" | "secondary" | "other";
+
+export function classifyRole(salesRole: string): RoleCategory {
+  const lower = salesRole.toLowerCase();
+  if (lower.includes("primary")) return "primary";
+  if (lower.includes("secondary")) return "secondary";
+  return "other";
+}
+
 function summarizeCoverageRows(rows: MonthlyCoverageRow[], months: MonthRef[]): PeriodCoverageSummary {
   const keys = periodKeySet(months);
   const matched = rows.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
@@ -200,10 +211,13 @@ function summarizeCoverageRows(rows: MonthlyCoverageRow[], months: MonthRef[]): 
 export function summarizeCoverageForPeriod(
   dataset: Dataset,
   selection: PeriodSelection,
-  principalKey: string | null
+  principalKey: string | null,
+  roleCategory?: RoleCategory
 ): PeriodCoverageSummary {
   const months = resolvePeriodMonths(selection);
-  const rows = principalKey ? dataset.monthlyCoverage.filter((r) => r.principalKey === principalKey) : dataset.monthlyCoverage;
+  const rows = dataset.monthlyCoverage.filter(
+    (r) => (!principalKey || r.principalKey === principalKey) && (!roleCategory || classifyRole(r.salesRole) === roleCategory)
+  );
   return summarizeCoverageRows(rows, months);
 }
 
@@ -218,11 +232,15 @@ export interface RepCoverageSummary {
 export function summarizeCoverageByRep(
   dataset: Dataset,
   selection: PeriodSelection,
-  principalKey: string | null
+  principalKey: string | null,
+  roleCategory?: RoleCategory
 ): RepCoverageSummary[] {
   const keys = periodKeySet(resolvePeriodMonths(selection));
   const filtered = dataset.monthlyCoverage.filter(
-    (r) => keys.has(rowKey(r.year, r.monthIndex)) && (!principalKey || r.principalKey === principalKey)
+    (r) =>
+      keys.has(rowKey(r.year, r.monthIndex)) &&
+      (!principalKey || r.principalKey === principalKey) &&
+      (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
 
   const byRep = new Map<string, { employeeName: string; salesRole: string; coverage: number; productiveCalls: number }>();
@@ -244,6 +262,41 @@ export function summarizeCoverageByRep(
   return Array.from(byRep.values()).map((r) => ({
     ...r,
     productivityPct: r.coverage > 0 ? round1((r.productiveCalls / r.coverage) * 100) : 0,
+  }));
+}
+
+export interface RepPrincipalCoverageSummary {
+  principal: string;
+  principalKey: string;
+  coverage: number;
+  productiveCalls: number;
+  productivityPct: number;
+}
+
+/** One rep's coverage broken down by principal, ignoring any principal-filter scope —
+ *  used to answer "how is this specific rep doing across every brand they serve." */
+export function summarizeCoverageByRepAcrossPrincipals(
+  dataset: Dataset,
+  selection: PeriodSelection,
+  employeeName: string
+): RepPrincipalCoverageSummary[] {
+  const keys = periodKeySet(resolvePeriodMonths(selection));
+  const filtered = dataset.monthlyCoverage.filter((r) => keys.has(rowKey(r.year, r.monthIndex)) && r.employeeName === employeeName);
+
+  const byPrincipal = new Map<string, { principal: string; principalKey: string; coverage: number; productiveCalls: number }>();
+  for (const r of filtered) {
+    const existing = byPrincipal.get(r.principalKey);
+    if (existing) {
+      existing.coverage += r.coverage;
+      existing.productiveCalls += r.productiveCalls;
+    } else {
+      byPrincipal.set(r.principalKey, { principal: r.principal, principalKey: r.principalKey, coverage: r.coverage, productiveCalls: r.productiveCalls });
+    }
+  }
+
+  return Array.from(byPrincipal.values()).map((p) => ({
+    ...p,
+    productivityPct: p.coverage > 0 ? round1((p.productiveCalls / p.coverage) * 100) : 0,
   }));
 }
 

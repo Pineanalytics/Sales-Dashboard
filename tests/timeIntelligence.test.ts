@@ -153,33 +153,37 @@ describe("summarizeSalesForPeriod — the null-target invariant", () => {
     expect(summary.revenue).toBe(100000);
   });
 
-  it("returns target=null when ANY covered month has a null target — never a partial sum", () => {
+  it("returns target=null only when there is zero target data anywhere in the match — a single missing row doesn't poison the rest", () => {
     const dataset = buildDataset({
       monthlySales: [
         salesRow({ year: "2025", month: "May", monthIndex: 4, revenue: 50000, target: null }),
         salesRow({ year: "2026", month: "January", monthIndex: 0, revenue: 60000, target: 55000 }),
-        salesRow({ year: "2026", month: "February", monthIndex: 1, revenue: 65000, target: 58000 }),
+        // February has two principals; one lacks a target (e.g. not yet targeted) —
+        // this must NOT null out the whole period, unlike the old stricter behavior.
+        salesRow({ principal: "EABL-Nyeri", principalKey: "eabl", year: "2026", month: "February", monthIndex: 1, revenue: 65000, target: 58000 }),
+        salesRow({ principal: "Upfield-Nairobi", principalKey: "upfield", year: "2026", month: "February", monthIndex: 1, revenue: 20000, target: null }),
       ],
     });
-    // YTD through Feb 2026 = Jan+Feb, both have targets -> should resolve
-    const cleanYtd = summarizeSalesForPeriod(dataset, { kind: "YTD", year: "2026", month: "February" }, null);
-    expect(cleanYtd.target).toBe(55000 + 58000);
-    expect(cleanYtd.revenue).toBe(60000 + 65000);
+    const ytd = summarizeSalesForPeriod(dataset, { kind: "YTD", year: "2026", month: "February" }, null);
+    expect(ytd.target).toBe(55000 + 58000); // Upfield's null row contributes 0, not a full null
+    expect(ytd.revenue).toBe(60000 + 65000 + 20000); // revenue still includes the untargeted row
 
-    // A 2025 month always has target null
+    // A 2025 month has zero target data at all -> genuinely null.
     const y2025 = summarizeSalesForPeriod(dataset, { kind: "MTD", year: "2025", month: "May" }, null);
     expect(y2025.target).toBeNull();
     expect(y2025.revenue).toBe(50000); // revenue is still reported even without a target
   });
 
-  it("returns target=null when a requested month has no data at all (not just a null target)", () => {
+  it("sums whatever target data exists even when a requested month has no rows at all", () => {
     const dataset = buildDataset({
       monthlySales: [salesRow({ year: "2026", month: "March", monthIndex: 2, revenue: 10000, target: 9000 })],
     });
-    // YTD through March asks for Jan+Feb+Mar; Jan/Feb have no rows at all.
+    // YTD through March asks for Jan+Feb+Mar; Jan/Feb have no rows at all, but March
+    // does — a partial sum from the months we have is more useful than "N/A".
     const summary = summarizeSalesForPeriod(dataset, { kind: "YTD", year: "2026", month: "March" }, null);
-    expect(summary.target).toBeNull();
+    expect(summary.target).toBe(9000);
     expect(summary.revenue).toBe(10000); // revenue only sums rows that actually exist
+    expect(summary.monthsIncluded).toBe(1); // signals only 1 of 3 requested months had data
   });
 
   it("computes achievementPct and grossMarginPct only when their denominators are positive", () => {

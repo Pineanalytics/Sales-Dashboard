@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { Session } from "next-auth";
+import Image from "next/image";
 import {
   Navigation20Regular,
   ArrowUpload20Regular,
@@ -10,6 +11,7 @@ import {
   PersonCircle20Regular,
   SignOut20Regular,
   Shield20Regular,
+  Broom20Regular,
 } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { Spinner } from "@/components/ui/Spinner";
@@ -40,10 +42,13 @@ export function Header({ user }: { user: Session["user"] | null }) {
   const error = useDashboardStore((s) => s.error);
   const history = useDashboardStore((s) => s.history);
   const period = useDashboardStore((s) => s.selectedPeriod);
+  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
+  const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const uploadFile = useDashboardStore((s) => s.uploadFile);
   const fetchHistory = useDashboardStore((s) => s.fetchHistory);
   const fetchSnapshot = useDashboardStore((s) => s.fetchSnapshot);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
+  const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
 
   const salesSummary = dataset ? summarizeSalesForPeriod(dataset, period, null) : null;
   const coverageSummary = dataset ? summarizeCoverageForPeriod(dataset, period, null) : null;
@@ -84,15 +89,24 @@ export function Header({ user }: { user: Session["user"] | null }) {
             <Navigation20Regular />
           </button>
 
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[26px] md:text-[34px] font-bold text-white leading-tight truncate">
-              {dataset?.reportMeta.title || "Sales Performance Dashboard"}
-            </h1>
-            <p className="text-sm text-white/70 truncate mt-1">
-              {dataset
-                ? `Uploaded ${new Date(dataset.uploadedAt).toLocaleString()}`
-                : "Kenya distributor sales analytics by principal"}
-            </p>
+          <div className="min-w-0 flex-1 flex items-center gap-3">
+            <Image
+              src="/pinefrost-logo.png"
+              alt="Pinefrost Limited"
+              width={48}
+              height={48}
+              className="hidden sm:block h-10 w-10 md:h-12 md:w-12 shrink-0 rounded-lg object-contain"
+            />
+            <div className="min-w-0">
+              <h1 className="text-[22px] md:text-[30px] font-bold text-white leading-tight truncate">
+                Pinefrost Limited Performance Dashboard
+              </h1>
+              <p className="text-sm text-white/70 truncate mt-1">
+                {dataset
+                  ? `${dataset.reportMeta.title} — Uploaded ${new Date(dataset.uploadedAt).toLocaleString()}`
+                  : "Kenya distributor sales analytics by principal"}
+              </p>
+            </div>
           </div>
 
           <div className="relative shrink-0">
@@ -191,7 +205,16 @@ export function Header({ user }: { user: Session["user"] | null }) {
 
         {dataset ? (
           <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <PeriodSelector />
+            <div className="flex flex-wrap items-center gap-2">
+              <PeriodSelector />
+              <button
+                onClick={clearAllFilters}
+                disabled={!selectedPrincipalKey && !hasUserSelectedPeriod}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
+              >
+                <Broom20Regular className="h-3.5 w-3.5" /> Clear All
+              </button>
+            </div>
             <div className="hidden lg:flex items-center gap-2">
               {salesSummary?.achievementPct !== null && salesSummary?.achievementPct !== undefined ? (
                 <HeroBadge tier={salesSummary.achievementPct >= 100 ? "good" : salesSummary.achievementPct >= 60 ? "warn" : "bad"}>

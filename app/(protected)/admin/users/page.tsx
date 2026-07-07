@@ -26,7 +26,7 @@ export default async function AdminUsersPage({
           ← Back to dashboard
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Manage Users</h1>
-        <p className="mt-1 text-sm text-white/70">Create admin or viewer accounts for the Sales Performance Dashboard.</p>
+        <p className="mt-1 text-sm text-white/70">Create admin or viewer accounts for the Pinefrost Limited Performance Dashboard.</p>
       </div>
 
       <div className="max-w-4xl mx-auto p-4 md:p-8 flex flex-col gap-6">

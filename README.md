@@ -1,4 +1,4 @@
-# Sales Performance Dashboard
+# Pinefrost Limited Performance Dashboard
 
 A production-grade Next.js dashboard for a Kenya-based distributor to track principal (brand/supplier) sales performance — revenue vs. target, rep performance, coverage & productivity, customer/brand mix, profitability, and stock — sourced from a monthly Excel export carrying a full **monthly time series** (not just a single "current" snapshot). A global period selector lets any view be read for MTD, a specific past month, QTD, YTD, a full quarter (Q1–Q4), or a full half (H1/H2). Includes role-based accounts: **admins** upload the monthly workbook, **viewers** get read-only access to the processed report.
 

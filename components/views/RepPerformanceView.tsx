@@ -40,6 +40,7 @@ export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: Vi
   const topProductivityRep = [...merged].sort((a, b) => b.productivityPct - a.productivityPct)[0] ?? null;
 
   const revenueChartData = merged.slice(0, 10).map((r) => ({ name: r.employeeName, value: r.revenue }));
+  const topProductivityReps = [...merged].sort((a, b) => b.productivityPct - a.productivityPct).slice(0, 15);
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,10 +77,10 @@ export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: Vi
           </ResponsiveContainer>
         </SectionCard>
 
-        <SectionCard title="Productivity % by Rep">
+        <SectionCard title={`Productivity % by Rep (top ${topProductivityReps.length})`}>
           <ResponsiveContainer width="100%" height={340}>
             <BarChart
-              data={merged.map((r) => ({ name: r.employeeName, value: r.productivityPct }))}
+              data={topProductivityReps.map((r) => ({ name: r.employeeName, value: r.productivityPct }))}
               margin={{ top: 8, right: 8, left: 0, bottom: 32 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e4e8ef" vertical={false} />
@@ -87,7 +88,7 @@ export function RepPerformanceView({ dataset, selectedPrincipalKey, period }: Vi
               <YAxis fontSize={11} />
               <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                {merged.map((r, i) => (
+                {topProductivityReps.map((r, i) => (
                   <Cell key={i} fill={tierBarColor[productivityTier(r.productivityPct)]} />
                 ))}
               </Bar>

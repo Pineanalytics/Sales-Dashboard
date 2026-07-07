@@ -31,6 +31,11 @@ interface DashboardState {
   view: ViewKey;
   selectedPrincipalKey: string | null; // normalized brand key, or null for "All Principals"
   selectedPeriod: PeriodSelection;
+  // True once the user has actively touched the period slicer. While false, Overview
+  // shows a broad YTD/H1/H2 summary instead of a single narrow period — matching "my
+  // pivots have all-month performance but the scheduler only factors the slicer I've
+  // selected" from the original ask: land on the general picture, not a default MTD sliver.
+  hasUserSelectedPeriod: boolean;
   sidebarOpen: boolean;
   history: DatasetSnapshotSummary[];
 
@@ -38,6 +43,7 @@ interface DashboardState {
   setView: (view: ViewKey) => void;
   selectPrincipal: (key: string | null) => void;
   setPeriod: (period: PeriodSelection) => void;
+  clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
 
   fetchLatest: () => Promise<void>;
@@ -55,6 +61,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   view: "overview",
   selectedPrincipalKey: null,
   selectedPeriod: EMPTY_PERIOD,
+  hasUserSelectedPeriod: false,
   sidebarOpen: false,
   history: [],
 
@@ -64,10 +71,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       status: "idle",
       error: null,
       selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
+      hasUserSelectedPeriod: false,
     }),
   setView: (view) => set({ view }),
   selectPrincipal: (key) => set({ selectedPrincipalKey: key }),
-  setPeriod: (period) => set({ selectedPeriod: period }),
+  setPeriod: (period) => set({ selectedPeriod: period, hasUserSelectedPeriod: true }),
+  clearAllFilters: () => {
+    const { dataset } = get();
+    set({
+      selectedPrincipalKey: null,
+      selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
+      hasUserSelectedPeriod: false,
+    });
+  },
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
   fetchLatest: async () => {
@@ -77,7 +93,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load dataset.");
       const dataset: Dataset = body.dataset;
-      set({ dataset, status: "idle", selectedPeriod: getDefaultPeriod(dataset) });
+      set({ dataset, status: "idle", selectedPeriod: getDefaultPeriod(dataset), hasUserSelectedPeriod: false });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load dataset." });
     }
@@ -90,7 +106,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load snapshot.");
       const dataset: Dataset = body.dataset;
-      set({ dataset, status: "idle", selectedPrincipalKey: null, selectedPeriod: getDefaultPeriod(dataset) });
+      set({
+        dataset,
+        status: "idle",
+        selectedPrincipalKey: null,
+        selectedPeriod: getDefaultPeriod(dataset),
+        hasUserSelectedPeriod: false,
+      });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load snapshot." });
     }
@@ -124,6 +146,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         error: null,
         selectedPrincipalKey: null,
         selectedPeriod: getDefaultPeriod(dataset),
+        hasUserSelectedPeriod: false,
       });
       get().fetchHistory();
       return { ok: true };

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sales Performance Dashboard",
+  title: "Pinefrost Limited Performance Dashboard",
   description: "Kenya distributor sales analytics — revenue, coverage, profitability, stock and forecasts by principal.",
 };
 

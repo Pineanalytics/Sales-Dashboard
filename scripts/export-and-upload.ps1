@@ -9,7 +9,12 @@
        session you may already have the source workbook open in) and refreshes all
        Power Query connections and pivot tables.
     2. Copies the used range of 5 source sheets as values into a new workbook,
-       renamed to the exact sheet names the app's parser expects.
+       renamed to the exact sheet names the app's parser expects. Brand&Customer
+       Listing is the exception: it's still transaction-line grain in the source
+       pivot (~100k rows), so this script collapses it here to one row per
+       Year+Month+Principal+Sales Employee+Customer (summing Volume/Revenue/GP)
+       before writing it out - otherwise the exported file is big enough to trip
+       Netlify Functions' request payload limit and the upload fails outright.
     3. Saves that workbook to -OutputPath.
     4. POSTs it to <AppUrl>/api/upload with the x-upload-api-key header.
 
@@ -76,6 +81,98 @@ function Wait-QueriesDone {
         Start-Sleep -Seconds 2
     }
     throw "Timed out after $TimeoutSeconds seconds waiting for query refresh to finish."
+}
+
+function ConvertTo-SafeDouble {
+    param($Value)
+    if ($null -eq $Value) { return 0.0 }
+    try { return [double]$Value } catch { return 0.0 }
+}
+
+# Collapses the Brand&Customer sheet to one row per Year+Month+Principal+Sales
+# Employee+Customer (summing Volume/Revenue/GP), mirroring the same grouping the
+# app's parser does server-side. Reads the whole UsedRange via .Value2 (one COM
+# call) rather than cell-by-cell, since the source is ~100k rows.
+function Export-BrandCustomerAggregated {
+    param($SrcSheet, $DestWb, [string]$TargetName)
+
+    $data = $SrcSheet.UsedRange.Value2
+    $rowCount = $data.GetLength(0)
+    $colCount = $data.GetLength(1)
+
+    $headerRowIdx = -1
+    for ($r = 1; $r -le [Math]::Min($rowCount, 10); $r++) {
+        if ("$($data[$r,1])".Trim() -eq "Year") { $headerRowIdx = $r; break }
+    }
+    if ($headerRowIdx -lt 0) {
+        throw "Could not find a header row starting with 'Year' in $($SrcSheet.Name)."
+    }
+
+    $headerIndex = @{}
+    for ($c = 1; $c -le $colCount; $c++) {
+        $h = "$($data[$headerRowIdx, $c])".Trim()
+        if ($h) { $headerIndex[$h] = $c }
+    }
+    foreach ($req in @("Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")) {
+        if (-not $headerIndex.ContainsKey($req)) {
+            throw "Sheet '$($SrcSheet.Name)' is missing expected column '$req'."
+        }
+    }
+
+    $agg = [ordered]@{}
+    for ($r = $headerRowIdx + 1; $r -le $rowCount; $r++) {
+        $year = "$($data[$r, $headerIndex['Year']])".Trim()
+        $month = "$($data[$r, $headerIndex['Month Name']])".Trim()
+        $customer = "$($data[$r, $headerIndex['Customer Name']])".Trim()
+        if (-not $year -or -not $month -or -not $customer) { continue }
+        if ($customer.ToLower().Contains("total")) { continue }
+
+        $principal = "$($data[$r, $headerIndex['Principal']])".Trim()
+        $rep = "$($data[$r, $headerIndex['Sales Employee']])".Trim()
+        $key = "$year|$month|$principal|$rep|$customer"
+
+        $volume = ConvertTo-SafeDouble $data[$r, $headerIndex['Volume']]
+        $revenue = ConvertTo-SafeDouble $data[$r, $headerIndex['Revenue']]
+        $gp = ConvertTo-SafeDouble $data[$r, $headerIndex['GP']]
+
+        if ($agg.Contains($key)) {
+            $row = $agg[$key]
+            $row.Volume += $volume
+            $row.Revenue += $revenue
+            $row.GP += $gp
+        } else {
+            $agg[$key] = [PSCustomObject]@{
+                Year = $year; Month = $month; Principal = $principal; Rep = $rep; Customer = $customer
+                Volume = $volume; Revenue = $revenue; GP = $gp
+            }
+        }
+    }
+
+    $header = @("Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")
+    $rows = @($agg.Values)
+    $out = New-Object 'object[,]' ($rows.Count + 1), $header.Count
+    for ($c = 0; $c -lt $header.Count; $c++) { $out[0, $c] = $header[$c] }
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $row = $rows[$i]
+        # PowerShell's multidim-array indexer parses `$i + 1, 0` ambiguously with
+        # the comma operator - compute the row index into its own variable first.
+        $ri = $i + 1
+        $out[$ri, 0] = $row.Year
+        $out[$ri, 1] = $row.Month
+        $out[$ri, 2] = $row.Principal
+        $out[$ri, 3] = $row.Rep
+        $out[$ri, 4] = $row.Customer
+        $out[$ri, 5] = $row.Volume
+        $out[$ri, 6] = $row.Revenue
+        $out[$ri, 7] = $row.GP
+    }
+
+    $newSheet = $DestWb.Worksheets.Add()
+    $newSheet.Name = $TargetName
+    $endCell = $newSheet.Cells($rows.Count + 1, $header.Count)
+    $newSheet.Range($newSheet.Cells(1, 1), $endCell).Value2 = $out
+
+    Write-Log "  Brand&Customer Listing -> $TargetName (collapsed $($rowCount - $headerRowIdx) raw rows to $($rows.Count))"
 }
 
 function Invoke-MultipartUpload {
@@ -164,8 +261,14 @@ try {
 
     foreach ($sourceName in $SheetMap.Keys) {
         $targetName = $SheetMap[$sourceName]
-        Write-Log "  $sourceName -> $targetName"
         $srcSheet = $srcWb.Worksheets.Item($sourceName)
+
+        if ($sourceName -eq "Brand&Customer Listing") {
+            Export-BrandCustomerAggregated -SrcSheet $srcSheet -DestWb $destWb -TargetName $targetName
+            continue
+        }
+
+        Write-Log "  $sourceName -> $targetName"
         $srcSheet.UsedRange.Copy() | Out-Null
 
         $newSheet = $destWb.Worksheets.Add()

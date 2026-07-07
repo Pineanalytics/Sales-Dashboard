@@ -9,6 +9,7 @@ import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { InsightsPanel } from "@/components/ui/InsightsPanel";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
+import { useDashboardStore } from "@/lib/store";
 import { formatCompact, formatNumber, achievementTier, tierBarColor } from "@/lib/format";
 import { principalsByRevenueDesc, summarizeTargets } from "@/lib/selectors";
 import { generatePortfolioInsights, generatePrincipalInsights } from "@/lib/insights";
@@ -22,17 +23,27 @@ import {
 } from "@/components/charts/theme";
 
 export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProps) {
-  const principals = principalsByRevenueDesc(dataset, period);
+  const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
+
+  // Land on a broad "how are we doing" picture (YTD) rather than a narrow default MTD
+  // sliver — the single-period selector only drives everything below once the user
+  // has actually touched it.
+  const effectivePeriod: PeriodSelection = hasUserSelectedPeriod
+    ? period
+    : { kind: "YTD", year: period.year, month: period.month };
+
+  const principals = principalsByRevenueDesc(dataset, effectivePeriod);
   const summary = summarizeTargets(principals);
   const insights = selectedPrincipalKey
-    ? generatePrincipalInsights(dataset, period, selectedPrincipalKey)
-    : generatePortfolioInsights(dataset, period);
+    ? generatePrincipalInsights(dataset, effectivePeriod, selectedPrincipalKey)
+    : generatePortfolioInsights(dataset, effectivePeriod);
 
   const selected = principals.find((p) => p.principalKey === selectedPrincipalKey) ?? null;
-  const currentSummary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
+  const currentSummary = summarizeSalesForPeriod(dataset, effectivePeriod, selectedPrincipalKey);
 
-  const ytdPeriod: PeriodSelection = { kind: "YTD", year: period.year, month: period.month };
-  const ytdSummary = summarizeSalesForPeriod(dataset, ytdPeriod, selectedPrincipalKey);
+  const h1Summary = summarizeSalesForPeriod(dataset, { kind: "H1", year: period.year }, selectedPrincipalKey);
+  const h2Summary = summarizeSalesForPeriod(dataset, { kind: "H2", year: period.year }, selectedPrincipalKey);
+  const ytdSummary = summarizeSalesForPeriod(dataset, { kind: "YTD", year: period.year, month: period.month }, selectedPrincipalKey);
 
   const weeklyRows = weeklyRowsFor(dataset, selectedPrincipalKey);
   const weekly = aggregateWeekly(weeklyRows);
@@ -50,11 +61,40 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
         fill: tierBarColor[achievementTier(p.achievementPct)],
       }));
 
-  const periodMonths = resolvePeriodMonths(period);
-  const periodLabel = periodMonths.length > 1 ? `${period.kind} ${period.year}` : `${period.month ?? ""} ${period.year}`.trim();
+  const periodMonths = resolvePeriodMonths(effectivePeriod);
+  const periodLabel = hasUserSelectedPeriod
+    ? periodMonths.length > 1
+      ? `${effectivePeriod.kind} ${effectivePeriod.year}`
+      : `${effectivePeriod.month ?? ""} ${effectivePeriod.year}`.trim()
+    : `YTD ${effectivePeriod.year}`;
 
   return (
     <div className="flex flex-col gap-6">
+      {!hasUserSelectedPeriod ? (
+        <SectionCard title="General Performance">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(
+              [
+                { label: "YTD", s: currentSummary },
+                { label: "H1", s: h1Summary },
+                { label: "H2", s: h2Summary },
+              ] as const
+            ).map(({ label, s }) => (
+              <div key={label} className="rounded-xl border border-border p-4 flex flex-col gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  {label} {period.year}
+                </span>
+                <span className="text-2xl font-semibold tabular-nums text-foreground">{formatCompact(s.revenue)}</span>
+                <div className="flex items-center justify-between text-xs text-muted-strong">
+                  <span>Target: {s.target !== null ? formatCompact(s.target) : "N/A"}</span>
+                  <AchievementBadge pct={s.achievementPct} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-surface p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
         <Badge tier="good">{summary.onTarget} on target</Badge>
         <Badge tier="warn">{summary.atRisk} at risk</Badge>
@@ -85,7 +125,13 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
         />
         <KpiCard accent="mission" label="Achievement" value={<AchievementGauge pct={currentSummary.achievementPct} />} />
         <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
-        <KpiCard accent="revenue" label="YTD Revenue" value={<AnimatedValue value={ytdSummary.revenue} format={formatCompact} />} />
+        {hasUserSelectedPeriod ? (
+          <KpiCard
+            accent="revenue"
+            label={`YTD ${period.year} Revenue`}
+            value={<AnimatedValue value={ytdSummary.revenue} format={formatCompact} />}
+          />
+        ) : null}
         <KpiCard accent="growth" label="Weekly Revenue" value={<AnimatedValue value={weekly.weeklyRevenue} format={formatCompact} />} />
       </KpiGrid>
 
