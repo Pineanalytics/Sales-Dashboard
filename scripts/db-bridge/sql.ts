@@ -43,6 +43,10 @@ export async function withConnection<T>(
     database: config.database,
     user: config.user,
     password: config.password,
+    // mssql's default requestTimeout (15s) is too short for YTD_Raw/Stock_Balance's
+    // full-year multi-branch UNION queries against production SAP data.
+    requestTimeout: 5 * 60 * 1000,
+    connectionTimeout: 30 * 1000,
     options: {
       encrypt: config.encrypt,
       trustServerCertificate: config.trustServerCertificate,

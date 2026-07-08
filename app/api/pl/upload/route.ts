@@ -1,10 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import type { PLLineType } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+// Serverless functions have a hard execution-time limit (Netlify: ~10-26s) — doing
+// one round-trip per row (as the original version did) takes minutes for a
+// thousand-plus-row P&L sync and gets killed mid-request, returning an HTML
+// timeout page instead of JSON. Batched raw-SQL upserts turn that into a handful
+// of round-trips. Chunk size stays comfortably under Postgres's parameter-count
+// limit (chunk * 11 params/row).
+const CHUNK_SIZE = 500;
+
+async function upsertChunk(rows: PLUploadRow[]) {
+  const values = rows.map(
+    (row) =>
+      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.principal}, ${row.accountCode}, ${row.accountName}, ${row.lineType}, ${row.amount}, now(), now())`
+  );
+
+  await prisma.$executeRaw`
+    INSERT INTO "PLEntry" (id, year, month, "monthIndex", principal, "accountCode", "accountName", "lineType", amount, "createdAt", "updatedAt")
+    VALUES ${Prisma.join(values)}
+    ON CONFLICT (year, month, principal, "accountCode", "lineType")
+    DO UPDATE SET
+      "monthIndex" = EXCLUDED."monthIndex",
+      "accountName" = EXCLUDED."accountName",
+      amount = EXCLUDED.amount,
+      "updatedAt" = now()
+  `;
+}
 
 const VALID_LINE_TYPES: PLLineType[] = ["REVENUE", "COGS", "EXPENSE", "OTHER_INCOME"];
 
@@ -75,31 +102,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    for (const row of rows as PLUploadRow[]) {
-      await prisma.pLEntry.upsert({
-        where: {
-          year_month_principal_accountCode_lineType: {
-            year: row.year,
-            month: row.month,
-            principal: row.principal,
-            accountCode: row.accountCode,
-            lineType: row.lineType,
-          },
-        },
-        update: { monthIndex: row.monthIndex, accountName: row.accountName, amount: row.amount },
-        create: {
-          year: row.year,
-          month: row.month,
-          monthIndex: row.monthIndex,
-          principal: row.principal,
-          accountCode: row.accountCode,
-          accountName: row.accountName,
-          lineType: row.lineType,
-          amount: row.amount,
-        },
-      });
+    const validRows = rows as PLUploadRow[];
+    for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
+      await upsertChunk(validRows.slice(i, i + CHUNK_SIZE));
     }
-    return NextResponse.json({ count: rows.length }, { status: 200 });
+    return NextResponse.json({ count: validRows.length }, { status: 200 });
   } catch (err) {
     console.error("Failed to upsert P&L rows", err);
     return NextResponse.json({ error: "Failed to save P&L data." }, { status: 500 });

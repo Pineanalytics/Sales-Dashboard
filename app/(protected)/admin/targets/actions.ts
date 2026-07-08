@@ -1,9 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { parseTargetsWorkbook, TargetsParseError } from "@/lib/parseTargets";
+import { parseTargetsWorkbook, TargetsParseError, type ParsedTargetRow } from "@/lib/parseTargets";
 
 async function requireAdmin() {
   const session = await auth();
@@ -11,6 +13,32 @@ async function requireAdmin() {
     redirect("/");
   }
   return session.user;
+}
+
+// Server actions run as Netlify functions with the same execution-time limit as API
+// routes — one round-trip per row (the original approach) risks timing out on a
+// large upload. Batched raw-SQL upsert turns N round-trips into a handful.
+const CHUNK_SIZE = 500;
+
+async function upsertTargetsChunk(rows: ParsedTargetRow[]) {
+  const values = rows.map(
+    (row) =>
+      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.principal}, ${row.mainPrincipal}, ${row.valueTarget}, ${row.volumeTarget}, ${row.coverageTarget}, ${row.productivityTarget}, now(), now())`
+  );
+
+  await prisma.$executeRaw`
+    INSERT INTO "Target" (id, year, month, "monthIndex", principal, "mainPrincipal", "valueTarget", "volumeTarget", "coverageTarget", "productivityTarget", "createdAt", "updatedAt")
+    VALUES ${Prisma.join(values)}
+    ON CONFLICT (year, month, principal)
+    DO UPDATE SET
+      "monthIndex" = EXCLUDED."monthIndex",
+      "mainPrincipal" = EXCLUDED."mainPrincipal",
+      "valueTarget" = EXCLUDED."valueTarget",
+      "volumeTarget" = EXCLUDED."volumeTarget",
+      "coverageTarget" = EXCLUDED."coverageTarget",
+      "productivityTarget" = EXCLUDED."productivityTarget",
+      "updatedAt" = now()
+  `;
 }
 
 export async function uploadTargetsAction(formData: FormData) {
@@ -30,29 +58,8 @@ export async function uploadTargetsAction(formData: FormData) {
     redirect("/admin/targets?error=" + encodeURIComponent(message));
   }
 
-  for (const row of rows) {
-    await prisma.target.upsert({
-      where: { year_month_principal: { year: row.year, month: row.month, principal: row.principal } },
-      update: {
-        monthIndex: row.monthIndex,
-        mainPrincipal: row.mainPrincipal,
-        valueTarget: row.valueTarget,
-        volumeTarget: row.volumeTarget,
-        coverageTarget: row.coverageTarget,
-        productivityTarget: row.productivityTarget,
-      },
-      create: {
-        year: row.year,
-        month: row.month,
-        monthIndex: row.monthIndex,
-        principal: row.principal,
-        mainPrincipal: row.mainPrincipal,
-        valueTarget: row.valueTarget,
-        volumeTarget: row.volumeTarget,
-        coverageTarget: row.coverageTarget,
-        productivityTarget: row.productivityTarget,
-      },
-    });
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    await upsertTargetsChunk(rows.slice(i, i + CHUNK_SIZE));
   }
 
   const years = Array.from(new Set(rows.map((r) => r.year)));

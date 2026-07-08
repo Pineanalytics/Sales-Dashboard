@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "./mysql";
 import { fetchPrincipalCostCentreFact } from "./query";
 import { buildCoverage } from "./transform";
+import { findDormantReps } from "./dormantReps";
 import principalsData from "../reference/principals.json";
 
 async function main() {
@@ -32,12 +33,29 @@ async function main() {
     );
   }
 
+  const dormantReps = findDormantReps(rawRows, endDate);
+  console.log(`[coverage-bridge] Found ${dormantReps.length} dormant rep(s) (no activity in 30+ days).`);
+  if (dormantReps.length > 0) {
+    console.table(
+      dormantReps.map((r) => ({
+        employee: r.employeeName,
+        userGroup: r.userGroup,
+        region: r.userRegion,
+        lastActivity: r.lastActivityDate,
+        daysSince: r.daysSinceActivity,
+      }))
+    );
+  }
+
   const outputDir = join(import.meta.dirname, "output");
   if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 
   const timestamp = now.toISOString().replace(/[:.]/g, "-");
   const outputPath = join(outputDir, `coverage-output-${timestamp}.json`);
-  writeFileSync(outputPath, JSON.stringify({ generatedAt: now.toISOString(), monthlyCoverage, unmatchedCostCentres }, null, 2));
+  writeFileSync(
+    outputPath,
+    JSON.stringify({ generatedAt: now.toISOString(), monthlyCoverage, unmatchedCostCentres, dormantReps }, null, 2)
+  );
 
   console.log(`[coverage-bridge] Wrote ${outputPath}`);
 }
