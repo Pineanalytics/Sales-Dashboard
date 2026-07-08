@@ -104,11 +104,20 @@ export function buildMonthlySales(
       byKey.set(groupKey, agg);
     }
 
-    // DAX: Revenue. = SUM(YTD_Raw[Sales Amount]); Cost Of Goods. = SUM(YTD_Raw[COGs]);
-    // Gross Profit. = SUM(YTD_Raw[Gross Profit]) — confirmed field mapping, not guessed.
+    // DAX: Revenue. = SUM(YTD_Raw[Sales Amount]); Cost Of Goods. = SUM(YTD_Raw[COGs]).
+    //
+    // Gross Profit is NOT SUM(YTD_Raw[Gross Profit]) despite that being the column
+    // name match — the M code's own pipeline drops the SQL's raw [Gross Profit]
+    // column (SAP's T1.GrssProfit, its internal moving-average-cost field) right
+    // after the query via #"Removed Other Columns", then LATER re-adds a column of
+    // the SAME NAME computed as [Gross Sales]-[COGS] (Qty*PriceBeforeDiscount minus
+    // Qty*PurchasePrice) — sidestepping discount/credit-note noise per the user.
+    // The SQL's [Gross Margin] column already replicates that exact recomputation;
+    // row.grossProfit (SAP's raw field) is fetched only for reference/comparison,
+    // never summed into the output. Confirmed against the real M code, not guessed.
     agg.revenue += row.salesAmount;
     agg.cogs += row.cogs;
-    agg.grossProfit += row.grossProfit;
+    agg.grossProfit += row.grossMargin;
   }
 
   return Array.from(byKey.values()).map((agg) => ({
