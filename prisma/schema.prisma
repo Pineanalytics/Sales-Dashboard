@@ -96,6 +96,30 @@ model KeyAccountRep {
   createdAt  DateTime @default(now())
 }
 
+// Monthly Sales (Revenue/COGS/Gross Profit) sourced directly from SAP SQL Server
+// (scripts/db-bridge, YTD_Raw), pushed live via app/api/sales/upload. Unlike
+// Target/PLEntry, this fully REPLACES Dataset.monthlySales at read time rather
+// than merging a single field — once rows exist here, the Excel-sourced Sales
+// figures in the Snapshot blob are no longer used (Target still overlays on top,
+// same as before). Coverage/Brand&Customer/Stock/Weekly Projection remain
+// Excel-sourced; this table intentionally covers Sales only.
+model SalesRecord {
+  id            String   @id @default(cuid())
+  year          String
+  month         String
+  monthIndex    Int
+  location      String
+  principal     String
+  revenue       Float
+  cogs          Float
+  grossProfit   Float
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@unique([year, month, principal])
+  @@index([year, month])
+}
+
 // P&L journal-entry lines from SAP (OJDT/JDT1 by Cost Centre/Account), pushed
 // live by scripts/pl-bridge (not shadow-only, unlike scripts/db-bridge) via
 // app/api/pl/upload. Aggregated to Year+Month+Principal+AccountCode+LineType

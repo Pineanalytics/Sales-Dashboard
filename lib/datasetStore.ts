@@ -1,6 +1,6 @@
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
-import type { Dataset, DatasetSnapshotSummary, MonthlyPLRow, PLLineType } from "./types";
+import type { Dataset, DatasetSnapshotSummary, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSummary> {
   const snapshot = await prisma.snapshot.create({
@@ -15,6 +15,59 @@ export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSum
     uploadedAt: snapshot.uploadedAt.toISOString(),
     reportTitle: snapshot.reportTitle,
   };
+}
+
+/** Merges scripts/db-bridge-sourced Sales rows (SAP SQL Server, via
+ *  app/api/sales/upload) onto dataset.monthlySales, keyed by (year, month,
+ *  principal). Unlike overlayPL, this is a MERGE not a full replace — the SAP
+ *  bridge only fetches the current calendar year (see queries/ytdRaw.ts), so
+ *  prior-year Excel-sourced rows (needed for YoY comparisons) must survive
+ *  untouched. A DB row replaces the matching Excel row's revenue/cogs/
+ *  grossProfit/location wholesale (its target is preserved and re-merged by
+ *  overlayTargets afterward); a DB row with no Excel counterpart (a new
+ *  principal/month combo) is appended as a new row with target: null. Runs
+ *  BEFORE overlayTargets so the target merge operates on the final sales rows. */
+async function overlaySales(dataset: Dataset): Promise<Dataset> {
+  const records = await prisma.salesRecord.findMany();
+  if (records.length === 0) return dataset;
+
+  const byKey = new Map(records.map((r) => [`${r.year}|${r.month}|${r.principal}`, r]));
+  const matchedKeys = new Set<string>();
+
+  const merged: MonthlySalesRow[] = dataset.monthlySales.map((row) => {
+    const key = `${row.year}|${row.month}|${row.principal}`;
+    const record = byKey.get(key);
+    if (!record) return row;
+    matchedKeys.add(key);
+    return {
+      ...row,
+      location: record.location,
+      revenue: record.revenue,
+      cogs: record.cogs,
+      grossProfit: record.grossProfit,
+      grossMarginPct: record.revenue > 0 ? Math.round((record.grossProfit / record.revenue) * 1000) / 10 : null,
+    };
+  });
+
+  for (const record of records) {
+    const key = `${record.year}|${record.month}|${record.principal}`;
+    if (matchedKeys.has(key)) continue;
+    merged.push({
+      year: record.year,
+      month: record.month,
+      monthIndex: record.monthIndex,
+      location: record.location,
+      principal: record.principal,
+      principalKey: normalizePrincipalKey(record.principal),
+      revenue: record.revenue,
+      target: null,
+      cogs: record.cogs,
+      grossProfit: record.grossProfit,
+      grossMarginPct: record.revenue > 0 ? Math.round((record.grossProfit / record.revenue) * 1000) / 10 : null,
+    });
+  }
+
+  return { ...dataset, monthlySales: merged };
 }
 
 /** Overlays admin-uploaded Target rows onto monthlySales[].target, keyed by
@@ -57,7 +110,10 @@ async function overlayPL(dataset: Dataset): Promise<Dataset> {
 }
 
 async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
-  const [withTargets, withPL] = await Promise.all([overlayTargets(dataset), overlayPL(dataset)]);
+  // overlaySales must run before overlayTargets — it can replace/append
+  // monthlySales rows, and overlayTargets's merge needs to see the final set.
+  const withSales = await overlaySales(dataset);
+  const [withTargets, withPL] = await Promise.all([overlayTargets(withSales), overlayPL(dataset)]);
   return { ...withTargets, monthlyPL: withPL.monthlyPL };
 }
 
