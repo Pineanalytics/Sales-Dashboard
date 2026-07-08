@@ -6,6 +6,11 @@
 // Principal+Item grain (DAX: Opening Volume = SUM(Cartons), Opening Stock Pcs =
 // SUM(Onhand/Available Qty), Opening Value = SUM(Stock Value)).
 //
+// Unlike buildMonthlySales.ts, this join is NOT restricted to Status="Active"
+// principals — physical inventory doesn't disappear when a brand relationship
+// ends, and the live Excel-sourced Stock Balance view shows real value for
+// discontinued principals (Durex, Signify, Movit, etc). Confirmed by the user.
+//
 // Deliberately does NOT compute rrWeekValue/rrWeekVolume/daysCover/action — those
 // need SAP_Raw's weekly-cases run-rate (a separate DAX calc, out of scope this
 // round). Producing 0s here would make lib/parseWorkbook.ts's stockStatus()
@@ -37,9 +42,7 @@ export function buildStock(
 ): { items: PartialStockItem[] } {
   const productByItemNo = new Map(products.map((p) => [p.itemNo, p]));
   const warehouseByCode = new Map(warehouses.map((w) => [w.warehouseCode, w]));
-  const activePrincipalByKey = new Map(
-    principals.filter((p) => p.status === "Active").map((p) => [p.principal, p])
-  );
+  const principalByKey = new Map(principals.map((p) => [p.principal, p]));
 
   interface Agg {
     principal: string;
@@ -60,7 +63,7 @@ export function buildStock(
     const rawKey = `${product.principal}-${location}`;
     const fixedKey = applyFixups(rawKey);
 
-    const principalRow = activePrincipalByKey.get(fixedKey);
+    const principalRow = principalByKey.get(fixedKey);
     if (!principalRow) continue;
 
     const cartons = product.packSize && product.packSize !== 0 ? row.onhandQty / product.packSize : null;
