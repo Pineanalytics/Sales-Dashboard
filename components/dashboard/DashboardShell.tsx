@@ -16,6 +16,7 @@ import { CoverageView } from "@/components/views/CoverageView";
 import { RepPerformanceView } from "@/components/views/RepPerformanceView";
 import { CustomerBrandView } from "@/components/views/CustomerBrandView";
 import { ProfitabilityView } from "@/components/views/ProfitabilityView";
+import { PLStatementView } from "@/components/views/PLStatementView";
 import { StockView } from "@/components/views/StockView";
 
 export function DashboardShell({
@@ -73,6 +74,9 @@ export function DashboardShell({
               )}
               {view === "profitability" && (
                 <ProfitabilityView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+              )}
+              {view === "plStatement" && (
+                <PLStatementView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
               )}
               {view === "stock" && <StockView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />}
             </div>

@@ -46,6 +46,13 @@ yarn-error.log*
 # generated sample workbook
 /scripts/test-workbook.xlsx
 
+# db-bridge shadow-validation scratch output (local only, never committed)
+/scripts/db-bridge/output/
+/scripts/db-bridge/coverage/output/
+
+# local operational logs (e.g. export-and-upload.ps1 runs)
+/logs/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

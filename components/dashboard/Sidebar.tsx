@@ -7,6 +7,7 @@ import {
   PersonCircle20Regular,
   ChartMultiple20Regular,
   Money20Regular,
+  DocumentText20Regular,
   Box20Regular,
   Dismiss20Regular,
   Broom20Regular,
@@ -23,6 +24,7 @@ const VIEW_ICONS: Record<ViewKey, FluentIcon> = {
   repPerformance: PersonCircle20Regular,
   customerBrand: ChartMultiple20Regular,
   profitability: Money20Regular,
+  plStatement: DocumentText20Regular,
   stock: Box20Regular,
 };
 

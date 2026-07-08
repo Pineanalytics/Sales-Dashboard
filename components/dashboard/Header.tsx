@@ -181,12 +181,12 @@ export function Header({ user }: { user: Session["user"] | null }) {
                 </div>
                 {isAdmin ? (
                   <Link
-                    href="/admin/users"
+                    href="/admin"
                     onClick={() => setAccountOpen(false)}
                     className="flex items-center gap-2 px-4 py-2.5 text-xs hover:bg-surface-hover transition-colors border-b border-border/60"
                   >
                     <Shield20Regular className="h-4 w-4 text-secondary-blue" />
-                    Manage users
+                    Admin
                   </Link>
                 ) : null}
                 <form action={signOutAction}>

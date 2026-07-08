@@ -9,6 +9,7 @@ export const VIEW_KEYS = [
   "repPerformance",
   "customerBrand",
   "profitability",
+  "plStatement",
   "stock",
 ] as const;
 
@@ -21,6 +22,7 @@ export const VIEW_LABELS: Record<ViewKey, string> = {
   repPerformance: "Rep Performance",
   customerBrand: "Customer & Brand",
   profitability: "Profitability",
+  plStatement: "P&L Statement",
   stock: "Stock Balance",
 };
 

@@ -50,6 +50,24 @@ export interface MonthlyBrandCustomerRow {
   grossMarginPct: number | null;
 }
 
+export type PLLineType = "REVENUE" | "COGS" | "EXPENSE" | "OTHER_INCOME";
+
+// Monthly-aggregated P&L journal-entry lines by Cost Centre/Account, pushed live
+// by scripts/pl-bridge (SAP OJDT/JDT1) via /api/pl/upload, never from the Excel
+// upload path. Overlaid onto Dataset.monthlyPL at read time by
+// lib/datasetStore.ts — always [] coming out of lib/parseWorkbook.ts.
+export interface MonthlyPLRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  principal: string; // Cost Centre — same raw Principal-Location string as MonthlySalesRow.principal
+  principalKey: string;
+  accountCode: string;
+  accountName: string;
+  lineType: PLLineType;
+  amount: number;
+}
+
 export interface WeeklyProjectionRow {
   principal: string;
   weeklyRevenue: number;
@@ -96,6 +114,7 @@ export interface Dataset {
   monthlySales: MonthlySalesRow[];
   monthlyCoverage: MonthlyCoverageRow[];
   monthlyBrandCustomer: MonthlyBrandCustomerRow[];
+  monthlyPL: MonthlyPLRow[];
   weeklyProjection: WeeklyProjectionRow[];
   stockTotal: StockTotal;
   stockItems: StockItem[];

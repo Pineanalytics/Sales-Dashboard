@@ -10,7 +10,7 @@
 // sheets, so they intentionally stay rolled up by normalized brand key — their
 // summarize functions below normalize an incoming raw principal string before
 // matching, so selecting either location still shows the same combined figures.
-import type { Dataset, MonthlySalesRow, MonthlyCoverageRow } from "./types";
+import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyPLRow } from "./types";
 import { normalizePrincipalKey } from "./normalize";
 
 function round1(n: number): number {
@@ -443,4 +443,112 @@ export function summarizeBrandCustomerByPrincipal(
     }
   }
   return Array.from(byPrincipal.values()).map((p) => ({ ...p, grossMarginPct: marginFrom(p.revenue, p.grossProfit) }));
+}
+
+// ---------------------------------------------------------------------------
+// P&L by Cost Centre
+// ---------------------------------------------------------------------------
+
+export interface PeriodPLSummary {
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  otherIncome: number;
+  totalIncome: number;
+  expenses: number;
+  netProfit: number;
+  netMarginPct: number | null;
+  monthsIncluded: number;
+}
+
+function summarizePLRows(rows: MonthlyPLRow[], months: MonthRef[]): PeriodPLSummary {
+  const keys = periodKeySet(months);
+  const matched = rows.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
+  const monthsWithData = new Set(matched.map((r) => rowKey(r.year, r.monthIndex)));
+
+  let revenue = 0;
+  let cogs = 0;
+  let otherIncome = 0;
+  let expenses = 0;
+
+  for (const r of matched) {
+    if (r.lineType === "REVENUE") revenue += r.amount;
+    else if (r.lineType === "COGS") cogs += r.amount;
+    else if (r.lineType === "OTHER_INCOME") otherIncome += r.amount;
+    else if (r.lineType === "EXPENSE") expenses += r.amount;
+  }
+
+  const grossProfit = revenue - cogs;
+  const totalIncome = grossProfit + otherIncome;
+  const netProfit = totalIncome - expenses;
+  const netMarginPct = totalIncome > 0 ? round1((netProfit / totalIncome) * 100) : null;
+
+  return { revenue, cogs, grossProfit, otherIncome, totalIncome, expenses, netProfit, netMarginPct, monthsIncluded: monthsWithData.size };
+}
+
+/** `principalKey` here is the raw Principal string (Cost Centre), matched exactly —
+ *  same location-granular convention as sales, not rolled up by brand. */
+export function summarizePLForPeriod(
+  dataset: Dataset,
+  selection: PeriodSelection,
+  principalKey: string | null
+): PeriodPLSummary {
+  const months = resolvePeriodMonths(selection);
+  const rows = principalKey ? dataset.monthlyPL.filter((r) => r.principal === principalKey) : dataset.monthlyPL;
+  return summarizePLRows(rows, months);
+}
+
+/** Groups by the raw Principal string (Cost Centre) so same-brand different-location
+ *  principals list separately, matching the rest of the sales side. */
+export function summarizePLByPrincipal(
+  dataset: Dataset,
+  selection: PeriodSelection
+): Map<string, PeriodPLSummary & { principal: string; principalKey: string }> {
+  const months = resolvePeriodMonths(selection);
+  const keys = periodKeySet(months);
+  const byKey = new Map<string, MonthlyPLRow[]>();
+
+  for (const r of dataset.monthlyPL) {
+    if (!keys.has(rowKey(r.year, r.monthIndex))) continue;
+    if (!byKey.has(r.principal)) byKey.set(r.principal, []);
+    byKey.get(r.principal)!.push(r);
+  }
+
+  const result = new Map<string, PeriodPLSummary & { principal: string; principalKey: string }>();
+  for (const [principal, rows] of byKey) {
+    result.set(principal, { ...summarizePLRows(rows, months), principal, principalKey: principal });
+  }
+  return result;
+}
+
+export interface AccountPLSummary {
+  accountCode: string;
+  accountName: string;
+  lineType: MonthlyPLRow["lineType"];
+  amount: number;
+}
+
+/** Account-level breakdown for the selected period/principal — one row per
+ *  distinct Account+LineType, summed across the matched months. */
+export function summarizePLByAccount(
+  dataset: Dataset,
+  selection: PeriodSelection,
+  principalKey: string | null
+): AccountPLSummary[] {
+  const keys = periodKeySet(resolvePeriodMonths(selection));
+  const rows = dataset.monthlyPL.filter(
+    (r) => keys.has(rowKey(r.year, r.monthIndex)) && (!principalKey || r.principal === principalKey)
+  );
+
+  const byAccount = new Map<string, AccountPLSummary>();
+  for (const r of rows) {
+    const key = `${r.accountCode}|${r.lineType}`;
+    const existing = byAccount.get(key);
+    if (existing) {
+      existing.amount += r.amount;
+    } else {
+      byAccount.set(key, { accountCode: r.accountCode, accountName: r.accountName, lineType: r.lineType, amount: r.amount });
+    }
+  }
+  return Array.from(byAccount.values());
 }

@@ -545,6 +545,9 @@ export function parseWorkbook(buffer: ArrayBuffer, uploadedAt?: string): Dataset
     monthlySales,
     monthlyCoverage,
     monthlyBrandCustomer,
+    // P&L has no Excel-upload path — always empty here; lib/datasetStore.ts
+    // overlays it from the PLEntry table at read time (same pattern as targets).
+    monthlyPL: [],
     weeklyProjection,
     stockTotal,
     stockItems,

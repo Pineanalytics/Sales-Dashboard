@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyBrandCustomerRow } from "@/lib/types";
+import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyBrandCustomerRow, MonthlyPLRow } from "@/lib/types";
 import {
   resolvePeriodMonths,
   getAvailableYears,
@@ -12,6 +12,9 @@ import {
   summarizeBrandCustomerByCustomer,
   summarizeBrandCustomerByRep,
   summarizeBrandCustomerByPrincipal,
+  summarizePLForPeriod,
+  summarizePLByPrincipal,
+  summarizePLByAccount,
 } from "@/lib/timeIntelligence";
 
 function salesRow(overrides: Partial<MonthlySalesRow>): MonthlySalesRow {
@@ -64,11 +67,27 @@ function brandCustomerRow(overrides: Partial<MonthlyBrandCustomerRow>): MonthlyB
   };
 }
 
+function plRow(overrides: Partial<MonthlyPLRow>): MonthlyPLRow {
+  return {
+    year: "2026",
+    month: "January",
+    monthIndex: 0,
+    principal: "EABL-Nyeri",
+    principalKey: "eabl",
+    accountCode: "4010",
+    accountName: "Sales Revenue",
+    lineType: "REVENUE",
+    amount: 0,
+    ...overrides,
+  };
+}
+
 function buildDataset(overrides: Partial<Dataset>): Dataset {
   return {
     monthlySales: [],
     monthlyCoverage: [],
     monthlyBrandCustomer: [],
+    monthlyPL: [],
     weeklyProjection: [],
     stockTotal: {
       volume: 0, pcs: 0, value: 0, rrWeekValue: 0, rrWeekVolume: 0, daysStock: 0,
@@ -291,6 +310,56 @@ describe("brand & customer summaries", () => {
     const nyahururu = byPrincipal.find((p) => p.principal === "EABL-Nyahururu")!;
     expect(nyeri.revenue).toBe(50000);
     expect(nyahururu.revenue).toBe(30000);
+  });
+});
+
+describe("P&L summaries", () => {
+  const dataset = buildDataset({
+    monthlyPL: [
+      plRow({ principal: "EABL-Nyeri", year: "2026", month: "June", monthIndex: 5, accountCode: "4010", accountName: "Sales Revenue", lineType: "REVENUE", amount: 500000 }),
+      plRow({ principal: "EABL-Nyeri", year: "2026", month: "June", monthIndex: 5, accountCode: "5010", accountName: "Cost of Sales", lineType: "COGS", amount: 300000 }),
+      plRow({ principal: "EABL-Nyeri", year: "2026", month: "June", monthIndex: 5, accountCode: "6010", accountName: "Salaries", lineType: "EXPENSE", amount: 80000 }),
+      plRow({ principal: "EABL-Nyeri", year: "2026", month: "June", monthIndex: 5, accountCode: "4110", accountName: "Interest Income", lineType: "OTHER_INCOME", amount: 5000 }),
+      // A second account under the same principal/month/lineType — must sum, not overwrite.
+      plRow({ principal: "EABL-Nyeri", year: "2026", month: "June", monthIndex: 5, accountCode: "4011", accountName: "Other Sales", lineType: "REVENUE", amount: 10000 }),
+      plRow({ principal: "Upfield-Nairobi", year: "2026", month: "June", monthIndex: 5, accountCode: "4010", accountName: "Sales Revenue", lineType: "REVENUE", amount: 200000 }),
+      plRow({ principal: "Upfield-Nairobi", year: "2026", month: "June", monthIndex: 5, accountCode: "5010", accountName: "Cost of Sales", lineType: "COGS", amount: 150000 }),
+    ],
+  });
+
+  it("summarizePLForPeriod computes Gross Profit/Total Income/Net Profit downstream, never from a pre-aggregated row", () => {
+    const summary = summarizePLForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
+    expect(summary.revenue).toBe(510000); // 500000 + 10000, two REVENUE accounts summed
+    expect(summary.cogs).toBe(300000);
+    expect(summary.grossProfit).toBe(210000); // revenue - cogs
+    expect(summary.otherIncome).toBe(5000);
+    expect(summary.totalIncome).toBe(215000); // grossProfit + otherIncome
+    expect(summary.expenses).toBe(80000);
+    expect(summary.netProfit).toBe(135000); // totalIncome - expenses
+    expect(summary.netMarginPct).toBe(round1((135000 / 215000) * 100));
+  });
+
+  it("summarizePLForPeriod with no principal filter aggregates across all principals", () => {
+    const summary = summarizePLForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, null);
+    expect(summary.revenue).toBe(710000); // 510000 + 200000
+    expect(summary.cogs).toBe(450000); // 300000 + 150000
+  });
+
+  it("summarizePLByPrincipal groups by the raw principal string — locations stay separate, matching sales", () => {
+    const byPrincipal = summarizePLByPrincipal(dataset, { kind: "MTD", year: "2026", month: "June" });
+    const nyeri = byPrincipal.get("EABL-Nyeri")!;
+    const upfield = byPrincipal.get("Upfield-Nairobi")!;
+    expect(nyeri.revenue).toBe(510000);
+    expect(upfield.revenue).toBe(200000);
+    expect(upfield.grossProfit).toBe(50000);
+  });
+
+  it("summarizePLByAccount returns one row per Account+LineType, summed across matched months", () => {
+    const accounts = summarizePLByAccount(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
+    // 4010|REVENUE, 5010|COGS, 6010|EXPENSE, 4110|OTHER_INCOME, 4011|REVENUE = 5 distinct Account+LineType rows
+    expect(accounts).toHaveLength(5);
+    const revenue4010 = accounts.find((a) => a.accountCode === "4010")!;
+    expect(revenue4010.amount).toBe(500000);
   });
 });
 
