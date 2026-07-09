@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
+import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import type { Dataset, DatasetSnapshotSummary, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSummary> {
@@ -7,7 +8,7 @@ export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSum
     data: {
       uploadedAt: new Date(dataset.uploadedAt),
       reportTitle: dataset.reportMeta.title || "Untitled Report",
-      data: JSON.stringify(dataset),
+      data: encodeDataset(dataset),
     },
   });
   return {
@@ -120,13 +121,13 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
 export async function getLatestSnapshot(): Promise<Dataset | null> {
   const snapshot = await prisma.snapshot.findFirst({ orderBy: { uploadedAt: "desc" } });
   if (!snapshot) return null;
-  return overlayAdminData(JSON.parse(snapshot.data) as Dataset);
+  return overlayAdminData(decodeDataset(snapshot.data));
 }
 
 export async function getSnapshotById(id: string): Promise<Dataset | null> {
   const snapshot = await prisma.snapshot.findUnique({ where: { id } });
   if (!snapshot) return null;
-  return overlayAdminData(JSON.parse(snapshot.data) as Dataset);
+  return overlayAdminData(decodeDataset(snapshot.data));
 }
 
 export async function listSnapshots(limit = 20): Promise<DatasetSnapshotSummary[]> {

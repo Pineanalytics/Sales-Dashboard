@@ -23,6 +23,11 @@ interface DashboardState {
   setSidebarOpen: (open: boolean) => void;
 
   fetchLatest: () => Promise<void>;
+  /** Silently re-fetches the latest dataset in the background — unlike fetchLatest(),
+   *  preserves the user's current period/principal selection instead of resetting to
+   *  the default. Used to auto-refresh data on pane navigation without disrupting
+   *  whatever the user was looking at. */
+  refreshDataset: () => Promise<void>;
   fetchSnapshot: (id: string) => Promise<void>;
   fetchHistory: () => Promise<void>;
   uploadFile: (file: File) => Promise<{ ok: boolean; error?: string }>;
@@ -70,6 +75,18 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       set({ dataset, status: "idle", selectedPeriod: getDefaultPeriod(dataset), hasUserSelectedPeriod: false });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load dataset." });
+    }
+  },
+
+  refreshDataset: async () => {
+    try {
+      const res = await fetch("/api/dataset", { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) return; // background refresh — fail silently, keep showing the current dataset
+      const dataset: Dataset | null = body.dataset;
+      if (dataset) set({ dataset, error: null });
+    } catch {
+      // background refresh — network hiccups shouldn't surface as an error banner
     }
   },
 
