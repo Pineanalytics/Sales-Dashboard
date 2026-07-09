@@ -58,7 +58,7 @@ export function PeriodSelector() {
         onChange={(e) => update({ year: e.target.value })}
         disabled={period.kind === "MTD"}
         title={period.kind === "MTD" ? "MTD always reflects the current calendar month" : undefined}
-        className="rounded-full border border-white/40 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white [&>option]:text-foreground disabled:opacity-50"
+        className="rounded-full border border-border bg-background-elevated px-3 py-1.5 text-xs font-semibold text-muted-strong disabled:opacity-50"
       >
         {years.map((y) => (
           <option key={y} value={y}>
@@ -67,7 +67,7 @@ export function PeriodSelector() {
         ))}
       </select>
 
-      <div className="flex flex-wrap rounded-full bg-white/10 p-0.5">
+      <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5">
         {PERIOD_KINDS.map((k) => {
           const active = period.kind === k;
           return (
@@ -75,7 +75,9 @@ export function PeriodSelector() {
               key={k}
               onClick={() => update(k === "MTD" ? getCurrentMonthPeriod(dataset) : { kind: k })}
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                active ? "bg-white text-primary-blue shadow-cyan-glow" : "text-white/80 hover:text-brand-orange"
+                active
+                  ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                  : "text-muted-strong hover:text-brand-orange"
               }`}
             >
               {PERIOD_KIND_LABELS[k]}
@@ -89,7 +91,7 @@ export function PeriodSelector() {
           aria-label="Month"
           value={period.month ?? ""}
           onChange={(e) => update({ month: e.target.value })}
-          className="rounded-full border border-white/40 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white [&>option]:text-foreground"
+          className="rounded-full border border-border bg-background-elevated px-3 py-1.5 text-xs font-semibold text-muted-strong"
         >
           {months.map((m) => (
             <option key={m} value={m}>

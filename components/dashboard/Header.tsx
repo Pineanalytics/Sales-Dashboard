@@ -11,47 +11,22 @@ import {
   PersonCircle20Regular,
   SignOut20Regular,
   Shield20Regular,
-  Broom20Regular,
 } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { Spinner } from "@/components/ui/Spinner";
-import { formatNumber, formatPercent } from "@/lib/format";
-import { summarizeSalesForPeriod, summarizeCoverageForPeriod } from "@/lib/timeIntelligence";
 import { signOutAction } from "@/app/actions";
-import { PeriodSelector } from "./PeriodSelector";
+import { SearchBar } from "./SearchBar";
 import Link from "next/link";
-
-const HERO_BADGE_TIER_CLASS = {
-  good: "bg-white/90 text-accent-green",
-  warn: "bg-white/90 text-accent-amber",
-  bad: "bg-white/90 text-accent-red",
-  neutral: "bg-white/15 text-white border border-white/30",
-} as const;
-
-function HeroBadge({ tier, children }: { tier: keyof typeof HERO_BADGE_TIER_CLASS; children: React.ReactNode }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${HERO_BADGE_TIER_CLASS[tier]}`}>
-      {children}
-    </span>
-  );
-}
 
 export function Header({ user }: { user: Session["user"] | null }) {
   const dataset = useDashboardStore((s) => s.dataset);
   const status = useDashboardStore((s) => s.status);
   const error = useDashboardStore((s) => s.error);
   const history = useDashboardStore((s) => s.history);
-  const period = useDashboardStore((s) => s.selectedPeriod);
-  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
-  const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const uploadFile = useDashboardStore((s) => s.uploadFile);
   const fetchHistory = useDashboardStore((s) => s.fetchHistory);
   const fetchSnapshot = useDashboardStore((s) => s.fetchSnapshot);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
-  const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
-
-  const salesSummary = dataset ? summarizeSalesForPeriod(dataset, period, null) : null;
-  const coverageSummary = dataset ? summarizeCoverageForPeriod(dataset, period, null) : null;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -79,45 +54,40 @@ export function Header({ user }: { user: Session["user"] | null }) {
 
   return (
     <header className="sticky top-0 z-30">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(10,31,82,0.25)]">
-        <div className="flex items-start gap-3">
-          <button
-            className="md:hidden text-white/90 hover:text-white mt-1"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-          >
-            <Navigation20Regular />
-          </button>
+      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-3.5 md:py-4 shadow-[0_2px_10px_rgba(10,31,82,0.25)] flex items-center gap-3">
+        <button
+          className="md:hidden text-white/90 hover:text-white shrink-0"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open menu"
+        >
+          <Navigation20Regular />
+        </button>
 
-          <div className="min-w-0 flex-1 flex items-center gap-3">
-            <Image
-              src="/pinefrost-logo.png"
-              alt="Pinefrost Limited"
-              width={1014}
-              height={810}
-              className="hidden sm:block h-12 md:h-14 w-auto shrink-0 rounded-lg object-contain"
-            />
-            <div className="min-w-0">
-              <h1 className="text-[22px] md:text-[30px] font-bold text-white leading-tight truncate">
-                Pinefrost Limited Performance Dashboard
-              </h1>
-              <p className="text-sm text-white/70 truncate mt-1">
-                {dataset
-                  ? `${dataset.reportMeta.title} — Uploaded ${new Date(dataset.uploadedAt).toLocaleString()}`
-                  : "Kenya distributor sales analytics by principal"}
-              </p>
-            </div>
-          </div>
+        <Link href="/dashboard" className="flex items-center gap-2.5 shrink-0">
+          <Image
+            src="/pinefrost-logo.png"
+            alt="Pinefrost Limited"
+            width={1014}
+            height={810}
+            className="hidden sm:block h-9 w-auto rounded-md object-contain"
+          />
+          <span className="hidden lg:block text-[15px] font-bold text-white leading-tight whitespace-nowrap">
+            Pinefrost Analytics
+          </span>
+        </Link>
 
-          <div className="relative shrink-0">
+        <SearchBar />
+
+        <div className="flex items-center gap-2 ml-auto shrink-0">
+          <div className="relative">
             <button
               onClick={toggleHistory}
-              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/40 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
+              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/40 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
             >
               <History20Regular className="h-4 w-4" /> History
             </button>
             {historyOpen ? (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground">
+              <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground z-50">
                 <div className="max-h-72 overflow-y-auto">
                   {history.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-muted">No snapshot history yet.</p>
@@ -137,6 +107,13 @@ export function Header({ user }: { user: Session["user"] | null }) {
                     ))
                   )}
                 </div>
+                <Link
+                  href="/reports"
+                  onClick={() => setHistoryOpen(false)}
+                  className="block px-3 py-2.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover transition-colors border-t border-border/60"
+                >
+                  View all in Reports →
+                </Link>
               </div>
             ) : null}
           </div>
@@ -146,10 +123,10 @@ export function Header({ user }: { user: Session["user"] | null }) {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="shrink-0 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-60 transition-all duration-300 shadow-sm"
+                className="shrink-0 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-3.5 py-2 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-60 transition-all duration-300 shadow-sm"
               >
                 {uploading ? <Spinner className="h-3.5 w-3.5" /> : <ArrowUpload20Regular className="h-4 w-4" />}
-                {uploading ? "Processing…" : "Upload Excel"}
+                <span className="hidden sm:inline">{uploading ? "Processing…" : "Upload Excel"}</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -161,7 +138,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
             </>
           ) : null}
 
-          <div className="relative shrink-0">
+          <div className="relative">
             <button
               onClick={toggleAccount}
               className="inline-flex items-center gap-2 rounded-full border border-white/40 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
@@ -171,7 +148,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
               <span className="hidden md:inline max-w-[120px] truncate">{user?.name || user?.email}</span>
             </button>
             {accountOpen ? (
-              <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground">
+              <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground z-50">
                 <div className="px-4 py-3 border-b border-border/60">
                   <div className="text-sm font-medium truncate">{user?.name || "Account"}</div>
                   <div className="text-xs text-muted truncate">{user?.email}</div>
@@ -202,34 +179,13 @@ export function Header({ user }: { user: Session["user"] | null }) {
             ) : null}
           </div>
         </div>
-
-        {dataset ? (
-          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <PeriodSelector />
-              <button
-                onClick={clearAllFilters}
-                disabled={!selectedPrincipalKey && !hasUserSelectedPeriod}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/40 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
-              >
-                <Broom20Regular className="h-3.5 w-3.5" /> Clear All
-              </button>
-            </div>
-            <div className="hidden lg:flex items-center gap-2">
-              {salesSummary?.achievementPct !== null && salesSummary?.achievementPct !== undefined ? (
-                <HeroBadge tier={salesSummary.achievementPct >= 100 ? "good" : salesSummary.achievementPct >= 60 ? "warn" : "bad"}>
-                  Achieved {formatPercent(salesSummary.achievementPct)}
-                </HeroBadge>
-              ) : (
-                <HeroBadge tier="neutral">No target for this period</HeroBadge>
-              )}
-              {coverageSummary ? (
-                <HeroBadge tier="neutral">Coverage: {formatNumber(coverageSummary.coverage)} outlets covered</HeroBadge>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
       </div>
+
+      {dataset ? (
+        <div className="hidden md:block bg-dark-navy/95 px-4 md:px-8 py-1 text-[11px] text-white/60 truncate">
+          {dataset.reportMeta.title} — Uploaded {new Date(dataset.uploadedAt).toLocaleString()}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mx-4 md:mx-8 mt-3 flex items-center gap-2 rounded-xl border-l-4 border-l-accent-red bg-surface px-3 py-3 text-xs text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">

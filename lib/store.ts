@@ -2,35 +2,10 @@ import { create } from "zustand";
 import type { Dataset, DatasetSnapshotSummary } from "./types";
 import { getDefaultPeriod, type PeriodSelection } from "./timeIntelligence";
 
-export const VIEW_KEYS = [
-  "overview",
-  "timeIntelligence",
-  "coverage",
-  "repPerformance",
-  "customerBrand",
-  "profitability",
-  "plStatement",
-  "stock",
-] as const;
-
-export type ViewKey = (typeof VIEW_KEYS)[number];
-
-export const VIEW_LABELS: Record<ViewKey, string> = {
-  overview: "Overview",
-  timeIntelligence: "Time Intelligence",
-  coverage: "Coverage & Productivity",
-  repPerformance: "Rep Performance",
-  customerBrand: "Customer & Brand",
-  profitability: "Profitability",
-  plStatement: "P&L Statement",
-  stock: "Stock Balance",
-};
-
 interface DashboardState {
   dataset: Dataset | null;
   status: "idle" | "loading" | "error";
   error: string | null;
-  view: ViewKey;
   selectedPrincipalKey: string | null; // normalized brand key, or null for "All Principals"
   selectedPeriod: PeriodSelection;
   // True once the user has actively touched the period slicer. While false, Overview
@@ -42,7 +17,6 @@ interface DashboardState {
   history: DatasetSnapshotSummary[];
 
   setDataset: (dataset: Dataset | null) => void;
-  setView: (view: ViewKey) => void;
   selectPrincipal: (key: string | null) => void;
   setPeriod: (period: PeriodSelection) => void;
   clearAllFilters: () => void;
@@ -60,7 +34,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   dataset: null,
   status: "idle",
   error: null,
-  view: "overview",
   selectedPrincipalKey: null,
   selectedPeriod: EMPTY_PERIOD,
   hasUserSelectedPeriod: false,
@@ -75,7 +48,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
       hasUserSelectedPeriod: false,
     }),
-  setView: (view) => set({ view }),
   selectPrincipal: (key) => set({ selectedPrincipalKey: key }),
   setPeriod: (period) => set({ selectedPeriod: period, hasUserSelectedPeriod: true }),
   clearAllFilters: () => {

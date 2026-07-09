@@ -1,13 +1,5 @@
-import { DashboardShell } from "@/components/dashboard/DashboardShell";
-import { getLatestSnapshot } from "@/lib/datasetStore";
-import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function Home() {
-  const [dataset, session] = await Promise.all([
-    getLatestSnapshot().catch(() => null),
-    auth(),
-  ]);
-  return <DashboardShell initialDataset={dataset} user={session?.user ?? null} />;
+export default function RootPage() {
+  redirect("/dashboard");
 }

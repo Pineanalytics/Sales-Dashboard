@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import type { ViewProps } from "./types";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -12,33 +13,114 @@ import { aggregateStockByPrincipal } from "@/lib/stock";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
+type StatusFilter = "all" | "runningOut" | "outOfStock" | "noData";
+
+const STATUS_TABS: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "All Stock" },
+  { key: "runningOut", label: "Running Out" },
+  { key: "outOfStock", label: "Out of Stock" },
+  { key: "noData", label: "No Sales Data" },
+];
+
+// Same emoji-marker convention lib/format.ts's stockActionTier already uses —
+// filters which already-computed rows are displayed, never recomputes them.
+function matchesStatus(action: string, filter: StatusFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "runningOut") return action.includes("🟡");
+  if (filter === "outOfStock") return action.includes("🔴");
+  // "noData": neither Out of Stock, Running Out, nor OK
+  return !action.includes("🔴") && !action.includes("🟡") && !action.includes("🟢");
+}
+
 export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
   const rollups = aggregateStockByPrincipal(dataset);
   // selectedPrincipalKey is the raw Principal string (e.g. "EABL-Nyeri") — Stock has no
   // location split in its source sheet, so it always rolls up by normalized brand key.
   const selectedRollup = selectedPrincipalKey ? rollups.find((r) => r.key === normalizePrincipalKey(selectedPrincipalKey)) ?? null : null;
 
   const stockValue = selectedRollup ? selectedRollup.value : dataset.stockTotal.value;
-  const itemCount = selectedRollup ? selectedRollup.itemCount : dataset.stockTotal.itemCount;
   const daysStock = selectedRollup ? selectedRollup.daysStock : dataset.stockTotal.daysStock;
   const outOfStockCount = selectedRollup ? selectedRollup.outOfStockCount : dataset.stockTotal.outOfStockCount;
   const runningOutCount = selectedRollup ? selectedRollup.runningOutCount : dataset.stockTotal.runningOutCount;
   const noDataCount = selectedRollup ? selectedRollup.noDataCount : dataset.stockTotal.noDataCount;
   const action = selectedRollup ? selectedRollup.action : dataset.stockTotal.action;
 
-  const principalItems = selectedRollup
+  const principalItemsAll = selectedRollup
     ? [...dataset.stockItems.filter((i) => i.key === selectedRollup.key)].sort((a, b) => b.openingValue - a.openingValue)
     : [];
+  const principalItems = principalItemsAll.filter((i) => matchesStatus(i.action, statusFilter));
+
+  const filteredRollups = rollups.filter((r) => matchesStatus(r.action, statusFilter));
+
+  // "Item Count" reflects the active tab's filtered rows — every other KPI stays a
+  // portfolio/selected-principal fact from dataset.stockTotal / selectedRollup, never
+  // recomputed from a filtered subset.
+  const itemCount =
+    statusFilter === "all"
+      ? selectedRollup
+        ? selectedRollup.itemCount
+        : dataset.stockTotal.itemCount
+      : selectedRollup
+        ? principalItems.length
+        : filteredRollups.reduce((sum, r) => sum + r.itemCount, 0);
 
   const chartData = selectedRollup
     ? principalItems.slice(0, 15).map((i) => ({ name: i.item.slice(0, 18), value: i.openingValue, fill: tierBarColor[stockActionTier(i.action).tier] }))
-    : [...rollups]
+    : [...filteredRollups]
         .sort((a, b) => b.value - a.value)
         .slice(0, 18)
         .map((r) => ({ name: r.name, value: r.value, fill: tierBarColor[stockActionTier(r.action).tier] }));
 
+  // A table's own total row should sum only the rows it's actually showing — unlike
+  // the KPI cards above (legitimately portfolio-wide facts), a filtered tab's table
+  // total must match what's visible in that same table, not the unfiltered whole.
+  const itemTotal =
+    statusFilter === "all"
+      ? null
+      : principalItems.reduce(
+          (acc, i) => ({
+            value: acc.value + i.openingValue,
+            volume: acc.volume + i.openingVolume,
+            pcs: acc.pcs + i.openingPcs,
+          }),
+          { value: 0, volume: 0, pcs: 0 }
+        );
+  const principalTotal =
+    statusFilter === "all"
+      ? null
+      : filteredRollups.reduce(
+          (acc, r) => ({
+            value: acc.value + r.value,
+            volume: acc.volume + r.volume,
+            pcs: acc.pcs + r.pcs,
+            itemCount: acc.itemCount + r.itemCount,
+            outOfStockCount: acc.outOfStockCount + r.outOfStockCount,
+            runningOutCount: acc.runningOutCount + r.runningOutCount,
+            noDataCount: acc.noDataCount + r.noDataCount,
+          }),
+          { value: 0, volume: 0, pcs: 0, itemCount: 0, outOfStockCount: 0, runningOutCount: 0, noDataCount: 0 }
+        );
+
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5 w-fit">
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
+              statusFilter === tab.key
+                ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                : "text-muted-strong hover:text-primary-blue"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       <KpiGrid>
         <KpiCard accent="revenue" label="Stock Value" value={<AnimatedValue value={stockValue} format={formatCompact} />} />
         <KpiCard accent="quarter" label="Item Count" value={<AnimatedValue value={itemCount} format={formatNumber} />} />
@@ -95,14 +177,12 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
               ))}
               <TotalRow>
                 <Td>Total ({principalItems.length} items)</Td>
-                <Td align="right">{formatCompact(selectedRollup.value)}</Td>
-                <Td align="right">{formatNumber(selectedRollup.volume)}</Td>
-                <Td align="right">{formatNumber(selectedRollup.pcs)}</Td>
-                <Td align="right">{selectedRollup.daysStock.toFixed(1)}</Td>
-                <Td align="right">{formatCompact(selectedRollup.rrWeekValue)}</Td>
-                <Td align="center">
-                  <StockStatusPill action={selectedRollup.action} />
-                </Td>
+                <Td align="right">{formatCompact(itemTotal ? itemTotal.value : selectedRollup.value)}</Td>
+                <Td align="right">{formatNumber(itemTotal ? itemTotal.volume : selectedRollup.volume)}</Td>
+                <Td align="right">{formatNumber(itemTotal ? itemTotal.pcs : selectedRollup.pcs)}</Td>
+                <Td align="right">{itemTotal ? "—" : selectedRollup.daysStock.toFixed(1)}</Td>
+                <Td align="right">{itemTotal ? "—" : formatCompact(selectedRollup.rrWeekValue)}</Td>
+                <Td align="center">{itemTotal ? "—" : <StockStatusPill action={selectedRollup.action} />}</Td>
               </TotalRow>
             </tbody>
           </TableWrap>
@@ -124,7 +204,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
               <Th align="center">Status</Th>
             </Thead>
             <tbody>
-              {[...rollups]
+              {[...filteredRollups]
                 .sort((a, b) => b.value - a.value)
                 .map((r) => (
                   <tr key={r.key}>
@@ -145,18 +225,16 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                 ))}
               <TotalRow>
                 <Td>Total</Td>
-                <Td align="right">{formatCompact(dataset.stockTotal.value)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.volume)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.pcs)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.itemCount)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.outOfStockCount)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.runningOutCount)}</Td>
-                <Td align="right">{formatNumber(dataset.stockTotal.noDataCount)}</Td>
-                <Td align="right">{dataset.stockTotal.daysStock.toFixed(1)}</Td>
-                <Td align="right">{formatCompact(dataset.stockTotal.rrWeekValue)}</Td>
-                <Td align="center">
-                  <StockStatusPill action={dataset.stockTotal.action} />
-                </Td>
+                <Td align="right">{formatCompact(principalTotal ? principalTotal.value : dataset.stockTotal.value)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.volume : dataset.stockTotal.volume)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.pcs : dataset.stockTotal.pcs)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.itemCount : dataset.stockTotal.itemCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.outOfStockCount : dataset.stockTotal.outOfStockCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.runningOutCount : dataset.stockTotal.runningOutCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.noDataCount : dataset.stockTotal.noDataCount)}</Td>
+                <Td align="right">{principalTotal ? "—" : dataset.stockTotal.daysStock.toFixed(1)}</Td>
+                <Td align="right">{principalTotal ? "—" : formatCompact(dataset.stockTotal.rrWeekValue)}</Td>
+                <Td align="center">{principalTotal ? "—" : <StockStatusPill action={dataset.stockTotal.action} />}</Td>
               </TotalRow>
             </tbody>
           </TableWrap>
