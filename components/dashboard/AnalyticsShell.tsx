@@ -12,7 +12,8 @@ import { GlobalFilterBar } from "./GlobalFilterBar";
 import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { DocumentTable20Regular } from "@fluentui/react-icons";
+import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
+import { pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -41,6 +42,13 @@ export function AnalyticsShell({
   // client-side, so render the SSR-provided dataset until the hydration
   // effect below pushes it into the store.
   const dataset = storeDataset ?? initialDataset;
+
+  // Report visibility: a viewer only sees pages their admin explicitly
+  // granted (Sidebar.tsx already hides the nav links; this is the actual
+  // gate for anyone navigating to a disallowed URL directly).
+  const requiredPage = pageKeyForPathname(pathname);
+  const isAdmin = user?.role === "ADMIN";
+  const pageAllowed = isAdmin || !requiredPage || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {
     if (initialDataset) setDataset(initialDataset);
@@ -86,6 +94,12 @@ export function AnalyticsShell({
                 icon={<DocumentTable20Regular className="h-10 w-10" />}
                 title="No sales data uploaded yet"
                 description="Upload the monthly Excel export to populate revenue, coverage, profitability, stock and forecast views for every principal."
+              />
+            ) : !pageAllowed ? (
+              <EmptyState
+                icon={<LockClosed20Regular className="h-10 w-10" />}
+                title="You don't have access to this report"
+                description="Ask your administrator to grant you access to this page."
               />
             ) : (
               <div className="animate-fade-in flex flex-col gap-6">{children}</div>

@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import Image from "next/image";
 import { auth, signIn } from "@/auth";
+import { prisma } from "@/lib/db";
 
 export default async function LoginPage({
   searchParams,
@@ -17,6 +19,18 @@ export default async function LoginPage({
 
   async function login(formData: FormData) {
     "use server";
+    const email = String(formData.get("email") || "").trim().toLowerCase();
+
+    // Friendlier message for a not-yet-approved account, checked before the
+    // credentials attempt — auth.ts's authorize() re-checks status as the
+    // actual security boundary, this is purely for a clearer error message.
+    if (email) {
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing && existing.status !== "APPROVED") {
+        redirect("/login?error=AccountPending");
+      }
+    }
+
     try {
       await signIn("credentials", {
         email: formData.get("email"),
@@ -70,7 +84,11 @@ export default async function LoginPage({
             />
           </div>
 
-          {error ? (
+          {error === "AccountPending" ? (
+            <p className="rounded-xl border-l-4 border-l-brand-orange bg-surface px-3 py-2 text-xs text-brand-orange shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+              Your account is awaiting admin approval.
+            </p>
+          ) : error ? (
             <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-3 py-2 text-xs text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
               Invalid email or password.
             </p>
@@ -82,6 +100,10 @@ export default async function LoginPage({
           >
             Sign in
           </button>
+
+          <Link href="/register" className="text-center text-sm font-semibold text-primary-blue hover:underline">
+            Request access
+          </Link>
         </form>
       </div>
     </div>

@@ -18,6 +18,7 @@ import {
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
+import { pageKeyForPathname } from "@/lib/pageAccess";
 
 interface NavItem {
   href: string;
@@ -42,6 +43,13 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
   const isAdmin = user?.role === "ADMIN";
+  // Admins always see every report; a viewer only sees the pages their admin granted.
+  const visibleNavItems = isAdmin
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => {
+        const key = pageKeyForPathname(item.href);
+        return key ? (user?.allowedPages ?? []).includes(key) : true;
+      });
 
   return (
     <>
@@ -65,7 +73,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
         </div>
 
         <nav className="px-3 pt-4 flex flex-col gap-1">
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          {visibleNavItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname?.startsWith(`${href}/`);
             return (
               <Link

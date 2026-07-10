@@ -2,7 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { createUserAction, deleteUserAction } from "./actions";
+import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
+import {
+  createUserAction,
+  deleteUserAction,
+  approveUserAction,
+  rejectUserAction,
+  updateUserRoleAction,
+  updateUserPagesAction,
+  resetPasswordAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +26,9 @@ export default async function AdminUsersPage({
   }
 
   const { error, success } = await searchParams;
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
+  const allUsers = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
+  const pending = allUsers.filter((u) => u.status === "PENDING");
+  const approved = allUsers.filter((u) => u.status === "APPROVED");
 
   return (
     <div className="min-h-screen bg-background">
@@ -26,10 +37,10 @@ export default async function AdminUsersPage({
           ← Back to dashboard
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Manage Users</h1>
-        <p className="mt-1 text-sm text-white/70">Create admin or viewer accounts for the Pinefrost Limited Performance Dashboard.</p>
+        <p className="mt-1 text-sm text-white/70">Approve registration requests and control roles, report access and passwords.</p>
       </div>
 
-      <div className="max-w-4xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
         {error ? (
           <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {error}
@@ -39,6 +50,57 @@ export default async function AdminUsersPage({
           <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {success}
           </p>
+        ) : null}
+
+        {pending.length > 0 ? (
+          <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <div className="p-6 pb-0">
+              <h2 className="text-lg font-semibold text-primary-blue">Pending Requests ({pending.length})</h2>
+            </div>
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-medium">Name</th>
+                    <th className="px-6 py-3 text-left font-medium">Email</th>
+                    <th className="px-6 py-3 text-left font-medium">Requested</th>
+                    <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pending.map((u) => (
+                    <tr key={u.id}>
+                      <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
+                      <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-muted">{u.createdAt.toLocaleDateString()}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <form action={approveUserAction} className="inline">
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button
+                              type="submit"
+                              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-3 py-1.5 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                            >
+                              Approve
+                            </button>
+                          </form>
+                          <form action={rejectUserAction} className="inline">
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button
+                              type="submit"
+                              className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
+                            >
+                              Reject
+                            </button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : null}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -107,51 +169,104 @@ export default async function AdminUsersPage({
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Users ({users.length})</h2>
+            <h2 className="text-lg font-semibold text-primary-blue">Users ({approved.length})</h2>
           </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-6 py-3 text-left font-medium">Name</th>
-                  <th className="px-6 py-3 text-left font-medium">Email</th>
-                  <th className="px-6 py-3 text-left font-medium">Role</th>
-                  <th className="px-6 py-3 text-left font-medium">Created</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
-                    <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
-                    <td className="px-6 py-3 border-b border-border/60">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          u.role === "ADMIN" ? "bg-accent-purple-soft text-accent-purple" : "bg-accent-grey-soft text-muted-strong"
-                        }`}
+          <div className="flex flex-col divide-y divide-border/60 mt-4">
+            {approved.map((u) => (
+              <div key={u.id} className="p-6 flex flex-col gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-foreground">{u.name || u.email}</div>
+                    <div className="text-xs text-muted">
+                      {u.email} · Joined {u.createdAt.toLocaleDateString()}
+                    </div>
+                  </div>
+                  <form action={deleteUserAction} className="inline">
+                    <input type="hidden" name="userId" value={u.id} />
+                    <button
+                      type="submit"
+                      disabled={u.id === session.user.id}
+                      className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={u.id === session.user.id ? "You can't delete your own account" : "Delete user"}
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </div>
+
+                <div className="flex flex-wrap items-end gap-6">
+                  <form action={updateUserRoleAction} className="flex items-end gap-2">
+                    <input type="hidden" name="userId" value={u.id} />
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Role</span>
+                      <select
+                        name="role"
+                        defaultValue={u.role}
+                        className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
                       >
-                        {u.role === "ADMIN" ? "Administrator" : "Viewer"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 border-b border-border/60 text-muted">{u.createdAt.toLocaleDateString()}</td>
-                    <td className="px-6 py-3 border-b border-border/60 text-right">
-                      <form action={deleteUserAction} className="inline">
-                        <input type="hidden" name="userId" value={u.id} />
-                        <button
-                          type="submit"
-                          disabled={u.id === session.user.id}
-                          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                          title={u.id === session.user.id ? "You can't delete your own account" : "Delete user"}
-                        >
-                          Remove
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        <option value="VIEWER">Viewer</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                    >
+                      Save role
+                    </button>
+                  </form>
+
+                  <form action={resetPasswordAction} className="flex items-end gap-2">
+                    <input type="hidden" name="userId" value={u.id} />
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">New password</span>
+                      <input
+                        type="password"
+                        name="newPassword"
+                        minLength={8}
+                        placeholder="min 8 characters"
+                        className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                    >
+                      Reset password
+                    </button>
+                  </form>
+                </div>
+
+                {u.role === "VIEWER" ? (
+                  <form action={updateUserPagesAction} className="flex flex-col gap-2">
+                    <input type="hidden" name="userId" value={u.id} />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Report visibility</span>
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {ALL_PAGE_KEYS.map((key) => (
+                        <label key={key} className="inline-flex items-center gap-1.5 text-xs text-muted-strong">
+                          <input
+                            type="checkbox"
+                            name="pages"
+                            value={key}
+                            defaultChecked={u.allowedPages.includes(key)}
+                            className="rounded border-border text-primary-blue focus:ring-secondary-blue"
+                          />
+                          {PAGE_LABELS[key]}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="submit"
+                      className="mt-1 self-start rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                    >
+                      Save visibility
+                    </button>
+                  </form>
+                ) : (
+                  <span className="text-xs text-muted">Administrators always see every report.</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>

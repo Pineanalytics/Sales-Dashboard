@@ -26,13 +26,20 @@ enum Role {
   VIEWER
 }
 
+enum UserStatus {
+  PENDING
+  APPROVED
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String     @id @default(cuid())
+  email        String     @unique
   name         String?
   passwordHash String
-  role         Role     @default(VIEWER)
-  createdAt    DateTime @default(now())
+  role         Role       @default(VIEWER)
+  status       UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
+  allowedPages String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
+  createdAt    DateTime   @default(now())
 }
 
 // Admin-maintained monthly targets, uploaded via a small dedicated form
