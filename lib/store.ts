@@ -14,6 +14,11 @@ interface DashboardState {
   // selected" from the original ask: land on the general picture, not a default MTD sliver.
   hasUserSelectedPeriod: boolean;
   sidebarOpen: boolean;
+  // Desktop-only "resting" state for the sidebar rail (mobile always uses sidebarOpen's
+  // full-drawer behavior instead). Persisted to localStorage so the choice survives page
+  // reloads, not just client-side navigation. Hovering over a collapsed rail temporarily
+  // reveals labels without changing this — see Sidebar.tsx's own hover state.
+  sidebarCollapsed: boolean;
   history: DatasetSnapshotSummary[];
 
   setDataset: (dataset: Dataset | null) => void;
@@ -21,6 +26,7 @@ interface DashboardState {
   setPeriod: (period: PeriodSelection) => void;
   clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
 
   fetchLatest: () => Promise<void>;
   /** Silently re-fetches the latest dataset in the background — unlike fetchLatest(),
@@ -34,6 +40,11 @@ interface DashboardState {
 }
 
 const EMPTY_PERIOD: PeriodSelection = { kind: "MTD", year: "" };
+// Always starts false (matching SSR, which has no localStorage) — Sidebar.tsx restores
+// the real persisted value from localStorage in a useEffect after mount, so the very
+// first client render still matches the server-rendered HTML and avoids a hydration
+// mismatch. See SIDEBAR_COLLAPSED_KEY usage there.
+export const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   dataset: null,
@@ -43,6 +54,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   selectedPeriod: EMPTY_PERIOD,
   hasUserSelectedPeriod: false,
   sidebarOpen: false,
+  sidebarCollapsed: false,
   history: [],
 
   setDataset: (dataset) =>
@@ -64,6 +76,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     });
   },
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarCollapsed: (collapsed) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+    }
+    set({ sidebarCollapsed: collapsed });
+  },
 
   fetchLatest: async () => {
     set({ status: "loading", error: null });
