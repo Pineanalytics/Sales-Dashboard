@@ -2,6 +2,7 @@
 
 import { useDashboardStore } from "@/lib/store";
 import { OverviewView } from "@/components/views/OverviewView";
+import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
 import { TopPerformers } from "@/components/overview/TopPerformers";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
@@ -23,6 +24,7 @@ export default function DashboardPage() {
   return (
     <>
       <OverviewView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+      <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
       <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
       <TopPerformers dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
     </>

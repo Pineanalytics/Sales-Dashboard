@@ -51,17 +51,36 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       (!selectedPrincipalKey || r.principalKey === selectedPrincipalKey) &&
       r.salesRole.toLowerCase().includes(selectedRole)
   );
-  const byPrincipal = new Map<string, { name: string; coverage: number; productiveCalls: number }>();
+  // Group by principal, then by month within each principal (summing across reps in the
+  // same month is fine — different reps' outlets are additive), then average across
+  // months: coverage counts unique outlets, so a multi-month period must not sum them.
+  const byPrincipal = new Map<string, { name: string; byMonth: Map<string, { coverage: number; productiveCalls: number }> }>();
   for (const r of rowsInPeriod) {
-    const existing = byPrincipal.get(r.principalKey);
+    let p = byPrincipal.get(r.principalKey);
+    if (!p) {
+      p = { name: r.principal.split("-")[0], byMonth: new Map() };
+      byPrincipal.set(r.principalKey, p);
+    }
+    const mKey = `${r.year}|${r.monthIndex}`;
+    const existing = p.byMonth.get(mKey);
     if (existing) {
       existing.coverage += r.coverage;
       existing.productiveCalls += r.productiveCalls;
     } else {
-      byPrincipal.set(r.principalKey, { name: r.principal.split("-")[0], coverage: r.coverage, productiveCalls: r.productiveCalls });
+      p.byMonth.set(mKey, { coverage: r.coverage, productiveCalls: r.productiveCalls });
     }
   }
-  const principalBars = Array.from(byPrincipal.values()).sort((a, b) => b.coverage - a.coverage);
+  const principalBars = Array.from(byPrincipal.values())
+    .map((p) => {
+      const monthTotals = Array.from(p.byMonth.values());
+      const n = monthTotals.length;
+      return {
+        name: p.name,
+        coverage: n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.coverage, 0) / n) : 0,
+        productiveCalls: n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.productiveCalls, 0) / n) : 0,
+      };
+    })
+    .sort((a, b) => b.coverage - a.coverage);
 
   const repByPrincipal = selectedRep ? summarizeCoverageByRepAcrossPrincipals(dataset, period, selectedRep) : [];
 

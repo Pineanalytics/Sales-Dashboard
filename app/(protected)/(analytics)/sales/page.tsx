@@ -8,6 +8,7 @@ import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { AchievementBadge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
+import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { formatCompact } from "@/lib/format";
 import { principalsByRevenueDesc } from "@/lib/selectors";
 import { CANONICAL_MONTHS, getAvailableMonths, summarizeSalesForPeriod } from "@/lib/timeIntelligence";
@@ -59,6 +60,8 @@ export default function SalesPage() {
         <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
         <KpiCard accent="growth" label="Weekly Revenue" value={<AnimatedValue value={weekly.weeklyRevenue} format={formatCompact} />} />
       </KpiGrid>
+
+      <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
 
       <ChartGrid>
         <SectionCard title="Sales Trend">

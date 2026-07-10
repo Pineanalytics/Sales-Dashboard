@@ -5,6 +5,8 @@ import {
   getAvailableYears,
   getAvailableMonths,
   getDefaultPeriod,
+  getPriorYearPeriod,
+  getPreviousMonthPeriod,
   summarizeSalesForPeriod,
   summarizeSalesByPrincipal,
   summarizeCoverageForPeriod,
@@ -134,6 +136,59 @@ describe("resolvePeriodMonths", () => {
 
   it("returns an empty array when a required month is missing", () => {
     expect(resolvePeriodMonths({ kind: "MTD", year: "2026" })).toEqual([]);
+  });
+});
+
+describe("getPriorYearPeriod", () => {
+  it("decrements the year while preserving kind and month for a MONTH period", () => {
+    expect(getPriorYearPeriod({ kind: "MONTH", year: "2026", month: "July" })).toEqual({
+      kind: "MONTH",
+      year: "2025",
+      month: "July",
+    });
+  });
+
+  it("decrements the year while preserving kind and month for a YTD period", () => {
+    expect(getPriorYearPeriod({ kind: "YTD", year: "2026", month: "July" })).toEqual({
+      kind: "YTD",
+      year: "2025",
+      month: "July",
+    });
+  });
+
+  it("decrements the year while preserving kind for a quarter period with no month", () => {
+    expect(getPriorYearPeriod({ kind: "Q2", year: "2026" })).toEqual({ kind: "Q2", year: "2025" });
+  });
+});
+
+describe("getPreviousMonthPeriod", () => {
+  it("returns the prior calendar month within the same year", () => {
+    expect(getPreviousMonthPeriod({ kind: "MONTH", year: "2026", month: "July" })).toEqual({
+      kind: "MONTH",
+      year: "2026",
+      month: "June",
+    });
+  });
+
+  it("rolls back to December of the prior year when the anchor month is January", () => {
+    expect(getPreviousMonthPeriod({ kind: "MONTH", year: "2026", month: "January" })).toEqual({
+      kind: "MONTH",
+      year: "2025",
+      month: "December",
+    });
+  });
+
+  it("always resolves to a MONTH-kind period even when the input period is YTD", () => {
+    expect(getPreviousMonthPeriod({ kind: "YTD", year: "2026", month: "July" })).toEqual({
+      kind: "MONTH",
+      year: "2026",
+      month: "June",
+    });
+  });
+
+  it("returns null when the period has no anchor month (H1/H2/Q1-Q4)", () => {
+    expect(getPreviousMonthPeriod({ kind: "H1", year: "2026" })).toBeNull();
+    expect(getPreviousMonthPeriod({ kind: "Q2", year: "2026" })).toBeNull();
   });
 });
 
@@ -279,6 +334,38 @@ describe("coverage summaries", () => {
     const byRep = summarizeCoverageByRep(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
     expect(byRep).toHaveLength(2); // still both Jane Doe and John Smith, same as the "eabl" brand key
     expect(byRep.find((r) => r.employeeName === "John Smith")?.coverage).toBe(60);
+  });
+
+  describe("multi-month periods average, not sum, since coverage counts unique outlets", () => {
+    const multiMonth = buildDataset({
+      monthlyCoverage: [
+        coverageRow({ employeeName: "Jane Doe", principal: "EABL-Nyeri", principalKey: "eabl", year: "2026", month: "June", monthIndex: 5, coverage: 100, productiveCalls: 80 }),
+        coverageRow({ employeeName: "John Smith", principal: "EABL-Nyahururu", principalKey: "eabl", year: "2026", month: "June", monthIndex: 5, coverage: 60, productiveCalls: 50 }),
+        coverageRow({ employeeName: "Jane Doe", principal: "EABL-Nyeri", principalKey: "eabl", year: "2026", month: "July", monthIndex: 6, coverage: 120, productiveCalls: 90 }),
+        coverageRow({ employeeName: "John Smith", principal: "EABL-Nyahururu", principalKey: "eabl", year: "2026", month: "July", monthIndex: 6, coverage: 40, productiveCalls: 30 }),
+      ],
+    });
+
+    it("summarizeCoverageForPeriod averages the monthly (reps-summed) totals across a YTD period", () => {
+      const summary = summarizeCoverageForPeriod(multiMonth, { kind: "YTD", year: "2026", month: "July" }, null);
+      // June total = 100+60=160, July total = 120+40=160 → average = 160, not the 320 sum.
+      expect(summary.coverage).toBe(160);
+      expect(summary.monthsIncluded).toBe(2);
+    });
+
+    it("summarizeCoverageByRep averages each rep's own monthly totals across the period", () => {
+      const byRep = summarizeCoverageByRep(multiMonth, { kind: "YTD", year: "2026", month: "July" }, null);
+      const jane = byRep.find((r) => r.employeeName === "Jane Doe")!;
+      // June=100, July=120 → average = 110, not the 220 sum.
+      expect(jane.coverage).toBe(110);
+    });
+
+    it("summing every rep's averaged coverage reproduces the period Total exactly", () => {
+      const summary = summarizeCoverageForPeriod(multiMonth, { kind: "YTD", year: "2026", month: "July" }, null);
+      const byRep = summarizeCoverageByRep(multiMonth, { kind: "YTD", year: "2026", month: "July" }, null);
+      const repSum = byRep.reduce((s, r) => s + r.coverage, 0);
+      expect(repSum).toBe(summary.coverage);
+    });
   });
 });
 

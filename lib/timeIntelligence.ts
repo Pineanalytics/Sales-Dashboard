@@ -119,6 +119,29 @@ export function getDefaultPeriod(dataset: Dataset): PeriodSelection {
   return getCurrentMonthPeriod(dataset);
 }
 
+/** The same period one year earlier, for year-over-year comparisons. Valid for
+ *  any PeriodKind (MONTH/QTD/YTD/H1/H2/Q1-Q4) — only the year changes, so a
+ *  YTD selection compares against last year's YTD through the same month, a
+ *  Q2 selection compares against last year's Q2, etc. */
+export function getPriorYearPeriod(period: PeriodSelection): PeriodSelection {
+  return { ...period, year: String(Number(period.year) - 1) };
+}
+
+/** The single calendar month immediately before the given period's "as of"
+ *  month, for month-over-month comparisons — handles year rollover (January
+ *  rolls back to the prior December). Always resolves to a MONTH-kind period
+ *  anchored on a single month, regardless of the input's own kind (a YTD
+ *  selection's MoM comparison is still "this month vs last month", not
+ *  "this YTD vs last YTD" — that's what getPriorYearPeriod is for). Returns
+ *  null if the period has no anchor month (H1/H2/Q1-Q4 have none). */
+export function getPreviousMonthPeriod(period: PeriodSelection): PeriodSelection | null {
+  if (!period.month) return null;
+  const idx = CANONICAL_MONTHS.indexOf(period.month);
+  if (idx < 0) return null;
+  if (idx === 0) return { kind: "MONTH", year: String(Number(period.year) - 1), month: "December" };
+  return { kind: "MONTH", year: period.year, month: CANONICAL_MONTHS[idx - 1] };
+}
+
 // ---------------------------------------------------------------------------
 // Sales vs Target
 // ---------------------------------------------------------------------------
@@ -226,16 +249,47 @@ export function classifyRole(salesRole: string): RoleCategory {
   return "other";
 }
 
+/** Sums the coverage/productiveCalls of a row set into per-month totals — summing across
+ *  reps within the same month is valid (each rep's outlets are additive to the team's
+ *  monthly reach), but the month totals themselves must never be summed together, since
+ *  coverage counts unique outlets and the same outlets get revisited every month. */
+function monthlyCoverageTotals(rows: MonthlyCoverageRow[]): Map<string, { coverage: number; productiveCalls: number }> {
+  const byMonth = new Map<string, { coverage: number; productiveCalls: number }>();
+  for (const r of rows) {
+    const key = rowKey(r.year, r.monthIndex);
+    const existing = byMonth.get(key);
+    if (existing) {
+      existing.coverage += r.coverage;
+      existing.productiveCalls += r.productiveCalls;
+    } else {
+      byMonth.set(key, { coverage: r.coverage, productiveCalls: r.productiveCalls });
+    }
+  }
+  return byMonth;
+}
+
+function averageMonthlyTotals(byMonth: Map<string, { coverage: number; productiveCalls: number }>): { coverage: number; productiveCalls: number; monthsIncluded: number } {
+  const monthTotals = Array.from(byMonth.values());
+  const n = monthTotals.length;
+  return {
+    coverage: n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.coverage, 0) / n) : 0,
+    productiveCalls: n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.productiveCalls, 0) / n) : 0,
+    monthsIncluded: n,
+  };
+}
+
+/** Coverage measures unique outlets, not repeated visits — a multi-month period (YTD, H1,
+ *  a quarter) reports the AVERAGE of each month's total (itself summed across reps for
+ *  that Principal/Month/SalesRole), not a running sum across months. Matches how the
+ *  source "Sales Update" workbook computes its own period totals. */
 function summarizeCoverageRows(rows: MonthlyCoverageRow[], months: MonthRef[]): PeriodCoverageSummary {
   const keys = periodKeySet(months);
   const matched = rows.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
-  const monthsWithData = new Set(matched.map((r) => rowKey(r.year, r.monthIndex)));
 
-  const coverage = matched.reduce((s, r) => s + r.coverage, 0);
-  const productiveCalls = matched.reduce((s, r) => s + r.productiveCalls, 0);
+  const { coverage, productiveCalls, monthsIncluded } = averageMonthlyTotals(monthlyCoverageTotals(matched));
   const productivityPct = coverage > 0 ? round1((productiveCalls / coverage) * 100) : 0;
 
-  return { coverage, productiveCalls, productivityPct, monthsIncluded: monthsWithData.size };
+  return { coverage, productiveCalls, productivityPct, monthsIncluded };
 }
 
 /** `principalKey` may be a raw Principal string (e.g. "EABL-Nyeri") or an already-normalized
@@ -263,6 +317,11 @@ export interface RepCoverageSummary {
   productivityPct: number;
 }
 
+/** Same "average the months, not sum" rule as summarizeCoverageRows, applied per rep —
+ *  a rep's own YTD coverage is the average of their monthly totals (summed across any
+ *  principals collapsed into the same month), not a running sum across months. This
+ *  keeps each rep's figure consistent with the period Total: summing every rep's
+ *  (already-averaged) coverage reproduces summarizeCoverageForPeriod's total exactly. */
 export function summarizeCoverageByRep(
   dataset: Dataset,
   selection: PeriodSelection,
@@ -278,26 +337,23 @@ export function summarizeCoverageByRep(
       (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
 
-  const byRep = new Map<string, { employeeName: string; salesRole: string; coverage: number; productiveCalls: number }>();
+  const byRep = new Map<string, { employeeName: string; salesRole: string; rows: MonthlyCoverageRow[] }>();
   for (const r of filtered) {
     const existing = byRep.get(r.employeeName);
-    if (existing) {
-      existing.coverage += r.coverage;
-      existing.productiveCalls += r.productiveCalls;
-    } else {
-      byRep.set(r.employeeName, {
-        employeeName: r.employeeName,
-        salesRole: r.salesRole,
-        coverage: r.coverage,
-        productiveCalls: r.productiveCalls,
-      });
-    }
+    if (existing) existing.rows.push(r);
+    else byRep.set(r.employeeName, { employeeName: r.employeeName, salesRole: r.salesRole, rows: [r] });
   }
 
-  return Array.from(byRep.values()).map((r) => ({
-    ...r,
-    productivityPct: r.coverage > 0 ? round1((r.productiveCalls / r.coverage) * 100) : 0,
-  }));
+  return Array.from(byRep.values()).map((rep) => {
+    const { coverage, productiveCalls } = averageMonthlyTotals(monthlyCoverageTotals(rep.rows));
+    return {
+      employeeName: rep.employeeName,
+      salesRole: rep.salesRole,
+      coverage,
+      productiveCalls,
+      productivityPct: coverage > 0 ? round1((productiveCalls / coverage) * 100) : 0,
+    };
+  });
 }
 
 export interface RepPrincipalCoverageSummary {
@@ -318,21 +374,23 @@ export function summarizeCoverageByRepAcrossPrincipals(
   const keys = periodKeySet(resolvePeriodMonths(selection));
   const filtered = dataset.monthlyCoverage.filter((r) => keys.has(rowKey(r.year, r.monthIndex)) && r.employeeName === employeeName);
 
-  const byPrincipal = new Map<string, { principal: string; principalKey: string; coverage: number; productiveCalls: number }>();
+  const byPrincipal = new Map<string, { principal: string; principalKey: string; rows: MonthlyCoverageRow[] }>();
   for (const r of filtered) {
     const existing = byPrincipal.get(r.principalKey);
-    if (existing) {
-      existing.coverage += r.coverage;
-      existing.productiveCalls += r.productiveCalls;
-    } else {
-      byPrincipal.set(r.principalKey, { principal: r.principal, principalKey: r.principalKey, coverage: r.coverage, productiveCalls: r.productiveCalls });
-    }
+    if (existing) existing.rows.push(r);
+    else byPrincipal.set(r.principalKey, { principal: r.principal, principalKey: r.principalKey, rows: [r] });
   }
 
-  return Array.from(byPrincipal.values()).map((p) => ({
-    ...p,
-    productivityPct: p.coverage > 0 ? round1((p.productiveCalls / p.coverage) * 100) : 0,
-  }));
+  return Array.from(byPrincipal.values()).map((p) => {
+    const { coverage, productiveCalls } = averageMonthlyTotals(monthlyCoverageTotals(p.rows));
+    return {
+      principal: p.principal,
+      principalKey: p.principalKey,
+      coverage,
+      productiveCalls,
+      productivityPct: coverage > 0 ? round1((productiveCalls / coverage) * 100) : 0,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
