@@ -21,6 +21,11 @@
   "prisma": {
     "seed": "node prisma/seed.mjs"
   },
+  "overrides": {
+    "next-auth": {
+      "nodemailer": "$nodemailer"
+    }
+  },
   "dependencies": {
     "@fluentui/react-icons": "^2.0.331",
     "@prisma/client": "^6.19.3",
