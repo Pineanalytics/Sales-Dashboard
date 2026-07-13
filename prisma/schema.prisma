@@ -148,3 +148,99 @@ model PLEntry {
   @@unique([year, month, principal, accountCode, lineType])
   @@index([year, month])
 }
+
+// Active Outlets — outlet-level YTD purchase-event summary from the "pine"
+// field-force DB, one row per Year+Principal+CustomerID, pushed live by
+// scripts/db-bridge/active-outlets via app/api/active-outlets/upload. Read
+// directly by app/(protected)/(analytics)/active-outlets/page.tsx — not part
+// of Dataset/Snapshot, since this has no Excel-sourced equivalent. Powers
+// outlet drill-down plus Channel/Sub Channel/Frequency-Band breakdowns,
+// aggregated live from this table rather than pre-baked.
+model ActiveOutlet {
+  id                 String   @id @default(cuid())
+  year               String
+  principal          String // Cost Centre, matches other principal fields' raw string
+  customerId         String // pine.outlets o_id
+  outletName         String
+  channel            String
+  subChannel         String
+  territory          String
+  salesRole          String // dominant role for the period: "Primary Sales" | "Secondary Sales"
+  timesBought        Int
+  purchaseDays       Int
+  activeMonths       Int
+  firstPurchaseDate  DateTime
+  lastPurchaseDate   DateTime
+  frequencyBand      String // e.g. "One-time Buyer", "Regular - About Monthly"
+  sales              Float
+  qty                Float
+  mostRecentRep      String?
+  mostRecentRepGroup String?
+  updatedAt          DateTime @updatedAt
+  createdAt          DateTime @default(now())
+
+  @@unique([year, principal, customerId])
+  @@index([year, principal])
+}
+
+// Monthly trend for Active Outlets: distinct outlets per Cost Centre, split
+// Primary/Secondary, RE-COUNTED per month — never derived by summing
+// ActiveOutlet rows across months (same "unique not repeated sums" rule
+// already established for Coverage; see project memory).
+model ActiveOutletMonthly {
+  id              String   @id @default(cuid())
+  year            String
+  month           String
+  monthIndex      Int
+  principal       String
+  salesRole       String
+  distinctOutlets Int
+  transactions    Int
+  sales           Float
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([year, month, principal, salesRole])
+  @@index([year, month])
+}
+
+// Timestamps — one row per rep-outlet-day call from the "pine" field-force DB,
+// current calendar month only (deliberately, matching the source script's own
+// design). Full table replace every sync (scripts/db-bridge/active-outlets via
+// app/api/timestamps/upload) — this table always holds "this month," never
+// accumulates history, same precedent as PLEntry's full-aggregate-then-replace.
+// Rep-daily summaries (First/Last Call, Strike Rate %, Outlets Covered) are
+// aggregated live from this table on read, not stored separately.
+model RepCall {
+  id                String   @id @default(cuid())
+  date              DateTime
+  employeeCode      String
+  salesRep          String
+  employeeGroup     String
+  salesRole         String
+  region            String
+  callSequence      Int
+  callTime          DateTime
+  callOutcome       String // "Sale" | "No Sale"
+  noSaleReason      String?
+  outletId          String
+  outletName        String
+  channel           String
+  subChannel        String
+  territory         String
+  costCentresBought String // comma-joined, matches the source script's "Cost Centres Bought"
+  intervalMins      Float? // minutes since this rep's previous call that day; null for the first
+  documents         Int
+  sales             Float
+  qty               Float
+  firstCallOfDay    DateTime
+  lastCallOfDay     DateTime
+  hoursInDay        Float
+  callsInDay        Int
+  productiveInDay   Int
+  createdAt         DateTime @default(now())
+
+  @@unique([date, employeeCode, outletId])
+  @@index([date])
+  @@index([employeeCode, date])
+}

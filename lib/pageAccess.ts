@@ -13,6 +13,8 @@ export const ALL_PAGE_KEYS = [
   "customers",
   "profitability",
   "stock",
+  "active-outlets",
+  "timestamps",
   "reports",
 ] as const;
 
@@ -30,6 +32,8 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   customers: "Customers & Brands",
   profitability: "Profitability",
   stock: "Stock Balance",
+  "active-outlets": "Active Outlets",
+  timestamps: "Timestamps",
   reports: "Reports",
 };
 
