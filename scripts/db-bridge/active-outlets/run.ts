@@ -14,6 +14,11 @@ import { buildActiveOutlets, buildActiveOutletsMonthly, buildRepCalls, collapseT
 import principalsData from "../reference/principals.json";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.netlify.app";
+// A single request carrying tens of thousands of rows trips Netlify's request
+// payload/timeout limits before the server side ever gets to chunk its own DB
+// writes (the same class of problem export-and-upload.ps1 documents for its
+// Brand&Customer sheet) — batch the HTTP requests themselves, client-side.
+const BATCH_SIZE = 2000;
 
 function currentMonthWindow(now: Date): { start: Date; end: Date } {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -28,6 +33,61 @@ async function postJson(appUrl: string, apiKey: string, path: string, body: unkn
     body: JSON.stringify(body),
   });
   return { ok: response.ok, status: response.status, body: await response.json() };
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks.length > 0 ? chunks : [[]];
+}
+
+/** Uploads Active Outlets in batches — each batch upserts independently, so
+ *  batching here has no special ordering requirement (unlike Timestamps below). */
+async function uploadActiveOutletsBatched(
+  appUrl: string,
+  apiKey: string,
+  outletRows: ReturnType<typeof buildActiveOutlets>,
+  monthlyRows: ReturnType<typeof buildActiveOutletsMonthly>
+): Promise<boolean> {
+  const outletBatches = chunk(outletRows, BATCH_SIZE);
+  let ok = true;
+  let totalOutlets = 0;
+  for (const [i, batch] of outletBatches.entries()) {
+    // Monthly rows are few (one per Month+Principal+SalesRole) — piggyback them on
+    // the first batch only, rather than adding a third top-level batching loop.
+    const result = await postJson(appUrl, apiKey, "/api/active-outlets/upload", {
+      outlets: batch,
+      monthly: i === 0 ? monthlyRows : [],
+    });
+    if (!result.ok) {
+      console.error(`[active-outlets] Active Outlets upload batch ${i + 1}/${outletBatches.length} FAILED:`, result.status, JSON.stringify(result.body));
+      ok = false;
+    } else {
+      totalOutlets += batch.length;
+    }
+  }
+  console.log(`[active-outlets] Active Outlets upload: ${totalOutlets}/${outletRows.length} outlet rows saved across ${outletBatches.length} batch(es).`);
+  return ok;
+}
+
+/** Uploads Timestamps in batches. "replace: true" only on the first batch clears
+ *  RepCall once; later batches only insert, so they don't wipe out what earlier
+ *  batches in this same sync just wrote. */
+async function uploadCallsBatched(appUrl: string, apiKey: string, callRows: ReturnType<typeof buildRepCalls>): Promise<boolean> {
+  const batches = chunk(callRows, BATCH_SIZE);
+  let ok = true;
+  let total = 0;
+  for (const [i, batch] of batches.entries()) {
+    const result = await postJson(appUrl, apiKey, "/api/timestamps/upload", { calls: batch, replace: i === 0 });
+    if (!result.ok) {
+      console.error(`[active-outlets] Timestamps upload batch ${i + 1}/${batches.length} FAILED:`, result.status, JSON.stringify(result.body));
+      ok = false;
+    } else {
+      total += batch.length;
+    }
+  }
+  console.log(`[active-outlets] Timestamps upload: ${total}/${callRows.length} call rows saved across ${batches.length} batch(es).`);
+  return ok;
 }
 
 async function main() {
@@ -81,21 +141,11 @@ async function main() {
   const callRows = buildRepCalls(monthEvents, noSaleVisits, outlets, users);
   console.log(`[active-outlets] Built ${callRows.length} Timestamps (call) rows for the current month.`);
 
-  const outletsUpload = await postJson(appUrl, apiKey, "/api/active-outlets/upload", { outlets: outletRows, monthly: monthlyRows });
-  if (!outletsUpload.ok) {
-    console.error("[active-outlets] Active Outlets upload FAILED:", outletsUpload.status, JSON.stringify(outletsUpload.body));
-    process.exitCode = 1;
-  } else {
-    console.log("[active-outlets] Active Outlets upload succeeded:", JSON.stringify(outletsUpload.body));
-  }
+  const outletsOk = await uploadActiveOutletsBatched(appUrl, apiKey, outletRows, monthlyRows);
+  if (!outletsOk) process.exitCode = 1;
 
-  const callsUpload = await postJson(appUrl, apiKey, "/api/timestamps/upload", { calls: callRows });
-  if (!callsUpload.ok) {
-    console.error("[active-outlets] Timestamps upload FAILED:", callsUpload.status, JSON.stringify(callsUpload.body));
-    process.exitCode = 1;
-  } else {
-    console.log("[active-outlets] Timestamps upload succeeded:", JSON.stringify(callsUpload.body));
-  }
+  const callsOk = await uploadCallsBatched(appUrl, apiKey, callRows);
+  if (!callsOk) process.exitCode = 1;
 }
 
 main().catch((err) => {

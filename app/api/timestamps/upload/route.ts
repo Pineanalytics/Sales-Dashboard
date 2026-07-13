@@ -125,18 +125,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more call rows are missing required fields or have an invalid callOutcome." }, { status: 400 });
   }
 
+  // The full row set is too large for one HTTP request (Netlify's payload limit),
+  // so the client sends it as several smaller batches. "replace: true" on the
+  // first batch clears the table once; later batches in the same sync only
+  // insert, so they don't wipe out rows the earlier batches just wrote.
+  const replace = (body as { replace?: unknown })?.replace !== false;
+
   try {
     const validRows = calls as RepCallUploadRow[];
     await prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`DELETE FROM "RepCall"`;
+        if (replace) {
+          await tx.$executeRaw`DELETE FROM "RepCall"`;
+        }
         for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
           await insertChunk(tx, validRows.slice(i, i + CHUNK_SIZE));
         }
       },
       { timeout: 30000 }
     );
-    return NextResponse.json({ count: validRows.length }, { status: 200 });
+    return NextResponse.json({ count: validRows.length, replaced: replace }, { status: 200 });
   } catch (err) {
     console.error("Failed to replace RepCall rows", err);
     return NextResponse.json({ error: "Failed to save Timestamps data." }, { status: 500 });
