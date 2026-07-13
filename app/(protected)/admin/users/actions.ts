@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, isPageKey } from "@/lib/pageAccess";
+import { sendApprovalEmail } from "@/lib/email";
 
 async function requireAdmin() {
   const session = await auth();
@@ -75,7 +76,11 @@ export async function approveUserAction(formData: FormData) {
     data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
   });
 
-  redirect("/admin/users?success=" + encodeURIComponent(`Approved ${target.email} with access to all reports.`));
+  const emailResult = await sendApprovalEmail(target.email, target.name);
+  const message = emailResult.sent
+    ? `Approved ${target.email} with access to all reports. Notification email sent.`
+    : `Approved ${target.email} with access to all reports. Notification email NOT sent (${emailResult.error}).`;
+  redirect("/admin/users?success=" + encodeURIComponent(message));
 }
 
 export async function rejectUserAction(formData: FormData) {

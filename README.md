@@ -85,6 +85,8 @@ Auth is enforced at the page/route level rather than in Proxy/Middleware (delibe
 | `DIRECT_URL` | Direct (non-pooled) Postgres connection string, used only for `prisma db push`/migrations — PgBouncer's transaction pooling mode doesn't support the prepared statements migrations need. Same dashboard page as above. |
 | `AUTH_SECRET` | Secret used to sign/encrypt session JWTs — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `UPLOAD_API_KEY` | Optional. Lets a headless script call `POST /api/upload` with an `x-upload-api-key` header instead of an interactive admin session — see [Automated uploads](#automated-uploads). Leave unset to disable this auth path entirely. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM_NAME` | Optional. Enables the "your account has been approved" email sent from `/admin/users`' Approve button (`lib/email.ts`). Sent via a dedicated mailbox's own SMTP (defaults tuned for a Gmail account with an [App Password](https://myaccount.google.com/apppasswords)) rather than as `analytics@pinefrost.co.ke` directly, since that would require owning the `pinefrost.co.ke` domain's DNS to verify with a transactional-email provider — `Reply-To` is still set to `analytics@pinefrost.co.ke` regardless of which mailbox sends. Leave `SMTP_USER`/`SMTP_PASSWORD` unset to skip sending (approvals still work, just without the email — logged as a warning). |
+| `APP_URL` | Optional. The login link included in that approval email. Defaults to `https://pinefrostdb.netlify.app` when unset. |
 
 This project's Supabase project is `pinefrostsales` (ref `addexxjwrxmjjqmcwkib`, region `eu-west-1`), under the Pineanalytics organization.
 
