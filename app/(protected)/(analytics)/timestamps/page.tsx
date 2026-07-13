@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { useState, useEffect } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { useDashboardStore } from "@/lib/store";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
@@ -11,7 +12,7 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
-import { Clock20Regular } from "@fluentui/react-icons";
+import { Clock20Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
 interface RepCallRow {
   date: string;
@@ -45,25 +46,77 @@ interface RepDaySummary {
   date: string;
   employeeCode: string;
   salesRep: string;
-  employeeGroup: string;
   region: string;
+  salesRole: string;
   firstCall: string;
   lastCall: string;
   hoursInDay: number;
   callsMade: number;
   productiveCalls: number;
-  noSaleCalls: number;
   strikeRatePct: number;
   outletsCovered: number;
   avgIntervalMins: number | null;
   costCentresCovered: string;
-  documents: number;
   sales: number;
 }
 
+// Africa/Nairobi is a fixed UTC+3 offset year-round (no DST) — used instead of relying
+// on the browser's own local timezone, which would show wrong times for anyone viewing
+// the dashboard from outside Kenya.
+const NAIROBI_UTC_OFFSET_HOURS = 3;
+
+function nairobiHour(iso: string): number {
+  return (new Date(iso).getUTCHours() + NAIROBI_UTC_OFFSET_HOURS) % 24;
+}
+
+function formatTime12h(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { timeZone: "Africa/Nairobi", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function formatDateLabel(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "numeric", month: "short" });
+}
+
+function hourLabel(h: number): string {
+  const period = h < 12 ? "AM" : "PM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}${period}`;
+}
+
+interface RoleStats {
+  totalCalls: number;
+  productiveCalls: number;
+  strikeRate: number;
+  outletsCovered: number;
+  avgIntervalMins: number | null;
+  sales: number;
+}
+
+function computeRoleStats(rows: RepCallRow[]): RoleStats {
+  const totalCalls = rows.length;
+  const productiveCalls = rows.filter((c) => c.callOutcome === "Sale").length;
+  const strikeRate = totalCalls > 0 ? Math.round((productiveCalls / totalCalls) * 1000) / 10 : 0;
+  const outletsCovered = new Set(rows.map((c) => c.outletId)).size;
+  const intervals = rows.map((c) => c.intervalMins).filter((v): v is number => v !== null);
+  const avgIntervalMins = intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null;
+  const sales = rows.reduce((s, c) => s + c.sales, 0);
+  return { totalCalls, productiveCalls, strikeRate, outletsCovered, avgIntervalMins, sales };
+}
+
+function pillClass(active: boolean): string {
+  return `shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
+    active ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "bg-background-elevated text-muted-strong hover:text-primary-blue"
+  }`;
+}
+
 export default function TimestampsPage() {
+  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [calls, setCalls] = useState<RepCallRow[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [repQuery, setRepQuery] = useState("");
+  const [selectedRep, setSelectedRep] = useState<string | null>(null);
+  const [repDropdownOpen, setRepDropdownOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,91 +158,213 @@ export default function TimestampsPage() {
     );
   }
 
-  const totalCalls = calls.length;
-  const productiveCalls = calls.filter((c) => c.callOutcome === "Sale").length;
-  const strikeRate = totalCalls > 0 ? Math.round((productiveCalls / totalCalls) * 1000) / 10 : 0;
-  const outletsCovered = new Set(calls.map((c) => c.outletId)).size;
-  const intervals = calls.map((c) => c.intervalMins).filter((v): v is number => v !== null);
-  const avgInterval = intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null;
+  // Principal filter (the global selector, same one every other page respects) — a call
+  // "belongs" to a principal if that principal was among what was bought during it.
+  // No-Sale calls have no Cost Centre, so filtering by principal naturally excludes
+  // them — they aren't specific to any one principal's business.
+  const principalFiltered = selectedPrincipalKey
+    ? calls.filter((c) => c.costCentresBought.split(", ").filter(Boolean).includes(selectedPrincipalKey))
+    : calls;
 
-  // Rep-daily summary, aggregated live from RepCall rows — one row per Rep x Day,
-  // reading the day-level fields the sync already computed (callsInDay etc. are
-  // identical across every call in that rep-day) rather than re-deriving them.
-  const byRepDay = new Map<string, RepCallRow[]>();
-  for (const c of calls) {
-    const key = `${c.date}|${c.employeeCode}`;
-    if (!byRepDay.has(key)) byRepDay.set(key, []);
-    byRepDay.get(key)!.push(c);
+  const availableDates = Array.from(new Set(principalFiltered.map((c) => c.date))).sort();
+  const dateFiltered = selectedDate ? principalFiltered.filter((c) => c.date === selectedDate) : principalFiltered;
+
+  const availableReps = Array.from(new Map(dateFiltered.map((c) => [c.employeeCode, c.salesRep] as const)).entries()).sort((a, b) =>
+    a[1].localeCompare(b[1])
+  );
+  const filteredCalls = selectedRep ? dateFiltered.filter((c) => c.employeeCode === selectedRep) : dateFiltered;
+
+  const selectedRepName = selectedRep ? availableReps.find(([code]) => code === selectedRep)?.[1] : undefined;
+  const repSearchResults = (repQuery.trim() ? availableReps.filter(([, name]) => name.toLowerCase().includes(repQuery.trim().toLowerCase())) : availableReps).slice(
+    0,
+    10
+  );
+
+  const primaryCalls = filteredCalls.filter((c) => c.salesRole === "Primary Sales");
+  const secondaryCalls = filteredCalls.filter((c) => c.salesRole === "Secondary Sales");
+  const primaryStats = computeRoleStats(primaryCalls);
+  const secondaryStats = computeRoleStats(secondaryCalls);
+  const overallProductive = primaryStats.productiveCalls + secondaryStats.productiveCalls;
+  const overallStrikeRate = filteredCalls.length > 0 ? Math.round((overallProductive / filteredCalls.length) * 1000) / 10 : 0;
+  const overallOutletsCovered = new Set(filteredCalls.map((c) => c.outletId)).size;
+
+  // Rep Daily Summary — split by Sales Role, not just Rep x Day: a TDR touching both
+  // Mars and non-Mars Cost Centres in the same day genuinely has mixed-role calls, so
+  // recomputing every stat fresh from each role-specific group (rather than trusting
+  // RepCall's precomputed whole-day fields) is what actually "splits everything."
+  const byRepDayRole = new Map<string, RepCallRow[]>();
+  for (const c of filteredCalls) {
+    const key = `${c.date}|${c.employeeCode}|${c.salesRole}`;
+    if (!byRepDayRole.has(key)) byRepDayRole.set(key, []);
+    byRepDayRole.get(key)!.push(c);
   }
-  const avgHoursInDay = calls.length > 0 ? [...byRepDay.values()].reduce((s, day) => s + day[0].hoursInDay, 0) / byRepDay.size : 0;
-
-  const repDaySummaries: RepDaySummary[] = Array.from(byRepDay.entries()).map(([, dayCalls]) => {
-    const first = dayCalls[0];
-    const outlets = new Set(dayCalls.map((c) => c.outletId));
-    const dayIntervals = dayCalls.map((c) => c.intervalMins).filter((v): v is number => v !== null);
+  const repDaySummaries: RepDaySummary[] = Array.from(byRepDayRole.values()).map((group) => {
+    const first = group[0];
+    const sorted = [...group].sort((a, b) => new Date(a.callTime).getTime() - new Date(b.callTime).getTime());
+    const outlets = new Set(group.map((c) => c.outletId));
+    const intervals = group.map((c) => c.intervalMins).filter((v): v is number => v !== null);
     const costCentres = new Set<string>();
-    dayCalls.forEach((c) => c.costCentresBought.split(", ").filter(Boolean).forEach((cc) => costCentres.add(cc)));
+    group.forEach((c) => c.costCentresBought.split(", ").filter(Boolean).forEach((cc) => costCentres.add(cc)));
+    const productive = group.filter((c) => c.callOutcome === "Sale").length;
+    const firstCall = sorted[0].callTime;
+    const lastCall = sorted[sorted.length - 1].callTime;
+    const hoursInDay = Math.round(((new Date(lastCall).getTime() - new Date(firstCall).getTime()) / 3600000) * 100) / 100;
     return {
       date: first.date,
       employeeCode: first.employeeCode,
       salesRep: first.salesRep,
-      employeeGroup: first.employeeGroup,
       region: first.region,
-      firstCall: first.firstCallOfDay,
-      lastCall: first.lastCallOfDay,
-      hoursInDay: first.hoursInDay,
-      callsMade: first.callsInDay,
-      productiveCalls: first.productiveInDay,
-      noSaleCalls: first.callsInDay - first.productiveInDay,
-      strikeRatePct: first.callsInDay > 0 ? Math.round((first.productiveInDay / first.callsInDay) * 1000) / 10 : 0,
+      salesRole: first.salesRole,
+      firstCall,
+      lastCall,
+      hoursInDay,
+      callsMade: group.length,
+      productiveCalls: productive,
+      strikeRatePct: group.length > 0 ? Math.round((productive / group.length) * 1000) / 10 : 0,
       outletsCovered: outlets.size,
-      avgIntervalMins: dayIntervals.length > 0 ? Math.round((dayIntervals.reduce((s, v) => s + v, 0) / dayIntervals.length) * 10) / 10 : null,
+      avgIntervalMins: intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null,
       costCentresCovered: Array.from(costCentres).sort().join(", "),
-      documents: dayCalls.reduce((s, c) => s + c.documents, 0),
-      sales: dayCalls.reduce((s, c) => s + c.sales, 0),
+      sales: group.reduce((s, c) => s + c.sales, 0),
     };
   });
   repDaySummaries.sort((a, b) => (a.date === b.date ? a.salesRep.localeCompare(b.salesRep) : a.date.localeCompare(b.date)));
 
-  // Call-time-of-day distribution (24 hourly buckets).
-  const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ name: `${String(h).padStart(2, "0")}:00`, value: 0 }));
-  for (const c of calls) {
-    const hour = new Date(c.callTime).getUTCHours();
-    hourBuckets[hour].value += 1;
+  // Calls by time of day, split Primary vs Secondary, in Nairobi local time.
+  const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ name: hourLabel(h), Primary: 0, Secondary: 0 }));
+  for (const c of filteredCalls) {
+    const h = nairobiHour(c.callTime);
+    if (c.salesRole === "Primary Sales") hourBuckets[h].Primary += 1;
+    else hourBuckets[h].Secondary += 1;
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <KpiGrid>
-        <KpiCard accent="coverage" label="Total Calls (This Month)" value={<AnimatedValue value={totalCalls} format={formatNumber} />} />
-        <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={productiveCalls} format={formatNumber} />} />
-        <KpiCard
-          accent="growth"
-          label="Strike Rate"
-          value={<span className={tierTextClass[productivityTier(strikeRate)]}>{formatPercent(strikeRate)}</span>}
-        />
-        <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={outletsCovered} format={formatNumber} />} />
-        <KpiCard accent="mission" label="Avg Hours in Day" value={avgHoursInDay.toFixed(1)} sublabel="per rep, per working day" />
-        <KpiCard accent="revenue" label="Avg Interval Between Calls" value={avgInterval !== null ? `${avgInterval.toFixed(0)}m` : "—"} />
-      </KpiGrid>
+      <SectionCard title="Date" action={<span className="text-xs text-muted">Current calendar month only</span>}>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <button onClick={() => setSelectedDate(null)} className={pillClass(!selectedDate)}>
+            All Month
+          </button>
+          {availableDates.map((d) => (
+            <button key={d} onClick={() => setSelectedDate(d)} className={pillClass(selectedDate === d)}>
+              {formatDateLabel(d)}
+            </button>
+          ))}
+        </div>
+      </SectionCard>
 
-      <SectionCard title="Calls by Time of Day">
-        <ResponsiveContainer width="100%" height={260}>
+      <SectionCard title="Filter by Rep">
+        <div className="relative max-w-sm">
+          <input
+            value={selectedRep ? selectedRepName ?? "" : repQuery}
+            onChange={(e) => {
+              setRepQuery(e.target.value);
+              setSelectedRep(null);
+              setRepDropdownOpen(true);
+            }}
+            onFocus={() => setRepDropdownOpen(true)}
+            onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
+            placeholder="Search reps…"
+            className="w-full rounded-full border border-border bg-surface px-4 py-2 pr-9 text-sm text-foreground outline-none focus:border-secondary-blue"
+          />
+          {selectedRep ? (
+            <button
+              onClick={() => {
+                setSelectedRep(null);
+                setRepQuery("");
+              }}
+              aria-label="Clear rep filter"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+            >
+              <Dismiss12Regular />
+            </button>
+          ) : null}
+          {repDropdownOpen && !selectedRep ? (
+            <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+              {repSearchResults.length === 0 ? (
+                <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
+              ) : (
+                repSearchResults.map(([code, name]) => (
+                  <button
+                    key={code}
+                    onMouseDown={() => {
+                      setSelectedRep(code);
+                      setRepQuery("");
+                      setRepDropdownOpen(false);
+                    }}
+                    className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
+                  >
+                    {name}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Primary Sales">
+        <KpiGrid>
+          <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={primaryStats.totalCalls} format={formatNumber} />} />
+          <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={primaryStats.productiveCalls} format={formatNumber} />} />
+          <KpiCard
+            accent="growth"
+            label="Strike Rate"
+            value={<span className={tierTextClass[productivityTier(primaryStats.strikeRate)]}>{formatPercent(primaryStats.strikeRate)}</span>}
+          />
+          <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={primaryStats.outletsCovered} format={formatNumber} />} />
+          <KpiCard accent="revenue" label="Avg Interval Between Calls" value={primaryStats.avgIntervalMins !== null ? `${primaryStats.avgIntervalMins.toFixed(0)}m` : "—"} />
+          <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={primaryStats.sales} format={formatCompact} />} />
+        </KpiGrid>
+      </SectionCard>
+
+      <SectionCard title="Secondary Sales">
+        <KpiGrid>
+          <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={secondaryStats.totalCalls} format={formatNumber} />} />
+          <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={secondaryStats.productiveCalls} format={formatNumber} />} />
+          <KpiCard
+            accent="growth"
+            label="Strike Rate"
+            value={<span className={tierTextClass[productivityTier(secondaryStats.strikeRate)]}>{formatPercent(secondaryStats.strikeRate)}</span>}
+          />
+          <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={secondaryStats.outletsCovered} format={formatNumber} />} />
+          <KpiCard
+            accent="revenue"
+            label="Avg Interval Between Calls"
+            value={secondaryStats.avgIntervalMins !== null ? `${secondaryStats.avgIntervalMins.toFixed(0)}m` : "—"}
+          />
+          <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={secondaryStats.sales} format={formatCompact} />} />
+        </KpiGrid>
+      </SectionCard>
+
+      <SectionCard title="Calls by Time of Day (Primary vs Secondary)" action={<span className="text-xs text-muted">Africa/Nairobi time</span>}>
+        <ResponsiveContainer width="100%" height={280}>
           <BarChart data={hourBuckets} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
             <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={1} />
             <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
             <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]} fill={CHART_COLORS[0]} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="Primary" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Secondary" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </SectionCard>
 
-      <SectionCard title="Rep Daily Summary" action={<span className="text-xs text-muted">Current calendar month, all reps</span>}>
+      <SectionCard
+        title="Rep Daily Summary"
+        action={
+          <span className="text-xs text-muted">
+            {selectedDate ? formatDateLabel(selectedDate) : "Current calendar month"}
+            {selectedRepName ? ` · ${selectedRepName}` : ""}
+            {selectedPrincipalKey ? ` · ${selectedPrincipalKey}` : ""}
+          </span>
+        }
+      >
         <TableWrap>
           <Thead>
             <Th>Date</Th>
             <Th>Sales Rep</Th>
+            <Th>Sales Role</Th>
             <Th>Region</Th>
             <Th>First Call</Th>
             <Th>Last Call</Th>
@@ -203,12 +378,13 @@ export default function TimestampsPage() {
           </Thead>
           <tbody>
             {repDaySummaries.map((r) => (
-              <tr key={`${r.date}|${r.employeeCode}`}>
-                <Td>{r.date}</Td>
+              <tr key={`${r.date}|${r.employeeCode}|${r.salesRole}`}>
+                <Td>{formatDateLabel(r.date)}</Td>
                 <Td>{r.salesRep}</Td>
+                <Td>{r.salesRole}</Td>
                 <Td>{r.region}</Td>
-                <Td>{new Date(r.firstCall).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}</Td>
-                <Td>{new Date(r.lastCall).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}</Td>
+                <Td>{formatTime12h(r.firstCall)}</Td>
+                <Td>{formatTime12h(r.lastCall)}</Td>
                 <Td align="right">{r.hoursInDay.toFixed(1)}</Td>
                 <Td align="right">{formatNumber(r.callsMade)}</Td>
                 <Td align="right">{formatNumber(r.productiveCalls)}</Td>
@@ -226,15 +402,16 @@ export default function TimestampsPage() {
               <Td>—</Td>
               <Td>—</Td>
               <Td>—</Td>
-              <Td align="right">{avgHoursInDay.toFixed(1)}</Td>
-              <Td align="right">{formatNumber(totalCalls)}</Td>
-              <Td align="right">{formatNumber(productiveCalls)}</Td>
+              <Td>—</Td>
+              <Td align="right">—</Td>
+              <Td align="right">{formatNumber(filteredCalls.length)}</Td>
+              <Td align="right">{formatNumber(overallProductive)}</Td>
               <Td align="center">
-                <Badge tier={productivityTier(strikeRate)}>{strikeRate.toFixed(1)}%</Badge>
+                <Badge tier={productivityTier(overallStrikeRate)}>{overallStrikeRate.toFixed(1)}%</Badge>
               </Td>
-              <Td align="right">{formatNumber(outletsCovered)}</Td>
-              <Td align="right">{avgInterval !== null ? avgInterval.toFixed(0) : "—"}</Td>
-              <Td align="right">{formatCompact(calls.reduce((s, c) => s + c.sales, 0))}</Td>
+              <Td align="right">{formatNumber(overallOutletsCovered)}</Td>
+              <Td align="right">—</Td>
+              <Td align="right">{formatCompact(primaryStats.sales + secondaryStats.sales)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>
