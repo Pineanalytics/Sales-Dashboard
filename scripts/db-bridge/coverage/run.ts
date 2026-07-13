@@ -28,8 +28,12 @@ async function main() {
   const { rows: monthlyCoverage, unmatchedCostCentres } = buildCoverage(rawRows, principalsData);
   console.log(`[coverage-bridge] Built ${monthlyCoverage.length} monthly-coverage rows.`);
   if (unmatchedCostCentres.length > 0) {
-    console.warn(
-      `[coverage-bridge] WARNING: ${unmatchedCostCentres.length} Cost Centre value(s) didn't match a known Active principal (excluded): ${unmatchedCostCentres.join(", ")}`
+    // console.log, not console.warn: stderr output from a native command can get misread
+    // as a fatal error by a Task Scheduler PowerShell wrapper's $ErrorActionPreference =
+    // "Stop" (see the same fix in scripts/pl-bridge/run.ts), even on a script that's
+    // manual-only today — kept consistent in case this is ever scheduled too.
+    console.log(
+      `[coverage-bridge] NOTE: ${unmatchedCostCentres.length} Cost Centre value(s) didn't match a known Active principal (excluded): ${unmatchedCostCentres.join(", ")}`
     );
   }
 

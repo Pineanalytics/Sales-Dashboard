@@ -1,8 +1,8 @@
 // Entry point for the live P&L sync. Unlike scripts/db-bridge/run.ts (read-only,
 // local output only), this script actually pushes to production: fetches the
 // current year's P&L from SAP, aggregates to monthly grain, and POSTs to
-// /api/pl/upload (same UPLOAD_API_KEY auth as the main Excel upload). Manual
-// trigger for now — not wired into Task Scheduler. Run with: npm run pl:sync
+// /api/pl/upload (same UPLOAD_API_KEY auth as the main Excel upload). Wired into
+// Task Scheduler via scripts/pl-sync.ps1. Manual run: npm run pl:sync
 process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "../db-bridge/sql";
@@ -31,8 +31,12 @@ async function main() {
   const { rows, unmatchedCostCentres } = buildPL(rawRows, principalsData);
   console.log(`[pl-bridge] Aggregated to ${rows.length} monthly P&L rows.`);
   if (unmatchedCostCentres.length > 0) {
-    console.warn(
-      `[pl-bridge] WARNING: ${unmatchedCostCentres.length} Cost Centre value(s) don't match a known Active principal (included anyway): ${unmatchedCostCentres.join(", ")}`
+    // console.log, not console.warn: this is informational (the rows are included anyway,
+    // not dropped), and stderr output from a native command can get misread as a fatal
+    // error by the Task Scheduler wrapper's $ErrorActionPreference = "Stop" — see
+    // scripts/pl-sync.ps1.
+    console.log(
+      `[pl-bridge] NOTE: ${unmatchedCostCentres.length} Cost Centre value(s) don't match a known Active principal (included anyway): ${unmatchedCostCentres.join(", ")}`
     );
   }
 
