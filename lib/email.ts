@@ -9,6 +9,12 @@ const DEFAULT_APP_URL = "https://pinefrostdb.netlify.app";
 const DEFAULT_SMTP_HOST = "smtp.gmail.com";
 const DEFAULT_SMTP_PORT = 465;
 
+// Standing convention (per user request): every automated email sent from this
+// file must carry this disclaimer, appended as the last line of both the text
+// and html bodies. Any new send*Email function added here should include it too.
+const SYSTEM_EMAIL_DISCLAIMER_TEXT = "This is a system-generated email — no reply is needed.";
+const SYSTEM_EMAIL_DISCLAIMER_HTML = '<p style="color:#888888;font-size:12px;">This is a system-generated email — no reply is needed.</p>';
+
 function appUrl(): string {
   return process.env.APP_URL || DEFAULT_APP_URL;
 }
@@ -41,8 +47,8 @@ export async function sendApprovalEmail(to: string, name: string | null): Promis
       replyTo: REPLY_TO,
       to,
       subject: "Your Pinefrost Dashboard access has been approved",
-      text: `${greeting}\n\nYour account request for the Pinefrost Limited Performance Dashboard has been created and approved. You can now sign in here:\n\n${loginUrl}\n\nIf you didn't request this account, please contact your administrator.`,
-      html: `<p>${greeting}</p><p>Your account request for the <strong>Pinefrost Limited Performance Dashboard</strong> has been created and approved. You can now sign in:</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you didn't request this account, please contact your administrator.</p>`,
+      text: `${greeting}\n\nYour account request for the Pinefrost Limited Performance Dashboard has been created and approved. You can now sign in here:\n\n${loginUrl}\n\nIf you didn't request this account, please contact your administrator.\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
+      html: `<p>${greeting}</p><p>Your account request for the <strong>Pinefrost Limited Performance Dashboard</strong> has been created and approved. You can now sign in:</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you didn't request this account, please contact your administrator.</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
     });
     return { sent: true };
   } catch (err) {
@@ -86,10 +92,10 @@ export async function sendNewModulesAnnouncementEmail(to: string, name: string |
       subject: "New modules added to the Pinefrost Dashboard",
       text: `${greeting}\n\nThree new modules have been added to the Pinefrost Limited Performance Dashboard:\n\n${modules
         .map(([title, desc]) => `- ${title} — ${desc}`)
-        .join("\n")}\n\nTo see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.\n\nSign in here: ${loginUrl}\n\nIf you don't see the new modules after signing back in, let your administrator know.`,
+        .join("\n")}\n\nTo see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.\n\nSign in here: ${loginUrl}\n\nIf you don't see the new modules after signing back in, let your administrator know.\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
       html: `<p>${greeting}</p><p>Three new modules have been added to the <strong>Pinefrost Limited Performance Dashboard</strong>:</p><ul>${modules
         .map(([title, desc]) => `<li><strong>${title}</strong> — ${desc}</li>`)
-        .join("")}</ul><p>To see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you don't see the new modules after signing back in, let your administrator know.</p>`,
+        .join("")}</ul><p>To see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you don't see the new modules after signing back in, let your administrator know.</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
     });
     return { sent: true };
   } catch (err) {
