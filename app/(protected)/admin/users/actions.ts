@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, isPageKey } from "@/lib/pageAccess";
-import { sendApprovalEmail } from "@/lib/email";
+import { sendApprovalEmail, sendNewModulesAnnouncementEmail } from "@/lib/email";
 
 async function requireAdmin() {
   const session = await auth();
@@ -130,6 +130,20 @@ export async function resetPasswordAction(formData: FormData) {
   const passwordHash = await bcrypt.hash(newPassword, 10);
   const target = await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
   redirect("/admin/users?success=" + encodeURIComponent(`Password reset for ${target.email}.`));
+}
+
+export async function sendNewModulesAnnouncementAction() {
+  await requireAdmin();
+
+  const users = await prisma.user.findMany({ where: { status: "APPROVED" }, select: { email: true, name: true } });
+  const results = await Promise.all(users.map((u) => sendNewModulesAnnouncementEmail(u.email, u.name)));
+  const sent = results.filter((r) => r.sent).length;
+  const failed = results.length - sent;
+
+  if (failed === 0) {
+    redirect("/admin/users?success=" + encodeURIComponent(`Sent the new-modules announcement to all ${sent} approved user(s).`));
+  }
+  redirect("/admin/users?error=" + encodeURIComponent(`Sent to ${sent} user(s); ${failed} failed — check SMTP configuration.`));
 }
 
 export async function deleteUserAction(formData: FormData) {

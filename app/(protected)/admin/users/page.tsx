@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import {
   createUserAction,
   deleteUserAction,
@@ -11,6 +12,7 @@ import {
   updateUserRoleAction,
   updateUserPagesAction,
   resetPasswordAction,
+  sendNewModulesAnnouncementAction,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -164,6 +166,22 @@ export default async function AdminUsersPage({
                 Create user
               </button>
             </div>
+          </form>
+        </div>
+
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Announcements</h2>
+          <p className="mt-1 text-sm text-muted-strong">
+            Re-send the new-modules email (Active Outlets, Timestamps, JP Adherence) to every approved user — useful for anyone who missed the first
+            send or was approved afterward.
+          </p>
+          <form action={sendNewModulesAnnouncementAction} className="mt-4">
+            <ConfirmSubmitButton
+              confirmMessage={`Send the new-modules announcement email to all ${approved.length} approved user(s)?`}
+              className="rounded-full border border-border px-4 py-2 text-sm font-medium text-primary-blue transition-colors duration-300 hover:bg-accent-blue-soft"
+            >
+              Send new-modules announcement to all users
+            </ConfirmSubmitButton>
           </form>
         </div>
 
