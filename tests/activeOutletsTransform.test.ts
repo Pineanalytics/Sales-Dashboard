@@ -3,7 +3,9 @@ import {
   classifySalesRole,
   resolveCostCentre,
   collapseToPurchaseEvents,
+  buildActiveOutlets,
   buildActiveOutletsMonthly,
+  buildRepCalls,
   type PrincipalRow,
 } from "../scripts/db-bridge/active-outlets/transform";
 import type { FactLineRow, OutletRow, ProductRow, UserRow } from "../scripts/db-bridge/active-outlets/query";
@@ -118,19 +120,63 @@ describe("collapseToPurchaseEvents", () => {
     expect(events).toHaveLength(2);
   });
 
-  it("drops lines with an unresolvable SKU and reports the count", () => {
+  it("keeps lines with an unresolvable SKU as a null-Cost-Centre event (still a real call/sale) and counts them as unmatched", () => {
     const lines = [factLine({ itemId: "99" })]; // no product with id "99"
     const { events, unmatchedSkuCount } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
-    expect(events).toHaveLength(0);
-    expect(unmatchedSkuCount).toBe(0); // dropped before Cost Centre resolution (unknown product), not counted as an unmatched SKU
+    expect(events).toHaveLength(1);
+    expect(events[0].costCentre).toBeNull();
+    expect(unmatchedSkuCount).toBe(1);
   });
 
-  it("drops lines whose SKU has no matching Active principal and counts them as unmatched", () => {
+  it("keeps lines whose SKU has no matching Active principal as a null-Cost-Centre event and counts them as unmatched", () => {
     const noMatchProducts = [product({ id: "1", sapCode: "ZZZ12345" })];
     const lines = [factLine({ itemId: "1" })];
     const { events, unmatchedSkuCount } = collapseToPurchaseEvents(lines, outlets, users, noMatchProducts, PRINCIPALS);
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0].costCentre).toBeNull();
     expect(unmatchedSkuCount).toBe(1);
+  });
+
+  it("still drops a line when the outlet or user is genuinely unknown", () => {
+    const lines = [factLine({ customerId: "unknown-outlet" })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
+    expect(events).toHaveLength(0);
+  });
+
+  it("still drops a line with non-positive qty or price (not a real sale)", () => {
+    const lines = [factLine({ qty: 0 }), factLine({ docId: "101", unitPrice: 0 })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
+    expect(events).toHaveLength(0);
+  });
+});
+
+describe("Calls Made vs Productive Calls — Cost-Centre resolution must not gate call/productivity status", () => {
+  const outlets = [outlet({ id: "1" })];
+  const users = [user({ id: "1", userGroup: "DSR" })];
+  const noMatchProducts = [product({ id: "1", sapCode: "ZZZ12345" })]; // resolves to no known principal
+
+  it("an unmapped-SKU sale still produces a purchase event with costCentre: null", () => {
+    const lines = [factLine({ itemId: "1" })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, noMatchProducts, PRINCIPALS);
+    expect(events).toHaveLength(1);
+    expect(events[0].costCentre).toBeNull();
+  });
+
+  it("buildActiveOutlets excludes the null-Cost-Centre event (that module is inherently per-Cost-Centre)", () => {
+    const lines = [factLine({ itemId: "1" })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, noMatchProducts, PRINCIPALS);
+    const outletRows = buildActiveOutlets(events, outlets, users, "2026", 7);
+    expect(outletRows).toHaveLength(0);
+  });
+
+  it("buildRepCalls still counts the null-Cost-Centre event as a call and reports it as a productive Sale", () => {
+    const lines = [factLine({ itemId: "1", purchaseTime: new Date("2026-07-10T09:00:00Z") })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, noMatchProducts, PRINCIPALS);
+    const calls = buildRepCalls(events, [], outlets, users);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].callOutcome).toBe("Sale");
+    expect(calls[0].productiveInDay).toBe(1);
+    expect(calls[0].costCentresBought).toBe(""); // no resolvable Cost Centre, but still a real productive call
   });
 });
 

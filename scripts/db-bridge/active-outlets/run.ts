@@ -130,7 +130,7 @@ async function main() {
   const distinctOutletsYtd = new Set(events.map((e) => e.customerId)).size;
   console.log(`[active-outlets] Collapsed to ${events.length} purchase events; ${distinctOutletsYtd} distinct buying outlets YTD.`);
   if (unmatchedSkuCount > 0) {
-    console.log(`[active-outlets] NOTE: ${unmatchedSkuCount} purchase/SKU lines excluded because the SKU's Cost Centre could not be resolved.`);
+    console.log(`[active-outlets] NOTE: ${unmatchedSkuCount} purchase/SKU lines had no resolvable Cost Centre — still counted as calls/productive calls, just excluded from Active Outlets' per-Cost-Centre figures.`);
   }
 
   const outletRows = buildActiveOutlets(events, outlets, users, year, calendarMonthsElapsed);

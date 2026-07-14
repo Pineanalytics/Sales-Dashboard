@@ -105,7 +105,7 @@ export function classifySalesRole(userGroup: string, userId: string, costCentre:
 // ---------------------------------------------------------------------------
 
 export interface PurchaseEvent {
-  eventKey: string; // docId + isOrder, unique per document
+  eventKey: string; // docId + isOrder (+ Cost Centre, when known), unique per document
   purchaseDate: Date; // normalized to midnight
   purchaseTime: Date; // full timestamp, earliest line on the document
   monthStart: string; // "YYYY-MM"
@@ -114,7 +114,13 @@ export interface PurchaseEvent {
   monthIndex: number;
   customerId: string;
   userId: string;
-  costCentre: string; // principal (raw string, e.g. "Bic-Nairobi")
+  // null when the SKU didn't resolve to a known Active principal — the sale itself is
+  // still real (qty > 0, price > 0 in pine.sales/orders) and still counts as a call /
+  // productive call; it just can't be attributed to a specific Cost Centre. Active
+  // Outlets filters these out (that module is inherently per-Cost-Centre); Timestamps
+  // does not (a call is productive whenever a real transaction happened, regardless of
+  // whether every line on it mapped to a known principal).
+  costCentre: string | null;
   salesRole: "Primary Sales" | "Secondary Sales";
   revenue: number;
   qty: number;
@@ -129,9 +135,17 @@ export interface CollapseResult {
   unmatchedSkuCount: number;
 }
 
-/** Maps lines to Cost Centre, drops unresolvable/inactive-outlet/unknown-user lines
- *  (INNER-join discipline, same as the source script), then collapses SKU lines from
- *  the same document + Cost Centre into one purchase event. */
+/** Drops only lines whose outlet/rep is genuinely unknown (INNER-join discipline, same
+ *  as the source script — there's no one to attribute the call to) or that aren't a
+ *  real positive sale/order line. An unrecognized item (unknown itemId) or a SKU that
+ *  doesn't resolve to a known Active principal does NOT drop the line — it's still a
+ *  real transaction (this is exactly the "Calls Made vs Productive Calls" distinction:
+ *  productive means a positive sale/order happened, independent of whether every line
+ *  on it could be attributed to a specific Cost Centre). Cost Centre resolution only
+ *  gates the `costCentre` field (null when unresolved); `unmatchedSkuCount` still counts
+ *  these for diagnostic visibility. SKU lines are then collapsed into one purchase event
+ *  per document + Cost Centre (or one "unmapped" event per document for lines whose SKU
+ *  never resolved). */
 export function collapseToPurchaseEvents(
   lines: FactLineRow[],
   outlets: OutletRow[],
@@ -149,7 +163,7 @@ export function collapseToPurchaseEvents(
     time: Date;
     customerId: string;
     userId: string;
-    costCentre: string;
+    costCentre: string | null;
     revenue: number;
     qty: number;
   }
@@ -159,23 +173,20 @@ export function collapseToPurchaseEvents(
   for (const line of lines) {
     const outlet = outletById.get(line.customerId);
     const user = userById.get(line.userId);
-    const sapCode = skuByItemId.get(line.itemId);
-    if (!outlet || !user || !sapCode) continue;
+    if (!outlet || !user) continue;
     if (!(line.qty > 0 && line.unitPrice > 0)) continue;
 
-    const costCentreRow = resolveCostCentre(sapCode, principals);
-    if (!costCentreRow) {
-      unmatchedSkuCount++;
-      continue;
-    }
+    const sapCode = skuByItemId.get(line.itemId);
+    const costCentreRow = sapCode ? resolveCostCentre(sapCode, principals) : null;
+    if (!costCentreRow) unmatchedSkuCount++;
 
     lineEvents.push({
-      key: `${line.docId}|${line.isOrder ? 1 : 0}|${costCentreRow.principal}`,
+      key: `${line.docId}|${line.isOrder ? 1 : 0}|${costCentreRow ? costCentreRow.principal : "UNMAPPED"}`,
       date: new Date(Date.UTC(line.purchaseTime.getUTCFullYear(), line.purchaseTime.getUTCMonth(), line.purchaseTime.getUTCDate())),
       time: line.purchaseTime,
       customerId: line.customerId,
       userId: line.userId,
-      costCentre: costCentreRow.principal,
+      costCentre: costCentreRow ? costCentreRow.principal : null,
       revenue: Math.round(line.qty * line.unitPrice * 100) / 100,
       qty: line.qty,
     });
@@ -192,7 +203,7 @@ export function collapseToPurchaseEvents(
     const first = group[0];
     const earliestTime = group.reduce((min, g) => (g.time < min ? g.time : min), first.time);
     const user = userById.get(first.userId)!;
-    const salesRole = classifySalesRole(user.userGroup, user.id, first.costCentre);
+    const salesRole = classifySalesRole(user.userGroup, user.id, first.costCentre ?? "");
     events.push({
       eventKey,
       purchaseDate: first.date,
@@ -274,7 +285,11 @@ export function buildActiveOutlets(
   }
   const byKey = new Map<string, Agg>();
 
+  // Active Outlets is inherently per-Cost-Centre — a line whose SKU never resolved to a
+  // known principal can't be attributed here (it still counts as a call/productive call
+  // on the Timestamps side, which doesn't need Cost Centre attribution).
   for (const e of events) {
+    if (e.costCentre === null) continue;
     const key = `${e.costCentre}|${e.customerId}`;
     let agg = byKey.get(key);
     if (!agg) {
@@ -388,6 +403,7 @@ export function buildActiveOutletsMonthly(events: PurchaseEvent[]): ActiveOutlet
   }
   const byKey = new Map<string, Agg>();
   for (const e of events) {
+    if (e.costCentre === null) continue; // see buildActiveOutlets — same per-Cost-Centre scoping
     const key = `${e.year}|${e.month}|${e.costCentre}|${e.salesRole}`;
     let agg = byKey.get(key);
     if (!agg) {
@@ -505,7 +521,7 @@ export function buildRepCalls(
     agg.documents.add(e.eventKey);
     agg.sales += e.revenue;
     agg.qty += e.qty;
-    agg.costCentres.add(e.costCentre);
+    if (e.costCentre !== null) agg.costCentres.add(e.costCentre);
   }
 
   for (const v of noSaleVisits) {
