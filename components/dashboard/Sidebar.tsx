@@ -20,6 +20,7 @@ import {
   PanelLeftExpand20Regular,
   BuildingShop20Regular,
   Clock20Regular,
+  CalendarCheckmark20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -42,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/stock", label: "Stock Balance", icon: Box20Regular },
   { href: "/active-outlets", label: "Active Outlets", icon: BuildingShop20Regular },
   { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
+  { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
 ];
 
