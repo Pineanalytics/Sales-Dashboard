@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { Clock20Regular, Dismiss12Regular } from "@fluentui/react-icons";
@@ -77,6 +78,10 @@ function formatDateLabel(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "numeric", month: "short" });
 }
 
+function dateKey(dateStr: string): string {
+  return dateStr.slice(0, 10);
+}
+
 function hourLabel(h: number): string {
   const period = h < 12 ? "AM" : "PM";
   const hour12 = h % 12 === 0 ? 12 : h % 12;
@@ -101,12 +106,6 @@ function computeRoleStats(rows: RepCallRow[]): RoleStats {
   const avgIntervalMins = intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null;
   const sales = rows.reduce((s, c) => s + c.sales, 0);
   return { totalCalls, productiveCalls, strikeRate, outletsCovered, avgIntervalMins, sales };
-}
-
-function pillClass(active: boolean): string {
-  return `shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
-    active ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "bg-background-elevated text-muted-strong hover:text-primary-blue"
-  }`;
 }
 
 export default function TimestampsPage() {
@@ -166,8 +165,8 @@ export default function TimestampsPage() {
     ? calls.filter((c) => c.costCentresBought.split(", ").filter(Boolean).includes(selectedPrincipalKey))
     : calls;
 
-  const availableDates = Array.from(new Set(principalFiltered.map((c) => c.date))).sort();
-  const dateFiltered = selectedDate ? principalFiltered.filter((c) => c.date === selectedDate) : principalFiltered;
+  const availableDates = Array.from(new Set(principalFiltered.map((c) => dateKey(c.date)))).sort();
+  const dateFiltered = selectedDate ? principalFiltered.filter((c) => dateKey(c.date) === selectedDate) : principalFiltered;
 
   const availableReps = Array.from(new Map(dateFiltered.map((c) => [c.employeeCode, c.salesRep] as const)).entries()).sort((a, b) =>
     a[1].localeCompare(b[1])
@@ -240,16 +239,7 @@ export default function TimestampsPage() {
   return (
     <div className="flex flex-col gap-6">
       <SectionCard title="Date" action={<span className="text-xs text-muted">Current calendar month only</span>}>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <button onClick={() => setSelectedDate(null)} className={pillClass(!selectedDate)}>
-            All Month
-          </button>
-          {availableDates.map((d) => (
-            <button key={d} onClick={() => setSelectedDate(d)} className={pillClass(selectedDate === d)}>
-              {formatDateLabel(d)}
-            </button>
-          ))}
-        </div>
+        <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Month" />
       </SectionCard>
 
       <SectionCard title="Filter by Rep">

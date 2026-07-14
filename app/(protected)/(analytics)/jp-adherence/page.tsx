@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass, type Tier } from "@/lib/format";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { CalendarCheckmark20Regular, Dismiss12Regular } from "@fluentui/react-icons";
@@ -81,12 +82,6 @@ function formatDateLabel(dateStr: string): string {
 
 function dateKey(dateStr: string): string {
   return dateStr.slice(0, 10);
-}
-
-function pillClass(active: boolean): string {
-  return `shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
-    active ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "bg-background-elevated text-muted-strong hover:text-primary-blue"
-  }`;
 }
 
 const ADHERENCE_STATUS_TIER: Record<string, Tier> = {
@@ -204,16 +199,7 @@ export default function JpAdherencePage() {
   return (
     <div className="flex flex-col gap-6">
       <SectionCard title="Date" action={<span className="text-xs text-muted">Trailing 90-day window</span>}>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          <button onClick={() => setSelectedDate(null)} className={pillClass(!selectedDate)}>
-            All Dates
-          </button>
-          {availableDates.map((d) => (
-            <button key={d} onClick={() => setSelectedDate(d)} className={pillClass(selectedDate === d)}>
-              {formatDateLabel(d)}
-            </button>
-          ))}
-        </div>
+        <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
       </SectionCard>
 
       <SectionCard title="Filter by Rep">
