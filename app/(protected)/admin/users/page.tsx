@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
+import { ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "@/lib/email";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import {
   createUserAction,
@@ -12,6 +13,8 @@ import {
   updateUserRoleAction,
   updateUserPagesAction,
   resetPasswordAction,
+  saveAnnouncementTemplateAction,
+  resetAnnouncementTemplateAction,
   sendNewModulesAnnouncementAction,
 } from "./actions";
 
@@ -31,6 +34,9 @@ export default async function AdminUsersPage({
   const allUsers = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
   const pending = allUsers.filter((u) => u.status === "PENDING");
   const approved = allUsers.filter((u) => u.status === "APPROVED");
+  const announcementTemplate = await prisma.emailTemplate.findUnique({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
+  const announcementSubject = announcementTemplate?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
+  const announcementBody = announcementTemplate?.body ?? DEFAULT_ANNOUNCEMENT_BODY;
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,18 +176,61 @@ export default async function AdminUsersPage({
         </div>
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Announcements</h2>
+          <h2 className="text-lg font-semibold text-primary-blue">Announcement email</h2>
           <p className="mt-1 text-sm text-muted-strong">
-            Re-send the new-modules email (Active Outlets, Timestamps, JP Adherence) to every approved user — useful for anyone who missed the first
-            send or was approved afterward.
+            Edit the wording below, then save it, send it to all {approved.length} approved user(s), or reset back to the original. The greeting, sign-in
+            link, and system-generated disclaimer are added automatically — no need to include them.
           </p>
-          <form action={sendNewModulesAnnouncementAction} className="mt-4">
-            <ConfirmSubmitButton
-              confirmMessage={`Send the new-modules announcement email to all ${approved.length} approved user(s)?`}
-              className="rounded-full border border-border px-4 py-2 text-sm font-medium text-primary-blue transition-colors duration-300 hover:bg-accent-blue-soft"
-            >
-              Send new-modules announcement to all users
-            </ConfirmSubmitButton>
+          <form action={saveAnnouncementTemplateAction} className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="subject" className="text-[13px] font-medium text-muted-strong">
+                Subject
+              </label>
+              <input
+                id="subject"
+                name="subject"
+                type="text"
+                required
+                defaultValue={announcementSubject}
+                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="body" className="text-[13px] font-medium text-muted-strong">
+                Body
+              </label>
+              <textarea
+                id="body"
+                name="body"
+                required
+                rows={10}
+                defaultValue={announcementBody}
+                className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-foreground outline-none focus:border-secondary-blue font-mono"
+              />
+              <span className="text-xs text-muted">Blank lines start a new paragraph. Lines starting with &quot;- &quot; render as a bullet list.</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className="rounded-full border border-border px-4 py-2 text-sm font-medium text-primary-blue transition-colors duration-300 hover:bg-accent-blue-soft"
+              >
+                Save changes
+              </button>
+              <ConfirmSubmitButton
+                formAction={sendNewModulesAnnouncementAction}
+                confirmMessage={`Save this wording and send it to all ${approved.length} approved user(s)?`}
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              >
+                Save &amp; send to all users
+              </ConfirmSubmitButton>
+              <ConfirmSubmitButton
+                formAction={resetAnnouncementTemplateAction}
+                confirmMessage="Discard your edits and reset the announcement to its original wording?"
+                className="rounded-full px-4 py-2 text-sm font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
+              >
+                Reset to original
+              </ConfirmSubmitButton>
+            </div>
           </form>
         </div>
 

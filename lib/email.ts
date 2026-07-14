@@ -56,10 +56,55 @@ export async function sendApprovalEmail(to: string, name: string | null): Promis
   }
 }
 
-/** One-off announcement email (new modules added), reusing the same transporter/env-var
- *  pattern as sendApprovalEmail. Not wired into any action — sent manually via
- *  scripts/send-new-modules-announcement.ts. */
-export async function sendNewModulesAnnouncementEmail(to: string, name: string | null): Promise<{ sent: boolean; error?: string }> {
+// Editable-in-the-admin-panel announcement email. ANNOUNCEMENT_TEMPLATE_KEY is
+// the EmailTemplate row's lookup key; DEFAULT_ANNOUNCEMENT_SUBJECT/BODY are
+// both the first-run seed content and what "Reset to original" reverts to
+// (see app/(protected)/admin/users/actions.ts).
+export const ANNOUNCEMENT_TEMPLATE_KEY = "new-modules-announcement";
+export const DEFAULT_ANNOUNCEMENT_SUBJECT = "New modules added to the Pinefrost Dashboard";
+export const DEFAULT_ANNOUNCEMENT_BODY = `Three new modules have been added to the Pinefrost Limited Performance Dashboard:
+
+- Active Outlets — distinct buying-outlet counts per Principal, with Channel/Sub Channel and Primary/Secondary breakdowns
+- Timestamps — rep call activity for the current month, with time-of-day and productivity detail
+- JP Adherence — planned vs. actual visit routes, with adherence and strike-rate tracking
+
+To see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.
+
+If you don't see the new modules after signing back in, let your administrator know.`;
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/** Renders free-text body into HTML paragraphs: blank lines separate
+ *  paragraphs; a paragraph whose every line starts with "- " renders as a
+ *  bullet list instead. Lets an admin write plain text in the textarea (see
+ *  the admin/users announcement form) without needing to know HTML. */
+function bodyToHtml(body: string): string {
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return paragraphs
+    .map((p) => {
+      const lines = p
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const isList = lines.length > 0 && lines.every((l) => l.startsWith("- "));
+      if (isList) {
+        return `<ul>${lines.map((l) => `<li>${escapeHtml(l.slice(2))}</li>`).join("")}</ul>`;
+      }
+      return `<p>${lines.map(escapeHtml).join("<br>")}</p>`;
+    })
+    .join("");
+}
+
+/** Sends an admin-editable announcement — subject/body come from the caller
+ *  (an EmailTemplate row, or the DEFAULT_ANNOUNCEMENT_* constants when none
+ *  exists yet), not hardcoded here. Reuses the same transporter/env-var
+ *  pattern as sendApprovalEmail. */
+export async function sendAnnouncementEmail(to: string, name: string | null, subject: string, body: string): Promise<{ sent: boolean; error?: string }> {
   const user = process.env.SMTP_USER;
   const password = process.env.SMTP_PASSWORD;
   if (!user || !password) {
@@ -70,12 +115,6 @@ export async function sendNewModulesAnnouncementEmail(to: string, name: string |
   const loginUrl = `${appUrl()}/login`;
   const greeting = name ? `Hi ${name},` : "Hi,";
   const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Limited Performance Dashboard";
-
-  const modules = [
-    ["Active Outlets", "distinct buying-outlet counts per Principal, with Channel/Sub Channel and Primary/Secondary breakdowns"],
-    ["Timestamps", "rep call activity for the current month, with time-of-day and productivity detail"],
-    ["JP Adherence", "planned vs. actual visit routes, with adherence and strike-rate tracking"],
-  ] as const;
 
   try {
     const transporter = nodemailer.createTransport({
@@ -89,13 +128,9 @@ export async function sendNewModulesAnnouncementEmail(to: string, name: string |
       from: `"${fromName}" <${user}>`,
       replyTo: REPLY_TO,
       to,
-      subject: "New modules added to the Pinefrost Dashboard",
-      text: `${greeting}\n\nThree new modules have been added to the Pinefrost Limited Performance Dashboard:\n\n${modules
-        .map(([title, desc]) => `- ${title} — ${desc}`)
-        .join("\n")}\n\nTo see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.\n\nSign in here: ${loginUrl}\n\nIf you don't see the new modules after signing back in, let your administrator know.\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
-      html: `<p>${greeting}</p><p>Three new modules have been added to the <strong>Pinefrost Limited Performance Dashboard</strong>:</p><ul>${modules
-        .map(([title, desc]) => `<li><strong>${title}</strong> — ${desc}</li>`)
-        .join("")}</ul><p>To see the new pages in your sidebar, please sign out and sign back in — this refreshes your access so the new modules appear.</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you don't see the new modules after signing back in, let your administrator know.</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
+      subject,
+      text: `${greeting}\n\n${body}\n\nSign in here: ${loginUrl}\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
+      html: `<p>${greeting}</p>${bodyToHtml(body)}<p><a href="${loginUrl}">${loginUrl}</a></p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
     });
     return { sent: true };
   } catch (err) {

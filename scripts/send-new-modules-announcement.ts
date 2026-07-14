@@ -1,15 +1,19 @@
-// One-off script: emails every approved user (viewer + admin) to announce the
-// three new modules (Active Outlets, Timestamps, JP Adherence) and ask them
-// to sign out/in so their refreshed page access takes effect. Not wired into
-// any admin action — run manually once. Reuses lib/email.ts's existing
+// Emails every approved user (viewer + admin) with the new-modules
+// announcement. Superseded day-to-day by the "Save & send to all users"
+// button on /admin/users, which edits the same EmailTemplate row this script
+// reads — kept as a terminal fallback. Reuses lib/email.ts's existing
 // Nodemailer/Gmail SMTP transport (same env vars as the approval email).
 // Run with: node --import tsx scripts/send-new-modules-announcement.ts
 process.loadEnvFile();
 
 import { prisma } from "../lib/db";
-import { sendNewModulesAnnouncementEmail } from "../lib/email";
+import { sendAnnouncementEmail, ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "../lib/email";
 
 async function main() {
+  const template = await prisma.emailTemplate.findUnique({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
+  const subject = template?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
+  const body = template?.body ?? DEFAULT_ANNOUNCEMENT_BODY;
+
   const users = await prisma.user.findMany({
     where: { status: "APPROVED" },
     select: { id: true, email: true, name: true },
@@ -21,7 +25,7 @@ async function main() {
   let sent = 0;
   let failed = 0;
   for (const u of users) {
-    const result = await sendNewModulesAnnouncementEmail(u.email, u.name);
+    const result = await sendAnnouncementEmail(u.email, u.name, subject, body);
     if (result.sent) {
       sent += 1;
       console.log(`[announcement] Sent to ${u.id}`);

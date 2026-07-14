@@ -42,6 +42,20 @@ model User {
   createdAt    DateTime   @default(now())
 }
 
+// Admin-editable content for automated emails (currently just the new-modules
+// announcement — see lib/email.ts's ANNOUNCEMENT_TEMPLATE_KEY). One row per
+// email "key". Absence of a row (first run, or after "Reset to original")
+// means the caller falls back to that email's DEFAULT_*_SUBJECT/BODY
+// constants in lib/email.ts rather than erroring.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  subject   String
+  body      String
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
 // Admin-maintained monthly targets, uploaded via a small dedicated form
 // (app/(protected)/admin/targets) independent of the big Sales/Stock/Coverage
 // refresh cycle. Overlaid onto Dataset.monthlySales[].target at read time by

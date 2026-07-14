@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, isPageKey } from "@/lib/pageAccess";
-import { sendApprovalEmail, sendNewModulesAnnouncementEmail } from "@/lib/email";
+import { sendApprovalEmail, sendAnnouncementEmail, ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "@/lib/email";
 
 async function requireAdmin() {
   const session = await auth();
@@ -132,16 +132,52 @@ export async function resetPasswordAction(formData: FormData) {
   redirect("/admin/users?success=" + encodeURIComponent(`Password reset for ${target.email}.`));
 }
 
-export async function sendNewModulesAnnouncementAction() {
+function readAnnouncementFields(formData: FormData): { subject: string; body: string } {
+  const subject = String(formData.get("subject") || "").trim();
+  const body = String(formData.get("body") || "").trim();
+  if (!subject || !body) {
+    redirect("/admin/users?error=" + encodeURIComponent("Subject and body are both required."));
+  }
+  return { subject, body };
+}
+
+export async function saveAnnouncementTemplateAction(formData: FormData) {
   await requireAdmin();
+  const { subject, body } = readAnnouncementFields(formData);
+
+  await prisma.emailTemplate.upsert({
+    where: { key: ANNOUNCEMENT_TEMPLATE_KEY },
+    update: { subject, body },
+    create: { key: ANNOUNCEMENT_TEMPLATE_KEY, subject, body },
+  });
+  redirect("/admin/users?success=" + encodeURIComponent("Saved the announcement email wording."));
+}
+
+export async function resetAnnouncementTemplateAction() {
+  await requireAdmin();
+  await prisma.emailTemplate.deleteMany({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
+  redirect("/admin/users?success=" + encodeURIComponent("Reset the announcement email to its original wording."));
+}
+
+export async function sendNewModulesAnnouncementAction(formData: FormData) {
+  await requireAdmin();
+  const subject = String(formData.get("subject") || "").trim() || DEFAULT_ANNOUNCEMENT_SUBJECT;
+  const body = String(formData.get("body") || "").trim() || DEFAULT_ANNOUNCEMENT_BODY;
+
+  // Sending always saves first — whatever you send is what "Save changes" would have saved.
+  await prisma.emailTemplate.upsert({
+    where: { key: ANNOUNCEMENT_TEMPLATE_KEY },
+    update: { subject, body },
+    create: { key: ANNOUNCEMENT_TEMPLATE_KEY, subject, body },
+  });
 
   const users = await prisma.user.findMany({ where: { status: "APPROVED" }, select: { email: true, name: true } });
-  const results = await Promise.all(users.map((u) => sendNewModulesAnnouncementEmail(u.email, u.name)));
+  const results = await Promise.all(users.map((u) => sendAnnouncementEmail(u.email, u.name, subject, body)));
   const sent = results.filter((r) => r.sent).length;
   const failed = results.length - sent;
 
   if (failed === 0) {
-    redirect("/admin/users?success=" + encodeURIComponent(`Sent the new-modules announcement to all ${sent} approved user(s).`));
+    redirect("/admin/users?success=" + encodeURIComponent(`Sent the announcement to all ${sent} approved user(s).`));
   }
   redirect("/admin/users?error=" + encodeURIComponent(`Sent to ${sent} user(s); ${failed} failed — check SMTP configuration.`));
 }
