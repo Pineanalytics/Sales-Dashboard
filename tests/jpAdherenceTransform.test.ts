@@ -161,6 +161,7 @@ describe("buildJourneyPlan — frequency/offset day assignment, including mod-5 
         longitude: Math.cos(angle),
         visitDays: 1,
         visitsPerWeek: i === 4 ? 4 : 1,
+        weekdayCounts: [0, 0, 0, 0, 0], // no history — buildJourneyPlan falls back to the geo-sweep day
       };
     });
 
@@ -182,6 +183,63 @@ describe("buildJourneyPlan — frequency/offset day assignment, including mod-5 
     expect(daysFor("o3")).toEqual(["Thursday"]);
     expect(daysFor("o4").sort()).toEqual(["Friday", "Monday", "Tuesday", "Wednesday"].sort());
     expect(daysFor("o4")).not.toContain("Thursday");
+  });
+
+  it("prefers the empirically-observed visit weekday over the geo-sweep day when history exists", () => {
+    // Single outlet whose geo-sweep position (n=1, pos=0) would put it on Monday
+    // (homeDayIdx=0), but the rep has actually visited it on Wednesdays far more
+    // than any other day — the plan should follow the real pattern, not the
+    // arbitrary bearing-derived slot. This is the direct regression test for the
+    // "Strike Rate is always 0% or 100%" bug: without this fix, the planned day
+    // essentially never matches when reps actually show up.
+    const visits: RepOutletVisitGrouped[] = [
+      {
+        userId: "1",
+        employee: "Rep One",
+        userGroup: "DSR",
+        salesRole: "Primary Sales",
+        costCentre: "Bic-Nairobi",
+        costCentreGroup: "Bic-Nairobi",
+        customerId: "o0",
+        customerName: "Outlet 0",
+        territory: "Nairobi",
+        latitude: 1,
+        longitude: 1,
+        visitDays: 5,
+        visitsPerWeek: 1,
+        weekdayCounts: [1, 0, 4, 0, 0], // 1 Monday, 4 Wednesdays — Wednesday is the clear mode
+      },
+    ];
+    const start = new Date(Date.UTC(2026, 0, 5));
+    const end = new Date(Date.UTC(2026, 0, 9, 23, 59, 59));
+    const plan = buildJourneyPlan(visits, start, end);
+    expect(plan.map((r) => r.day)).toEqual(["Wednesday"]);
+  });
+
+  it("falls back to the geo-sweep day when there's no Mon-Fri visit history (e.g. weekend-only)", () => {
+    const visits: RepOutletVisitGrouped[] = [
+      {
+        userId: "1",
+        employee: "Rep One",
+        userGroup: "DSR",
+        salesRole: "Primary Sales",
+        costCentre: "Bic-Nairobi",
+        costCentreGroup: "Bic-Nairobi",
+        customerId: "o0",
+        customerName: "Outlet 0",
+        territory: "Nairobi",
+        latitude: 1,
+        longitude: 1,
+        visitDays: 2,
+        visitsPerWeek: 1,
+        weekdayCounts: [0, 0, 0, 0, 0], // all historical visits were on a weekend — no Mon-Fri signal
+      },
+    ];
+    const start = new Date(Date.UTC(2026, 0, 5));
+    const end = new Date(Date.UTC(2026, 0, 9, 23, 59, 59));
+    const plan = buildJourneyPlan(visits, start, end);
+    // n=1 -> geo-sweep homeDayIdx=0 (Monday) is the only fallback option available.
+    expect(plan.map((r) => r.day)).toEqual(["Monday"]);
   });
 });
 

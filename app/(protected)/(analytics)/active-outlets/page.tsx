@@ -9,6 +9,7 @@ import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber } from "@/lib/format";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 import { BuildingShop20Regular } from "@fluentui/react-icons";
@@ -56,6 +57,7 @@ export default function ActiveOutletsPage() {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [outlets, setOutlets] = useState<ActiveOutletRow[]>([]);
   const [monthly, setMonthly] = useState<ActiveOutletMonthlyRow[]>([]);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -100,15 +102,16 @@ export default function ActiveOutletsPage() {
 
   const filteredOutlets = selectedPrincipalKey ? outlets.filter((o) => o.principal === selectedPrincipalKey) : outlets;
   const filteredMonthly = selectedPrincipalKey ? monthly.filter((m) => m.principal === selectedPrincipalKey) : monthly;
+  const roleFilteredOutlets = roleFilter === "all" ? filteredOutlets : filteredOutlets.filter((o) => o.salesRole === roleFilter);
 
   // TRUE distinct re-count across every principal/role in scope — never derived by
   // summing the per-principal/per-role buckets below, which can double-count an
   // outlet that bought under both Primary and Secondary for the same principal.
-  const distinctOutlets = new Set(filteredOutlets.map((o) => o.customerId)).size;
-  const totalTransactions = filteredOutlets.reduce((s, o) => s + o.timesBought, 0);
+  const distinctOutlets = new Set(roleFilteredOutlets.map((o) => o.customerId)).size;
+  const totalTransactions = roleFilteredOutlets.reduce((s, o) => s + o.timesBought, 0);
   const primaryOutlets = new Set(filteredOutlets.filter((o) => o.salesRole === "Primary Sales").map((o) => o.customerId)).size;
   const secondaryOutlets = new Set(filteredOutlets.filter((o) => o.salesRole === "Secondary Sales").map((o) => o.customerId)).size;
-  const totalSales = filteredOutlets.reduce((s, o) => s + o.sales, 0);
+  const totalSales = roleFilteredOutlets.reduce((s, o) => s + o.sales, 0);
 
   // Executive-Summary-style table: one row per Principal x Sales Role. Each
   // ActiveOutlet row is already exactly one distinct outlet for that principal
@@ -122,7 +125,7 @@ export default function ActiveOutletsPage() {
     sales: number;
   }
   const execMap = new Map<string, ExecRow>();
-  for (const o of filteredOutlets) {
+  for (const o of roleFilteredOutlets) {
     const key = `${o.principal}|${o.salesRole}`;
     let row = execMap.get(key);
     if (!row) {
@@ -147,8 +150,8 @@ export default function ActiveOutletsPage() {
       .map(([name, set], i) => ({ name, value: set.size, fill: CHART_COLORS[i % CHART_COLORS.length] }))
       .sort((a, b) => b.value - a.value);
   }
-  const channelData = distinctByKey(filteredOutlets, (o) => o.channel);
-  const subChannelData = distinctByKey(filteredOutlets, (o) => o.subChannel);
+  const channelData = distinctByKey(roleFilteredOutlets, (o) => o.channel);
+  const subChannelData = distinctByKey(roleFilteredOutlets, (o) => o.subChannel);
 
   // Monthly trend — Primary and Secondary kept as two separate lines rather than
   // summed, since summing them would double-count an outlet with purchases under
@@ -163,15 +166,27 @@ export default function ActiveOutletsPage() {
     return { name: month3(monthName), Primary: primary, Secondary: secondary };
   });
 
-  const drillDownRows = [...filteredOutlets].sort((a, b) => b.sales - a.sales).slice(0, TOP_N_OUTLETS);
+  const drillDownRows = [...roleFilteredOutlets].sort((a, b) => b.sales - a.sales).slice(0, TOP_N_OUTLETS);
 
   return (
     <div className="flex flex-col gap-6">
+      <SectionCard title="Sales Role">
+        <RoleToggle value={roleFilter} onChange={setRoleFilter} />
+      </SectionCard>
+
       <KpiGrid>
-        <KpiCard accent="coverage" label="Distinct Buying Outlets (YTD)" value={<AnimatedValue value={distinctOutlets} format={formatNumber} />} />
+        <KpiCard
+          accent="coverage"
+          label={roleFilter === "all" ? "Distinct Buying Outlets (YTD)" : `Distinct ${roleFilter === "Primary Sales" ? "Primary" : "Secondary"} Outlets (YTD)`}
+          value={<AnimatedValue value={distinctOutlets} format={formatNumber} />}
+        />
         <KpiCard accent="coverage" label="Purchase Transactions (YTD)" value={<AnimatedValue value={totalTransactions} format={formatNumber} />} />
-        <KpiCard accent="growth" label="Primary Outlets" value={<AnimatedValue value={primaryOutlets} format={formatNumber} />} />
-        <KpiCard accent="quarter" label="Secondary Outlets" value={<AnimatedValue value={secondaryOutlets} format={formatNumber} />} />
+        {roleFilter === "all" ? (
+          <>
+            <KpiCard accent="growth" label="Primary Outlets" value={<AnimatedValue value={primaryOutlets} format={formatNumber} />} />
+            <KpiCard accent="quarter" label="Secondary Outlets" value={<AnimatedValue value={secondaryOutlets} format={formatNumber} />} />
+          </>
+        ) : null}
         <KpiCard accent="revenue" label="YTD Sales" value={<AnimatedValue value={totalSales} format={formatCompact} />} />
       </KpiGrid>
 
@@ -184,8 +199,8 @@ export default function ActiveOutletsPage() {
               <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
               <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Primary" stroke={CHART_COLORS[0]} strokeWidth={2.5} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="Secondary" stroke={CHART_COLORS[1]} strokeWidth={2.5} dot={{ r: 3 }} />
+              {roleFilter !== "Secondary Sales" ? <Line type="monotone" dataKey="Primary" stroke={CHART_COLORS[0]} strokeWidth={2.5} dot={{ r: 3 }} /> : null}
+              {roleFilter !== "Primary Sales" ? <Line type="monotone" dataKey="Secondary" stroke={CHART_COLORS[1]} strokeWidth={2.5} dot={{ r: 3 }} /> : null}
             </LineChart>
           </ResponsiveContainer>
         </SectionCard>

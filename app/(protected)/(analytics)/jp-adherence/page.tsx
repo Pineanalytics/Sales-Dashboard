@@ -11,6 +11,7 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
+import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass, type Tier } from "@/lib/format";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { CalendarCheckmark20Regular, Dismiss12Regular } from "@fluentui/react-icons";
@@ -102,6 +103,7 @@ export default function JpAdherencePage() {
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -155,11 +157,14 @@ export default function JpAdherencePage() {
   const availableDates = Array.from(new Set(dailyByPrincipal.map((r) => dateKey(r.date)))).sort();
   const planByDate = selectedDate ? planByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : planByPrincipal;
   const dailyByDate = selectedDate ? dailyByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : dailyByPrincipal;
+  const splitByRole = roleFilter === "all" ? splitByPrincipal : splitByPrincipal.filter((r) => r.salesRole === roleFilter);
+  const planByRole = roleFilter === "all" ? planByDate : planByDate.filter((r) => r.salesRole === roleFilter);
+  const dailyByRole = roleFilter === "all" ? dailyByDate : dailyByDate.filter((r) => r.salesRole === roleFilter);
 
-  const availableReps = Array.from(new Map(dailyByDate.map((r) => [r.employeeCode, r.employeeName] as const)).entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  const filteredPlan = selectedRep ? planByDate.filter((r) => r.employeeCode === selectedRep) : planByDate;
-  const filteredDaily = selectedRep ? dailyByDate.filter((r) => r.employeeCode === selectedRep) : dailyByDate;
-  const filteredSplit = selectedRep ? splitByPrincipal.filter((r) => r.employeeCode === selectedRep) : splitByPrincipal;
+  const availableReps = Array.from(new Map(dailyByRole.map((r) => [r.employeeCode, r.employeeName] as const)).entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  const filteredPlan = selectedRep ? planByRole.filter((r) => r.employeeCode === selectedRep) : planByRole;
+  const filteredDaily = selectedRep ? dailyByRole.filter((r) => r.employeeCode === selectedRep) : dailyByRole;
+  const filteredSplit = selectedRep ? splitByRole.filter((r) => r.employeeCode === selectedRep) : splitByRole;
 
   const selectedRepName = selectedRep ? availableReps.find(([code]) => code === selectedRep)?.[1] : undefined;
   const repSearchResults = (repQuery.trim() ? availableReps.filter(([, name]) => name.toLowerCase().includes(repQuery.trim().toLowerCase())) : availableReps).slice(0, 10);
@@ -200,6 +205,10 @@ export default function JpAdherencePage() {
     <div className="flex flex-col gap-6">
       <SectionCard title="Date" action={<span className="text-xs text-muted">Trailing 90-day window</span>}>
         <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
+      </SectionCard>
+
+      <SectionCard title="Sales Role">
+        <RoleToggle value={roleFilter} onChange={setRoleFilter} />
       </SectionCard>
 
       <SectionCard title="Filter by Rep">

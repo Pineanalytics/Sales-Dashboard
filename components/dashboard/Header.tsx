@@ -183,7 +183,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
 
       {dataset ? (
         <div className="hidden md:block bg-dark-navy/95 px-4 md:px-8 py-1 text-[11px] text-white/60 truncate">
-          {dataset.reportMeta.title} — Uploaded {new Date(dataset.uploadedAt).toLocaleString()}
+          Last data refreshed at {new Date(dataset.uploadedAt).toLocaleString()}
         </div>
       ) : null}
 

@@ -11,6 +11,7 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
+import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { Clock20Regular, Dismiss12Regular } from "@fluentui/react-icons";
@@ -116,6 +117,7 @@ export default function TimestampsPage() {
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -183,16 +185,21 @@ export default function TimestampsPage() {
   const secondaryCalls = filteredCalls.filter((c) => c.salesRole === "Secondary Sales");
   const primaryStats = computeRoleStats(primaryCalls);
   const secondaryStats = computeRoleStats(secondaryCalls);
-  const overallProductive = primaryStats.productiveCalls + secondaryStats.productiveCalls;
-  const overallStrikeRate = filteredCalls.length > 0 ? Math.round((overallProductive / filteredCalls.length) * 1000) / 10 : 0;
-  const overallOutletsCovered = new Set(filteredCalls.map((c) => c.outletId)).size;
+  // The role toggle scopes the table + chart below to one role — the two KPI
+  // sections above stay computed from the full filteredCalls set regardless
+  // (each is already scoped to its own role) and are just shown/hidden.
+  const roleFilteredCalls = roleFilter === "all" ? filteredCalls : filteredCalls.filter((c) => c.salesRole === roleFilter);
+  const overallProductive = roleFilteredCalls.filter((c) => c.callOutcome === "Sale").length;
+  const overallStrikeRate = roleFilteredCalls.length > 0 ? Math.round((overallProductive / roleFilteredCalls.length) * 1000) / 10 : 0;
+  const overallOutletsCovered = new Set(roleFilteredCalls.map((c) => c.outletId)).size;
+  const overallSales = roleFilteredCalls.reduce((s, c) => s + c.sales, 0);
 
   // Rep Daily Summary — split by Sales Role, not just Rep x Day: a TDR touching both
   // Mars and non-Mars Cost Centres in the same day genuinely has mixed-role calls, so
   // recomputing every stat fresh from each role-specific group (rather than trusting
   // RepCall's precomputed whole-day fields) is what actually "splits everything."
   const byRepDayRole = new Map<string, RepCallRow[]>();
-  for (const c of filteredCalls) {
+  for (const c of roleFilteredCalls) {
     const key = `${c.date}|${c.employeeCode}|${c.salesRole}`;
     if (!byRepDayRole.has(key)) byRepDayRole.set(key, []);
     byRepDayRole.get(key)!.push(c);
@@ -230,7 +237,7 @@ export default function TimestampsPage() {
 
   // Calls by time of day, split Primary vs Secondary, in Nairobi local time.
   const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ name: hourLabel(h), Primary: 0, Secondary: 0 }));
-  for (const c of filteredCalls) {
+  for (const c of roleFilteredCalls) {
     const h = nairobiHour(c.callTime);
     if (c.salesRole === "Primary Sales") hourBuckets[h].Primary += 1;
     else hourBuckets[h].Secondary += 1;
@@ -240,6 +247,10 @@ export default function TimestampsPage() {
     <div className="flex flex-col gap-6">
       <SectionCard title="Date" action={<span className="text-xs text-muted">Current calendar month only</span>}>
         <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Month" />
+      </SectionCard>
+
+      <SectionCard title="Sales Role">
+        <RoleToggle value={roleFilter} onChange={setRoleFilter} />
       </SectionCard>
 
       <SectionCard title="Filter by Rep">
@@ -292,39 +303,43 @@ export default function TimestampsPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Primary Sales">
-        <KpiGrid>
-          <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={primaryStats.totalCalls} format={formatNumber} />} />
-          <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={primaryStats.productiveCalls} format={formatNumber} />} />
-          <KpiCard
-            accent="growth"
-            label="Strike Rate"
-            value={<span className={tierTextClass[productivityTier(primaryStats.strikeRate)]}>{formatPercent(primaryStats.strikeRate)}</span>}
-          />
-          <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={primaryStats.outletsCovered} format={formatNumber} />} />
-          <KpiCard accent="revenue" label="Avg Interval Between Calls" value={primaryStats.avgIntervalMins !== null ? `${primaryStats.avgIntervalMins.toFixed(0)}m` : "—"} />
-          <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={primaryStats.sales} format={formatCompact} />} />
-        </KpiGrid>
-      </SectionCard>
+      {roleFilter !== "Secondary Sales" ? (
+        <SectionCard title="Primary Sales">
+          <KpiGrid>
+            <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={primaryStats.totalCalls} format={formatNumber} />} />
+            <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={primaryStats.productiveCalls} format={formatNumber} />} />
+            <KpiCard
+              accent="growth"
+              label="Strike Rate"
+              value={<span className={tierTextClass[productivityTier(primaryStats.strikeRate)]}>{formatPercent(primaryStats.strikeRate)}</span>}
+            />
+            <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={primaryStats.outletsCovered} format={formatNumber} />} />
+            <KpiCard accent="revenue" label="Avg Interval Between Calls" value={primaryStats.avgIntervalMins !== null ? `${primaryStats.avgIntervalMins.toFixed(0)}m` : "—"} />
+            <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={primaryStats.sales} format={formatCompact} />} />
+          </KpiGrid>
+        </SectionCard>
+      ) : null}
 
-      <SectionCard title="Secondary Sales">
-        <KpiGrid>
-          <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={secondaryStats.totalCalls} format={formatNumber} />} />
-          <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={secondaryStats.productiveCalls} format={formatNumber} />} />
-          <KpiCard
-            accent="growth"
-            label="Strike Rate"
-            value={<span className={tierTextClass[productivityTier(secondaryStats.strikeRate)]}>{formatPercent(secondaryStats.strikeRate)}</span>}
-          />
-          <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={secondaryStats.outletsCovered} format={formatNumber} />} />
-          <KpiCard
-            accent="revenue"
-            label="Avg Interval Between Calls"
-            value={secondaryStats.avgIntervalMins !== null ? `${secondaryStats.avgIntervalMins.toFixed(0)}m` : "—"}
-          />
-          <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={secondaryStats.sales} format={formatCompact} />} />
-        </KpiGrid>
-      </SectionCard>
+      {roleFilter !== "Primary Sales" ? (
+        <SectionCard title="Secondary Sales">
+          <KpiGrid>
+            <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={secondaryStats.totalCalls} format={formatNumber} />} />
+            <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={secondaryStats.productiveCalls} format={formatNumber} />} />
+            <KpiCard
+              accent="growth"
+              label="Strike Rate"
+              value={<span className={tierTextClass[productivityTier(secondaryStats.strikeRate)]}>{formatPercent(secondaryStats.strikeRate)}</span>}
+            />
+            <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={secondaryStats.outletsCovered} format={formatNumber} />} />
+            <KpiCard
+              accent="revenue"
+              label="Avg Interval Between Calls"
+              value={secondaryStats.avgIntervalMins !== null ? `${secondaryStats.avgIntervalMins.toFixed(0)}m` : "—"}
+            />
+            <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={secondaryStats.sales} format={formatCompact} />} />
+          </KpiGrid>
+        </SectionCard>
+      ) : null}
 
       <SectionCard title="Calls by Time of Day (Primary vs Secondary)" action={<span className="text-xs text-muted">Africa/Nairobi time</span>}>
         <ResponsiveContainer width="100%" height={280}>
@@ -394,14 +409,14 @@ export default function TimestampsPage() {
               <Td>—</Td>
               <Td>—</Td>
               <Td align="right">—</Td>
-              <Td align="right">{formatNumber(filteredCalls.length)}</Td>
+              <Td align="right">{formatNumber(roleFilteredCalls.length)}</Td>
               <Td align="right">{formatNumber(overallProductive)}</Td>
               <Td align="center">
                 <Badge tier={productivityTier(overallStrikeRate)}>{overallStrikeRate.toFixed(1)}%</Badge>
               </Td>
               <Td align="right">{formatNumber(overallOutletsCovered)}</Td>
               <Td align="right">—</Td>
-              <Td align="right">{formatCompact(primaryStats.sales + secondaryStats.sales)}</Td>
+              <Td align="right">{formatCompact(overallSales)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>

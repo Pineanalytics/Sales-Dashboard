@@ -224,6 +224,14 @@ export interface RepOutletVisit {
   longitude: number | null;
   visitDays: number; // distinct calendar dates this rep transacted with this outlet in the window
   visitsPerWeek: number; // round(visitDays / weeksInWindow), clamped 1-5
+  weekdayCounts: number[]; // length 5 (Mon..Fri) — distinct-visit-day counts per weekday, for empirical home-day derivation
+}
+
+/** 0=Mon..4=Fri for a "YYYY-MM-DD" string, or null for a Sat/Sun date (there's
+ *  no weekend slot in a 5-day Journey Plan). */
+function weekdayIndex(dateStr: string): number | null {
+  const jsDay = new Date(`${dateStr}T00:00:00.000Z`).getUTCDay(); // 0=Sun..6=Sat
+  return jsDay >= 1 && jsDay <= 5 ? jsDay - 1 : null;
 }
 
 /** One row per (rep, Cost Centre, outlet) with observed visit frequency over
@@ -256,6 +264,11 @@ export function buildRepOutletVisits(events: PurchaseEvent[], outlets: OutletRow
     const outlet = outletById.get(e.customerId);
     const user = userById.get(e.userId);
     const visitsPerWeek = Math.min(5, Math.max(1, Math.round(dates.size / weeks)));
+    const weekdayCounts = [0, 0, 0, 0, 0];
+    for (const d of dates) {
+      const di = weekdayIndex(d);
+      if (di !== null) weekdayCounts[di] += 1;
+    }
     rows.push({
       userId: e.userId,
       employee: user?.employee ?? "Unknown",
@@ -269,6 +282,7 @@ export function buildRepOutletVisits(events: PurchaseEvent[], outlets: OutletRow
       longitude: outlet?.longitude ?? null,
       visitDays: dates.size,
       visitsPerWeek,
+      weekdayCounts,
     });
   }
   return rows;
@@ -444,6 +458,27 @@ export interface JourneyPlanRow {
   status: "OK" | "BELOW TARGET";
 }
 
+/** Prefers the weekday this rep has ACTUALLY visited this outlet most often
+ *  (over the lookback window) as its "home day" — falls back to the
+ *  geo-sweep's angular-position-derived day only when there's no Mon-Fri
+ *  visit history at all (e.g. a brand-new outlet, or one only ever bought
+ *  from on a weekend). This is the fix for JP Adherence's "0% or 100%"
+ *  strike-rate problem: the pure geo-sweep day assignment (bearing order
+ *  around a centroid) has no relationship to which day a rep actually shows
+ *  up, so almost nothing matched between "planned" and "actual" — an
+ *  empirical, history-based day assignment is what a real route should be. */
+function deriveHomeDayIdx(weekdayCounts: number[], geoFallback: number): number {
+  let best = -1;
+  let bestCount = 0;
+  for (let i = 0; i < 5; i++) {
+    if (weekdayCounts[i] > bestCount) {
+      bestCount = weekdayCounts[i];
+      best = i;
+    }
+  }
+  return best >= 0 ? best : geoFallback;
+}
+
 export function buildJourneyPlan(visits: RepOutletVisitGrouped[], startDate: Date, endDate: Date): JourneyPlanRow[] {
   const groups = new Map<string, RepOutletVisitGrouped[]>();
   for (const v of visits) {
@@ -496,8 +531,9 @@ export function buildJourneyPlan(visits: RepOutletVisitGrouped[], startDate: Dat
     }
 
     for (const outlet of swept) {
+      const homeDayIdx = deriveHomeDayIdx(outlet.weekdayCounts, outlet.homeDayIdx);
       const offsets = FREQ_DAY_OFFSETS[outlet.visitsPerWeek] ?? [0];
-      const dayIndices = Array.from(new Set(offsets.map((o) => (outlet.homeDayIdx + o) % 5))).sort((a, b) => a - b);
+      const dayIndices = Array.from(new Set(offsets.map((o) => (homeDayIdx + o) % 5))).sort((a, b) => a - b);
       for (const di of dayIndices) {
         for (const { date, occ, monthLabel } of datesByDayIdx[di]) {
           rows.push({
