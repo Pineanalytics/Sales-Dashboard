@@ -76,17 +76,28 @@ function sheetToAOA(wb: XLSX.WorkBook, sheetName: string): unknown[][] {
   return XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true }) as unknown[][];
 }
 
+/** Power Query / SAP exports sometimes append a stray trailing "." to a
+ *  column header when a refresh hits a name-collision-resolution path (this
+ *  file already special-cased a few columns for it, e.g. "Revenue.") — but
+ *  which columns get the period is inconsistent run to run (e.g. "Days
+ *  Cover" gained one and broke every upload for 2+ days before this fix).
+ *  Normalizing both sides of the comparison makes header matching immune to
+ *  it regardless of which column it hits next. */
+function normalizeHeaderKey(s: string): string {
+  return s.trim().replace(/\.+$/, "");
+}
+
 function buildHeaderIndex(headerRow: unknown[]): Map<string, number> {
   const map = new Map<string, number>();
   headerRow.forEach((h, i) => {
-    const key = str(h);
+    const key = normalizeHeaderKey(str(h));
     if (key) map.set(key, i);
   });
   return map;
 }
 
 function requireCol(headerIndex: Map<string, number>, name: string, sheetName: string): number {
-  const idx = headerIndex.get(name);
+  const idx = headerIndex.get(normalizeHeaderKey(name));
   if (idx === undefined) {
     throw new WorkbookParseError(
       `Sheet "${sheetName}" is missing expected column "${name}". Check the export format.`
