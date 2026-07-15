@@ -13,7 +13,7 @@ import { useDashboardStore } from "@/lib/store";
 import { formatCompact, formatNumber, achievementTier, tierBarColor } from "@/lib/format";
 import { principalsByRevenueDesc, summarizeTargets } from "@/lib/selectors";
 import { generatePortfolioInsights, generatePrincipalInsights } from "@/lib/insights";
-import { summarizeSalesForPeriod, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
+import { summarizeSalesForPeriod, resolvePeriodMonths, getPreviousMonthPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
 import { weeklyRowsFor, aggregateWeekly } from "@/lib/trends";
 import {
   CHART_GRID_COLOR,
@@ -47,6 +47,33 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
 
   const weeklyRows = weeklyRowsFor(dataset, selectedPrincipalKey);
   const weekly = aggregateWeekly(weeklyRows);
+
+  // Genuine month-over-month comparison for the Revenue KPI's delta pill — deliberately
+  // anchored to a single calendar month regardless of what effectivePeriod itself spans
+  // (YTD/H1/etc.), so "vs last month" always means exactly that, not a mismatched
+  // multi-month-vs-one-month comparison.
+  const currentMonthPeriod: PeriodSelection = { kind: "MONTH", year: effectivePeriod.year, month: effectivePeriod.month };
+  const currentMonthSummary = summarizeSalesForPeriod(dataset, currentMonthPeriod, selectedPrincipalKey);
+  const previousMonthPeriod = getPreviousMonthPeriod(currentMonthPeriod);
+  const previousMonthSummary = previousMonthPeriod ? summarizeSalesForPeriod(dataset, previousMonthPeriod, selectedPrincipalKey) : null;
+  const revenueDeltaPct =
+    previousMonthSummary && previousMonthSummary.revenue > 0
+      ? ((currentMonthSummary.revenue - previousMonthSummary.revenue) / previousMonthSummary.revenue) * 100
+      : null;
+
+  // Trailing revenue-by-month series (real data, not synthetic) for the Revenue KPI's sparkline.
+  const revenueTrend = (() => {
+    const rows = selectedPrincipalKey ? dataset.monthlySales.filter((r) => r.principalKey === selectedPrincipalKey) : dataset.monthlySales;
+    const byMonth = new Map<string, number>();
+    for (const r of rows) {
+      const key = `${r.year}-${String(r.monthIndex).padStart(2, "0")}`;
+      byMonth.set(key, (byMonth.get(key) ?? 0) + r.revenue);
+    }
+    return Array.from(byMonth.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .slice(-8)
+      .map(([, revenue]) => revenue);
+  })();
 
   const topRevenue = principals[0]?.revenue || 1;
 
@@ -117,7 +144,13 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
       </div>
 
       <KpiGrid>
-        <KpiCard accent="revenue" label={`${periodLabel} Revenue`} value={<AnimatedValue value={currentSummary.revenue} format={formatCompact} />} />
+        <KpiCard
+          accent="revenue"
+          label={`${periodLabel} Revenue`}
+          value={<AnimatedValue value={currentSummary.revenue} format={formatCompact} />}
+          delta={revenueDeltaPct !== null ? { value: revenueDeltaPct, caption: "vs last month" } : undefined}
+          sparkline={revenueTrend.length >= 2 ? revenueTrend : undefined}
+        />
         <KpiCard
           accent="mission"
           label={`${periodLabel} Target`}

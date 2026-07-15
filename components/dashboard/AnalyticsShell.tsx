@@ -102,7 +102,9 @@ export function AnalyticsShell({
                 description="Ask your administrator to grant you access to this page."
               />
             ) : (
-              <div className="animate-fade-in flex flex-col gap-6">{children}</div>
+              // Keyed by pathname so the fade+slide-up animation re-fires on every route
+              // change instead of only on first mount (React would otherwise reuse this div).
+              <div key={pathname} className="animate-fade-in flex flex-col gap-6">{children}</div>
             )}
           </main>
         </div>
