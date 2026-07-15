@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ArrowDownload20Regular, ArrowUpload20Regular, DocumentTable20Regular } from "@fluentui/react-icons";
+import { ArrowUpload20Regular, DocumentTable20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { Spinner } from "@/components/ui/Spinner";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
+import { ReportCatalog } from "@/components/reports/ReportCatalog";
 
 /** Reports & uploads hub — moves Upload/History out of the header (where they were
  *  compact dropdowns) into a full page: dataset metadata, the complete snapshot
@@ -20,6 +21,8 @@ export default function ReportsPage() {
   const uploadFile = useDashboardStore((s) => s.uploadFile);
   const fetchHistory = useDashboardStore((s) => s.fetchHistory);
   const fetchSnapshot = useDashboardStore((s) => s.fetchSnapshot);
+  const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
+  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const user = useCurrentUser();
   const isAdmin = user?.role === "ADMIN";
 
@@ -68,12 +71,17 @@ export default function ReportsPage() {
               {uploading ? "Processing…" : "Upload Excel"}
             </Button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileChange} />
-            <Button variant="secondary" icon={<ArrowDownload20Regular className="h-4 w-4" />} disabled title="Export coming soon">
-              Export
-            </Button>
           </div>
         </SectionCard>
       ) : null}
+
+      <ReportCatalog
+        dataset={dataset}
+        period={selectedPeriod}
+        principalKey={selectedPrincipalKey}
+        allowedPages={user?.allowedPages ?? []}
+        isAdmin={isAdmin}
+      />
 
       <SectionCard title="Snapshot History">
         {history.length === 0 ? (

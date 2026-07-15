@@ -32,6 +32,8 @@
     "@fluentui/react-icons": "^2.0.331",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "mssql": "^12.7.0",
     "mysql2": "^3.22.6",
     "next": "16.2.9",
