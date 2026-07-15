@@ -33,13 +33,32 @@ async function assertNotLastAdminDemotion(userId: string, currentUser: { id: str
   }
 }
 
+function readRole(formData: FormData): "ADMIN" | "VIEWER" | "TEAM_LEADER" {
+  const raw = formData.get("role");
+  if (raw === "ADMIN" || raw === "TEAM_LEADER") return raw;
+  return "VIEWER";
+}
+
+// TEAM_LEADER logins need a linked TeamLeader row (User.teamLeaderId, unique) so
+// /weekly-targets can scope their reads/writes to just their own team. Any other
+// role clears the link, freeing that TeamLeader row up for someone else later.
+function readTeamLeaderId(formData: FormData, role: "ADMIN" | "VIEWER" | "TEAM_LEADER"): string | null {
+  if (role !== "TEAM_LEADER") return null;
+  const id = String(formData.get("teamLeaderId") || "").trim();
+  if (!id) {
+    redirect("/admin/users?error=" + encodeURIComponent("Pick a Team Leader to link this login to."));
+  }
+  return id;
+}
+
 export async function createUserAction(formData: FormData) {
   await requireAdmin();
 
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const name = String(formData.get("name") || "").trim();
   const password = String(formData.get("password") || "");
-  const role = formData.get("role") === "ADMIN" ? "ADMIN" : "VIEWER";
+  const role = readRole(formData);
+  const teamLeaderId = readTeamLeaderId(formData, role);
 
   if (!email || !password || password.length < 8) {
     redirect("/admin/users?error=" + encodeURIComponent("Email is required and password must be at least 8 characters."));
@@ -49,12 +68,15 @@ export async function createUserAction(formData: FormData) {
 
   try {
     await prisma.user.create({
-      data: { email, name: name || null, passwordHash, role, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
+      data: { email, name: name || null, passwordHash, role, teamLeaderId, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
     });
   } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
     const message =
-      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
-        ? "A user with that email already exists."
+      code === "P2002"
+        ? teamLeaderId
+          ? "That Team Leader is already linked to another login."
+          : "A user with that email already exists."
         : "Failed to create the user.";
     redirect("/admin/users?error=" + encodeURIComponent(message));
   }
@@ -99,14 +121,26 @@ export async function rejectUserAction(formData: FormData) {
 export async function updateUserRoleAction(formData: FormData) {
   const currentUser = await requireAdmin();
   const userId = String(formData.get("userId") || "");
-  const role = formData.get("role") === "ADMIN" ? "ADMIN" : "VIEWER";
+  const role = readRole(formData);
+  const teamLeaderId = readTeamLeaderId(formData, role);
 
-  if (role === "VIEWER") {
+  if (role !== "ADMIN") {
     await assertNotLastAdminDemotion(userId, currentUser);
   }
 
-  const target = await prisma.user.update({ where: { id: userId }, data: { role } });
-  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${role === "ADMIN" ? "an administrator" : "a viewer"}.`));
+  let target;
+  try {
+    target = await prisma.user.update({ where: { id: userId }, data: { role, teamLeaderId } });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    redirect(
+      "/admin/users?error=" +
+        encodeURIComponent(code === "P2002" ? "That Team Leader is already linked to another login." : "Failed to update the role.")
+    );
+  }
+
+  const roleLabel = role === "ADMIN" ? "an administrator" : role === "TEAM_LEADER" ? "a team leader" : "a viewer";
+  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${roleLabel}.`));
 }
 
 export async function updateUserPagesAction(formData: FormData) {

@@ -167,6 +167,20 @@ async function main() {
 
   const splitOk = await uploadBatched(appUrl, apiKey, "Monthly Split", "/api/jp-adherence/upload/monthly-split", monthlySplit, (batch, isFirst) => ({ rows: batch, replace: isFirst }));
   if (!splitOk) process.exitCode = 1;
+
+  // Recomputes Contribution-by-Rep + Daily Projection from what this sync just
+  // wrote — needs TeamLeaderAssignment/WeeklyTarget, which live in this app's own
+  // Postgres DB, so the computation itself runs inside the app (see
+  // lib/repContribution.ts), triggered here as a signal rather than a data POST.
+  if (splitOk) {
+    const result = await postJson(appUrl, apiKey, "/api/jp-adherence/recompute-derived", {});
+    if (!result.ok) {
+      console.error("[jp-adherence] Contribution-by-Rep/Daily Projection recompute FAILED:", result.status, JSON.stringify(result.body));
+      process.exitCode = 1;
+    } else {
+      console.log(`[jp-adherence] Recomputed derived Target data: ${JSON.stringify(result.body)}`);
+    }
+  }
 }
 
 main().catch((err) => {

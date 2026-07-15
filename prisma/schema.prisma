@@ -24,6 +24,7 @@ model Snapshot {
 enum Role {
   ADMIN
   VIEWER
+  TEAM_LEADER
 }
 
 enum UserStatus {
@@ -39,6 +40,7 @@ model User {
   role         Role       @default(VIEWER)
   status       UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
   allowedPages String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
+  teamLeaderId String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER
   createdAt    DateTime   @default(now())
 }
 
@@ -76,6 +78,52 @@ model Target {
 
   @@unique([year, month, principal])
   @@index([year, month])
+}
+
+// One row per edit made through the Monthly Targets entry form (app/(protected)/
+// admin/targets), mirroring the source Target_Per_Principal_System.xlsm workbook's
+// AuditTrail sheet. `changes` holds { field: { old, new } } for whichever of the
+// 4 target fields moved in that save — not written by the bulk-upload path, only
+// the row-level Add/Edit/Delete form.
+model TargetAuditLog {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  userEmail String
+  action    String // "CREATE" | "UPDATE" | "DELETE"
+  year      String
+  month     String
+  principal String
+  changes   Json
+
+  @@index([year, month, principal])
+}
+
+// Team Leader roster — one row per team leader, optionally linked to a login
+// (User.teamLeaderId) once they have one. Admin-editable via /admin/team-leaders.
+model TeamLeader {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// The "fact table" driving Weekly Targets: which reps, selling which principals,
+// report up through which team leader. Admin-editable via /admin/team-leaders.
+// A rep can appear under multiple principals, and (matrix orgs) under different
+// team leaders per principal. This table is the source of truth for which
+// (teamLeaderId, principal) pairs get a Weekly Target grid, and which reps are
+// eligible for that principal's RepContribution split.
+model TeamLeaderAssignment {
+  id           String   @id @default(cuid())
+  teamLeaderId String
+  employeeCode String
+  employeeName String
+  principal    String
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([teamLeaderId, employeeCode, principal])
+  @@index([teamLeaderId])
+  @@index([principal])
 }
 
 // Admin-editable reference data (rarely changes), consumed by scripts/db-bridge
@@ -399,4 +447,94 @@ model JPMonthlySplitRow {
   @@unique([monthLabel, costCentre, salesRole, employeeCode, activityStatus])
   @@index([monthLabel])
   @@index([employeeCode])
+}
+
+// Weekly revenue targets per Team Leader x Principal x Week, entered via
+// /weekly-targets (replicates WeeklyTargetEntry_MacroSystem.xlsm). Grid rows are
+// lazily generated (up to "today + 8 weeks") only for (teamLeaderId, principal)
+// pairs present in TeamLeaderAssignment — not a blind cross-product of every team
+// leader x every principal like the source workbook, so Filled/Pending % stays
+// meaningful. Week convention matches the source file: 5 calendar-weeks-of-month,
+// Monday-start, "Apr Week 1"-style labels kept alongside weekStartDate (the real,
+// unambiguous key). Historical weeks stay editable indefinitely — no locking.
+model WeeklyTarget {
+  id             String   @id @default(cuid())
+  teamLeaderId   String
+  principal      String
+  year           String
+  monthLabel     String
+  weekLabel      String
+  weekStartDate  DateTime
+  targetValue    Float    @default(0)
+  lastModifiedBy String?
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@unique([teamLeaderId, principal, weekStartDate])
+  @@index([teamLeaderId, weekStartDate])
+  @@index([weekStartDate])
+}
+
+// One row per edit made through the Weekly Targets grid, same shape/rationale as
+// TargetAuditLog.
+model WeeklyTargetAuditLog {
+  id            String   @id @default(cuid())
+  timestamp     DateTime @default(now())
+  userEmail     String
+  action        String // "CREATE" | "UPDATE" | "DELETE"
+  teamLeaderId  String
+  principal     String
+  weekStartDate DateTime
+  changes       Json
+
+  @@index([teamLeaderId, weekStartDate])
+}
+
+// Contribution-by-Rep — each rep's share of a principal's trailing revenue among
+// reps assigned to that principal (TeamLeaderAssignment), computed from
+// JPMonthlySplitRow as the final step of scripts/db-bridge/jp-adherence/run.ts.
+// Full table replace every computation (not upsert-on-key), same rationale as
+// JPMonthlySplitRow itself — reflects only the current trailing window. Drives
+// the read-time rep-level split of Monthly/Weekly targets (repTarget =
+// principalTarget x sharePct) and the weekday-weighted DailyTarget below.
+model RepContribution {
+  id             String   @id @default(cuid())
+  principal      String
+  employeeCode   String
+  employeeName   String
+  teamLeaderId   String?
+  quarterRevenue Float
+  sharePct       Float
+  computedAt     DateTime @default(now())
+
+  @@unique([principal, employeeCode])
+  @@index([principal])
+}
+
+// Daily Projection — each rep's WeeklyTarget split across weekdays by their own
+// productive-visit-count histogram from the preceding calendar week
+// (JPAdherenceDetail.productiveFlag), falling back to their trailing-90-day
+// histogram, then an even weekday split, if that history is too sparse (same
+// layered-fallback shape as JP Adherence's home-day derivation). Persisted
+// (unlike the read-time-only rep-level Monthly/Weekly split) because reps need a
+// fast "today's number" read and the weekday-weight computation is worth doing
+// once rather than per page view. Full-replace per (employeeCode, principal,
+// week) whenever the parent WeeklyTarget is saved, and again on each JP
+// Adherence sync to roll the preceding-week pattern forward.
+model DailyTarget {
+  id                String   @id @default(cuid())
+  employeeCode      String
+  employeeName      String
+  principal         String
+  teamLeaderId      String
+  date              DateTime
+  targetValue       Float
+  weeklyTargetId    String
+  sharePctUsed      Float
+  weekdayWeightUsed Float
+  createdAt         DateTime @default(now())
+
+  @@unique([employeeCode, principal, date])
+  @@index([date])
+  @@index([employeeCode, date])
 }

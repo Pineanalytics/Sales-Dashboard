@@ -1,6 +1,6 @@
 import type { DefaultSession } from "next-auth";
 
-export type UserRole = "ADMIN" | "VIEWER";
+export type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER";
 
 declare module "next-auth" {
   interface Session {
@@ -8,12 +8,14 @@ declare module "next-auth" {
       id: string;
       role: UserRole;
       allowedPages: string[];
+      teamLeaderId: string | null;
     } & DefaultSession["user"];
   }
 
   interface User {
     role: UserRole;
     allowedPages: string[];
+    teamLeaderId: string | null;
   }
 }
 
@@ -22,5 +24,6 @@ declare module "next-auth/jwt" {
     id: string;
     role: UserRole;
     allowedPages: string[];
+    teamLeaderId: string | null;
   }
 }

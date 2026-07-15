@@ -36,7 +36,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // is the actual security boundary in case that pre-check is ever bypassed.
         if (user.status !== "APPROVED") return null;
 
-        return { id: user.id, email: user.email, name: user.name, role: user.role, allowedPages: user.allowedPages };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          allowedPages: user.allowedPages,
+          teamLeaderId: user.teamLeaderId,
+        };
       },
     }),
   ],
@@ -46,6 +53,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id as string;
         token.role = user.role;
         token.allowedPages = user.allowedPages;
+        token.teamLeaderId = user.teamLeaderId;
       }
       return token;
     },
@@ -54,6 +62,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.id as string;
         session.user.role = token.role as UserRole;
         session.user.allowedPages = token.allowedPages as string[];
+        session.user.teamLeaderId = token.teamLeaderId as string | null;
       }
       return session;
     },

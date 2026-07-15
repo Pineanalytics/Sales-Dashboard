@@ -34,6 +34,7 @@ export default async function AdminUsersPage({
   const allUsers = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
   const pending = allUsers.filter((u) => u.status === "PENDING");
   const approved = allUsers.filter((u) => u.status === "APPROVED");
+  const teamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
   const announcementTemplate = await prisma.emailTemplate.findUnique({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
   const announcementSubject = announcementTemplate?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
   const announcementBody = announcementTemplate?.body ?? DEFAULT_ANNOUNCEMENT_BODY;
@@ -162,6 +163,25 @@ export default async function AdminUsersPage({
               >
                 <option value="VIEWER">Viewer — read-only dashboard access</option>
                 <option value="ADMIN">Admin — can upload new snapshots</option>
+                <option value="TEAM_LEADER">Team Leader — enters their own Weekly Targets</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="teamLeaderId" className="text-[13px] font-medium text-muted-strong">
+                Team Leader link (only used if Role is Team Leader)
+              </label>
+              <select
+                id="teamLeaderId"
+                name="teamLeaderId"
+                defaultValue=""
+                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
+              >
+                <option value="">— none —</option>
+                {teamLeaders.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="sm:col-span-2">
@@ -173,6 +193,11 @@ export default async function AdminUsersPage({
               </button>
             </div>
           </form>
+          {teamLeaders.length === 0 ? (
+            <p className="mt-2 text-xs text-muted">
+              No Team Leaders exist yet — add them on the <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">Team Leaders</Link> page first.
+            </p>
+          ) : null}
         </div>
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -273,6 +298,22 @@ export default async function AdminUsersPage({
                       >
                         <option value="VIEWER">Viewer</option>
                         <option value="ADMIN">Admin</option>
+                        <option value="TEAM_LEADER">Team Leader</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Team Leader link</span>
+                      <select
+                        name="teamLeaderId"
+                        defaultValue={u.teamLeaderId ?? ""}
+                        className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
+                      >
+                        <option value="">— none —</option>
+                        {teamLeaders.map((tl) => (
+                          <option key={tl.id} value={tl.id}>
+                            {tl.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <button
@@ -329,8 +370,12 @@ export default async function AdminUsersPage({
                       Save visibility
                     </button>
                   </form>
-                ) : (
+                ) : u.role === "ADMIN" ? (
                   <span className="text-xs text-muted">Administrators always see every report.</span>
+                ) : (
+                  <span className="text-xs text-muted">
+                    Team Leaders use <Link href="/weekly-targets" className="text-primary-blue hover:underline">Weekly Targets</Link>, scoped to their own team — not the report pages above.
+                  </span>
                 )}
               </div>
             ))}

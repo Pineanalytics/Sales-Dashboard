@@ -21,6 +21,7 @@ import {
   BuildingShop20Regular,
   Clock20Regular,
   CalendarCheckmark20Regular,
+  TargetArrow20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -67,6 +68,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   }, []);
 
   const isAdmin = user?.role === "ADMIN";
+  const isTeamLeader = user?.role === "TEAM_LEADER";
   // Admins always see every report; a viewer only sees the pages their admin granted.
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
@@ -142,6 +144,31 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
             );
           })}
         </nav>
+
+        {isAdmin || isTeamLeader ? (
+          <>
+            <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Targets</div>
+            <nav className="px-3 pt-2 flex flex-col gap-1">
+              <Link
+                href="/weekly-targets"
+                title="Weekly Targets"
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                  expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                } ${
+                  pathname?.startsWith("/weekly-targets")
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                    : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                }`}
+              >
+                <span className={pathname?.startsWith("/weekly-targets") ? "text-white" : "text-secondary-blue"}>
+                  <TargetArrow20Regular />
+                </span>
+                <span className={expanded ? "" : "md:hidden"}>Weekly Targets</span>
+              </Link>
+            </nav>
+          </>
+        ) : null}
 
         {isAdmin ? (
           <>
