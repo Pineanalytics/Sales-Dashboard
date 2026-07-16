@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { getKnownPrincipals, getKnownMainPrincipals } from "@/lib/adminReference";
 import { uploadTargetsAction, deleteTargetAction, createTargetAction, updateTargetAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -29,14 +30,14 @@ function fieldLabel(field: string): string {
 export default async function AdminTargetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; year?: string; edit?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; year?: string; edit?: string; principal?: string; mainPrincipal?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, year: yearParam, edit } = await searchParams;
+  const { error, success, year: yearParam, edit, principal: lastPrincipal, mainPrincipal: lastMainPrincipal } = await searchParams;
 
   const distinctYears = await prisma.target.findMany({
     select: { year: true },
@@ -45,6 +46,10 @@ export default async function AdminTargetsPage({
   });
   const years = distinctYears.map((r) => r.year);
   const year = yearParam && years.includes(yearParam) ? yearParam : years[0] || String(new Date().getFullYear());
+  // Always offer the current calendar year and the one after, even before any target
+  // exists for them yet — otherwise a brand-new deployment has nothing to pick from.
+  const realYear = String(new Date().getFullYear());
+  const yearOptions = Array.from(new Set([...years, realYear, String(Number(realYear) + 1)])).sort((a, b) => Number(b) - Number(a));
 
   const targets = await prisma.target.findMany({
     where: { year },
@@ -56,6 +61,8 @@ export default async function AdminTargetsPage({
     orderBy: { timestamp: "desc" },
     take: 25,
   });
+
+  const [knownPrincipals, knownMainPrincipals] = await Promise.all([getKnownPrincipals(), getKnownMainPrincipals()]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -111,7 +118,13 @@ export default async function AdminTargetsPage({
           <form action={createTargetAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Year</label>
-              <input name="year" required defaultValue={year} className={inputClass} />
+              <select name="year" required defaultValue={year} className={inputClass}>
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Month</label>
@@ -128,11 +141,27 @@ export default async function AdminTargetsPage({
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Principal</label>
-              <input name="principal" required placeholder="Bic-Nairobi" className={inputClass} />
+              <select name="principal" defaultValue={lastPrincipal ?? ""} className={inputClass}>
+                <option value="">— choose existing —</option>
+                {knownPrincipals.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Or a new Principal</label>
+              <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Main Principal</label>
-              <input name="mainPrincipal" placeholder="Bic" className={inputClass} />
+              <input name="mainPrincipal" list="known-main-principals" defaultValue={lastMainPrincipal ?? ""} placeholder="Bic" className={inputClass} />
+              <datalist id="known-main-principals">
+                {knownMainPrincipals.map((mp) => (
+                  <option key={mp} value={mp} />
+                ))}
+              </datalist>
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Value Target</label>

@@ -118,13 +118,22 @@ export async function createTargetAction(formData: FormData) {
 
   const year = str(formData, "year");
   const month = str(formData, "month");
-  const principal = str(formData, "principal");
+  // A typed "new Principal" wins over the dropdown pick — lets a genuinely new
+  // Principal (not yet in Target/JP data) be entered without blocking on it existing.
+  const principal = str(formData, "newPrincipal") || str(formData, "principal");
+  const mainPrincipal = str(formData, "mainPrincipal");
+
+  // Carries Principal + Main Principal back into the form (see the redirects below) so
+  // adding several consecutive months for the same Principal doesn't require reselecting
+  // them each time — only Month and the figures change per row.
+  const carryForward = `&principal=${encodeURIComponent(principal)}&mainPrincipal=${encodeURIComponent(mainPrincipal)}`;
+
   if (!year || !month || !principal) {
-    redirect("/admin/targets?error=" + encodeURIComponent("Year, Month, and Principal are required."));
+    redirect("/admin/targets?error=" + encodeURIComponent("Year, Month, and Principal are required.") + carryForward);
   }
   const monthIndex = CANONICAL_MONTHS.indexOf(month);
   if (monthIndex < 0) {
-    redirect("/admin/targets?error=" + encodeURIComponent(`Unrecognized month "${month}".`));
+    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent(`Unrecognized month "${month}".`) + carryForward);
   }
 
   const values = {
@@ -141,7 +150,7 @@ export async function createTargetAction(formData: FormData) {
         month,
         monthIndex,
         principal,
-        mainPrincipal: str(formData, "mainPrincipal") || null,
+        mainPrincipal: mainPrincipal || null,
         ...values,
       },
     });
@@ -150,7 +159,7 @@ export async function createTargetAction(formData: FormData) {
       typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
         ? `A target for ${principal} in ${month} ${year} already exists — edit it instead.`
         : "Failed to create the target.";
-    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent(message));
+    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent(message) + carryForward);
   }
 
   await logTargetAudit(
@@ -163,7 +172,8 @@ export async function createTargetAction(formData: FormData) {
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +
-      encodeURIComponent(`Added ${principal} — ${month} ${year}.`)
+      encodeURIComponent(`Added ${principal} — ${month} ${year}.`) +
+      carryForward
   );
 }
 

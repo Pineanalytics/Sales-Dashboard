@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { getKnownReps, getKnownPrincipals } from "@/lib/adminReference";
 import {
   createTeamLeaderAction,
   renameTeamLeaderAction,
@@ -19,34 +20,23 @@ const labelClass = "text-[13px] font-medium text-muted-strong";
 export default async function AdminTeamLeadersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; rename?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; rename?: string; teamLeaderId?: string; principal?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, rename } = await searchParams;
+  const { error, success, rename, teamLeaderId: lastTeamLeaderId, principal: lastPrincipal } = await searchParams;
 
-  const [teamLeaders, assignments, jpReps, repCallReps, jpPrincipals, targetPrincipals] = await Promise.all([
+  const [teamLeaders, assignments, knownReps, knownPrincipals] = await Promise.all([
     prisma.teamLeader.findMany({ orderBy: { name: "asc" } }),
     prisma.teamLeaderAssignment.findMany({ orderBy: [{ teamLeaderId: "asc" }, { principal: "asc" }, { employeeName: "asc" }] }),
-    prisma.jPAdherenceDetail.findMany({ select: { employeeCode: true, employeeName: true }, distinct: ["employeeCode"], take: 2000 }),
-    prisma.repCall.findMany({ select: { employeeCode: true, salesRep: true }, distinct: ["employeeCode"], take: 2000 }),
-    prisma.jPMonthlySplitRow.findMany({ select: { costCentre: true }, distinct: ["costCentre"] }),
-    prisma.target.findMany({ select: { principal: true }, distinct: ["principal"] }),
+    getKnownReps(),
+    getKnownPrincipals(),
   ]);
 
   const renaming = rename ? teamLeaders.find((tl) => tl.id === rename) : undefined;
-
-  const repsByCode = new Map<string, string>();
-  for (const r of repCallReps) repsByCode.set(r.employeeCode, r.salesRep);
-  for (const r of jpReps) repsByCode.set(r.employeeCode, r.employeeName); // JP Adherence names win — same source RepContribution will use
-  const knownReps = Array.from(repsByCode.entries())
-    .map(([employeeCode, employeeName]) => ({ employeeCode, employeeName }))
-    .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-
-  const knownPrincipals = Array.from(new Set([...jpPrincipals.map((p) => p.costCentre), ...targetPrincipals.map((p) => p.principal)])).sort();
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const assignmentsByTeamLeader = new Map<string, typeof assignments>();
@@ -146,7 +136,7 @@ export default async function AdminTeamLeadersPage({
           <form action={createAssignmentAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Team Leader</label>
-              <select name="teamLeaderId" required defaultValue="" className={inputClass}>
+              <select name="teamLeaderId" required defaultValue={lastTeamLeaderId ?? ""} className={inputClass}>
                 <option value="" disabled>
                   Select
                 </option>
@@ -167,7 +157,18 @@ export default async function AdminTeamLeadersPage({
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Principal</label>
-              <input name="principal" required list="known-principals" placeholder="Bic-Nairobi" className={inputClass} />
+              <select name="principal" defaultValue={lastPrincipal ?? ""} className={inputClass}>
+                <option value="">— choose existing —</option>
+                {knownPrincipals.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2 sm:col-start-4">
+              <label className={labelClass}>Or a new Principal</label>
+              <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
             </div>
             <div className="sm:col-span-4">
               <button
@@ -189,11 +190,6 @@ export default async function AdminTeamLeadersPage({
           <datalist id="known-reps-names">
             {knownReps.map((r) => (
               <option key={r.employeeCode} value={r.employeeName} />
-            ))}
-          </datalist>
-          <datalist id="known-principals">
-            {knownPrincipals.map((p) => (
-              <option key={p} value={p} />
             ))}
           </datalist>
         </div>

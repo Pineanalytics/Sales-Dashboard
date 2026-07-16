@@ -81,10 +81,17 @@ export async function createAssignmentAction(formData: FormData) {
   const teamLeaderId = str(formData, "teamLeaderId");
   const employeeCode = str(formData, "employeeCode");
   const employeeName = str(formData, "employeeName");
-  const principal = str(formData, "principal");
+  // A typed "new Principal" wins over the dropdown pick — lets a genuinely new
+  // Principal (not yet in Target/JP data) be assigned without blocking on it existing.
+  const principal = str(formData, "newPrincipal") || str(formData, "principal");
+
+  // Carries the just-used Team Leader + Principal back into the form (see the redirects
+  // below) so adding several reps in a row to the same Team Leader × Principal doesn't
+  // require reselecting them each time — only Employee Code/Name change per row.
+  const carryForward = `&teamLeaderId=${encodeURIComponent(teamLeaderId)}&principal=${encodeURIComponent(principal)}`;
 
   if (!teamLeaderId || !employeeCode || !principal) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader, Employee Code, and Principal are required."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader, Employee Code, and Principal are required.") + carryForward);
   }
 
   try {
@@ -96,10 +103,10 @@ export async function createAssignmentAction(formData: FormData) {
       typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
         ? "That rep is already assigned to this Team Leader for this Principal."
         : "Failed to add the assignment.";
-    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message) + carryForward);
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Assigned ${employeeName || employeeCode} — ${principal}.`));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Assigned ${employeeName || employeeCode} — ${principal}.`) + carryForward);
 }
 
 export async function deleteAssignmentAction(formData: FormData) {
