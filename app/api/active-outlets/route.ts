@@ -14,9 +14,10 @@ export async function GET() {
 
   try {
     const [outlets, monthly] = await Promise.all([
-      fetchAllInChunks((page) =>
-        prisma.activeOutlet.findMany({ orderBy: [{ principal: "asc" }, { outletName: "asc" }, { id: "asc" }], ...page })
-      ),
+      // Ordered by id (the indexed primary key), not principal/outletName — the page
+      // re-sorts everything client-side anyway, and an unindexed sort column would
+      // force Postgres to re-sort the whole table on every chunk, defeating the point.
+      fetchAllInChunks((page) => prisma.activeOutlet.findMany({ orderBy: { id: "asc" }, ...page })),
       prisma.activeOutletMonthly.findMany({ orderBy: [{ monthIndex: "asc" }, { principal: "asc" }] }),
     ]);
     return NextResponse.json({ outlets, monthly });

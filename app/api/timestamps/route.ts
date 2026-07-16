@@ -13,9 +13,10 @@ export async function GET() {
   }
 
   try {
-    const calls = await fetchAllInChunks((page) =>
-      prisma.repCall.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { callSequence: "asc" }], ...page })
-    );
+    // Ordered by id (the indexed primary key) — the page re-sorts everything
+    // client-side anyway, and date/employeeCode/callSequence isn't fully covered by
+    // an index, which would force a re-sort of the whole table on every chunk.
+    const calls = await fetchAllInChunks((page) => prisma.repCall.findMany({ orderBy: { id: "asc" }, ...page }));
     return NextResponse.json({ calls });
   } catch (err) {
     console.error("Failed to load Timestamps data", err);

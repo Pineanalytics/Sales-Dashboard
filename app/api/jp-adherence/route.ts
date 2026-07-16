@@ -18,16 +18,14 @@ export async function GET() {
   }
 
   try {
+    // Ordered by id (the indexed primary key) for all three — the page re-sorts
+    // everything client-side anyway, and none of these tables have an index covering
+    // their old sort columns, which would force a re-sort of the whole table on every
+    // chunk otherwise.
     const [journeyPlan, adherenceDaily, monthlySplit] = await Promise.all([
-      fetchAllInChunks((page) =>
-        prisma.journeyPlanRow.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { routeSeq: "asc" }, { id: "asc" }], ...page })
-      ),
-      fetchAllInChunks((page) =>
-        prisma.jPAdherenceDaily.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { id: "asc" }], ...page })
-      ),
-      fetchAllInChunks((page) =>
-        prisma.jPMonthlySplitRow.findMany({ orderBy: [{ monthIndex: "asc" }, { costCentre: "asc" }, { id: "asc" }], ...page })
-      ),
+      fetchAllInChunks((page) => prisma.journeyPlanRow.findMany({ orderBy: { id: "asc" }, ...page })),
+      fetchAllInChunks((page) => prisma.jPAdherenceDaily.findMany({ orderBy: { id: "asc" }, ...page })),
+      fetchAllInChunks((page) => prisma.jPMonthlySplitRow.findMany({ orderBy: { id: "asc" }, ...page })),
     ]);
     return NextResponse.json({ journeyPlan, adherenceDaily, monthlySplit });
   } catch (err) {
