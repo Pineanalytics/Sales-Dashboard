@@ -164,7 +164,7 @@ export default function TimestampsPage() {
       <EmptyState
         icon={<Clock20Regular className="h-10 w-10" />}
         title="No call activity recorded yet this month"
-        description="This page always reflects the current calendar month only and refreshes automatically from the direct-SQL sync, which runs every 10 minutes — no manual upload needed."
+        description="This page always reflects the current calendar month only and refreshes automatically from the direct-SQL sync, which runs hourly — no manual upload needed."
       />
     );
   }

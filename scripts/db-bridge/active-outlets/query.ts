@@ -149,7 +149,11 @@ export async function fetchProducts(conn: Connection): Promise<ProductRow[]> {
 
 async function fetchLines(conn: Connection, sql: string, isOrder: boolean, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
   const start = startDate.toISOString().slice(0, 10);
-  const end = endDate.toISOString().slice(0, 10);
+  // Full timestamp, not just a date — endDate is often "now" (or "today, end of day"),
+  // and truncating it to a bare date turns `< end` into "< today's midnight," silently
+  // excluding every sale/order made today. This was the root cause of today's data
+  // never showing up as productive calls until the following day's sync.
+  const end = endDate.toISOString().slice(0, 19).replace("T", " ");
   const [rows] = await conn.query<(RowDataPacket & { doc_id: number; purchase_time: Date; user_id: number; customer_id: number; item_id: number; qty: number; unit_price: number })[]>(
     sql,
     [start, end]
