@@ -95,7 +95,7 @@ export default function ActiveOutletsPage() {
       <EmptyState
         icon={<BuildingShop20Regular className="h-10 w-10" />}
         title="No Active Outlets data yet"
-        description="This page populates automatically from the twice-daily direct-SQL sync (scripts/db-bridge/active-outlets) — no manual upload needed."
+        description="This page populates automatically from the direct-SQL sync (scripts/db-bridge/active-outlets), which runs every 10 minutes — no manual upload needed."
       />
     );
   }

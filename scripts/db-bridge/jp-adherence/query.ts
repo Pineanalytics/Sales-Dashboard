@@ -196,7 +196,7 @@ export async function fetchFactLines(conn: Connection, startDate: Date, endDate:
  *  place an unproductive visit exists. Column names are auto-detected via
  *  information_schema since they vary/aren't guaranteed — a wrong guess should
  *  degrade to "no unproductive visits reported," not silently mislabel columns. */
-export async function resolveNoSalesColumns(conn: Connection): Promise<{ id: string; date: string; uid: string; cid: string } | null> {
+export async function resolveNoSalesColumns(conn: Connection): Promise<{ id: string; date: string; uid: string; cid: string; reason: string | null } | null> {
   const [rows] = await conn.query<(RowDataPacket & { COLUMN_NAME: string; DATA_TYPE: string })[]>(
     `SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nosales' ORDER BY ORDINAL_POSITION`
   );
@@ -221,26 +221,30 @@ export async function resolveNoSalesColumns(conn: Connection): Promise<{ id: str
   const uid = pick(["uid", "user_id", "user", "salesman", "rep"]);
   const cid = pick(["cid", "customer_id", "customer", "outlet_id", "outlet"]);
   if (!id || !date || !uid || !cid) return null;
-  return { id, date, uid, cid };
+  // Not part of the required gate — a missing reason column degrades to
+  // "no reason reported," not to skipping unproductive visits entirely.
+  const reason = pick(["remarks", "reason", "note", "comment"]);
+  return { id, date, uid, cid, reason };
 }
 
 export async function fetchNoSaleVisits(
   conn: Connection,
-  columns: { id: string; date: string; uid: string; cid: string },
+  columns: { id: string; date: string; uid: string; cid: string; reason: string | null },
   startDate: Date,
   endDate: Date
 ): Promise<NoSaleVisitRow[]> {
   const start = startDate.toISOString().slice(0, 10);
   const end = endDate.toISOString().slice(0, 10);
-  const sql = `SELECT \`${columns.id}\` AS visit_id, \`${columns.date}\` AS visit_time, \`${columns.uid}\` AS user_id, \`${columns.cid}\` AS customer_id
+  const reasonSelect = columns.reason ? `, \`${columns.reason}\` AS reason` : "";
+  const sql = `SELECT \`${columns.id}\` AS visit_id, \`${columns.date}\` AS visit_time, \`${columns.uid}\` AS user_id, \`${columns.cid}\` AS customer_id${reasonSelect}
                FROM pine.nosales
                WHERE \`${columns.date}\` >= ? AND \`${columns.date}\` < ?`;
-  const [rows] = await conn.query<(RowDataPacket & { visit_id: number; visit_time: Date; user_id: number; customer_id: number })[]>(sql, [start, end]);
+  const [rows] = await conn.query<(RowDataPacket & { visit_id: number; visit_time: Date; user_id: number; customer_id: number; reason?: string | null })[]>(sql, [start, end]);
   return rows.map((r) => ({
     visitId: String(r.visit_id),
     visitTime: new Date(r.visit_time),
     userId: String(r.user_id),
     customerId: String(r.customer_id),
-    noSaleReason: null,
+    noSaleReason: r.reason?.trim() || null,
   }));
 }

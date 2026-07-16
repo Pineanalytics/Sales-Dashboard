@@ -98,14 +98,24 @@ interface RoleStats {
   sales: number;
 }
 
-function computeRoleStats(rows: RepCallRow[]): RoleStats {
+/** Revenue attributable to `principalKey` specifically (sum of `sales` only on calls
+ *  whose Cost Centres include it) — unlike call/productivity counts, "Sales" is a
+ *  genuinely principal-scoped figure, so it stays narrowed even though the rows
+ *  passed in may now span every principal a rep touched that day (see
+ *  `principalFiltered` below). Sums every row's sales when `principalKey` is null. */
+function principalSales(rows: RepCallRow[], principalKey: string | null): number {
+  const scoped = principalKey ? rows.filter((c) => c.costCentresBought.split(", ").filter(Boolean).includes(principalKey)) : rows;
+  return scoped.reduce((s, c) => s + c.sales, 0);
+}
+
+function computeRoleStats(rows: RepCallRow[], principalKey: string | null): RoleStats {
   const totalCalls = rows.length;
   const productiveCalls = rows.filter((c) => c.callOutcome === "Sale").length;
   const strikeRate = totalCalls > 0 ? Math.round((productiveCalls / totalCalls) * 1000) / 10 : 0;
   const outletsCovered = new Set(rows.map((c) => c.outletId)).size;
   const intervals = rows.map((c) => c.intervalMins).filter((v): v is number => v !== null);
   const avgIntervalMins = intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null;
-  const sales = rows.reduce((s, c) => s + c.sales, 0);
+  const sales = principalSales(rows, principalKey);
   return { totalCalls, productiveCalls, strikeRate, outletsCovered, avgIntervalMins, sales };
 }
 
@@ -154,18 +164,28 @@ export default function TimestampsPage() {
       <EmptyState
         icon={<Clock20Regular className="h-10 w-10" />}
         title="No call activity recorded yet this month"
-        description="This page always reflects the current calendar month only and refreshes automatically from the twice-daily direct-SQL sync — no manual upload needed."
+        description="This page always reflects the current calendar month only and refreshes automatically from the direct-SQL sync, which runs every 10 minutes — no manual upload needed."
       />
     );
   }
 
-  // Principal filter (the global selector, same one every other page respects) — a call
-  // "belongs" to a principal if that principal was among what was bought during it.
-  // No-Sale calls have no Cost Centre, so filtering by principal naturally excludes
-  // them — they aren't specific to any one principal's business.
-  const principalFiltered = selectedPrincipalKey
-    ? calls.filter((c) => c.costCentresBought.split(", ").filter(Boolean).includes(selectedPrincipalKey))
-    : calls;
+  // Principal filter (the global selector, same one every other page respects) — scoped
+  // by REP-DAY relevance, not by call, otherwise every No-Sale call gets silently
+  // dropped (a No-Sale visit has no Cost Centre, since nothing was bought) and Strike
+  // Rate degenerates to a meaningless 100% for every rep once any principal is
+  // selected. A rep-day counts as relevant once they made at least one Sale call
+  // attributable to the selected principal that day; every one of that rep's calls
+  // that day (any outcome, any Cost Centre) then counts toward Calls Made/Productive/
+  // Strike Rate/Outlets Covered — "Sales" stays principal-scoped via principalSales().
+  const principalFiltered = (() => {
+    if (!selectedPrincipalKey) return calls;
+    const relevantRepDays = new Set(
+      calls
+        .filter((c) => c.costCentresBought.split(", ").filter(Boolean).includes(selectedPrincipalKey))
+        .map((c) => `${dateKey(c.date)}|${c.employeeCode}`)
+    );
+    return calls.filter((c) => relevantRepDays.has(`${dateKey(c.date)}|${c.employeeCode}`));
+  })();
 
   const availableDates = Array.from(new Set(principalFiltered.map((c) => dateKey(c.date)))).sort();
   const dateFiltered = selectedDate ? principalFiltered.filter((c) => dateKey(c.date) === selectedDate) : principalFiltered;
@@ -183,8 +203,8 @@ export default function TimestampsPage() {
 
   const primaryCalls = filteredCalls.filter((c) => c.salesRole === "Primary Sales");
   const secondaryCalls = filteredCalls.filter((c) => c.salesRole === "Secondary Sales");
-  const primaryStats = computeRoleStats(primaryCalls);
-  const secondaryStats = computeRoleStats(secondaryCalls);
+  const primaryStats = computeRoleStats(primaryCalls, selectedPrincipalKey);
+  const secondaryStats = computeRoleStats(secondaryCalls, selectedPrincipalKey);
   // The role toggle scopes the table + chart below to one role — the two KPI
   // sections above stay computed from the full filteredCalls set regardless
   // (each is already scoped to its own role) and are just shown/hidden.
@@ -192,7 +212,7 @@ export default function TimestampsPage() {
   const overallProductive = roleFilteredCalls.filter((c) => c.callOutcome === "Sale").length;
   const overallStrikeRate = roleFilteredCalls.length > 0 ? Math.round((overallProductive / roleFilteredCalls.length) * 1000) / 10 : 0;
   const overallOutletsCovered = new Set(roleFilteredCalls.map((c) => c.outletId)).size;
-  const overallSales = roleFilteredCalls.reduce((s, c) => s + c.sales, 0);
+  const overallSales = principalSales(roleFilteredCalls, selectedPrincipalKey);
 
   // Rep Daily Summary — split by Sales Role, not just Rep x Day: a TDR touching both
   // Mars and non-Mars Cost Centres in the same day genuinely has mixed-role calls, so
@@ -230,7 +250,7 @@ export default function TimestampsPage() {
       outletsCovered: outlets.size,
       avgIntervalMins: intervals.length > 0 ? Math.round((intervals.reduce((s, v) => s + v, 0) / intervals.length) * 10) / 10 : null,
       costCentresCovered: Array.from(costCentres).sort().join(", "),
-      sales: group.reduce((s, c) => s + c.sales, 0),
+      sales: principalSales(group, selectedPrincipalKey),
     };
   });
   repDaySummaries.sort((a, b) => (a.date === b.date ? a.salesRep.localeCompare(b.salesRep) : a.date.localeCompare(b.date)));
