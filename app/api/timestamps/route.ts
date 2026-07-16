@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { fetchAllInChunks } from "@/lib/prismaPagination";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,9 @@ export async function GET() {
   }
 
   try {
-    const calls = await prisma.repCall.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { callSequence: "asc" }] });
+    const calls = await fetchAllInChunks((page) =>
+      prisma.repCall.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { callSequence: "asc" }], ...page })
+    );
     return NextResponse.json({ calls });
   } catch (err) {
     console.error("Failed to load Timestamps data", err);

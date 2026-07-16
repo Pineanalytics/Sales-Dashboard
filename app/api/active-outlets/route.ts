@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { fetchAllInChunks } from "@/lib/prismaPagination";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export async function GET() {
 
   try {
     const [outlets, monthly] = await Promise.all([
-      prisma.activeOutlet.findMany({ orderBy: [{ principal: "asc" }, { outletName: "asc" }] }),
+      fetchAllInChunks((page) =>
+        prisma.activeOutlet.findMany({ orderBy: [{ principal: "asc" }, { outletName: "asc" }, { id: "asc" }], ...page })
+      ),
       prisma.activeOutletMonthly.findMany({ orderBy: [{ monthIndex: "asc" }, { principal: "asc" }] }),
     ]);
     return NextResponse.json({ outlets, monthly });

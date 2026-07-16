@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { fetchAllInChunks } from "@/lib/prismaPagination";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +19,15 @@ export async function GET() {
 
   try {
     const [journeyPlan, adherenceDaily, monthlySplit] = await Promise.all([
-      prisma.journeyPlanRow.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { routeSeq: "asc" }] }),
-      prisma.jPAdherenceDaily.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }] }),
-      prisma.jPMonthlySplitRow.findMany({ orderBy: [{ monthIndex: "asc" }, { costCentre: "asc" }] }),
+      fetchAllInChunks((page) =>
+        prisma.journeyPlanRow.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { routeSeq: "asc" }, { id: "asc" }], ...page })
+      ),
+      fetchAllInChunks((page) =>
+        prisma.jPAdherenceDaily.findMany({ orderBy: [{ date: "asc" }, { employeeCode: "asc" }, { id: "asc" }], ...page })
+      ),
+      fetchAllInChunks((page) =>
+        prisma.jPMonthlySplitRow.findMany({ orderBy: [{ monthIndex: "asc" }, { costCentre: "asc" }, { id: "asc" }], ...page })
+      ),
     ]);
     return NextResponse.json({ journeyPlan, adherenceDaily, monthlySplit });
   } catch (err) {
