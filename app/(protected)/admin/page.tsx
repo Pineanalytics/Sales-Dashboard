@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 // for client interactivity otherwise.
 const SECTIONS = [
   { href: "/admin/users", title: "Users", description: "Create admin or viewer accounts.", initials: "US" },
+  { href: "/admin/dataset", title: "Dataset", description: "Upload the monthly Excel export and browse snapshot history.", initials: "DS" },
   { href: "/admin/targets", title: "Targets", description: "Upload monthly targets by principal.", initials: "TG" },
   { href: "/admin/products", title: "Product Master", description: "Item → principal/pack-size reference data.", initials: "PM" },
   { href: "/admin/warehouses", title: "Warehouses", description: "Warehouse → location reference data.", initials: "WH" },

@@ -107,13 +107,15 @@ export function Header({ user }: { user: Session["user"] | null }) {
                     ))
                   )}
                 </div>
-                <Link
-                  href="/reports"
-                  onClick={() => setHistoryOpen(false)}
-                  className="block px-3 py-2.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover transition-colors border-t border-border/60"
-                >
-                  View all in Reports →
-                </Link>
+                {isAdmin ? (
+                  <Link
+                    href="/admin/dataset"
+                    onClick={() => setHistoryOpen(false)}
+                    className="block px-3 py-2.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover transition-colors border-t border-border/60"
+                  >
+                    View all in Admin →
+                  </Link>
+                ) : null}
               </div>
             ) : null}
           </div>
