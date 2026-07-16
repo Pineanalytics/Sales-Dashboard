@@ -16,6 +16,7 @@ const PERIOD_KIND_LABELS: Record<PeriodKind, string> = {
   Q4: "Q4",
   H1: "H1",
   H2: "H2",
+  CUSTOM: "Custom",
 };
 
 // MTD is always "this real calendar month" — no month picker, since there's nothing to
@@ -32,6 +33,7 @@ const NEEDS_MONTH: Record<PeriodKind, boolean> = {
   Q4: false,
   H1: false,
   H2: false,
+  CUSTOM: true,
 };
 
 /** Global period selector — every view reads `period` from the store, so this

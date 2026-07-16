@@ -22,13 +22,17 @@ export const CANONICAL_MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export type PeriodKind = "MTD" | "MONTH" | "QTD" | "YTD" | "H1" | "H2" | "Q1" | "Q2" | "Q3" | "Q4";
+export type PeriodKind = "MTD" | "MONTH" | "QTD" | "YTD" | "H1" | "H2" | "Q1" | "Q2" | "Q3" | "Q4" | "CUSTOM";
 
 export interface PeriodSelection {
   kind: PeriodKind;
   year: string;
-  /** Reference "as of" month — required for MTD/MONTH/QTD/YTD, ignored for H1/H2/Q1-Q4. */
+  /** Reference "as of" month — required for MTD/MONTH/QTD/YTD, ignored for H1/H2/Q1-Q4.
+   *  For CUSTOM, this is the range's "from" anchor. */
   month?: string;
+  /** CUSTOM only — the range's "to" anchor (inclusive). Ignored by every other kind. */
+  toYear?: string;
+  toMonth?: string;
 }
 
 interface MonthRef {
@@ -78,6 +82,20 @@ export function resolvePeriodMonths(selection: PeriodSelection): MonthRef[] {
       return [6, 7, 8].map((m) => ({ year, monthIndex: m }));
     case "Q4":
       return [9, 10, 11].map((m) => ({ year, monthIndex: m }));
+    case "CUSTOM": {
+      if (monthIdx < 0 || !selection.toYear || !selection.toMonth) return [];
+      const toMonthIdx = CANONICAL_MONTHS.indexOf(selection.toMonth);
+      if (toMonthIdx < 0) return [];
+      const fromYearNum = Number(year);
+      const toYearNum = Number(selection.toYear);
+      const months: MonthRef[] = [];
+      for (let y = fromYearNum; y <= toYearNum; y++) {
+        const startM = y === fromYearNum ? monthIdx : 0;
+        const endM = y === toYearNum ? toMonthIdx : 11;
+        for (let m = startM; m <= endM; m++) months.push({ year: String(y), monthIndex: m });
+      }
+      return months;
+    }
     default:
       return [];
   }

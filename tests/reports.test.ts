@@ -4,7 +4,7 @@ import { reportToExcelBlob } from "../lib/reports/toExcel";
 import { reportToPdfBlob } from "../lib/reports/toPdf";
 import type { ReportContent } from "../lib/reports/types";
 import { REPORT_DEFINITIONS, type ReportContext } from "../lib/reports/definitions";
-import { summarizeSalesForPeriod } from "../lib/timeIntelligence";
+import { summarizeSalesForPeriod, resolvePeriodMonths } from "../lib/timeIntelligence";
 import type { Dataset } from "../lib/types";
 
 const SAMPLE_REPORT: ReportContent = {
@@ -128,7 +128,7 @@ describe("report definitions reuse the same selectors the live views call", () =
     });
     const salesDef = REPORT_DEFINITIONS.find((d) => d.key === "sales")!;
     const period = { kind: "MONTH" as const, year: "2026", month: "July" };
-    const ctx: ReportContext = { dataset, period, principalKey: null, periodLabel: "July 2026" };
+    const ctx: ReportContext = { dataset, period, principalKey: null, repFilter: null, periodLabel: "July 2026" };
 
     const content = await salesDef.build(ctx);
     const expected = summarizeSalesForPeriod(dataset, period, null);
@@ -146,7 +146,7 @@ describe("report definitions reuse the same selectors the live views call", () =
       ],
     });
     const stockDef = REPORT_DEFINITIONS.find((d) => d.key === "stock")!;
-    const ctx: ReportContext = { dataset, period: { kind: "YTD", year: "2026", month: "July" }, principalKey: null, periodLabel: "YTD 2026" };
+    const ctx: ReportContext = { dataset, period: { kind: "YTD", year: "2026", month: "July" }, principalKey: null, repFilter: null, periodLabel: "YTD 2026" };
 
     const content = await stockDef.build(ctx);
     expect(content.summary?.find((s) => s.label === "Item Count")?.value).toBe("2");
@@ -156,12 +156,96 @@ describe("report definitions reuse the same selectors the live views call", () =
 
   it("dataset-backed reports return an empty-but-valid report when dataset is null", async () => {
     const salesDef = REPORT_DEFINITIONS.find((d) => d.key === "sales")!;
-    const content = await salesDef.build({ dataset: null, period: { kind: "YTD", year: "2026", month: "July" }, principalKey: null, periodLabel: "YTD 2026" });
+    const content = await salesDef.build({ dataset: null, period: { kind: "YTD", year: "2026", month: "July" }, principalKey: null, repFilter: null, periodLabel: "YTD 2026" });
     expect(content.sections).toEqual([]);
   });
 
   it("every report definition maps to a distinct key and page", () => {
     const keys = REPORT_DEFINITIONS.map((d) => d.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("stock report respects principalKey, rolling up by normalized brand key", async () => {
+    const dataset = emptyDataset({
+      stockItems: [
+        { principal: "Bic-Nairobi", key: "bic", item: "Item A", openingVolume: 10, openingPcs: 5, openingValue: 1000, rrWeekValue: 100, rrWeekVolume: 5, daysCover: 7, action: "OK" },
+        { principal: "Mars-Nairobi", key: "mars", item: "Item B", openingVolume: 20, openingPcs: 10, openingValue: 4000, rrWeekValue: 100, rrWeekVolume: 5, daysCover: 0, action: "Out of Stock" },
+      ],
+    });
+    const stockDef = REPORT_DEFINITIONS.find((d) => d.key === "stock")!;
+    const ctx: ReportContext = { dataset, period: { kind: "YTD", year: "2026", month: "July" }, principalKey: "Bic-Nairobi", repFilter: null, periodLabel: "YTD 2026" };
+
+    const content = await stockDef.build(ctx);
+    expect(content.sections[0].rows).toHaveLength(1);
+    expect(content.sections[0].rows[0][1]).toBe("Item A");
+  });
+
+  it("coverage report respects repFilter (case-insensitive substring)", async () => {
+    const dataset = emptyDataset({
+      monthlyCoverage: [
+        { year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", employeeName: "John Doe", salesRole: "Primary Sales", coverage: 100, productiveCalls: 80, productivityPct: 80 },
+        { year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", employeeName: "Jane Smith", salesRole: "Primary Sales", coverage: 50, productiveCalls: 40, productivityPct: 80 },
+      ],
+    });
+    const coverageDef = REPORT_DEFINITIONS.find((d) => d.key === "coverage")!;
+    const ctx: ReportContext = { dataset, period: { kind: "MONTH", year: "2026", month: "July" }, principalKey: null, repFilter: "john", periodLabel: "July 2026" };
+
+    const content = await coverageDef.build(ctx);
+    expect(content.sections[0].rows).toHaveLength(1);
+    expect(content.sections[0].rows[0][0]).toBe("John Doe");
+  });
+
+  it("time intelligence report scopes to the selected range, not the full dataset", async () => {
+    const dataset = emptyDataset({
+      monthlySales: [
+        salesRow({ year: "2025", month: "December", monthIndex: 11, revenue: 100000 }),
+        salesRow({ year: "2026", month: "January", monthIndex: 0, revenue: 200000 }),
+        salesRow({ year: "2026", month: "July", monthIndex: 6, revenue: 300000 }),
+      ],
+    });
+    const def = REPORT_DEFINITIONS.find((d) => d.key === "time-intelligence")!;
+    const ctx: ReportContext = {
+      dataset,
+      period: { kind: "CUSTOM", year: "2026", month: "January", toYear: "2026", toMonth: "July" },
+      principalKey: null,
+      repFilter: null,
+      periodLabel: "Custom",
+    };
+
+    const content = await def.build(ctx);
+    expect(content.sections[0].rows).toHaveLength(2);
+    expect(content.sections[0].rows.some((r) => r[1] === "December")).toBe(false);
+  });
+});
+
+describe("resolvePeriodMonths CUSTOM range", () => {
+  it("resolves a same-year span inclusive of both ends", () => {
+    const months = resolvePeriodMonths({ kind: "CUSTOM", year: "2026", month: "March", toYear: "2026", toMonth: "June" });
+    expect(months).toEqual([
+      { year: "2026", monthIndex: 2 },
+      { year: "2026", monthIndex: 3 },
+      { year: "2026", monthIndex: 4 },
+      { year: "2026", monthIndex: 5 },
+    ]);
+  });
+
+  it("resolves a year-rollover span", () => {
+    const months = resolvePeriodMonths({ kind: "CUSTOM", year: "2025", month: "November", toYear: "2026", toMonth: "February" });
+    expect(months).toEqual([
+      { year: "2025", monthIndex: 10 },
+      { year: "2025", monthIndex: 11 },
+      { year: "2026", monthIndex: 0 },
+      { year: "2026", monthIndex: 1 },
+    ]);
+  });
+
+  it("resolves a degenerate from===to span to a single month", () => {
+    const months = resolvePeriodMonths({ kind: "CUSTOM", year: "2026", month: "July", toYear: "2026", toMonth: "July" });
+    expect(months).toEqual([{ year: "2026", monthIndex: 6 }]);
+  });
+
+  it("returns an empty array when the to-anchor is missing", () => {
+    const months = resolvePeriodMonths({ kind: "CUSTOM", year: "2026", month: "July" });
+    expect(months).toEqual([]);
   });
 });

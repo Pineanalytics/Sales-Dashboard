@@ -8,6 +8,7 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { REPORT_DEFINITIONS, type ReportContext } from "@/lib/reports/definitions";
 import { reportToExcelBlob } from "@/lib/reports/toExcel";
 import { reportToPdfBlob } from "@/lib/reports/toPdf";
+import { ReportFilters } from "@/components/reports/ReportFilters";
 import type { Dataset } from "@/lib/types";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
 import type { PageKey } from "@/lib/pageAccess";
@@ -45,8 +46,13 @@ function triggerDownload(blob: Blob, filename: string) {
  *  what's on screen for the current period/principal filter (dataset-backed reports)
  *  or the current sync (bridge-backed reports, which have no period filter of their
  *  own — same as their live pages). */
-export function ReportCatalog({ dataset, period, principalKey, allowedPages, isAdmin }: ReportCatalogProps) {
+export function ReportCatalog({ dataset, period: initialPeriod, principalKey: initialPrincipalKey, allowedPages, isAdmin }: ReportCatalogProps) {
   const [pending, setPending] = useState<string | null>(null); // `${reportKey}:${format}`
+  // Local-only customization state, seeded from the live dashboard's current filters but
+  // never written back to the store — see ReportFilters.tsx.
+  const [period, setPeriod] = useState<PeriodSelection>(initialPeriod);
+  const [principalKey, setPrincipalKey] = useState<string | null>(initialPrincipalKey);
+  const [repFilter, setRepFilter] = useState<string | null>(null);
 
   const visible = REPORT_DEFINITIONS.filter((d) => isAdmin || allowedPages.includes(d.pageKey as PageKey));
   const periodLabel = periodLabelFor(period);
@@ -56,7 +62,7 @@ export function ReportCatalog({ dataset, period, principalKey, allowedPages, isA
     if (!def) return;
     setPending(`${reportKey}:${format}`);
     try {
-      const ctx: ReportContext = { dataset, period, principalKey, periodLabel };
+      const ctx: ReportContext = { dataset, period, principalKey, repFilter, periodLabel };
       const content = await def.build(ctx);
       const stamp = new Date().toISOString().slice(0, 10);
       if (format === "excel") {
@@ -81,8 +87,20 @@ export function ReportCatalog({ dataset, period, principalKey, allowedPages, isA
 
   return (
     <SectionCard title="Available Reports">
+      {dataset ? (
+        <ReportFilters
+          dataset={dataset}
+          period={period}
+          principalKey={principalKey}
+          repFilter={repFilter}
+          onPeriodChange={setPeriod}
+          onPrincipalChange={setPrincipalKey}
+          onRepChange={setRepFilter}
+        />
+      ) : null}
       <p className="px-1 pb-3 text-xs text-muted">
-        Each report reflects the current period ({periodLabel}) and principal filter selected above.
+        Each report reflects the customized range ({periodLabel}){principalKey ? ` and ${principalKey}` : ""}
+        {repFilter ? ` and rep "${repFilter}"` : ""} above.
       </p>
       <div className="flex flex-col divide-y divide-border/60">
         {visible.map((def) => (
