@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type Target } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { invalidateDatasetCache } from "@/lib/datasetStore";
 import { parseTargetsWorkbook, TargetsParseError, type ParsedTargetRow } from "@/lib/parseTargets";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 
@@ -105,6 +106,7 @@ export async function uploadTargetsAction(formData: FormData) {
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     await upsertTargetsChunk(rows.slice(i, i + CHUNK_SIZE));
   }
+  invalidateDatasetCache();
 
   const years = Array.from(new Set(rows.map((r) => r.year)));
   redirect(
@@ -169,6 +171,7 @@ export async function createTargetAction(formData: FormData) {
     { valueTarget: null, volumeTarget: null, coverageTarget: null, productivityTarget: null },
     values
   );
+  invalidateDatasetCache();
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +
@@ -218,6 +221,7 @@ export async function updateTargetAction(formData: FormData) {
     },
     values
   );
+  invalidateDatasetCache();
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +
@@ -249,6 +253,7 @@ export async function deleteTargetAction(formData: FormData) {
     },
     { valueTarget: null, volumeTarget: null, coverageTarget: null, productivityTarget: null }
   );
+  invalidateDatasetCache();
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +

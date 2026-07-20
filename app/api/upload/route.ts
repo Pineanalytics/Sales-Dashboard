@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { parseWorkbook, WorkbookParseError } from "@/lib/parseWorkbook";
-import { saveSnapshot } from "@/lib/datasetStore";
+import { saveSnapshot, invalidateDatasetCache } from "@/lib/datasetStore";
 import { auth } from "@/auth";
 
 export const runtime = "nodejs";
@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
   try {
     const dataset = parseWorkbook(buffer);
     const snapshot = await saveSnapshot(dataset);
+    invalidateDatasetCache();
     return NextResponse.json({ dataset, snapshot }, { status: 200 });
   } catch (err) {
     if (err instanceof WorkbookParseError) {

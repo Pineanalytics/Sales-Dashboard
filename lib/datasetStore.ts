@@ -1,7 +1,19 @@
+import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import type { Dataset, DatasetSnapshotSummary, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
+
+// getLatestSnapshot() composes four separate queries (the Snapshot row itself —
+// which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
+// and used to re-run all of them, uncached, on every single page load AND on the
+// client's own /api/dataset poll (route-change + 3-minute interval). Under any DB
+// load that alone was enough to make every page feel slow, independent of anything
+// module-specific. The underlying data only actually changes when one of the four
+// mutation paths below runs (a rare, manual/scheduled event) — a 5-minute cache
+// with on-demand invalidation removes the redundant work without sacrificing
+// freshness in practice. See invalidateDatasetCache().
+const DATASET_CACHE_TAG = "dataset";
 
 export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSummary> {
   const snapshot = await prisma.snapshot.create({
@@ -118,10 +130,26 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
   return { ...withTargets, monthlyPL: withPL.monthlyPL };
 }
 
-export async function getLatestSnapshot(): Promise<Dataset | null> {
+async function loadLatestSnapshot(): Promise<Dataset | null> {
   const snapshot = await prisma.snapshot.findFirst({ orderBy: { uploadedAt: "desc" } });
   if (!snapshot) return null;
   return overlayAdminData(decodeDataset(snapshot.data));
+}
+
+export const getLatestSnapshot = unstable_cache(loadLatestSnapshot, ["latest-snapshot"], {
+  tags: [DATASET_CACHE_TAG],
+  revalidate: 300, // safety-net TTL — normal path is the explicit invalidateDatasetCache() below
+});
+
+/** Called by every route that writes Snapshot/SalesRecord/Target/PLEntry data —
+ *  Excel upload, the SAP/PL bridge syncs, and Target CRUD/upload — so the next
+ *  getLatestSnapshot() call reflects the change immediately instead of waiting
+ *  out the 5-minute TTL. */
+export function invalidateDatasetCache() {
+  // Next.js 16's revalidateTag() requires a cache-life profile as its 2nd arg (used
+  // by its newer "use cache" system) even though this tag is written by the classic
+  // unstable_cache() above — an empty profile is the documented no-op default.
+  revalidateTag(DATASET_CACHE_TAG, {});
 }
 
 export async function getSnapshotById(id: string): Promise<Dataset | null> {

@@ -3,6 +3,7 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { invalidateDatasetCache } from "@/lib/datasetStore";
 
 export const runtime = "nodejs";
 
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
       await upsertChunk(validRows.slice(i, i + CHUNK_SIZE));
     }
+    invalidateDatasetCache();
     return NextResponse.json({ count: validRows.length }, { status: 200 });
   } catch (err) {
     console.error("Failed to upsert Sales rows", err);
