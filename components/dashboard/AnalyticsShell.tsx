@@ -86,7 +86,7 @@ export function AnalyticsShell({
         <div className="flex-1 flex flex-col min-w-0">
           <Header user={user} />
           <GlobalFilterBar />
-          <main className="flex-1 p-4 md:p-6 flex flex-col gap-6">
+          <main className="flex-1 p-3 md:p-4 flex flex-col gap-4">
             {status === "loading" && !dataset ? (
               <FullPageSpinner label="Processing workbook…" />
             ) : !dataset ? (
@@ -104,7 +104,7 @@ export function AnalyticsShell({
             ) : (
               // Keyed by pathname so the fade+slide-up animation re-fires on every route
               // change instead of only on first mount (React would otherwise reuse this div).
-              <div key={pathname} className="animate-fade-in flex flex-col gap-6">{children}</div>
+              <div key={pathname} className="animate-fade-in flex flex-col gap-4">{children}</div>
             )}
           </main>
         </div>

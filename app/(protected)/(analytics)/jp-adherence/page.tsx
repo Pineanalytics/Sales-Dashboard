@@ -202,62 +202,69 @@ export default function JpAdherencePage() {
   const capped = filteredPlan.slice(0, TOP_N_PLAN_ROWS);
 
   return (
-    <div className="flex flex-col gap-6">
-      <SectionCard title="Date" action={<span className="text-xs text-muted">Trailing 90-day window</span>}>
-        <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
-      </SectionCard>
-
-      <SectionCard title="Sales Role">
-        <RoleToggle value={roleFilter} onChange={setRoleFilter} />
-      </SectionCard>
-
-      <SectionCard title="Filter by Rep">
-        <div className="relative max-w-sm">
-          <input
-            value={selectedRep ? selectedRepName ?? "" : repQuery}
-            onChange={(e) => {
-              setRepQuery(e.target.value);
-              setSelectedRep(null);
-              setRepDropdownOpen(true);
-            }}
-            onFocus={() => setRepDropdownOpen(true)}
-            onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
-            placeholder="Search reps…"
-            className="w-full rounded-full border border-border bg-surface px-4 py-2 pr-9 text-sm text-foreground outline-none focus:border-secondary-blue"
-          />
-          {selectedRep ? (
-            <button
-              onClick={() => {
-                setSelectedRep(null);
-                setRepQuery("");
-              }}
-              aria-label="Clear rep filter"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
-            >
-              <Dismiss12Regular />
-            </button>
-          ) : null}
-          {repDropdownOpen && !selectedRep ? (
-            <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
-              {repSearchResults.length === 0 ? (
-                <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
-              ) : (
-                repSearchResults.map(([code, name]) => (
-                  <button
-                    key={code}
-                    onMouseDown={() => {
-                      setSelectedRep(code);
-                      setRepQuery("");
-                      setRepDropdownOpen(false);
-                    }}
-                    className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
-                  >
-                    {name}
-                  </button>
-                ))
-              )}
+    <div className="flex flex-col gap-4">
+      <SectionCard action={<span className="text-xs text-muted">Trailing 90-day window</span>}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+          <div className="shrink-0">
+            <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
+          </div>
+          <div className="h-auto w-px shrink-0 self-stretch bg-border/60 max-lg:hidden" />
+          <div className="flex flex-1 flex-wrap items-start gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales Role</span>
+              <RoleToggle value={roleFilter} onChange={setRoleFilter} />
             </div>
-          ) : null}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by Rep</span>
+              <div className="relative w-56">
+                <input
+                  value={selectedRep ? selectedRepName ?? "" : repQuery}
+                  onChange={(e) => {
+                    setRepQuery(e.target.value);
+                    setSelectedRep(null);
+                    setRepDropdownOpen(true);
+                  }}
+                  onFocus={() => setRepDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
+                  placeholder="Search reps…"
+                  className="w-full rounded-full border border-border bg-surface px-3.5 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-secondary-blue"
+                />
+                {selectedRep ? (
+                  <button
+                    onClick={() => {
+                      setSelectedRep(null);
+                      setRepQuery("");
+                    }}
+                    aria-label="Clear rep filter"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                  >
+                    <Dismiss12Regular />
+                  </button>
+                ) : null}
+                {repDropdownOpen && !selectedRep ? (
+                  <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                    {repSearchResults.length === 0 ? (
+                      <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
+                    ) : (
+                      repSearchResults.map(([code, name]) => (
+                        <button
+                          key={code}
+                          onMouseDown={() => {
+                            setSelectedRep(code);
+                            setRepQuery("");
+                            setRepDropdownOpen(false);
+                          }}
+                          className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
+                        >
+                          {name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       </SectionCard>
 
@@ -273,13 +280,13 @@ export default function JpAdherencePage() {
       </SectionCard>
 
       <SectionCard title="JP Adherence Trend" action={<span className="text-xs text-muted">Adherence % vs Strike Rate %</span>}>
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
-            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} />
-            <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} unit="%" />
+            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} />
+            <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} unit="%" axisLine={false} tickLine={false} width={32} />
             <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
             <Line type="monotone" dataKey="Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
           </LineChart>

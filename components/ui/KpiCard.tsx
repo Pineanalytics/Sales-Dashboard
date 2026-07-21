@@ -39,8 +39,8 @@ interface KpiCardProps {
 }
 
 const VALUE_SIZE_CLASS = {
-  lg: "text-[42px] leading-tight",
-  md: "text-2xl leading-snug",
+  lg: "text-[32px] leading-tight",
+  md: "text-xl leading-snug",
 } as const;
 
 const ACCENT_ICON: Record<KpiAccent, typeof Money20Regular> = {
@@ -61,28 +61,28 @@ export function KpiCard({ label, value, sublabel, accent = "revenue", icon, size
 
   return (
     <div
-      className={`h-full rounded-2xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-6 flex flex-col gap-2 min-w-0 shadow-[0_1px_3px_rgba(10,31,82,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(10,31,82,0.12)] hover:-translate-y-1`}
+      className={`h-full rounded-xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-3.5 flex flex-col gap-1 min-w-0 shadow-[0_1px_3px_rgba(10,31,82,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(10,31,82,0.12)] hover:-translate-y-0.5`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-normal text-muted truncate">{label}</span>
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted truncate">{label}</span>
         {resolvedIcon ? (
-          <span className={`shrink-0 rounded-xl bg-secondary-blue/10 p-2 flex items-center justify-center ${kpiAccentIconClass[accent]}`}>
+          <span className={`shrink-0 rounded-lg bg-secondary-blue/10 p-1 flex items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 ${kpiAccentIconClass[accent]}`}>
             {resolvedIcon}
           </span>
         ) : null}
       </div>
-      <div className={`min-h-[56px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-brand-navy truncate`}>
+      <div className={`min-h-[36px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-brand-navy truncate`}>
         {value}
       </div>
       {delta || sublabel ? (
         <div className="flex items-center gap-2 min-w-0">
           {delta ? (
-            <span className={`inline-flex items-center gap-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${tierBadgeClass[deltaTier!]}`}>
+            <span className={`inline-flex items-center gap-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${tierBadgeClass[deltaTier!]}`}>
               <DeltaArrow />
               {(delta.format ?? DEFAULT_DELTA_FORMAT)(delta.value)}
             </span>
           ) : null}
-          {sublabel ? <span className="text-[13px] text-muted-strong truncate">{sublabel}</span> : null}
+          {sublabel ? <span className="text-[11px] text-muted-strong truncate">{sublabel}</span> : null}
         </div>
       ) : null}
       {sparkline ? <Sparkline data={sparkline} /> : null}

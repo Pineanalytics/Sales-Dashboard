@@ -128,6 +128,7 @@ export default function TimestampsPage() {
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
 
   useEffect(() => {
     let cancelled = false;
@@ -255,71 +256,112 @@ export default function TimestampsPage() {
   });
   repDaySummaries.sort((a, b) => (a.date === b.date ? a.salesRep.localeCompare(b.salesRep) : a.date.localeCompare(b.date)));
 
-  // Calls by time of day, split Primary vs Secondary, in Nairobi local time.
-  const hourBuckets = Array.from({ length: 24 }, (_, h) => ({ name: hourLabel(h), Primary: 0, Secondary: 0 }));
-  for (const c of roleFilteredCalls) {
-    const h = nairobiHour(c.callTime);
-    if (c.salesRole === "Primary Sales") hourBuckets[h].Primary += 1;
-    else hourBuckets[h].Secondary += 1;
-  }
+  // Calls by time bucket, split Primary vs Secondary — Hourly/Daily/Weekly is a
+  // display-only aggregation choice, computed from the exact same roleFilteredCalls
+  // set every KPI/table above already uses; no filter or calculation differs.
+  const chartBuckets = (() => {
+    if (chartGranularity === "Hourly") {
+      const buckets = Array.from({ length: 24 }, (_, h) => ({ name: hourLabel(h), Primary: 0, Secondary: 0 }));
+      for (const c of roleFilteredCalls) {
+        const h = nairobiHour(c.callTime);
+        if (c.salesRole === "Primary Sales") buckets[h].Primary += 1;
+        else buckets[h].Secondary += 1;
+      }
+      return buckets;
+    }
+    if (chartGranularity === "Daily") {
+      const byDay = new Map<string, { name: string; Primary: number; Secondary: number }>();
+      for (const c of roleFilteredCalls) {
+        const key = dateKey(c.date);
+        if (!byDay.has(key)) byDay.set(key, { name: formatDateLabel(key), Primary: 0, Secondary: 0 });
+        const bucket = byDay.get(key)!;
+        if (c.salesRole === "Primary Sales") bucket.Primary += 1;
+        else bucket.Secondary += 1;
+      }
+      return Array.from(byDay.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, v]) => v);
+    }
+    // Weekly — 7-day buckets anchored on the 1st of the month, matching the page's
+    // own "current calendar month only" scope.
+    const byWeek = new Map<number, { name: string; Primary: number; Secondary: number }>();
+    for (const c of roleFilteredCalls) {
+      const day = Number(dateKey(c.date).slice(8, 10));
+      const week = Math.ceil(day / 7);
+      if (!byWeek.has(week)) byWeek.set(week, { name: `Week ${week}`, Primary: 0, Secondary: 0 });
+      const bucket = byWeek.get(week)!;
+      if (c.salesRole === "Primary Sales") bucket.Primary += 1;
+      else bucket.Secondary += 1;
+    }
+    return Array.from(byWeek.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, v]) => v);
+  })();
 
   return (
-    <div className="flex flex-col gap-6">
-      <SectionCard title="Date" action={<span className="text-xs text-muted">Current calendar month only</span>}>
-        <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Month" />
-      </SectionCard>
-
-      <SectionCard title="Sales Role">
-        <RoleToggle value={roleFilter} onChange={setRoleFilter} />
-      </SectionCard>
-
-      <SectionCard title="Filter by Rep">
-        <div className="relative max-w-sm">
-          <input
-            value={selectedRep ? selectedRepName ?? "" : repQuery}
-            onChange={(e) => {
-              setRepQuery(e.target.value);
-              setSelectedRep(null);
-              setRepDropdownOpen(true);
-            }}
-            onFocus={() => setRepDropdownOpen(true)}
-            onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
-            placeholder="Search reps…"
-            className="w-full rounded-full border border-border bg-surface px-4 py-2 pr-9 text-sm text-foreground outline-none focus:border-secondary-blue"
-          />
-          {selectedRep ? (
-            <button
-              onClick={() => {
-                setSelectedRep(null);
-                setRepQuery("");
-              }}
-              aria-label="Clear rep filter"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
-            >
-              <Dismiss12Regular />
-            </button>
-          ) : null}
-          {repDropdownOpen && !selectedRep ? (
-            <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
-              {repSearchResults.length === 0 ? (
-                <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
-              ) : (
-                repSearchResults.map(([code, name]) => (
-                  <button
-                    key={code}
-                    onMouseDown={() => {
-                      setSelectedRep(code);
-                      setRepQuery("");
-                      setRepDropdownOpen(false);
-                    }}
-                    className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
-                  >
-                    {name}
-                  </button>
-                ))
-              )}
+    <div className="flex flex-col gap-4">
+      <SectionCard action={<span className="text-xs text-muted">Current calendar month only</span>}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+          <div className="shrink-0">
+            <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Month" />
+          </div>
+          <div className="h-auto w-px shrink-0 self-stretch bg-border/60 max-lg:hidden" />
+          <div className="flex flex-1 flex-wrap items-start gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales Role</span>
+              <RoleToggle value={roleFilter} onChange={setRoleFilter} />
             </div>
-          ) : null}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by Rep</span>
+              <div className="relative w-56">
+                <input
+                  value={selectedRep ? selectedRepName ?? "" : repQuery}
+                  onChange={(e) => {
+                    setRepQuery(e.target.value);
+                    setSelectedRep(null);
+                    setRepDropdownOpen(true);
+                  }}
+                  onFocus={() => setRepDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
+                  placeholder="Search reps…"
+                  className="w-full rounded-full border border-border bg-surface px-3.5 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-secondary-blue"
+                />
+                {selectedRep ? (
+                  <button
+                    onClick={() => {
+                      setSelectedRep(null);
+                      setRepQuery("");
+                    }}
+                    aria-label="Clear rep filter"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                  >
+                    <Dismiss12Regular />
+                  </button>
+                ) : null}
+                {repDropdownOpen && !selectedRep ? (
+                  <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                    {repSearchResults.length === 0 ? (
+                      <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
+                    ) : (
+                      repSearchResults.map(([code, name]) => (
+                        <button
+                          key={code}
+                          onMouseDown={() => {
+                            setSelectedRep(code);
+                            setRepQuery("");
+                            setRepDropdownOpen(false);
+                          }}
+                          className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
+                        >
+                          {name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       </SectionCard>
 
@@ -361,16 +403,36 @@ export default function TimestampsPage() {
         </SectionCard>
       ) : null}
 
-      <SectionCard title="Calls by Time of Day (Primary vs Secondary)" action={<span className="text-xs text-muted">Africa/Nairobi time</span>}>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={hourBuckets} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+      <SectionCard
+        title="Calls by Time (Primary vs Secondary)"
+        action={
+          <div className="flex items-center gap-3">
+            <div className="inline-flex gap-0.5 rounded-full bg-background-elevated p-0.5">
+              {(["Hourly", "Daily", "Weekly"] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setChartGranularity(g)}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                    chartGranularity === g ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-muted">Africa/Nairobi time</span>
+          </div>
+        }
+      >
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={chartBuckets} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barGap={2} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
-            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={1} />
-            <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
+            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={chartGranularity === "Hourly" ? 1 : 0} axisLine={false} tickLine={false} />
+            <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} width={28} />
             <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="Primary" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Secondary" fill={CHART_COLORS[1]} radius={[4, 4, 0, 0]} />
+            <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
+            <Bar dataKey="Primary" fill={CHART_COLORS[0]} radius={[3, 3, 0, 0]} maxBarSize={28} />
+            <Bar dataKey="Secondary" fill={CHART_COLORS[1]} radius={[3, 3, 0, 0]} maxBarSize={28} />
           </BarChart>
         </ResponsiveContainer>
       </SectionCard>
