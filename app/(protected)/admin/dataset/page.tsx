@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AdminDatasetPanel } from "@/components/admin/AdminDatasetPanel";
+import { SyncHealthPanel } from "@/components/admin/SyncHealthPanel";
+import { getSyncHealth } from "@/lib/syncHealth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,8 @@ export default async function AdminDatasetPage() {
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
+
+  const syncHealth = await getSyncHealth();
 
   return (
     <div className="min-h-screen bg-background">
@@ -24,6 +28,7 @@ export default async function AdminDatasetPage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+        <SyncHealthPanel rows={syncHealth} />
         <AdminDatasetPanel />
       </div>
     </div>
