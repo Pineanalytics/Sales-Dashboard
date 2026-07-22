@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { REPORT_DEFINITIONS, type ReportContext } from "@/lib/reports/definitions";
-import { reportToExcelBlob } from "@/lib/reports/toExcel";
-import { reportToPdfBlob } from "@/lib/reports/toPdf";
 import { ReportFilters } from "@/components/reports/ReportFilters";
 import type { Dataset } from "@/lib/types";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
@@ -66,8 +64,10 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
       const content = await def.build(ctx);
       const stamp = new Date().toISOString().slice(0, 10);
       if (format === "excel") {
+        const { reportToExcelBlob } = await import("@/lib/reports/toExcel");
         triggerDownload(reportToExcelBlob(content), `${slugify(label)}-${stamp}.xlsx`);
       } else {
+        const { reportToPdfBlob } = await import("@/lib/reports/toPdf");
         triggerDownload(reportToPdfBlob(content), `${slugify(label)}-${stamp}.pdf`);
       }
     } catch (err) {
