@@ -5,6 +5,7 @@ import { OverviewView } from "@/components/views/OverviewView";
 import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
 import { TopPerformers } from "@/components/overview/TopPerformers";
+import { AiInsightsCard } from "@/components/dashboard/AiInsightsCard";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
 
 export default function DashboardPage() {
@@ -23,6 +24,7 @@ export default function DashboardPage() {
 
   return (
     <>
+      <AiInsightsCard />
       <OverviewView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
       <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
       <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />

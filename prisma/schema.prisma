@@ -538,3 +538,19 @@ model DailyTarget {
   @@index([date])
   @@index([employeeCode, date])
 }
+
+// Daily AI-generated executive digest — one row per generation run, produced by
+// /api/ai-insights/generate (Claude Sonnet 5) from current Sales-vs-Target and
+// Sync Health data, then displayed on /dashboard so it doesn't need
+// regenerating on every page view. findings is JSON-serialized
+// AiInsightFinding[] (see lib/aiInsights.ts) rather than a relational table —
+// a small, display-only structure with no need for independent querying.
+model AiInsight {
+  id          String   @id @default(cuid())
+  generatedAt DateTime @default(now())
+  summary     String
+  findings    String // JSON-serialized AiInsightFinding[]
+  model       String // the Claude model ID that produced this digest
+
+  @@index([generatedAt])
+}

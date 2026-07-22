@@ -18,7 +18,8 @@
     "pl:sync": "tsx scripts/pl-bridge/run.ts",
     "sales:sync": "tsx scripts/db-bridge/sales-sync.ts",
     "active-outlets:sync": "tsx scripts/db-bridge/active-outlets/run.ts",
-    "jp-adherence:sync": "tsx scripts/db-bridge/jp-adherence/run.ts"
+    "jp-adherence:sync": "tsx scripts/db-bridge/jp-adherence/run.ts",
+    "ai-insights:sync": "tsx scripts/ai-insights/trigger.ts"
   },
   "prisma": {
     "seed": "node prisma/seed.mjs"
@@ -29,6 +30,7 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.5",
     "@fluentui/react-icons": "^2.0.331",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
