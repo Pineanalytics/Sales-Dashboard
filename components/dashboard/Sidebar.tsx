@@ -22,6 +22,7 @@ import {
   Clock20Regular,
   CalendarCheckmark20Regular,
   TargetArrow20Regular,
+  Sparkle20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -46,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
   { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
+  { href: "/frost", label: "Frost", icon: Sparkle20Regular },
 ];
 
 export function Sidebar({ user }: { user?: Session["user"] | null }) {

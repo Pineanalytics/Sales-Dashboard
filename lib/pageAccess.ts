@@ -17,6 +17,7 @@ export const ALL_PAGE_KEYS = [
   "timestamps",
   "jp-adherence",
   "reports",
+  "frost",
 ] as const;
 
 export type PageKey = (typeof ALL_PAGE_KEYS)[number];
@@ -37,6 +38,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   timestamps: "Timestamps",
   "jp-adherence": "JP Adherence",
   reports: "Reports",
+  frost: "Frost",
 };
 
 export function isPageKey(value: string): value is PageKey {
