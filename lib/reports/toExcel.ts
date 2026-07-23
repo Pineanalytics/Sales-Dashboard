@@ -22,6 +22,11 @@ export function reportToExcelBlob(report: ReportContent): Blob {
         aoa.push([]);
         for (const s of report.summary) aoa.push([s.label, s.value]);
       }
+      if (report.narrative) {
+        aoa.push([]);
+        aoa.push(["AI Summary"]);
+        aoa.push([report.narrative]);
+      }
       aoa.push([]);
     }
     aoa.push([section.title]);

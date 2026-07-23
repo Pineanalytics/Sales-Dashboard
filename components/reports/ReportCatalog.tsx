@@ -51,6 +51,9 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
   const [period, setPeriod] = useState<PeriodSelection>(initialPeriod);
   const [principalKey, setPrincipalKey] = useState<string | null>(initialPrincipalKey);
   const [repFilter, setRepFilter] = useState<string | null>(null);
+  // Opt-in, not automatic — every download otherwise costs nothing beyond
+  // client-side rendering; this is the only step that calls Claude.
+  const [includeNarrative, setIncludeNarrative] = useState(false);
 
   const visible = REPORT_DEFINITIONS.filter((d) => isAdmin || allowedPages.includes(d.pageKey as PageKey));
   const periodLabel = periodLabelFor(period);
@@ -62,6 +65,22 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
     try {
       const ctx: ReportContext = { dataset, period, principalKey, repFilter, periodLabel };
       const content = await def.build(ctx);
+
+      if (includeNarrative) {
+        try {
+          const res = await fetch("/api/reports/narrative", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: content.title, summary: content.summary, sections: content.sections }),
+          });
+          const body = await res.json();
+          if (res.ok) content.narrative = body.narrative;
+          else console.error("AI summary failed:", body.error);
+        } catch (err) {
+          console.error("AI summary request failed", err);
+        }
+      }
+
       const stamp = new Date().toISOString().slice(0, 10);
       if (format === "excel") {
         const { reportToExcelBlob } = await import("@/lib/reports/toExcel");
@@ -98,10 +117,14 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
           onRepChange={setRepFilter}
         />
       ) : null}
-      <p className="px-1 pb-3 text-xs text-muted">
+      <p className="px-1 pb-1 text-xs text-muted">
         Each report reflects the customized range ({periodLabel}){principalKey ? ` and ${principalKey}` : ""}
         {repFilter ? ` and rep "${repFilter}"` : ""} above.
       </p>
+      <label className="mb-3 flex items-center gap-2 px-1 text-xs text-muted-strong">
+        <input type="checkbox" checked={includeNarrative} onChange={(e) => setIncludeNarrative(e.target.checked)} className="h-3.5 w-3.5 accent-primary-blue" />
+        Include an AI-written summary (Frost) in the download — adds a short delay per download.
+      </label>
       <div className="flex flex-col divide-y divide-border/60">
         {visible.map((def) => (
           <div key={def.key} className="flex flex-wrap items-center justify-between gap-3 py-3">

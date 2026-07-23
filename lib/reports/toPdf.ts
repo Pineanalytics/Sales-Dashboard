@@ -42,6 +42,18 @@ export function reportToPdfBlob(report: ReportContent): Blob {
     cursorY += 10;
   }
 
+  if (report.narrative) {
+    const maxWidth = pageWidth - PAGE_MARGIN * 2;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("AI Summary", PAGE_MARGIN, cursorY);
+    cursorY += 14;
+    doc.setFont("helvetica", "normal");
+    const lines: string[] = doc.splitTextToSize(report.narrative, maxWidth);
+    doc.text(lines, PAGE_MARGIN, cursorY);
+    cursorY += lines.length * 13 + 12;
+  }
+
   if (report.sections.length === 0) {
     doc.setFontSize(11);
     doc.text("No data for the current filters.", PAGE_MARGIN, cursorY);
