@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import type { UserRole } from "@/types/next-auth";
 
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // how often jwt() re-checks role/allowedPages/status against the DB
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   pages: {
@@ -48,16 +50,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    // Without this, an admin changing someone's role/page access (or approving/
+    // rejecting an account) never reaches an already-signed-in user until they
+    // log out and back in — the JWT strategy otherwise trusts whatever it was
+    // issued with for the full session (NextAuth's default maxAge is 30 days).
+    // Re-checking the DB on every single request would be wasteful, so this
+    // only re-fetches once the token is more than REFRESH_INTERVAL_MS old.
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id as string;
         token.role = user.role;
         token.allowedPages = user.allowedPages;
         token.teamLeaderId = user.teamLeaderId;
+        token.lastRefresh = Date.now();
+        return token;
       }
+
+      const lastRefresh = (token.lastRefresh as number | undefined) ?? 0;
+      if (Date.now() - lastRefresh < REFRESH_INTERVAL_MS) {
+        return token;
+      }
+
+      const dbUser = await prisma.user.findUnique({ where: { id: token.id as string } });
+      if (!dbUser || dbUser.status !== "APPROVED") {
+        token.revoked = true;
+        return token;
+      }
+
+      token.role = dbUser.role;
+      token.allowedPages = dbUser.allowedPages;
+      token.teamLeaderId = dbUser.teamLeaderId;
+      token.lastRefresh = Date.now();
       return token;
     },
     session({ session, token }) {
+      if (token.revoked) {
+        return { ...session, user: undefined as never, expires: session.expires };
+      }
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as UserRole;
