@@ -2,7 +2,8 @@ import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
-import type { Dataset, DatasetSnapshotSummary, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
+import { CANONICAL_MONTHS } from "./timeIntelligence";
+import type { Dataset, DatasetSnapshotSummary, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
 // which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
@@ -83,6 +84,94 @@ async function overlaySales(dataset: Dataset): Promise<Dataset> {
   return { ...dataset, monthlySales: merged };
 }
 
+/** Merges the JP Adherence bridge's already-computed monthly rollup
+ *  (JPMonthlySplitRow — synced twice daily straight from Pine) onto
+ *  dataset.monthlyCoverage, instead of Coverage & Productivity needing its
+ *  own separate Pine SQL bridge. JPMonthlySplitRow tracks Active/Inactive
+ *  outlets as separate rows for the same (month, Cost Centre, role, rep) —
+ *  summed here first, since MonthlyCoverageRow has no activityStatus split
+ *  of its own and productivityPct must be recomputed from the summed
+ *  coverage/productive (never averaged — same distinct-outlet-weighted
+ *  principle used everywhere else in this codebase, avoiding the "average of
+ *  ratios" distortion). JPMonthlySplitRow only covers a rolling ~90-day
+ *  window (see its own schema comment), so this is a MERGE like overlaySales,
+ *  not a full replace — older Excel-sourced months are left untouched.
+ *  Matches on principalKey (normalized brand), not the raw principal string,
+ *  since Pine's Cost Centre names and the Excel Coverage sheet's "Principal"
+ *  column aren't guaranteed to use identical text — normalizePrincipalKey()
+ *  is the whole point of that function existing. Bridge coverage is known to
+ *  read higher than the old Excel figures (non-retroactive per-month
+ *  counting vs. whatever the Excel pivot did) — see project notes; that's
+ *  the intended, going-forward number now. */
+async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
+  const splitRows = await prisma.jPMonthlySplitRow.findMany();
+  if (splitRows.length === 0) return dataset;
+
+  interface Agg {
+    year: string;
+    monthIndex: number;
+    principalKey: string;
+    principal: string;
+    salesRole: string;
+    employeeName: string;
+    coverage: number;
+    productiveCalls: number;
+  }
+  const byKey = new Map<string, Agg>();
+  for (const r of splitRows) {
+    const principalKey = normalizePrincipalKey(r.costCentre);
+    const key = `${r.year}|${r.monthIndex}|${principalKey}|${r.employeeName}|${r.salesRole}`;
+    const agg = byKey.get(key);
+    if (agg) {
+      agg.coverage += r.coverage;
+      agg.productiveCalls += r.productive;
+    } else {
+      byKey.set(key, {
+        year: r.year,
+        monthIndex: r.monthIndex,
+        principalKey,
+        principal: r.costCentre,
+        salesRole: r.salesRole,
+        employeeName: r.employeeName,
+        coverage: r.coverage,
+        productiveCalls: r.productive,
+      });
+    }
+  }
+
+  const matchedKeys = new Set<string>();
+  const merged: MonthlyCoverageRow[] = dataset.monthlyCoverage.map((row) => {
+    const key = `${row.year}|${row.monthIndex}|${row.principalKey}|${row.employeeName}|${row.salesRole}`;
+    const agg = byKey.get(key);
+    if (!agg) return row;
+    matchedKeys.add(key);
+    return {
+      ...row,
+      coverage: agg.coverage,
+      productiveCalls: agg.productiveCalls,
+      productivityPct: agg.coverage > 0 ? Math.round((agg.productiveCalls / agg.coverage) * 1000) / 10 : 0,
+    };
+  });
+
+  for (const [key, agg] of byKey) {
+    if (matchedKeys.has(key)) continue;
+    merged.push({
+      year: agg.year,
+      month: CANONICAL_MONTHS[agg.monthIndex] ?? "",
+      monthIndex: agg.monthIndex,
+      salesRole: agg.salesRole,
+      employeeName: agg.employeeName,
+      principal: agg.principal,
+      principalKey: agg.principalKey,
+      coverage: agg.coverage,
+      productiveCalls: agg.productiveCalls,
+      productivityPct: agg.coverage > 0 ? Math.round((agg.productiveCalls / agg.coverage) * 1000) / 10 : 0,
+    });
+  }
+
+  return { ...dataset, monthlyCoverage: merged };
+}
+
 /** Overlays admin-uploaded Target rows onto monthlySales[].target, keyed by
  *  (year, month, principal). A DB row only wins when it exists AND has a
  *  non-null valueTarget — a Target row that only captured e.g. Volume Target
@@ -126,8 +215,12 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
   const withSales = await overlaySales(dataset);
-  const [withTargets, withPL] = await Promise.all([overlayTargets(withSales), overlayPL(dataset)]);
-  return { ...withTargets, monthlyPL: withPL.monthlyPL };
+  const [withTargets, withPL, withCoverage] = await Promise.all([
+    overlayTargets(withSales),
+    overlayPL(dataset),
+    overlayCoverage(dataset),
+  ]);
+  return { ...withTargets, monthlyPL: withPL.monthlyPL, monthlyCoverage: withCoverage.monthlyCoverage };
 }
 
 async function loadLatestSnapshot(): Promise<Dataset | null> {
