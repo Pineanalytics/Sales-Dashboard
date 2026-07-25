@@ -13,17 +13,24 @@ export interface SyncHealthRow {
  *  built after SalesDashboard-SalesSync failed silently for 5 days (2026-07-16
  *  to 2026-07-21) while Task Scheduler kept reporting a task existed and every
  *  other part of the app looked fine. A missed run is otherwise invisible
- *  until someone notices stale numbers on a live page. Sales/PL/Active
- *  Outlets use `updatedAt` (real upsert-on-conflict tables, bumped on every
- *  sync whether or not values changed); JP Adherence/Timestamps use
- *  `createdAt` since those tables are fully replaced (delete + insert) each
- *  run, so createdAt is an equally reliable proxy for "last sync time." */
+ *  until someone notices stale numbers on a live page. Sales/PL use
+ *  `updatedAt` (real upsert-on-conflict tables, bumped on every sync whether
+ *  or not values changed); JP Adherence uses `createdAt` since that table is
+ *  fully replaced (delete + insert) each run.
+ *
+ *  Active Outlets/Timestamps use `SyncWatermark.updatedAt` instead of either
+ *  data table's own timestamp — since the incremental-sync redesign, a
+ *  perfectly healthy hourly run can legitimately touch zero rows (e.g.
+ *  overnight, when Pine has no new field-force activity), which would
+ *  otherwise look identical to a missed/failed run under the old
+ *  data-table-timestamp check. SyncWatermark is bumped on every *successful*
+ *  run regardless of whether there was anything new to write, so it's the
+ *  correct freshness signal now. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, pl, activeOutlets, timestamps, jpAdherence] = await Promise.all([
+  const [sales, pl, activeOutletsWatermark, jpAdherence] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
-    prisma.activeOutlet.aggregate({ _max: { updatedAt: true } }),
-    prisma.repCall.aggregate({ _max: { createdAt: true } }),
+    prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.journeyPlanRow.aggregate({ _max: { createdAt: true } }),
   ]);
 
@@ -35,8 +42,8 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   return [
     row("sales", "Sales (SAP)", "Twice daily, 06:30 & 17:30", sales._max.updatedAt, 18),
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
-    row("activeOutlets", "Active Outlets (Pine)", "Hourly", activeOutlets._max.updatedAt, 3),
-    row("timestamps", "Timestamps (Pine)", "Hourly", timestamps._max.createdAt, 3),
+    row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
+    row("timestamps", "Timestamps (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("jpAdherence", "JP Adherence (Pine)", "Twice daily, 08:00 & 19:00", jpAdherence._max.createdAt, 18),
   ];
 }

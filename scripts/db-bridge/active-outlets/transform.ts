@@ -106,6 +106,8 @@ export function classifySalesRole(userGroup: string, userId: string, costCentre:
 
 export interface PurchaseEvent {
   eventKey: string; // docId + isOrder (+ Cost Centre, when known), unique per document
+  docId: string;
+  isOrder: boolean;
   purchaseDate: Date; // normalized to midnight
   purchaseTime: Date; // full timestamp, earliest line on the document
   monthStart: string; // "YYYY-MM"
@@ -159,6 +161,8 @@ export function collapseToPurchaseEvents(
 
   interface LineEvent {
     key: string;
+    docId: string;
+    isOrder: boolean;
     date: Date;
     time: Date;
     customerId: string;
@@ -182,6 +186,8 @@ export function collapseToPurchaseEvents(
 
     lineEvents.push({
       key: `${line.docId}|${line.isOrder ? 1 : 0}|${costCentreRow ? costCentreRow.principal : "UNMAPPED"}`,
+      docId: line.docId,
+      isOrder: line.isOrder,
       date: new Date(Date.UTC(line.purchaseTime.getUTCFullYear(), line.purchaseTime.getUTCMonth(), line.purchaseTime.getUTCDate())),
       time: line.purchaseTime,
       customerId: line.customerId,
@@ -206,6 +212,8 @@ export function collapseToPurchaseEvents(
     const salesRole = classifySalesRole(user.userGroup, user.id, first.costCentre ?? "");
     events.push({
       eventKey,
+      docId: first.docId,
+      isOrder: first.isOrder,
       purchaseDate: first.date,
       purchaseTime: earliestTime,
       monthStart: monthKey(first.date),
@@ -225,132 +233,63 @@ export function collapseToPurchaseEvents(
 }
 
 // ---------------------------------------------------------------------------
-// Active Outlets — outlet-level YTD summary (build_period_metrics, minus the
-// 4-tier relevant-rep ranking — v1 uses "most recent rep" only, see plan).
+// Active Outlets — one ledger row per purchase event (ActiveOutletEvent),
+// NOT an aggregated outlet-level summary. The old in-memory Map-accumulation
+// (this function used to build ActiveOutletRow[] directly) moved server-side
+// as a SQL aggregate over this ledger (see app/api/active-outlets/upload's
+// derivation query) — deriving timesBought/purchaseDays/activeMonths as
+// COUNT/COUNT DISTINCT is only correct if it's computed from every event
+// ever recorded, which an incremental sync's small fetch window can't
+// provide on its own; the ledger is what makes that safe.
 // ---------------------------------------------------------------------------
 
-function frequencyBand(purchaseCount: number, frequencyPerMonth: number): string {
-  if (purchaseCount === 1) return "One-time Buyer";
-  if (frequencyPerMonth < 1) return "Occasional - Less Than Monthly";
-  if (frequencyPerMonth <= 1.5) return "Regular - About Monthly";
-  if (frequencyPerMonth <= 3) return "Frequent - 2 to 3 Times Monthly";
-  return "High Frequency - More Than 3 Times Monthly";
-}
-
-export interface ActiveOutletRow {
+export interface ActiveOutletEventRow {
   year: string;
   principal: string;
   customerId: string;
+  docId: string;
+  isOrder: boolean;
+  date: Date; // midnight-normalized, matches the old purchaseDate semantics
+  sales: number;
+  qty: number;
+  salesRole: "Primary Sales" | "Secondary Sales";
   outletName: string;
   channel: string;
   subChannel: string;
   territory: string;
-  salesRole: "Primary Sales" | "Secondary Sales";
-  timesBought: number;
-  purchaseDays: number;
-  activeMonths: number;
-  firstPurchaseDate: Date;
-  lastPurchaseDate: Date;
-  frequencyBand: string;
-  sales: number;
-  qty: number;
-  mostRecentRep: string | null;
-  mostRecentRepGroup: string | null;
+  repName: string | null;
+  repGroup: string | null;
 }
 
-export function buildActiveOutlets(
-  events: PurchaseEvent[],
-  outlets: OutletRow[],
-  users: UserRow[],
-  year: string,
-  calendarMonthsElapsed: number
-): ActiveOutletRow[] {
+/** Active Outlets is inherently per-Cost-Centre — an event whose SKU never
+ *  resolved to a known principal (costCentre: null) can't be attributed
+ *  here (it still counts as a call/productive call on the Timestamps side,
+ *  which doesn't need Cost Centre attribution). */
+export function buildActiveOutletEvents(events: PurchaseEvent[], outlets: OutletRow[], users: UserRow[]): ActiveOutletEventRow[] {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  interface Agg {
-    principal: string;
-    customerId: string;
-    eventKeys: Set<string>;
-    purchaseDates: Set<string>;
-    months: Set<string>;
-    primaryEvents: number;
-    secondaryEvents: number;
-    firstPurchase: Date;
-    lastPurchase: Date;
-    sales: number;
-    qty: number;
-    mostRecentRepUserId: string;
-    mostRecentDate: Date;
-  }
-  const byKey = new Map<string, Agg>();
-
-  // Active Outlets is inherently per-Cost-Centre — a line whose SKU never resolved to a
-  // known principal can't be attributed here (it still counts as a call/productive call
-  // on the Timestamps side, which doesn't need Cost Centre attribution).
+  const rows: ActiveOutletEventRow[] = [];
   for (const e of events) {
     if (e.costCentre === null) continue;
-    const key = `${e.costCentre}|${e.customerId}`;
-    let agg = byKey.get(key);
-    if (!agg) {
-      agg = {
-        principal: e.costCentre,
-        customerId: e.customerId,
-        eventKeys: new Set(),
-        purchaseDates: new Set(),
-        months: new Set(),
-        primaryEvents: 0,
-        secondaryEvents: 0,
-        firstPurchase: e.purchaseDate,
-        lastPurchase: e.purchaseDate,
-        sales: 0,
-        qty: 0,
-        mostRecentRepUserId: e.userId,
-        mostRecentDate: e.purchaseDate,
-      };
-      byKey.set(key, agg);
-    }
-    agg.eventKeys.add(e.eventKey);
-    agg.purchaseDates.add(e.purchaseDate.toISOString().slice(0, 10));
-    agg.months.add(e.monthStart);
-    if (e.salesRole === "Primary Sales") agg.primaryEvents++;
-    else agg.secondaryEvents++;
-    if (e.purchaseDate < agg.firstPurchase) agg.firstPurchase = e.purchaseDate;
-    if (e.purchaseDate >= agg.lastPurchase) {
-      agg.lastPurchase = e.purchaseDate;
-      agg.mostRecentRepUserId = e.userId;
-      agg.mostRecentDate = e.purchaseDate;
-    }
-    agg.sales += e.revenue;
-    agg.qty += e.qty;
-  }
-
-  const rows: ActiveOutletRow[] = [];
-  for (const agg of byKey.values()) {
-    const outlet = outletById.get(agg.customerId);
-    const rep = userById.get(agg.mostRecentRepUserId);
-    const timesBought = agg.eventKeys.size;
-    const months = Math.max(calendarMonthsElapsed, 1);
-    const frequencyPerMonth = timesBought / months;
+    const outlet = outletById.get(e.customerId);
+    const user = userById.get(e.userId);
     rows.push({
-      year,
-      principal: agg.principal,
-      customerId: agg.customerId,
+      year: e.year,
+      principal: e.costCentre,
+      customerId: e.customerId,
+      docId: e.docId,
+      isOrder: e.isOrder,
+      date: e.purchaseDate,
+      sales: Math.round(e.revenue * 100) / 100,
+      qty: e.qty,
+      salesRole: e.salesRole,
       outletName: outlet?.name ?? "Unknown Outlet",
       channel: outlet ? resolveChannel(outlet.subChannel, outlet.sourceChannel) : "Retail",
       subChannel: outlet?.subChannel ?? "Unknown",
       territory: outlet?.territory ?? "Unassigned",
-      salesRole: agg.primaryEvents >= agg.secondaryEvents ? "Primary Sales" : "Secondary Sales",
-      timesBought,
-      purchaseDays: agg.purchaseDates.size,
-      activeMonths: agg.months.size,
-      firstPurchaseDate: agg.firstPurchase,
-      lastPurchaseDate: agg.lastPurchase,
-      frequencyBand: frequencyBand(timesBought, frequencyPerMonth),
-      sales: Math.round(agg.sales * 100) / 100,
-      qty: agg.qty,
-      mostRecentRep: rep?.employee ?? null,
-      mostRecentRepGroup: rep?.userGroup ?? null,
+      repName: user?.employee ?? null,
+      repGroup: user?.userGroup ?? null,
     });
   }
   return rows;
@@ -403,7 +342,7 @@ export function buildActiveOutletsMonthly(events: PurchaseEvent[]): ActiveOutlet
   }
   const byKey = new Map<string, Agg>();
   for (const e of events) {
-    if (e.costCentre === null) continue; // see buildActiveOutlets — same per-Cost-Centre scoping
+    if (e.costCentre === null) continue; // see buildActiveOutletEvents — same per-Cost-Centre scoping
     const key = `${e.year}|${e.month}|${e.costCentre}|${e.salesRole}`;
     let agg = byKey.get(key);
     if (!agg) {

@@ -218,6 +218,13 @@ model PLEntry {
 // of Dataset/Snapshot, since this has no Excel-sourced equivalent. Powers
 // outlet drill-down plus Channel/Sub Channel/Frequency-Band breakdowns,
 // aggregated live from this table rather than pre-baked.
+//
+// timesBought/purchaseDays/activeMonths/sales/qty/firstPurchaseDate/
+// lastPurchaseDate are DERIVED (a SQL aggregate over ActiveOutletEvent, see
+// below) — not accumulated in-memory from a full YTD re-fetch every sync.
+// status is set during the nightly full-recompute pass only (see
+// SyncWatermark) — an outlet whose lastPurchaseDate has gone stale (60+
+// days) flips to "Inactive"; incremental runs never touch this field.
 model ActiveOutlet {
   id                 String   @id @default(cuid())
   year               String
@@ -228,6 +235,7 @@ model ActiveOutlet {
   subChannel         String
   territory          String
   salesRole          String // dominant role for the period: "Primary Sales" | "Secondary Sales"
+  status             String   @default("Active") // "Active" | "Inactive"
   timesBought        Int
   purchaseDays       Int
   activeMonths       Int
@@ -243,6 +251,61 @@ model ActiveOutlet {
 
   @@unique([year, principal, customerId])
   @@index([year, principal])
+}
+
+// Append-only event ledger backing ActiveOutlet — one row per source
+// sale/order document. This is the "parent data" incremental syncs append
+// to (see scripts/db-bridge/active-outlets/run.ts); ActiveOutlet's summary
+// fields are a SQL aggregate over this table, not an in-memory accumulation
+// replayed from a full YTD MySQL re-fetch every run. Insert is always
+// ON CONFLICT DO NOTHING on the unique key below — genuinely idempotent, so
+// an incremental sync's deliberate fetch-window overlap (guards against
+// Pine write-latency/clock skew) can never double-count an event.
+//
+// outletName/channel/subChannel/territory/salesRole/repName/repGroup are
+// denormalized onto every event row (redundant across an outlet's many
+// events, cheap at this scale) rather than looked up at derivation time —
+// the upload route has no access to Pine's MySQL, only what the sync script
+// already resolved and sent, so the ledger needs to be self-contained for
+// the derivation query below to produce a complete ActiveOutlet row.
+model ActiveOutletEvent {
+  id          String   @id @default(cuid())
+  year        String
+  principal   String
+  customerId  String
+  docId       String // pine.sales/orders doc id
+  isOrder     Boolean
+  date        DateTime
+  sales       Float
+  qty         Float
+  salesRole   String // "Primary Sales" | "Secondary Sales" — this event's own role
+  outletName  String
+  channel     String
+  subChannel  String
+  territory   String
+  repName     String?
+  repGroup    String?
+  createdAt   DateTime @default(now())
+
+  @@unique([year, principal, customerId, docId, isOrder])
+  @@index([year, principal, customerId])
+  @@index([date])
+}
+
+// Tracks per-bridge sync progress so scripts/db-bridge/*/run.ts can decide
+// full-vs-incremental mode instead of every scheduled run re-fetching a full
+// source window. lastIncrementalAt is the newest source event timestamp
+// incorporated so far (the fetch-since boundary, minus each bridge's own
+// overlap buffer); lastFullResyncAt is when the last full/safety-net
+// recompute completed — a run is forced into full mode once this is missing
+// or older than ~22h, self-scheduling roughly one full pass a day without
+// any time-of-day logic. One row per bridge ("active-outlets", "jp-adherence", ...).
+model SyncWatermark {
+  id                String    @id @default(cuid())
+  bridge            String    @unique
+  lastIncrementalAt DateTime
+  lastFullResyncAt  DateTime?
+  updatedAt         DateTime  @updatedAt
 }
 
 // Monthly trend for Active Outlets: distinct outlets per Cost Centre, split

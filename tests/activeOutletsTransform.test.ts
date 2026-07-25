@@ -3,7 +3,7 @@ import {
   classifySalesRole,
   resolveCostCentre,
   collapseToPurchaseEvents,
-  buildActiveOutlets,
+  buildActiveOutletEvents,
   buildActiveOutletsMonthly,
   buildRepCalls,
   type PrincipalRow,
@@ -162,11 +162,11 @@ describe("Calls Made vs Productive Calls — Cost-Centre resolution must not gat
     expect(events[0].costCentre).toBeNull();
   });
 
-  it("buildActiveOutlets excludes the null-Cost-Centre event (that module is inherently per-Cost-Centre)", () => {
+  it("buildActiveOutletEvents excludes the null-Cost-Centre event (that module is inherently per-Cost-Centre)", () => {
     const lines = [factLine({ itemId: "1" })];
     const { events } = collapseToPurchaseEvents(lines, outlets, users, noMatchProducts, PRINCIPALS);
-    const outletRows = buildActiveOutlets(events, outlets, users, "2026", 7);
-    expect(outletRows).toHaveLength(0);
+    const eventRows = buildActiveOutletEvents(events, outlets, users);
+    expect(eventRows).toHaveLength(0);
   });
 
   it("buildRepCalls still counts the null-Cost-Centre event as a call and reports it as a productive Sale", () => {
@@ -177,6 +177,42 @@ describe("Calls Made vs Productive Calls — Cost-Centre resolution must not gat
     expect(calls[0].callOutcome).toBe("Sale");
     expect(calls[0].productiveInDay).toBe(1);
     expect(calls[0].costCentresBought).toBe(""); // no resolvable Cost Centre, but still a real productive call
+  });
+});
+
+describe("buildActiveOutletEvents — one ledger row per resolvable purchase event", () => {
+  const outlets = [outlet({ id: "1", name: "Corner Shop", subChannel: "Retailers", territory: "Nairobi" })];
+  const users = [user({ id: "1", employee: "Jane Doe", userGroup: "DSR" })];
+  const products = [product({ id: "1", sapCode: "BIC12345" })];
+
+  it("produces one row per event with docId/isOrder/date/sales/qty/outlet/rep fields populated", () => {
+    const lines = [factLine({ docId: "100", isOrder: false, itemId: "1", qty: 10, unitPrice: 5, purchaseTime: new Date("2026-07-10T09:00:00Z") })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
+    const rows = buildActiveOutletEvents(events, outlets, users);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      year: "2026",
+      principal: "Bic-Nairobi",
+      customerId: "1",
+      docId: "100",
+      isOrder: false,
+      sales: 50,
+      qty: 10,
+      salesRole: "Primary Sales",
+      outletName: "Corner Shop",
+      subChannel: "Retailers",
+      territory: "Nairobi",
+      repName: "Jane Doe",
+      repGroup: "DSR",
+    });
+  });
+
+  it("keeps two different documents as two separate ledger rows", () => {
+    const lines = [factLine({ docId: "100" }), factLine({ docId: "101" })];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
+    const rows = buildActiveOutletEvents(events, outlets, users);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.docId))).toEqual(new Set(["100", "101"]));
   });
 });
 

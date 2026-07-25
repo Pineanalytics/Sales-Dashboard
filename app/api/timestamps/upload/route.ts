@@ -6,10 +6,14 @@ import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 
-// RepCall always holds "this month only" (see schema comment) — every sync fully
-// replaces the table rather than upserting, so a call that no longer exists
-// upstream (e.g. corrected/deleted) doesn't linger. Same CHUNK_SIZE rationale as
-// /api/pl/upload.
+// RepCall replaces rather than upserts, so a call that no longer exists
+// upstream (e.g. corrected/deleted) doesn't linger — but the delete is now
+// scoped to windowStart..now instead of always wiping the whole table (see
+// scripts/db-bridge/active-outlets/run.ts's incremental mode, which only
+// rebuilds the last 2 days; a day that's fully in the past doesn't need
+// re-sequencing every hourly run). Full-mode runs pass the start of the
+// current month, equivalent to the old unconditional full-table wipe. Same
+// CHUNK_SIZE rationale as /api/pl/upload.
 const CHUNK_SIZE = 500;
 
 interface RepCallUploadRow {
@@ -125,18 +129,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more call rows are missing required fields or have an invalid callOutcome." }, { status: 400 });
   }
 
-  // The full row set is too large for one HTTP request (Netlify's payload limit),
-  // so the client sends it as several smaller batches. "replace: true" on the
-  // first batch clears the table once; later batches in the same sync only
-  // insert, so they don't wipe out rows the earlier batches just wrote.
-  const replace = (body as { replace?: unknown })?.replace !== false;
+  // The full row set is too large for one HTTP request, so the client sends
+  // it as several smaller batches. windowStart (only sent on the first
+  // batch) scopes a one-time delete before that batch's insert; later
+  // batches in the same sync omit it, so they don't re-delete rows the
+  // earlier batches in this same run just wrote.
+  const windowStartRaw = (body as { windowStart?: unknown })?.windowStart;
+  if (windowStartRaw !== undefined && typeof windowStartRaw !== "string") {
+    return NextResponse.json({ error: '"windowStart" must be an ISO date string when present.' }, { status: 400 });
+  }
+  const windowStart = typeof windowStartRaw === "string" ? new Date(windowStartRaw) : null;
 
   try {
     const validRows = calls as RepCallUploadRow[];
     await prisma.$transaction(
       async (tx) => {
-        if (replace) {
-          await tx.$executeRaw`DELETE FROM "RepCall"`;
+        if (windowStart) {
+          await tx.$executeRaw`DELETE FROM "RepCall" WHERE date >= ${windowStart}`;
         }
         for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
           await insertChunk(tx, validRows.slice(i, i + CHUNK_SIZE));
@@ -144,7 +153,7 @@ export async function POST(req: NextRequest) {
       },
       { timeout: 30000 }
     );
-    return NextResponse.json({ count: validRows.length, replaced: replace }, { status: 200 });
+    return NextResponse.json({ count: validRows.length, windowStart: windowStart?.toISOString() ?? null }, { status: 200 });
   } catch (err) {
     console.error("Failed to replace RepCall rows", err);
     return NextResponse.json({ error: "Failed to save Timestamps data." }, { status: 500 });
