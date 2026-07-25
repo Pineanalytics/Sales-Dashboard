@@ -1,0 +1,6 @@
+# Migration plan Step 7: DOMAIN is now the real domain (pinefrostdb.com),
+# so Caddy automatically requests and renews a real Let's Encrypt certificate
+# and serves HTTPS — no manual TLS config needed.
+{$DOMAIN} {
+	reverse_proxy app:3000
+}

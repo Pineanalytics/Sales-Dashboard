@@ -36,7 +36,7 @@
 param(
     [string]$SourcePath = "D:\Reports & Extractions\SAP Extraction\Executive_Sales & Finance Dashboard_Pinefrost.xlsm",
     [string]$OutputPath = "C:\Users\IT\Downloads\Sales update.xlsx",
-    [string]$AppUrl = "https://pinefrostdb.netlify.app",
+    [string]$AppUrl = "https://pinefrostdb.com",
     [string]$ApiKey = $env:UPLOAD_API_KEY,
     [int]$RefreshTimeoutSeconds = 1200,
     # Skip the Power Query/pivot refresh and export the workbook's last-saved data
