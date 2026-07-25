@@ -6,8 +6,10 @@ import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 
-// Both tables are regenerated fresh from the same rolling 90-day lookback
-// every sync — full replace, same rationale as JourneyPlanRow.
+// Both tables replace rather than upsert, same rationale as JourneyPlanRow,
+// but scoped to windowStart..now instead of the whole table — this route
+// runs on every jp-adherence sync (not just the weekly full-resync pass),
+// so an incremental run's 1-2 day window must not wipe rows outside it.
 const CHUNK_SIZE = 500;
 
 interface DailyUploadRow {
@@ -169,16 +171,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more detail rows are missing required fields." }, { status: 400 });
   }
 
-  const replace = (body as { replace?: unknown })?.replace !== false;
+  const windowStartRaw = (body as { windowStart?: unknown })?.windowStart;
+  if (windowStartRaw !== undefined && typeof windowStartRaw !== "string") {
+    return NextResponse.json({ error: '"windowStart" must be an ISO date string when present.' }, { status: 400 });
+  }
+  const windowStart = typeof windowStartRaw === "string" ? new Date(windowStartRaw) : null;
 
   try {
     const validDaily = daily as DailyUploadRow[];
     const validDetail = detail as DetailUploadRow[];
     await prisma.$transaction(
       async (tx) => {
-        if (replace) {
-          await tx.$executeRaw`DELETE FROM "JPAdherenceDaily"`;
-          await tx.$executeRaw`DELETE FROM "JPAdherenceDetail"`;
+        if (windowStart) {
+          await tx.$executeRaw`DELETE FROM "JPAdherenceDaily" WHERE date >= ${windowStart}`;
+          await tx.$executeRaw`DELETE FROM "JPAdherenceDetail" WHERE date >= ${windowStart}`;
         }
         for (let i = 0; i < validDaily.length; i += CHUNK_SIZE) {
           await insertDailyChunk(tx, validDaily.slice(i, i + CHUNK_SIZE));
@@ -189,7 +195,7 @@ export async function POST(req: NextRequest) {
       },
       { timeout: 30000 }
     );
-    return NextResponse.json({ dailyCount: validDaily.length, detailCount: validDetail.length, replaced: replace }, { status: 200 });
+    return NextResponse.json({ dailyCount: validDaily.length, detailCount: validDetail.length, windowStart: windowStart?.toISOString() ?? null }, { status: 200 });
   } catch (err) {
     console.error("Failed to replace JP Adherence rows", err);
     return NextResponse.json({ error: "Failed to save JP Adherence data." }, { status: 500 });

@@ -6,11 +6,12 @@ import { auth } from "@/auth";
 
 export const runtime = "nodejs";
 
-// JourneyPlanRow is regenerated fresh from a rolling 90-day lookback every
-// sync (see scripts/db-bridge/jp-adherence/run.ts's LOOKBACK_DAYS) — every
-// sync fully replaces the table rather than upserting, same rationale as
-// RepCall (a planned row that falls out of the window must disappear, not
-// linger under a stale key).
+// JourneyPlanRow only regenerates on jp-adherence's weekly full-resync pass
+// (see scripts/db-bridge/jp-adherence/run.ts's header comment) — replaces
+// rather than upserts, same rationale as RepCall (a planned row that falls
+// out of the window must disappear, not linger under a stale key), but the
+// delete is scoped to windowStart..now instead of the whole table, so it
+// doesn't depend on every sync being a full resync.
 const CHUNK_SIZE = 500;
 
 interface JourneyPlanUploadRow {
@@ -115,14 +116,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more Journey Plan rows are missing required fields." }, { status: 400 });
   }
 
-  const replace = (body as { replace?: unknown })?.replace !== false;
+  const windowStartRaw = (body as { windowStart?: unknown })?.windowStart;
+  if (windowStartRaw !== undefined && typeof windowStartRaw !== "string") {
+    return NextResponse.json({ error: '"windowStart" must be an ISO date string when present.' }, { status: 400 });
+  }
+  const windowStart = typeof windowStartRaw === "string" ? new Date(windowStartRaw) : null;
 
   try {
     const validRows = rows as JourneyPlanUploadRow[];
     await prisma.$transaction(
       async (tx) => {
-        if (replace) {
-          await tx.$executeRaw`DELETE FROM "JourneyPlanRow"`;
+        if (windowStart) {
+          await tx.$executeRaw`DELETE FROM "JourneyPlanRow" WHERE date >= ${windowStart}`;
         }
         for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
           await insertChunk(tx, validRows.slice(i, i + CHUNK_SIZE));
@@ -130,7 +135,7 @@ export async function POST(req: NextRequest) {
       },
       { timeout: 30000 }
     );
-    return NextResponse.json({ count: validRows.length, replaced: replace }, { status: 200 });
+    return NextResponse.json({ count: validRows.length, windowStart: windowStart?.toISOString() ?? null }, { status: 200 });
   } catch (err) {
     console.error("Failed to replace JourneyPlanRow rows", err);
     return NextResponse.json({ error: "Failed to save Journey Plan data." }, { status: 500 });
