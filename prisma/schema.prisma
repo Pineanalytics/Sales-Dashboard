@@ -120,6 +120,13 @@ model TeamLeaderAssignment {
   principal    String
   // Below: ported from Target_Management_System.xlsm's Roster sheet.
   channel      String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
+  // The Roster's "SAP Name" column — the rep's name as it appears in SAP, distinct from
+  // employeeName (the "Employee (Sales Edge Name)" column, the Pine-side name). This is the
+  // actual join key for matching rep-level revenue from the Excel-sourced Brand&Customer sheet
+  // (MonthlyBrandCustomerRow.salesEmployee is a SAP-side name string) back to a Team Leader —
+  // the Pine/SAP name-mismatch problem this project has hit before. Read from the source
+  // workbook on the original Roster import but not persisted until now.
+  sapName      String?
   // Admin-declared allocation %, distinct from RepContribution.sharePct (which is computed from
   // actual trailing revenue). Null = not yet declared for this rep/principal — falls back to the
   // computed share. When set, must sum to ~100% across active reps per principal (validated in
@@ -212,6 +219,31 @@ model SalesRecord {
 
   @@unique([year, month, principal])
   @@index([year, month])
+}
+
+// Day-grain sibling of SalesRecord — same SAP source (scripts/db-bridge/queries/
+// dailySalesRaw.ts, a parallel query to ytdRaw.ts that doesn't collapse the real
+// per-transaction TaxDate), same Product/Warehouse/Principal join
+// (buildDailySales.ts), but kept as its own table rather than adding a `date`
+// column to SalesRecord — SalesRecord's grain and unique key are month-level and
+// already relied upon elsewhere; this exists specifically to give the Executive
+// Overview's Week 1-4 / Daily Projection cards real actuals to compare against,
+// not to replace the monthly pipeline. Only ever holds a bounded trailing window
+// (see sales-sync.ts), not the whole year.
+model DailySalesActual {
+  id          String   @id @default(cuid())
+  date        DateTime
+  location    String
+  principal   String
+  revenue     Float
+  cogs        Float
+  grossProfit Float
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([date, principal, location])
+  @@index([date])
+  @@index([principal])
 }
 
 // P&L journal-entry lines from SAP (OJDT/JDT1 by Cost Centre/Account), pushed

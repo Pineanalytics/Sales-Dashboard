@@ -15,9 +15,22 @@ process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchYtdRaw } from "./queries/ytdRaw";
+import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
 import { loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
+import { buildDailySales } from "./transform/buildDailySales";
 import principalsData from "./reference/principals.json";
+
+// Trailing window for the day-grain feed (Executive Overview's Week 1-4/Daily
+// Projection cards) — start of last month through today. Bounded deliberately:
+// unlike YTD_Raw's whole-year fetch, this table accumulates one row per
+// Principal x Day (not x Month), so it only ever needs enough history to cover
+// "this week" even on the 1st of a new month, plus last month for reference.
+function dailyWindow(asOfDate: Date): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth() - 1, 1));
+  const end = asOfDate;
+  return { start, end };
+}
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
@@ -32,15 +45,21 @@ async function main() {
   const asOfDate = new Date();
   console.log(`[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
 
-  const [ytdRows, products, warehousesData] = await Promise.all([
+  const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate);
+
+  const [ytdRows, dailyRawRows, products, warehousesData] = await Promise.all([
     withConnection(config, (pool) => fetchYtdRaw(pool, asOfDate)),
+    withConnection(config, (pool) => fetchDailySalesRaw(pool, dailyStart, dailyEnd)),
     loadProducts(),
     loadWarehouses(),
   ]);
-  console.log(`[sales-sync] Fetched ${ytdRows.length} YTD_Raw rows. Loaded ${products.length} product rows and ${warehousesData.length} warehouse rows from Postgres.`);
+  console.log(
+    `[sales-sync] Fetched ${ytdRows.length} YTD_Raw rows and ${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows and ${warehousesData.length} warehouse rows from Postgres.`
+  );
 
   const monthlySales = buildMonthlySales(ytdRows, products, warehousesData, principalsData);
-  console.log(`[sales-sync] Built ${monthlySales.length} monthly-sales rows.`);
+  const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
+  console.log(`[sales-sync] Built ${monthlySales.length} monthly-sales rows and ${dailySales.length} daily-sales rows.`);
 
   const rows = monthlySales.map((r) => ({
     year: r.year,
@@ -65,6 +84,28 @@ async function main() {
     throw new Error(`Upload rejected (HTTP ${response.status}): ${JSON.stringify(body)}`);
   }
   console.log(`[sales-sync] Upload succeeded. Saved ${body.count} rows.`);
+
+  const dailyRows = dailySales.map((r) => ({
+    date: r.date,
+    location: r.location,
+    principal: r.principal,
+    revenue: r.revenue,
+    cogs: r.cogs,
+    grossProfit: r.grossProfit,
+  }));
+
+  console.log(`[sales-sync] Uploading to ${appUrl}/api/sales/upload-daily...`);
+  const dailyResponse = await fetch(`${appUrl}/api/sales/upload-daily`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    body: JSON.stringify({ rows: dailyRows }),
+  });
+
+  const dailyBody = await dailyResponse.json();
+  if (!dailyResponse.ok) {
+    throw new Error(`Daily upload rejected (HTTP ${dailyResponse.status}): ${JSON.stringify(dailyBody)}`);
+  }
+  console.log(`[sales-sync] Daily upload succeeded. Saved ${dailyBody.count} rows.`);
 }
 
 main().catch((err) => {
