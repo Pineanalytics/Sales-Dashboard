@@ -12,11 +12,17 @@ export interface KnownRep {
 }
 
 export async function getKnownPrincipals(): Promise<string[]> {
-  const [jpPrincipals, targetPrincipals] = await Promise.all([
+  const [jpPrincipals, targetPrincipals, rosterPrincipals] = await Promise.all([
     prisma.jPMonthlySplitRow.findMany({ select: { costCentre: true }, distinct: ["costCentre"] }),
     prisma.target.findMany({ select: { principal: true }, distinct: ["principal"] }),
+    // The declared Roster (TeamLeaderAssignment) is the closest thing to a clean reference
+    // table this app has — see the file header comment above. Active only, so a deactivated
+    // Principal-only-via-Roster doesn't linger in every dropdown.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true }, distinct: ["principal"] }),
   ]);
-  return Array.from(new Set([...jpPrincipals.map((p) => p.costCentre), ...targetPrincipals.map((p) => p.principal)])).sort();
+  return Array.from(
+    new Set([...jpPrincipals.map((p) => p.costCentre), ...targetPrincipals.map((p) => p.principal), ...rosterPrincipals.map((p) => p.principal)])
+  ).sort();
 }
 
 export async function getKnownMainPrincipals(): Promise<string[]> {
@@ -25,13 +31,15 @@ export async function getKnownMainPrincipals(): Promise<string[]> {
 }
 
 export async function getKnownReps(): Promise<KnownRep[]> {
-  const [jpReps, repCallReps] = await Promise.all([
+  const [jpReps, repCallReps, rosterReps] = await Promise.all([
     prisma.jPAdherenceDetail.findMany({ select: { employeeCode: true, employeeName: true }, distinct: ["employeeCode"], take: 2000 }),
     prisma.repCall.findMany({ select: { employeeCode: true, salesRep: true }, distinct: ["employeeCode"], take: 2000 }),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true }, distinct: ["employeeCode"] }),
   ]);
   const repsByCode = new Map<string, string>();
   for (const r of repCallReps) repsByCode.set(r.employeeCode, r.salesRep);
   for (const r of jpReps) repsByCode.set(r.employeeCode, r.employeeName); // JP Adherence names win — same source RepContribution uses
+  for (const r of rosterReps) repsByCode.set(r.employeeCode, r.employeeName); // Roster (admin-declared) wins over inferred names
   return Array.from(repsByCode.entries())
     .map(([employeeCode, employeeName]) => ({ employeeCode, employeeName }))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));

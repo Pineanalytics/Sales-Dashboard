@@ -44,7 +44,7 @@ export function computeSharePcts(revenueByRep: Map<string, number>): Map<string,
 export async function recomputeRepContribution(): Promise<RepContributionResult> {
   const [splitRows, assignments] = await Promise.all([
     prisma.jPMonthlySplitRow.groupBy({ by: ["costCentre", "employeeCode", "employeeName"], _sum: { revenue: true } }),
-    prisma.teamLeaderAssignment.findMany(),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
   ]);
 
   const assignmentKey = (principal: string, employeeCode: string) => `${principal}|${employeeCode}`;
@@ -104,7 +104,7 @@ export interface UnassignedRevenueRep {
 export async function getUnassignedRevenueReps(): Promise<UnassignedRevenueRep[]> {
   const [splitRows, assignments] = await Promise.all([
     prisma.jPMonthlySplitRow.groupBy({ by: ["costCentre", "employeeCode", "employeeName"], _sum: { revenue: true } }),
-    prisma.teamLeaderAssignment.findMany({ select: { principal: true, employeeCode: true } }),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true, employeeCode: true } }),
   ]);
   const assignedKeys = new Set(assignments.map((a) => `${a.principal}|${a.employeeCode}`));
 
@@ -179,6 +179,45 @@ export interface DailyTargetResult {
   dailyRowsCreated: number;
 }
 
+export interface ContributionTotalWarning {
+  principal: string;
+  totalPct: number; // 0-100
+}
+
+/** Mirrors Target_Management_System.xlsm's ValidateContributionTotals: for each Principal
+ *  where every active rep has declared a Contribution %, flags it if the total is off by more
+ *  than ±0.1% from 100%. Principals still mid-setup (any active rep still null) are skipped
+ *  entirely rather than nagged — declaring contribution % is meant to be gradual, one rep at a
+ *  time, not all-or-nothing. Pure so the threshold is unit-testable independent of the DB. */
+export function validateContributionTotals(
+  assignments: { principal: string; active: boolean; contributionPct: number | null }[]
+): ContributionTotalWarning[] {
+  const byPrincipal = new Map<string, { contributionPct: number | null }[]>();
+  for (const a of assignments) {
+    if (!a.active) continue;
+    const list = byPrincipal.get(a.principal) ?? [];
+    list.push({ contributionPct: a.contributionPct });
+    byPrincipal.set(a.principal, list);
+  }
+
+  const warnings: ContributionTotalWarning[] = [];
+  for (const [principal, reps] of byPrincipal) {
+    if (reps.length === 0 || reps.some((r) => r.contributionPct == null)) continue;
+    const total = reps.reduce((sum, r) => sum + (r.contributionPct ?? 0), 0);
+    if (Math.abs(total - 1) > 0.001) warnings.push({ principal, totalPct: total * 100 });
+  }
+  return warnings.sort((a, b) => a.principal.localeCompare(b.principal));
+}
+
+/** Resolution order for a rep's weekly-target share: the admin-declared Contribution %
+ *  (TeamLeaderAssignment.contributionPct, ported from Target_Management_System.xlsm's Roster
+ *  sheet) wins when set; else the computed RepContribution.sharePct (actual trailing-revenue
+ *  share); else an even split among the principal's assigned reps. Pure so the precedence
+ *  itself is unit-testable independent of the DB. */
+export function resolveRepSharePct(declaredPct: number | null | undefined, computedSharePct: number | null | undefined, evenSplit: number): number {
+  return declaredPct ?? computedSharePct ?? evenSplit;
+}
+
 /** Rebuilds DailyTarget from scratch for every WeeklyTarget row currently in the
  *  grid: splits each Weekly figure across its assigned reps (RepContribution
  *  .sharePct) then across that week's Mon-Fri (weekdayWeightsForRep). Full
@@ -188,16 +227,23 @@ export interface DailyTargetResult {
 export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   const [weeklyTargets, assignments, contributions] = await Promise.all([
     prisma.weeklyTarget.findMany(),
-    prisma.teamLeaderAssignment.findMany(),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
     prisma.repContribution.findMany(),
   ]);
 
   const repsByTeamLeaderPrincipal = new Map<string, { employeeCode: string; employeeName: string }[]>();
+  // Declared Contribution % (admin-set on the Roster, see TeamLeaderAssignment.contributionPct)
+  // wins over the computed RepContribution.sharePct when present — it's a different concept
+  // (a manually-declared allocation, not derived from actual trailing revenue), ported from
+  // Target_Management_System.xlsm's Roster sheet. Null means "not yet declared" for that
+  // rep/principal, so it falls through to the computed share as before.
+  const declaredPctByPrincipalRep = new Map<string, number>();
   for (const a of assignments) {
     const key = `${a.teamLeaderId}|${a.principal}`;
     const list = repsByTeamLeaderPrincipal.get(key) ?? [];
     list.push({ employeeCode: a.employeeCode, employeeName: a.employeeName });
     repsByTeamLeaderPrincipal.set(key, list);
+    if (a.contributionPct != null) declaredPctByPrincipalRep.set(`${a.principal}|${a.employeeCode}`, a.contributionPct);
   }
 
   const shareByPrincipalRep = new Map<string, number>();
@@ -218,7 +264,11 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
     if (reps.length === 0 || wt.targetValue === 0) continue;
 
     for (const rep of reps) {
-      const sharePct = shareByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`) ?? 1 / reps.length;
+      const sharePct = resolveRepSharePct(
+        declaredPctByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
+        shareByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
+        1 / reps.length
+      );
       const repWeeklyTarget = wt.targetValue * sharePct;
       const weights = await getWeights(rep.employeeCode);
 

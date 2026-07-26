@@ -17,8 +17,12 @@ export default async function ContributionByRepPage() {
     where: isAdmin ? {} : { teamLeaderId: session.user.teamLeaderId },
     orderBy: [{ principal: "asc" }, { sharePct: "desc" }],
   });
-  const teamLeaders = await prisma.teamLeader.findMany();
+  const [teamLeaders, assignments] = await Promise.all([
+    prisma.teamLeader.findMany(),
+    prisma.teamLeaderAssignment.findMany(),
+  ]);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
+  const assignmentByPrincipalRep = new Map(assignments.map((a) => [`${a.principal}|${a.employeeCode}`, a]));
   const unassigned = isAdmin ? await getUnassignedRevenueReps() : [];
 
   const byPrincipal = new Map<string, typeof contributions>();
@@ -37,7 +41,11 @@ export default async function ContributionByRepPage() {
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Contribution by Rep</h1>
         <p className="mt-1 text-sm text-white/70">
           Each rep&apos;s share of a Principal&apos;s trailing revenue (from Journey Plan actuals), among reps assigned to that Principal. Used to split
-          Monthly/Weekly/Daily targets down to individual reps.
+          Weekly/Daily targets down to individual reps — unless an admin has declared a Contribution % for that rep on{" "}
+          <Link href="/admin/team-leaders" className="underline">
+            Team Leaders
+          </Link>
+          , which takes priority over the computed share.
         </p>
       </div>
 
@@ -77,21 +85,48 @@ export default async function ContributionByRepPage() {
                     <tr>
                       <th className="px-6 py-3 text-left font-medium">Rep</th>
                       <th className="px-6 py-3 text-left font-medium">Team Leader</th>
+                      <th className="px-6 py-3 text-left font-medium">Channel</th>
+                      <th className="px-6 py-3 text-left font-medium">Sales role</th>
+                      <th className="px-6 py-3 text-left font-medium">Status</th>
                       <th className="px-6 py-3 text-right font-medium">Revenue</th>
-                      <th className="px-6 py-3 text-right font-medium">Share</th>
+                      <th className="px-6 py-3 text-right font-medium">Computed share</th>
+                      <th className="px-6 py-3 text-right font-medium">Declared %</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {reps.map((r) => (
-                      <tr key={r.id}>
-                        <td className="px-6 py-3 border-b border-border/60">
-                          {r.employeeName} <span className="text-muted">({r.employeeCode})</span>
-                        </td>
-                        <td className="px-6 py-3 border-b border-border/60">{r.teamLeaderId ? teamLeaderNameById.get(r.teamLeaderId) ?? "—" : "—"}</td>
-                        <td className="px-6 py-3 border-b border-border/60 text-right">{r.quarterRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                        <td className="px-6 py-3 border-b border-border/60 text-right font-medium">{(r.sharePct * 100).toFixed(1)}%</td>
-                      </tr>
-                    ))}
+                    {reps.map((r) => {
+                      const assignment = assignmentByPrincipalRep.get(`${r.principal}|${r.employeeCode}`);
+                      return (
+                        <tr key={r.id}>
+                          <td className="px-6 py-3 border-b border-border/60">
+                            {r.employeeName} <span className="text-muted">({r.employeeCode})</span>
+                          </td>
+                          <td className="px-6 py-3 border-b border-border/60">{r.teamLeaderId ? teamLeaderNameById.get(r.teamLeaderId) ?? "—" : "—"}</td>
+                          <td className="px-6 py-3 border-b border-border/60">{assignment?.channel ?? "—"}</td>
+                          <td className="px-6 py-3 border-b border-border/60">{assignment?.salesRole === "SECONDARY" ? "Secondary" : "Primary"}</td>
+                          <td className="px-6 py-3 border-b border-border/60">
+                            {assignment ? (
+                              assignment.active ? (
+                                <span className="text-accent-green">Active</span>
+                              ) : (
+                                <span className="text-accent-red">Inactive</span>
+                              )
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-6 py-3 border-b border-border/60 text-right">{r.quarterRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                          <td className="px-6 py-3 border-b border-border/60 text-right font-medium">{(r.sharePct * 100).toFixed(1)}%</td>
+                          <td className="px-6 py-3 border-b border-border/60 text-right font-medium">
+                            {assignment?.contributionPct != null ? (
+                              `${(assignment.contributionPct * 100).toFixed(1)}%`
+                            ) : (
+                              <span className="text-muted font-normal">not declared</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

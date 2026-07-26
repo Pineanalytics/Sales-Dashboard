@@ -3,11 +3,14 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getKnownReps, getKnownPrincipals } from "@/lib/adminReference";
+import { validateContributionTotals } from "@/lib/repContribution";
 import {
   createTeamLeaderAction,
   renameTeamLeaderAction,
   deleteTeamLeaderAction,
   createAssignmentAction,
+  updateAssignmentAction,
+  deactivateAssignmentAction,
   deleteAssignmentAction,
 } from "./actions";
 
@@ -20,14 +23,14 @@ const labelClass = "text-[13px] font-medium text-muted-strong";
 export default async function AdminTeamLeadersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; rename?: string; teamLeaderId?: string; principal?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; rename?: string; edit?: string; teamLeaderId?: string; principal?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, rename, teamLeaderId: lastTeamLeaderId, principal: lastPrincipal } = await searchParams;
+  const { error, success, rename, edit, teamLeaderId: lastTeamLeaderId, principal: lastPrincipal } = await searchParams;
 
   const [teamLeaders, assignments, knownReps, knownPrincipals] = await Promise.all([
     prisma.teamLeader.findMany({ orderBy: { name: "asc" } }),
@@ -37,6 +40,8 @@ export default async function AdminTeamLeadersPage({
   ]);
 
   const renaming = rename ? teamLeaders.find((tl) => tl.id === rename) : undefined;
+  const editing = edit ? assignments.find((a) => a.id === edit) : undefined;
+  const contributionWarnings = validateContributionTotals(assignments);
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const assignmentsByTeamLeader = new Map<string, typeof assignments>();
@@ -69,6 +74,19 @@ export default async function AdminTeamLeadersPage({
           <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {success}
           </p>
+        ) : null}
+
+        {contributionWarnings.length > 0 ? (
+          <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-accent-amber shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            Declared Contribution % doesn&apos;t sum to 100% for:{" "}
+            {contributionWarnings.map((w, i) => (
+              <span key={w.principal}>
+                {i > 0 ? ", " : ""}
+                {w.principal} ({w.totalPct.toFixed(1)}%)
+              </span>
+            ))}
+            .
+          </div>
         ) : null}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -170,6 +188,21 @@ export default async function AdminTeamLeadersPage({
               <label className={labelClass}>Or a new Principal</label>
               <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
             </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Channel</label>
+              <input name="channel" placeholder="KA" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Contribution % (optional)</label>
+              <input name="contributionPct" type="number" min="0" max="100" step="0.01" placeholder="e.g. 30.5" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Sales role</label>
+              <select name="salesRole" defaultValue="PRIMARY" className={inputClass}>
+                <option value="PRIMARY">Primary</option>
+                <option value="SECONDARY">Secondary</option>
+              </select>
+            </div>
             <div className="sm:col-span-4">
               <button
                 type="submit"
@@ -179,6 +212,11 @@ export default async function AdminTeamLeadersPage({
               </button>
             </div>
           </form>
+          <p className="mt-2 text-[13px] text-muted">
+            Contribution % is the admin-declared share of this rep&apos;s Team Leader&apos;s Weekly Target — leave blank to keep using the
+            computed share (each rep&apos;s actual trailing-revenue share) until you&apos;re ready to declare one. Declared %s should sum to
+            100% across a Principal&apos;s active reps.
+          </p>
 
           <datalist id="known-reps-codes">
             {knownReps.map((r) => (
@@ -205,33 +243,106 @@ export default async function AdminTeamLeadersPage({
                   <th className="px-6 py-3 text-left font-medium">Team Leader</th>
                   <th className="px-6 py-3 text-left font-medium">Rep</th>
                   <th className="px-6 py-3 text-left font-medium">Principal</th>
+                  <th className="px-6 py-3 text-left font-medium">Channel</th>
+                  <th className="px-6 py-3 text-right font-medium">Contribution %</th>
+                  <th className="px-6 py-3 text-left font-medium">Sales role</th>
+                  <th className="px-6 py-3 text-left font-medium">Status</th>
                   <th className="px-6 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {assignments.map((a) => (
-                  <tr key={a.id}>
-                    <td className="px-6 py-3 border-b border-border/60">{teamLeaderNameById.get(a.teamLeaderId) ?? "—"}</td>
-                    <td className="px-6 py-3 border-b border-border/60">
-                      {a.employeeName} <span className="text-muted">({a.employeeCode})</span>
-                    </td>
-                    <td className="px-6 py-3 border-b border-border/60">{a.principal}</td>
-                    <td className="px-6 py-3 border-b border-border/60 text-right">
-                      <form action={deleteAssignmentAction} className="inline">
-                        <input type="hidden" name="assignmentId" value={a.id} />
-                        <button
-                          type="submit"
-                          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
+                {assignments.map((a) =>
+                  editing?.id === a.id ? (
+                    <tr key={a.id}>
+                      <td className="px-6 py-3 border-b border-border/60" colSpan={8}>
+                        <form action={updateAssignmentAction} className="flex flex-wrap items-end gap-3">
+                          <input type="hidden" name="assignmentId" value={a.id} />
+                          <span className="text-sm font-medium text-foreground">
+                            {a.employeeName} ({a.employeeCode}) — {a.principal}
+                          </span>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Channel</label>
+                            <input name="channel" defaultValue={a.channel ?? ""} placeholder="KA" className={inputClass} />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Contribution %</label>
+                            <input
+                              name="contributionPct"
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              defaultValue={a.contributionPct != null ? (a.contributionPct * 100).toFixed(2) : ""}
+                              className={inputClass}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Sales role</label>
+                            <select name="salesRole" defaultValue={a.salesRole} className={inputClass}>
+                              <option value="PRIMARY">Primary</option>
+                              <option value="SECONDARY">Secondary</option>
+                            </select>
+                          </div>
+                          <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                            Save
+                          </button>
+                          <Link href="/admin/team-leaders" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                            Cancel
+                          </Link>
+                        </form>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={a.id} className={a.active ? undefined : "opacity-50"}>
+                      <td className="px-6 py-3 border-b border-border/60">{teamLeaderNameById.get(a.teamLeaderId) ?? "—"}</td>
+                      <td className="px-6 py-3 border-b border-border/60">
+                        {a.employeeName} <span className="text-muted">({a.employeeCode})</span>
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">{a.principal}</td>
+                      <td className="px-6 py-3 border-b border-border/60">{a.channel ?? "—"}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right">
+                        {a.contributionPct != null ? `${(a.contributionPct * 100).toFixed(1)}%` : <span className="text-muted">not declared</span>}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">{a.salesRole === "PRIMARY" ? "Primary" : "Secondary"}</td>
+                      <td className="px-6 py-3 border-b border-border/60">
+                        {a.active ? (
+                          <span className="text-accent-green">Active</span>
+                        ) : (
+                          <span className="text-accent-red">Inactive</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
+                        <Link
+                          href={`/admin/team-leaders?edit=${a.id}`}
+                          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
                         >
-                          Remove
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
+                          Edit
+                        </Link>
+                        <form action={deactivateAssignmentAction} className="inline">
+                          <input type="hidden" name="assignmentId" value={a.id} />
+                          <button
+                            type="submit"
+                            className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft transition-colors duration-300"
+                          >
+                            {a.active ? "Deactivate" : "Reactivate"}
+                          </button>
+                        </form>
+                        <form action={deleteAssignmentAction} className="inline">
+                          <input type="hidden" name="assignmentId" value={a.id} />
+                          <button
+                            type="submit"
+                            className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
+                          >
+                            Delete
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  )
+                )}
                 {assignments.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={8} className="px-6 py-8 text-center text-muted">
                       No assignments yet.
                     </td>
                   </tr>

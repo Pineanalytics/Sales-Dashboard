@@ -118,12 +118,37 @@ model TeamLeaderAssignment {
   employeeCode String
   employeeName String
   principal    String
+  // Below: ported from Target_Management_System.xlsm's Roster sheet.
+  channel      String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
+  // Admin-declared allocation %, distinct from RepContribution.sharePct (which is computed from
+  // actual trailing revenue). Null = not yet declared for this rep/principal — falls back to the
+  // computed share. When set, must sum to ~100% across active reps per principal (validated in
+  // the admin UI, not enforced at the DB level).
+  contributionPct Float?
+  // Soft-remove flag — the normal way to take a rep off a principal (preserves WeeklyTarget/
+  // DailyTarget/RepContribution history and this row's own audit trail). Hard delete still
+  // exists for genuine mistakes.
+  active       Boolean  @default(true)
+  salesRole    String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
   @@unique([teamLeaderId, employeeCode, principal])
   @@index([teamLeaderId])
   @@index([principal])
+}
+
+model TeamLeaderAssignmentAuditLog {
+  id           String   @id @default(cuid())
+  timestamp    DateTime @default(now())
+  userEmail    String
+  action       String // "CREATE" | "UPDATE" | "DEACTIVATE" | "REACTIVATE" | "DELETE"
+  teamLeaderId String
+  principal    String
+  employeeCode String
+  changes      Json
+
+  @@index([teamLeaderId, principal])
 }
 
 // Admin-editable reference data (rarely changes), consumed by scripts/db-bridge

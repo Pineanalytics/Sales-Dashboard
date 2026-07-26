@@ -7,7 +7,7 @@ import {
   classifyMonthlyVariance,
   type WeekInfo,
 } from "../lib/weeklyTargets";
-import { computeSharePcts, computeWeekdayWeights } from "../lib/repContribution";
+import { computeSharePcts, computeWeekdayWeights, resolveRepSharePct, validateContributionTotals } from "../lib/repContribution";
 
 describe("getMondaysInMonth / getWeeksInMonth", () => {
   it("returns every real Monday in the month, not a fixed count", () => {
@@ -156,5 +156,62 @@ describe("computeWeekdayWeights", () => {
     const weights = computeWeekdayWeights([3, 0, 0, 0, 0], [0, 0, 0, 0, 100]);
     expect(weights[0]).toBe(1);
     expect(weights[4]).toBe(0);
+  });
+});
+
+describe("resolveRepSharePct", () => {
+  it("prefers the admin-declared Contribution % (Roster) over the computed share", () => {
+    expect(resolveRepSharePct(0.4, 0.75, 0.5)).toBe(0.4);
+  });
+
+  it("falls back to the computed RepContribution.sharePct when nothing is declared", () => {
+    expect(resolveRepSharePct(null, 0.75, 0.5)).toBe(0.75);
+    expect(resolveRepSharePct(undefined, 0.75, 0.5)).toBe(0.75);
+  });
+
+  it("falls back to an even split when neither a declared nor a computed share exists", () => {
+    expect(resolveRepSharePct(null, null, 0.5)).toBe(0.5);
+    expect(resolveRepSharePct(undefined, undefined, 1 / 3)).toBeCloseTo(1 / 3);
+  });
+
+  it("treats a declared 0% as a real, deliberate value — not the same as \"not declared\"", () => {
+    expect(resolveRepSharePct(0, 0.75, 0.5)).toBe(0);
+  });
+});
+
+describe("validateContributionTotals", () => {
+  it("flags a principal whose fully-declared active reps don't sum to 100%", () => {
+    const warnings = validateContributionTotals([
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.35 },
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].principal).toBe("Bic-Nairobi");
+    expect(warnings[0].totalPct).toBeCloseTo(85);
+  });
+
+  it("does not flag a principal that sums to ~100% within tolerance", () => {
+    const warnings = validateContributionTotals([
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.6 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.4 },
+    ]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("skips a principal that's still mid-setup (any active rep still undeclared)", () => {
+    const warnings = validateContributionTotals([
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5 },
+      { principal: "Mars-Nairobi", active: true, contributionPct: null },
+    ]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("ignores inactive reps entirely, even if they'd throw off the total", () => {
+    const warnings = validateContributionTotals([
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
+      { principal: "Bic-Nairobi", active: false, contributionPct: 0.9 },
+    ]);
+    expect(warnings).toHaveLength(0);
   });
 });
