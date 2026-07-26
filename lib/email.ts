@@ -1,11 +1,11 @@
 import nodemailer from "nodemailer";
 
-// The dashboard doesn't own the pinefrost.co.ke domain's DNS, so it can't verify it with
-// a transactional-email API (Resend, SES, etc.) to send *as* analytics@pinefrost.co.ke.
-// Instead this sends via a dedicated mailbox's own SMTP (e.g. a Gmail account with an App
-// Password) and sets Reply-To so replies still land in the real inbox.
-const REPLY_TO = "analytics@pinefrost.co.ke";
-const DEFAULT_APP_URL = "https://pinefrostdb.netlify.app";
+// Sent via info@pinefrostdb.com's own SMTP — this app owns pinefrostdb.com's
+// DNS (self-hosted on the Hostinger VPS), so there's no more need for the
+// old "send from a separate mailbox, Reply-To the real one" workaround this
+// replaced (that existed only because pinefrost.co.ke's DNS wasn't owned).
+const REPLY_TO = "info@pinefrostdb.com";
+const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const DEFAULT_SMTP_HOST = "smtp.gmail.com";
 const DEFAULT_SMTP_PORT = 465;
 
