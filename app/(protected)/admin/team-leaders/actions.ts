@@ -25,6 +25,18 @@ function pct(formData: FormData, name: string): number | null {
   return Number.isFinite(n) ? n / 100 : null; // form takes a whole-number percent, stored as a fraction
 }
 
+// Carries the active Team-Leader/Employee filter (see the filter bar on the page) through an
+// edit/deactivate/delete round-trip, so acting on a row while filtered doesn't dump the admin
+// back into the unfiltered 119-row list.
+function filterSuffix(formData: FormData): string {
+  const filterTeamLeader = str(formData, "filterTeamLeader");
+  const filterEmployee = str(formData, "filterEmployee");
+  let suffix = "";
+  if (filterTeamLeader) suffix += `&filterTeamLeader=${encodeURIComponent(filterTeamLeader)}`;
+  if (filterEmployee) suffix += `&filterEmployee=${encodeURIComponent(filterEmployee)}`;
+  return suffix;
+}
+
 // Roster edits (create/update/deactivate) recompute Contribution-by-Rep and Daily Projection
 // immediately, rather than waiting for the next JP Adherence sync — an admin changing a declared
 // Contribution % or deactivating a rep should see it reflected right away.
@@ -170,10 +182,11 @@ export async function createAssignmentAction(formData: FormData) {
 export async function updateAssignmentAction(formData: FormData) {
   const user = await requireAdmin();
   const id = str(formData, "assignmentId");
+  const suffix = filterSuffix(formData);
 
   const existing = await prisma.teamLeaderAssignment.findUnique({ where: { id } });
   if (!existing) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
 
   const channel = str(formData, "channel") || null;
@@ -194,7 +207,7 @@ export async function updateAssignmentAction(formData: FormData) {
   );
   await recomputeDerived();
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Updated ${existing.employeeName} — ${existing.principal}.`));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Updated ${existing.employeeName} — ${existing.principal}.`) + suffix);
 }
 
 // The primary "remove a rep" action — preserves WeeklyTarget/DailyTarget/RepContribution
@@ -203,10 +216,11 @@ export async function updateAssignmentAction(formData: FormData) {
 export async function deactivateAssignmentAction(formData: FormData) {
   const user = await requireAdmin();
   const id = str(formData, "assignmentId");
+  const suffix = filterSuffix(formData);
 
   const existing = await prisma.teamLeaderAssignment.findUnique({ where: { id } });
   if (!existing) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
 
   const nextActive = !existing.active;
@@ -223,17 +237,19 @@ export async function deactivateAssignmentAction(formData: FormData) {
 
   redirect(
     "/admin/team-leaders?success=" +
-      encodeURIComponent(`${nextActive ? "Reactivated" : "Deactivated"} ${existing.employeeName} — ${existing.principal}.`)
+      encodeURIComponent(`${nextActive ? "Reactivated" : "Deactivated"} ${existing.employeeName} — ${existing.principal}.`) +
+      suffix
   );
 }
 
 export async function deleteAssignmentAction(formData: FormData) {
   const user = await requireAdmin();
   const id = str(formData, "assignmentId");
+  const suffix = filterSuffix(formData);
 
   const existing = await prisma.teamLeaderAssignment.findUnique({ where: { id } });
   if (!existing) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
 
   await prisma.teamLeaderAssignment.delete({ where: { id } });
@@ -247,5 +263,5 @@ export async function deleteAssignmentAction(formData: FormData) {
   );
   await recomputeDerived();
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Assignment removed."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Assignment removed.") + suffix);
 }

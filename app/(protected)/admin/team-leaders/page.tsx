@@ -23,14 +23,32 @@ const labelClass = "text-[13px] font-medium text-muted-strong";
 export default async function AdminTeamLeadersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; rename?: string; edit?: string; teamLeaderId?: string; principal?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    success?: string;
+    rename?: string;
+    edit?: string;
+    teamLeaderId?: string;
+    principal?: string;
+    filterTeamLeader?: string;
+    filterEmployee?: string;
+  }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, rename, edit, teamLeaderId: lastTeamLeaderId, principal: lastPrincipal } = await searchParams;
+  const {
+    error,
+    success,
+    rename,
+    edit,
+    teamLeaderId: lastTeamLeaderId,
+    principal: lastPrincipal,
+    filterTeamLeader,
+    filterEmployee,
+  } = await searchParams;
 
   const [teamLeaders, assignments, knownReps, knownPrincipals] = await Promise.all([
     prisma.teamLeader.findMany({ orderBy: { name: "asc" } }),
@@ -50,6 +68,21 @@ export default async function AdminTeamLeadersPage({
     list.push(a);
     assignmentsByTeamLeader.set(a.teamLeaderId, list);
   }
+
+  // Narrows the Assignments table to one Team Leader's roster and/or one Employee's spread
+  // across every Principal/Team Leader they're on — the same query-param-driven pattern the
+  // page already uses for edit/rename, just filtering what's already fetched.
+  const employeeNeedle = filterEmployee?.trim().toLowerCase();
+  const visibleAssignments = assignments.filter((a) => {
+    if (filterTeamLeader && a.teamLeaderId !== filterTeamLeader) return false;
+    if (employeeNeedle && !a.employeeCode.toLowerCase().includes(employeeNeedle) && !a.employeeName.toLowerCase().includes(employeeNeedle))
+      return false;
+    return true;
+  });
+  const isFiltered = Boolean(filterTeamLeader || employeeNeedle);
+  const filterQuery = `${filterTeamLeader ? `&filterTeamLeader=${encodeURIComponent(filterTeamLeader)}` : ""}${
+    filterEmployee ? `&filterEmployee=${encodeURIComponent(filterEmployee)}` : ""
+  }`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -233,8 +266,36 @@ export default async function AdminTeamLeadersPage({
         </div>
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Assignments ({assignments.length})</h2>
+          <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-lg font-semibold text-primary-blue">
+              Assignments ({visibleAssignments.length}
+              {isFiltered ? ` of ${assignments.length} total` : ""})
+            </h2>
+            <form method="get" className="flex flex-wrap items-center gap-2">
+              <select name="filterTeamLeader" defaultValue={filterTeamLeader ?? ""} className={inputClass}>
+                <option value="">All Team Leaders</option>
+                {teamLeaders.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                name="filterEmployee"
+                defaultValue={filterEmployee ?? ""}
+                list="known-reps-codes"
+                placeholder="Search by employee code or name"
+                className={inputClass}
+              />
+              <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                Filter
+              </button>
+              {isFiltered ? (
+                <Link href="/admin/team-leaders" className="rounded-full px-3 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                  Clear filter
+                </Link>
+              ) : null}
+            </form>
           </div>
           <div className="overflow-x-auto mt-4">
             <table className="w-full text-sm border-collapse">
@@ -251,12 +312,14 @@ export default async function AdminTeamLeadersPage({
                 </tr>
               </thead>
               <tbody>
-                {assignments.map((a) =>
+                {visibleAssignments.map((a) =>
                   editing?.id === a.id ? (
                     <tr key={a.id}>
                       <td className="px-6 py-3 border-b border-border/60" colSpan={8}>
                         <form action={updateAssignmentAction} className="flex flex-wrap items-end gap-3">
                           <input type="hidden" name="assignmentId" value={a.id} />
+                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
+                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
                           <span className="text-sm font-medium text-foreground">
                             {a.employeeName} ({a.employeeCode}) — {a.principal}
                           </span>
@@ -286,7 +349,10 @@ export default async function AdminTeamLeadersPage({
                           <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
                             Save
                           </button>
-                          <Link href="/admin/team-leaders" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                          <Link
+                            href={`/admin/team-leaders?${filterQuery.replace(/^&/, "")}`}
+                            className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated"
+                          >
                             Cancel
                           </Link>
                         </form>
@@ -313,13 +379,15 @@ export default async function AdminTeamLeadersPage({
                       </td>
                       <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
                         <Link
-                          href={`/admin/team-leaders?edit=${a.id}`}
+                          href={`/admin/team-leaders?edit=${a.id}${filterQuery}`}
                           className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
                         >
                           Edit
                         </Link>
                         <form action={deactivateAssignmentAction} className="inline">
                           <input type="hidden" name="assignmentId" value={a.id} />
+                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
+                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
                           <button
                             type="submit"
                             className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft transition-colors duration-300"
@@ -329,6 +397,8 @@ export default async function AdminTeamLeadersPage({
                         </form>
                         <form action={deleteAssignmentAction} className="inline">
                           <input type="hidden" name="assignmentId" value={a.id} />
+                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
+                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
                           <button
                             type="submit"
                             className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
@@ -340,10 +410,10 @@ export default async function AdminTeamLeadersPage({
                     </tr>
                   )
                 )}
-                {assignments.length === 0 ? (
+                {visibleAssignments.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-8 text-center text-muted">
-                      No assignments yet.
+                      {isFiltered ? "No assignments match this filter." : "No assignments yet."}
                     </td>
                   </tr>
                 ) : null}
