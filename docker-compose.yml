@@ -36,6 +36,10 @@ services:
       # these are assembled here rather than duplicated as separate secrets in .env.
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # HOSTNAME is deliberately NOT set here — Docker reserves it and silently drops any
+      # value passed via `environment:`/`-e` (confirmed: it never even reaches Config.Env).
+      # See the Dockerfile's CMD for the actual fix (HOSTNAME must be overridden at the
+      # shell layer, inside the container, not from the outside).
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

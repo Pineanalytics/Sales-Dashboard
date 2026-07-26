@@ -40,4 +40,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modul
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
-CMD ["node", "server.js"]
+# Next.js's standalone server.js binds to `process.env.HOSTNAME || '0.0.0.0'`. Docker
+# reserves HOSTNAME and always auto-sets it to the container's own ID regardless of what
+# `-e`/compose `environment:` tries to pass in (confirmed: an externally-set value never
+# even reaches the container's Config.Env) — and that ID resolves via /etc/hosts to the
+# container's bridge-network IP, not 127.0.0.1. Left as-is, the server only binds to that
+# bridge IP: Caddy (reaching it over the Docker network) still works fine, but any
+# self-fetch to localhost from inside the same container — like the healthcheck below —
+# always fails, permanently marking the container "unhealthy" despite serving real traffic
+# correctly. Overriding HOSTNAME here, at the shell layer immediately before exec'ing node,
+# happens after Docker's own injection and is the only thing that actually sticks.
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 exec node server.js"]
