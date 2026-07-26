@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { useDashboardStore } from "@/lib/store";
 import { getAvailableYears, getAvailableMonths, getCurrentMonthPeriod, type PeriodKind, type PeriodSelection } from "@/lib/timeIntelligence";
 
@@ -42,66 +43,115 @@ export function PeriodSelector() {
   const dataset = useDashboardStore((s) => s.dataset);
   const period = useDashboardStore((s) => s.selectedPeriod);
   const setPeriod = useDashboardStore((s) => s.setPeriod);
+  const stripRef = useRef<HTMLDivElement>(null);
 
   if (!dataset) return null;
 
   const years = getAvailableYears(dataset);
   const months = getAvailableMonths(dataset, period.year || years[years.length - 1] || "");
+  const yearIndex = years.indexOf(period.year);
 
   function update(patch: Partial<PeriodSelection>) {
     setPeriod({ ...period, ...patch });
   }
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select
-        aria-label="Year"
-        value={period.year}
-        onChange={(e) => update({ year: e.target.value })}
-        disabled={period.kind === "MTD"}
-        title={period.kind === "MTD" ? "MTD always reflects the current calendar month" : undefined}
-        className="rounded-full border border-border bg-background-elevated px-3 py-1.5 text-xs font-semibold text-muted-strong disabled:opacity-50"
-      >
-        {years.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
-        ))}
-      </select>
+  function shiftYear(delta: number) {
+    const nextIndex = yearIndex + delta;
+    if (nextIndex < 0 || nextIndex >= years.length) return;
+    update({ year: years[nextIndex] });
+  }
 
-      <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5">
-        {PERIOD_KINDS.map((k) => {
-          const active = period.kind === k;
-          return (
-            <button
-              key={k}
-              onClick={() => update(k === "MTD" ? getCurrentMonthPeriod(dataset) : { kind: k })}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-                active
-                  ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
-                  : "text-muted-strong hover:text-brand-orange"
-              }`}
-            >
-              {PERIOD_KIND_LABELS[k]}
-            </button>
-          );
-        })}
+  function scrollStrip(delta: number) {
+    stripRef.current?.scrollBy({ left: delta, behavior: "smooth" });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5">
+          {PERIOD_KINDS.map((k) => {
+            const active = period.kind === k;
+            return (
+              <button
+                key={k}
+                onClick={() => update(k === "MTD" ? getCurrentMonthPeriod(dataset) : { kind: k })}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+                  active
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                    : "text-muted-strong hover:text-brand-orange"
+                }`}
+              >
+                {PERIOD_KIND_LABELS[k]}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {NEEDS_MONTH[period.kind] ? (
-        <select
-          aria-label="Month"
-          value={period.month ?? ""}
-          onChange={(e) => update({ month: e.target.value })}
-          className="rounded-full border border-border bg-background-elevated px-3 py-1.5 text-xs font-semibold text-muted-strong"
+      {/* Calendar strip — year with prev/next, then a scrollable row of month tiles for
+       *  the year, replacing the old plain year/month <select> pair with something closer
+       *  to the reference dashboard's visual. Still just writes period.year/period.month —
+       *  no new state, every page reading the store picks this up the same way as before. */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Previous year"
+          onClick={() => shiftYear(-1)}
+          disabled={yearIndex <= 0}
+          className="rounded-full px-1.5 py-0.5 text-muted-strong hover:text-brand-orange disabled:opacity-30 disabled:hover:text-muted-strong"
         >
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      ) : null}
+          ‹
+        </button>
+        <span className="text-sm font-semibold text-foreground w-12 text-center">{period.year}</span>
+        <button
+          type="button"
+          aria-label="Next year"
+          onClick={() => shiftYear(1)}
+          disabled={yearIndex < 0 || yearIndex >= years.length - 1}
+          className="rounded-full px-1.5 py-0.5 text-muted-strong hover:text-brand-orange disabled:opacity-30 disabled:hover:text-muted-strong"
+        >
+          ›
+        </button>
+
+        {NEEDS_MONTH[period.kind] ? (
+          <>
+            <button
+              type="button"
+              aria-label="Scroll months left"
+              onClick={() => scrollStrip(-120)}
+              className="rounded-full px-1 py-0.5 text-muted-strong hover:text-brand-orange"
+            >
+              ‹
+            </button>
+            <div ref={stripRef} className="flex gap-1 overflow-x-auto scroll-smooth max-w-[280px]" style={{ scrollbarWidth: "none" }}>
+              {months.map((m) => {
+                const active = period.month === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => update({ month: m })}
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold transition-all duration-300 ${
+                      active
+                        ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                        : "bg-background-elevated text-muted-strong hover:text-brand-orange"
+                    }`}
+                  >
+                    {m.slice(0, 3).toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              aria-label="Scroll months right"
+              onClick={() => scrollStrip(120)}
+              className="rounded-full px-1 py-0.5 text-muted-strong hover:text-brand-orange"
+            >
+              ›
+            </button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

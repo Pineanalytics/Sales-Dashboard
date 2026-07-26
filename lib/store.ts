@@ -20,10 +20,16 @@ interface DashboardState {
   // reveals labels without changing this — see Sidebar.tsx's own hover state.
   sidebarCollapsed: boolean;
   history: DatasetSnapshotSummary[];
+  // Global Day Name filter (Executive Overview's Week 1-4/Daily Projection cards,
+  // which are the only tiles with a day-of-week dimension to filter — see
+  // DayNameFilter.tsx). All 7 selected = no filtering; deliberately never empty,
+  // since "filter out every day" isn't a meaningful state to be in.
+  selectedDayNames: Set<string>;
 
   setDataset: (dataset: Dataset | null) => void;
   selectPrincipal: (key: string | null) => void;
   setPeriod: (period: PeriodSelection) => void;
+  toggleDayName: (day: string) => void;
   clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -45,6 +51,7 @@ const EMPTY_PERIOD: PeriodSelection = { kind: "MTD", year: "" };
 // first client render still matches the server-rendered HTML and avoids a hydration
 // mismatch. See SIDEBAR_COLLAPSED_KEY usage there.
 export const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
+export const ALL_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   dataset: null,
@@ -56,6 +63,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   sidebarOpen: false,
   sidebarCollapsed: false,
   history: [],
+  selectedDayNames: new Set(ALL_DAY_NAMES),
 
   setDataset: (dataset) =>
     set({
@@ -67,12 +75,22 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }),
   selectPrincipal: (key) => set({ selectedPrincipalKey: key }),
   setPeriod: (period) => set({ selectedPeriod: period, hasUserSelectedPeriod: true }),
+  toggleDayName: (day) => {
+    const current = new Set(get().selectedDayNames);
+    if (current.has(day)) current.delete(day);
+    else current.add(day);
+    // Never allow an empty selection — that would silently zero out every day-grain
+    // tile rather than meaning anything the user intended.
+    if (current.size === 0) return;
+    set({ selectedDayNames: current });
+  },
   clearAllFilters: () => {
     const { dataset } = get();
     set({
       selectedPrincipalKey: null,
       selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
       hasUserSelectedPeriod: false,
+      selectedDayNames: new Set(ALL_DAY_NAMES),
     });
   },
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
