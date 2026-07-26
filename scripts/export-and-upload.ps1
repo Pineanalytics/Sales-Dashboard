@@ -13,8 +13,8 @@
        Listing is the exception: it's still transaction-line grain in the source
        pivot (~100k rows), so this script collapses it here to one row per
        Year+Month+Principal+Sales Employee+Customer (summing Volume/Revenue/GP)
-       before writing it out - otherwise the exported file is big enough to trip
-       Netlify Functions' request payload limit and the upload fails outright.
+       before writing it out - otherwise the exported file is unnecessarily large
+       to transmit and store.
     3. Saves that workbook to -OutputPath.
     4. POSTs it to <AppUrl>/api/upload with the x-upload-api-key header.
 
@@ -217,7 +217,7 @@ function Invoke-MultipartUpload {
 }
 
 if (-not $ApiKey) {
-    throw "No API key provided. Pass -ApiKey or set the UPLOAD_API_KEY environment variable (must match the value configured in Netlify)."
+    throw "No API key provided. Pass -ApiKey or set the UPLOAD_API_KEY environment variable (must match the value configured in the VPS's .env)."
 }
 if (-not (Test-Path $SourcePath)) {
     throw "Source workbook not found: $SourcePath"

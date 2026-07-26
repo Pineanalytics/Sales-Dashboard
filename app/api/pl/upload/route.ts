@@ -8,10 +8,8 @@ import type { PLLineType } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-// Serverless functions have a hard execution-time limit (Netlify: ~10-26s) — doing
-// one round-trip per row (as the original version did) takes minutes for a
-// thousand-plus-row P&L sync and gets killed mid-request, returning an HTML
-// timeout page instead of JSON. Batched raw-SQL upserts turn that into a handful
+// One round-trip per row (as the original version did) takes minutes for a
+// thousand-plus-row P&L sync. Batched raw-SQL upserts turn that into a handful
 // of round-trips. Chunk size stays comfortably under Postgres's parameter-count
 // limit (chunk * 11 params/row).
 const CHUNK_SIZE = 500;

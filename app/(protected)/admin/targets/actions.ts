@@ -60,9 +60,8 @@ async function logTargetAudit(
   });
 }
 
-// Server actions run as Netlify functions with the same execution-time limit as API
-// routes — one round-trip per row (the original approach) risks timing out on a
-// large upload. Batched raw-SQL upsert turns N round-trips into a handful.
+// One round-trip per row (the original approach) is slow on a large upload.
+// Batched raw-SQL upsert turns N round-trips into a handful.
 const CHUNK_SIZE = 500;
 
 async function upsertTargetsChunk(rows: ParsedTargetRow[]) {

@@ -1,0 +1,111 @@
+<#
+.SYNOPSIS
+    Deploys the current committed tree to the self-hosted Hostinger VPS.
+
+.DESCRIPTION
+    Replaces the ad-hoc "SSH in and figure it out" process with one documented
+    command. Packages exactly what's committed (git archive - no node_modules,
+    .next, .git, or local .env), copies it over the VPS's /opt/pinefrost without
+    touching that machine's own .env, rebuilds the Docker images, and restarts
+    the app container.
+
+    With -PushSchema, also runs `prisma db push` against the VPS's real Postgres
+    (inside a throwaway pinefrost-builder container on the Compose network) -
+    use this whenever prisma/schema.prisma has changed. Without it, this only
+    ships code.
+
+    Postgres itself is never exposed outside the VPS (see docker-compose.yml) -
+    this is the only sanctioned way to run a schema push or one-off data script
+    against the real production database. Don't repoint a local .env at it;
+    there's nothing to repoint it at from outside the VPS's own Docker network.
+
+.PARAMETER PushSchema
+    Also run `prisma db push` against the VPS's production Postgres after the
+    app container is back up.
+
+.PARAMETER SshKey
+    Path to the SSH private key. Defaults to ~/.ssh/pinefrost_hostinger.
+
+.PARAMETER SshTarget
+    user@host for the VPS. Defaults to root@187.77.80.216.
+
+.PARAMETER RemotePath
+    Where the app lives on the VPS. Defaults to /opt/pinefrost.
+
+.EXAMPLE
+    ./scripts/deploy.ps1
+    Ship today's code changes only.
+
+.EXAMPLE
+    ./scripts/deploy.ps1 -PushSchema
+    Ship code and sync prisma/schema.prisma to production.
+#>
+param(
+    [switch]$PushSchema,
+    [string]$SshKey = "$HOME/.ssh/pinefrost_hostinger",
+    [string]$SshTarget = "root@187.77.80.216",
+    [string]$RemotePath = "/opt/pinefrost"
+)
+
+$ErrorActionPreference = "Stop"
+
+function Invoke-Ssh([string]$Command) {
+    & ssh -i $SshKey $SshTarget $Command
+    if ($LASTEXITCODE -ne 0) { throw "Remote command failed (exit $LASTEXITCODE): $Command" }
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+Push-Location $repoRoot
+try {
+    $tarPath = Join-Path ([System.IO.Path]::GetTempPath()) "pinefrost-deploy-$(Get-Date -Format yyyyMMddHHmmss).tar"
+
+    Write-Host "==> Packaging committed tree ($tarPath)..." -ForegroundColor Cyan
+    & git archive --format=tar -o $tarPath HEAD
+    if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
+
+    Write-Host "==> Backing up current deployment on the VPS..." -ForegroundColor Cyan
+    $backupSuffix = Get-Date -Format yyyyMMdd-HHmmss
+    Invoke-Ssh "cp -a $RemotePath ${RemotePath}-backup-$backupSuffix"
+
+    Write-Host "==> Copying archive to the VPS..." -ForegroundColor Cyan
+    & scp -i $SshKey $tarPath "${SshTarget}:/tmp/pinefrost-deploy.tar"
+    if ($LASTEXITCODE -ne 0) { throw "scp failed" }
+    Remove-Item $tarPath -Force
+
+    Write-Host "==> Extracting over $RemotePath (leaves .env untouched - it isn't tracked)..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && tar -xf /tmp/pinefrost-deploy.tar && rm /tmp/pinefrost-deploy.tar"
+
+    Write-Host "==> Rebuilding the app image..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && docker compose build app"
+
+    if ($PushSchema) {
+        Write-Host "==> Rebuilding pinefrost-builder (full node_modules, needed for the schema push)..." -ForegroundColor Cyan
+        Invoke-Ssh "cd $RemotePath && docker build --target builder -t pinefrost-builder:latest ."
+    }
+
+    Write-Host "==> Restarting the app container..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && docker compose up -d app"
+
+    if ($PushSchema) {
+        Write-Host "==> Pushing prisma/schema.prisma to the VPS's production Postgres..." -ForegroundColor Cyan
+        $pushCmd = 'source ' + $RemotePath + '/.env && docker run --rm --network pinefrost_default ' +
+            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-w /app pinefrost-builder:latest node ./node_modules/prisma/build/index.js db push'
+        Invoke-Ssh $pushCmd
+    }
+
+    Write-Host "==> Verifying the site responds..." -ForegroundColor Cyan
+    Start-Sleep -Seconds 3
+    try {
+        $health = Invoke-WebRequest -Uri "https://pinefrostdb.com/api/health" -TimeoutSec 10 -UseBasicParsing
+        Write-Host "    /api/health -> HTTP $($health.StatusCode)" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not reach https://pinefrostdb.com/api/health - check the container logs before assuming this deploy is good."
+    }
+
+    Write-Host "==> Done." -ForegroundColor Cyan
+    Write-Host "    Backup of the previous deployment: ${RemotePath}-backup-$backupSuffix (remove it once you're confident this deploy is good)."
+} finally {
+    Pop-Location
+}

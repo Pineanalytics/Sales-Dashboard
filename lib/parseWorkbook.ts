@@ -287,8 +287,9 @@ interface BrandCustomerAgg {
  * Year+Month+Principal+Sales Employee+Customer, regardless of the grain the
  * source pivot actually exports at. The pivot is meant to be pre-aggregated to
  * that grain, but a live export was still ~101k transaction-line rows (one per
- * Item Name) — serialized, that inflates the whole Dataset past Netlify
- * Functions' response payload limit. Aggregating here makes correctness
+ * Item Name) — serialized, that makes the whole Dataset far too large to be
+ * useful (slow to transmit, and past Next.js's own data-cache item-size limit).
+ * Aggregating here makes correctness
  * independent of how the user's pivot happens to be configured: a no-op if
  * it's already at the target grain, a collapse if it isn't. "Item Name" is
  * never read, and "GP Margin %" is always derived from the aggregated

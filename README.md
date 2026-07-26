@@ -10,10 +10,10 @@ A production-grade Next.js dashboard for a Kenya-based distributor to track prin
 - **Recharts** for line/bar/doughnut/composed charts
 - **SheetJS (`xlsx`)** for parsing the uploaded workbook, shared between client preview and server persistence
 - **Zustand** for global client state (dataset, principal filter, active view, selected period)
-- **Prisma + Supabase (Postgres)** for persisting uploaded snapshots and user accounts
+- **Prisma + Postgres** for persisting uploaded snapshots and user accounts
 - **Vitest** for parser unit tests
 
-Deploys to **Netlify** (via `@netlify/plugin-nextjs`) — see [Deploying to Netlify](#deploying-to-netlify) below.
+Deploys to a self-hosted Hostinger VPS — Docker Compose running the app, Postgres, and Caddy (automatic HTTPS) — see [Deploying](#deploying) below.
 
 ## Getting started
 
@@ -26,7 +26,7 @@ Deploys to **Netlify** (via `@netlify/plugin-nextjs`) — see [Deploying to Netl
 ```bash
 npm install
 cp .env.example .env      # set DATABASE_URL, DIRECT_URL and AUTH_SECRET (see below)
-npx prisma db push        # creates the Snapshot/User tables in Supabase
+npx prisma db push        # creates the Snapshot/User tables
 npm run db:seed           # creates a starter admin + viewer account
 npm run dev
 ```
@@ -81,14 +81,13 @@ Auth is enforced at the page/route level rather than in Proxy/Middleware (delibe
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | Pooled Postgres connection string (used by Prisma Client at runtime — pooling matters in serverless environments like Netlify Functions, which can spin up many concurrent connections). Get it from the Supabase dashboard: **Project Settings → Connect → ORMs tab → Prisma**. |
-| `DIRECT_URL` | Direct (non-pooled) Postgres connection string, used only for `prisma db push`/migrations — PgBouncer's transaction pooling mode doesn't support the prepared statements migrations need. Same dashboard page as above. |
+| `DATABASE_URL` / `DIRECT_URL` | Postgres connection strings. In production these are assembled by `docker-compose.yml` from `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` (the VPS's own Postgres container — see [Deploying](#deploying)), not set directly. For local dev against a Postgres you control, point both at it (no pooler required for a single-node local Postgres). |
 | `AUTH_SECRET` | Secret used to sign/encrypt session JWTs — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `UPLOAD_API_KEY` | Optional. Lets a headless script call `POST /api/upload` with an `x-upload-api-key` header instead of an interactive admin session — see [Automated uploads](#automated-uploads). Leave unset to disable this auth path entirely. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM_NAME` | Optional. Enables the "your account has been approved" email sent from `/admin/users`' Approve button (`lib/email.ts`). Sent (and replied-to) via `info@pinefrostdb.com`'s own SMTP. Leave `SMTP_USER`/`SMTP_PASSWORD` unset to skip sending (approvals still work, just without the email — logged as a warning). |
 | `APP_URL` | Optional. The login link included in that approval email. Defaults to `https://pinefrostdb.com` when unset. |
 
-This project's Supabase project is `pinefrostsales` (ref `addexxjwrxmjjqmcwkib`, region `eu-west-1`), under the Pineanalytics organization.
+**This project no longer uses Supabase or Netlify** (see project history #11 below) — Postgres and the app both run on the same self-hosted VPS.
 
 ## Automated uploads
 
@@ -153,15 +152,30 @@ scripts/pl-sync.ps1   Windows Task Scheduler wrapper for the scheduled `pl:sync`
 tests/                Vitest unit tests + fixture workbook builder
 ```
 
-## Deploying to Netlify
+## Deploying
 
-1. Push to the Git repo and connect it as a new site in Netlify (Netlify auto-detects `netlify.toml` and the `@netlify/plugin-nextjs` plugin — no extra build config needed).
-2. In the Netlify site's environment variables, set `DATABASE_URL`, `DIRECT_URL`, and `AUTH_SECRET` (see [Environment variables](#environment-variables) above).
-3. Netlify runs `npm install` (which runs `prisma generate` via `postinstall`) then `npm run build`.
-4. Before the first deploy — or any time the schema changes — run `npx prisma db push` locally against the Supabase database (with `.env` pointing at it) to keep the schema in sync, then `npm run db:seed` once to create your first admin login.
-5. Netlify Functions run on a real Node.js runtime (not a restricted edge runtime), so Prisma, bcrypt, and NextAuth all work without adapter-specific workarounds.
+Runs on a single self-hosted Hostinger VPS via Docker Compose (`docker-compose.yml`): a Postgres 16 container, a `next build && next start` app container (a persistent Node process, not per-request serverless functions), and Caddy in front for automatic HTTPS. Postgres has no `ports:` mapping — it's reachable only inside the Compose network, never from the public internet. There is no CI/CD; the VPS's `/opt/pinefrost` is a plain file checkout (no `.git`), updated by copying the repo over and rebuilding.
 
-This project previously targeted Cloudflare Workers; that config has been removed in favor of Netlify + Supabase. Vercel would also work with no changes beyond setting the same environment variables there instead.
+**`scripts/deploy.ps1`** wraps the whole process — from a Windows machine with SSH access to the VPS (`~/.ssh/pinefrost_hostinger` by default):
+
+```powershell
+./scripts/deploy.ps1                # code only: sync files, rebuild, restart the app container
+./scripts/deploy.ps1 -PushSchema     # also runs `prisma db push` against the VPS's Postgres
+```
+
+What it does, in order:
+
+1. `git archive HEAD` — packages exactly the committed tree (no `node_modules`, `.next`, `.git`, or local `.env`) into a tarball.
+2. `scp`s the tarball to the VPS and extracts it over `/opt/pinefrost`, **never touching the VPS's own `.env`** (it isn't tracked, so the archive doesn't contain it).
+3. `docker compose build app` (the runner image) and `docker build --target builder -t pinefrost-builder` (a full-`node_modules` image, used only for one-off commands like schema pushes or data backfills — the runner image is pruned and doesn't have the Prisma CLI).
+4. `docker compose up -d app` to recreate the app container on the new image.
+5. With `-PushSchema`: runs `prisma db push` inside a throwaway `pinefrost-builder` container, on the Compose network, with `DATABASE_URL` assembled from the VPS's real `POSTGRES_*` env vars — i.e. against the actual production database, not a local one.
+
+**Before running it for the first time**, set the VPS's SSH host/user/path at the top of the script if they differ from the defaults, and confirm `~/.ssh/pinefrost_hostinger` is the right key.
+
+**A one-time data backfill or schema change that isn't a normal code deploy** (e.g. importing a spreadsheet directly into production) should still go through the same `pinefrost-builder` image and Compose network by hand — see the pattern `scripts/deploy.ps1` itself uses for `-PushSchema` as a template. Local scripts never have direct access to the production database; it's intentionally not exposed outside the VPS.
+
+This project previously targeted Cloudflare Workers, then Netlify + Supabase; both are fully retired (see project history #11 below) — no config, dependencies, or env vars for either should exist anywhere in this repo.
 
 ## Project history
 
@@ -177,5 +191,6 @@ A chronological map of the major phases this project has gone through, for anyon
 8. **Growth comparison + Coverage aggregation fix** — added YoY/MoM revenue growth cards (`GrowthComparison.tsx`), and fixed a real aggregation bug: Coverage counts unique outlets, so multi-month periods were being summed across months (inflating YTD/H1/quarter totals with repeat visits) instead of averaged — summing across reps within a single month is still correct, only the across-months step changed.
 9. **Self-service registration & access control** — added `/register` (restricted to `@pinefrost.co.ke`), a `PENDING`/`APPROVED` approval workflow, per-viewer report-page visibility (`User.allowedPages`), and admin-driven role changes/password resets — see [Authentication & roles](#authentication--roles) above.
 10. **Collapsible sidebar** — a manual collapse toggle (persisted to `localStorage`) shrinks the sidebar to a 68px icon rail, with a hover-to-peek overlay that doesn't reflow the main content.
+11. **Netlify + Supabase → self-hosted VPS migration** — moved off both usage-metered platforms (Supabase's compute was undersized for the query volume several new sync jobs added; Netlify's credit-based billing was being burned fastest by exactly this app's near-universal dynamic routing) onto a single Hostinger VPS running Postgres + the app (as a persistent `next start` process, not per-request functions) + Caddy under Docker Compose — see [Deploying](#deploying). Netlify/Supabase config, dependencies, and env references have been fully removed from the repo, and the Supabase project itself has been paused. One incident this surfaced: after the migration, a local machine's `.env` kept pointing at the (still-live) old Supabase database, so a later session's schema/data changes silently landed there instead of production until the mismatch was caught by comparing what the live site actually showed against what had just been changed — the fix going forward is `scripts/deploy.ps1`'s explicit, single documented path for any prod-affecting change, rather than ad-hoc local scripts against whatever `.env` happens to be checked out.
 
 For deeper "why" on specific non-obvious decisions (the Coverage bridge's counting semantics, the Gross Profit shadowing bug), see this project's Claude Code memory files if you're working with Claude on this repo — they're kept outside git, under `~/.claude/projects/.../memory/`, and load automatically in any session pointed at this folder.

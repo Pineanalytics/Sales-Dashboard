@@ -8,8 +8,7 @@ import { invalidateDatasetCache } from "@/lib/datasetStore";
 export const runtime = "nodejs";
 
 // Same batched-raw-SQL-upsert pattern as /api/pl/upload — see that route's
-// comment for why (Netlify's serverless execution-time limit vs. one round-trip
-// per row).
+// comment for why (avoiding one DB round-trip per row for a thousand-plus-row sync).
 const CHUNK_SIZE = 500;
 
 interface SalesUploadRow {

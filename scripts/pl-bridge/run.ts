@@ -10,13 +10,13 @@ import { fetchPLByCostCentre } from "./query";
 import { buildPL } from "./transform";
 import principalsData from "../db-bridge/reference/principals.json";
 
-const DEFAULT_APP_URL = "https://pinefrostdb.netlify.app";
+const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
 async function main() {
   const config = loadConfigFromEnv();
   const apiKey = process.env.UPLOAD_API_KEY;
   if (!apiKey) {
-    throw new Error("Missing UPLOAD_API_KEY — set it in .env (same value configured in Netlify).");
+    throw new Error("Missing UPLOAD_API_KEY — set it in .env (same value configured in the VPS's .env).");
   }
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
