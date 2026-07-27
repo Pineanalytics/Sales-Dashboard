@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Send20Regular, Sparkle20Regular } from "@fluentui/react-icons";
+import { useEffect, useRef, useState } from "react";
+import { Send20Regular, Sparkle20Regular, Broom20Regular } from "@fluentui/react-icons";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -22,14 +22,43 @@ interface DisplayMessage extends FrostMessage {
   followUps?: string[];
 }
 
-/** Client-only conversation state — no chat history is persisted server-side
- *  (see lib/frost/agent.ts). Refreshing the page starts a new conversation. */
+/** Conversation history is persisted server-side (app/api/frost/chat/route.ts,
+ *  Phase 3 of the Frost expansion) keyed by conversationId, so a refresh
+ *  restores the most recent chat instead of always starting empty. "New chat"
+ *  just clears local state — conversationId resets to null, and the next
+ *  message creates a fresh FrostConversation row rather than deleting the
+ *  old one. */
 export function FrostChat() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/frost/chat", { cache: "no-store" });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled && Array.isArray(body.messages) && body.messages.length > 0) {
+          setMessages(body.messages);
+          setConversationId(body.conversationId ?? null);
+        }
+      } catch {
+        // History is a nicety, not a requirement — a failed restore just leaves
+        // the chat empty, same as a first-ever visit.
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function send(text: string) {
     const trimmed = text.trim();
@@ -43,11 +72,12 @@ export function FrostChat() {
       const res = await fetch("/api/frost/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })), conversationId }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Frost couldn't answer that.");
       setMessages([...next, { role: "assistant", content: body.reply, metrics: body.metrics, followUps: body.followUps }]);
+      if (body.conversationId) setConversationId(body.conversationId);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Frost couldn't answer that.");
@@ -56,11 +86,38 @@ export function FrostChat() {
     }
   }
 
+  function newChat() {
+    setMessages([]);
+    setConversationId(null);
+    setError(null);
+  }
+
   return (
-    <SectionCard title="Frost" action={<span className="text-xs text-muted">Ask about sales, coverage, or profitability</span>}>
+    <SectionCard
+      title="Frost"
+      action={
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted">Ask about sales, coverage, or profitability</span>
+          {messages.length > 0 ? (
+            <button
+              onClick={newChat}
+              disabled={sending}
+              className="flex items-center gap-1 text-xs text-muted-strong transition-colors hover:text-primary-blue disabled:opacity-60"
+            >
+              <Broom20Regular className="h-3.5 w-3.5" />
+              New chat
+            </button>
+          ) : null}
+        </div>
+      }
+    >
       <div className="flex flex-col gap-3">
         <div className="flex min-h-[280px] max-h-[480px] flex-col gap-3 overflow-y-auto rounded-lg bg-background-elevated/50 p-3">
-          {messages.length === 0 ? (
+          {loadingHistory ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </div>
+          ) : messages.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
               <Sparkle20Regular className="h-8 w-8 text-primary-blue" />
               <p className="text-sm text-muted">Ask Frost a question about your data.</p>

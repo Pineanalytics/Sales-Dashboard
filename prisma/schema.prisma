@@ -674,3 +674,30 @@ model AiInsight {
 
   @@index([generatedAt])
 }
+
+// Frost conversation history (Phase 3 of the Frost AI agent expansion) — lets
+// a user's chat survive a page refresh and gives a plain audit trail, without
+// building a heavier memory system than the app actually needs. One
+// FrostConversation per chat session; FrostConversationMessage holds the
+// individual turns. userId is a plain string (no @relation, matching every
+// other cross-model reference in this schema) rather than a Prisma relation —
+// ownership is checked in app code (app/api/frost/chat/route.ts) before a
+// conversationId from the client is trusted.
+model FrostConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model FrostConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String // "user" | "assistant"
+  content        String
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
