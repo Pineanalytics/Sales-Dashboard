@@ -29,7 +29,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const reply = await runFrostChat(messages, session.user.allowedPages, session.user.role === "ADMIN");
+    const isAdmin = session.user.role === "ADMIN";
+    const teamLeaderId = session.user.role === "TEAM_LEADER" ? session.user.teamLeaderId : null;
+    const reply = await runFrostChat(messages, session.user.allowedPages, isAdmin, teamLeaderId);
     return NextResponse.json({ reply });
   } catch (err) {
     console.error("Frost chat failed", err);
