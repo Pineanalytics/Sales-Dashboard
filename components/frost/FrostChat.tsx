@@ -13,10 +13,19 @@ const SUGGESTIONS = [
   "Are any of our data syncs stale right now?",
 ];
 
+/** Local rendering shape — extends the plain {role, content} wire format with
+ *  the optional structured block Frost's API returns for the most recent
+ *  assistant turn. Only `role`/`content` ever go back to the server (see
+ *  send()); metrics/followUps are display-only, never resent as context. */
+interface DisplayMessage extends FrostMessage {
+  metrics?: { label: string; value: string }[];
+  followUps?: string[];
+}
+
 /** Client-only conversation state — no chat history is persisted server-side
  *  (see lib/frost/agent.ts). Refreshing the page starts a new conversation. */
 export function FrostChat() {
-  const [messages, setMessages] = useState<FrostMessage[]>([]);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +34,7 @@ export function FrostChat() {
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    const next: FrostMessage[] = [...messages, { role: "user", content: trimmed }];
+    const next: DisplayMessage[] = [...messages, { role: "user", content: trimmed }];
     setMessages(next);
     setInput("");
     setSending(true);
@@ -34,11 +43,11 @@ export function FrostChat() {
       const res = await fetch("/api/frost/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })) }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Frost couldn't answer that.");
-      setMessages([...next, { role: "assistant", content: body.reply }]);
+      setMessages([...next, { role: "assistant", content: body.reply, metrics: body.metrics, followUps: body.followUps }]);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Frost couldn't answer that.");
@@ -68,19 +77,46 @@ export function FrostChat() {
               </div>
             </div>
           ) : (
-            messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed ${
-                    m.role === "user"
-                      ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white"
-                      : "bg-surface text-foreground shadow-[0_1px_3px_rgba(10,31,82,0.06)]"
-                  }`}
-                >
-                  {m.content}
+            messages.map((m, i) => {
+              const isLastAssistant = m.role === "assistant" && i === messages.length - 1;
+              return (
+                <div key={i} className={`flex flex-col gap-1.5 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                  <div
+                    className={`max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed ${
+                      m.role === "user"
+                        ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white"
+                        : "bg-surface text-foreground shadow-[0_1px_3px_rgba(10,31,82,0.06)]"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                  {m.metrics && m.metrics.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {m.metrics.map((metric, mi) => (
+                        <div key={mi} className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs">
+                          <span className="text-muted">{metric.label}: </span>
+                          <span className="font-semibold text-foreground">{metric.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {isLastAssistant && m.followUps && m.followUps.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {m.followUps.map((f, fi) => (
+                        <button
+                          key={fi}
+                          onClick={() => send(f)}
+                          disabled={sending}
+                          className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-muted-strong transition-colors hover:border-primary-blue hover:text-primary-blue disabled:opacity-60"
+                        >
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
           {sending ? (
             <div className="flex justify-start">

@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
   try {
     const isAdmin = session.user.role === "ADMIN";
     const teamLeaderId = session.user.role === "TEAM_LEADER" ? session.user.teamLeaderId : null;
-    const reply = await runFrostChat(messages, session.user.allowedPages, isAdmin, teamLeaderId);
-    return NextResponse.json({ reply });
+    const result = await runFrostChat(messages, session.user.allowedPages, isAdmin, teamLeaderId);
+    return NextResponse.json({ reply: result.text, metrics: result.metrics, followUps: result.followUps });
   } catch (err) {
     console.error("Frost chat failed", err);
     return NextResponse.json({ error: "Frost couldn't answer that — try again in a moment." }, { status: 500 });
