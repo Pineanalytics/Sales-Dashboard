@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { buildTlRanking, type RepRevenueInput } from "@/lib/tlRanking";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "\"repRevenue\", \"year\", and \"monthLabel\" are required." }, { status: 400 });
   }
 
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  if (scope && principalFilter && !scope.principals.includes(principalFilter)) {
+    return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
+  }
+
   const [assignments, teamLeaders, weeklyTargets] = await Promise.all([
     prisma.teamLeaderAssignment.findMany({
       select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true },
@@ -46,5 +52,8 @@ export async function POST(req: NextRequest) {
   ]);
 
   const result = buildTlRanking(repRevenue, assignments, teamLeaders, weeklyTargets, principalFilter ?? null);
-  return NextResponse.json(result);
+  if (!scope) return NextResponse.json(result);
+
+  const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+  return NextResponse.json({ rankings, unmatchedReps: [] });
 }

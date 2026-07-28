@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { fetchAllInChunks } from "@/lib/prismaPagination";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,14 +19,17 @@ export async function GET() {
   }
 
   try {
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+    const journeyPlanWhere = scope ? { principalCostCentre: { in: scope.principals }, employeeCode: { in: scope.employeeCodes } } : {};
+    const costCentreWhere = scope ? { costCentre: { in: scope.principals }, employeeCode: { in: scope.employeeCodes } } : {};
     // Ordered by id (the indexed primary key) for all three — the page re-sorts
     // everything client-side anyway, and none of these tables have an index covering
     // their old sort columns, which would force a re-sort of the whole table on every
     // chunk otherwise.
     const [journeyPlan, adherenceDaily, monthlySplit] = await Promise.all([
-      fetchAllInChunks((page) => prisma.journeyPlanRow.findMany({ orderBy: { id: "asc" }, ...page })),
-      fetchAllInChunks((page) => prisma.jPAdherenceDaily.findMany({ orderBy: { id: "asc" }, ...page })),
-      fetchAllInChunks((page) => prisma.jPMonthlySplitRow.findMany({ orderBy: { id: "asc" }, ...page })),
+      fetchAllInChunks((page) => prisma.journeyPlanRow.findMany({ where: journeyPlanWhere, orderBy: { id: "asc" }, ...page })),
+      fetchAllInChunks((page) => prisma.jPAdherenceDaily.findMany({ where: costCentreWhere, orderBy: { id: "asc" }, ...page })),
+      fetchAllInChunks((page) => prisma.jPMonthlySplitRow.findMany({ where: costCentreWhere, orderBy: { id: "asc" }, ...page })),
     ]);
     return NextResponse.json({ journeyPlan, adherenceDaily, monthlySplit });
   } catch (err) {

@@ -3,6 +3,7 @@ import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
+import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import type { Dataset, DatasetSnapshotSummary, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
@@ -221,6 +222,58 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
     overlayCoverage(dataset),
   ]);
   return { ...withTargets, monthlyPL: withPL.monthlyPL, monthlyCoverage: withCoverage.monthlyCoverage };
+}
+
+/** Restricts a Dataset to a set of principals (a TEAM_LEADER session's own
+ *  TeamLeaderAssignment-derived scope — see lib/teamLeaderScope.ts). Applied
+ *  once, here, at the single upstream source every analytics page/report
+ *  reads from — not threaded through lib/timeIntelligence.ts's many
+ *  summarizers, none of which need to change. `principalKeys` are already-
+ *  normalized (normalizePrincipalKey'd) values; every array is matched by
+ *  its own normalized key so raw-string spelling differences between
+ *  sources (Excel vs. Pine vs. SAP) don't cause false exclusions. stockTotal
+ *  is fully recomputed from the filtered stockItems (reusing parseWorkbook's
+ *  own weightedCoverDays/stockStatus formulas) rather than left as a stale
+ *  company-wide figure next to a scoped item table. */
+export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<string>): Dataset {
+  const monthlySales = dataset.monthlySales.filter((r) => principalKeys.has(r.principalKey));
+  const monthlyCoverage = dataset.monthlyCoverage.filter((r) => principalKeys.has(r.principalKey));
+  const monthlyBrandCustomer = dataset.monthlyBrandCustomer.filter((r) => principalKeys.has(r.principalKey));
+  const monthlyPL = dataset.monthlyPL.filter((r) => principalKeys.has(r.principalKey));
+  const weeklyProjection = dataset.weeklyProjection.filter((r) => principalKeys.has(normalizePrincipalKey(r.principal)));
+  const stockItems = dataset.stockItems.filter((i) => principalKeys.has(i.key));
+
+  let totalVolume = 0, totalPcs = 0, totalValue = 0, totalRRValue = 0, totalRRVolume = 0;
+  let totalOOS = 0, totalRunningOut = 0, totalOK = 0, totalNoData = 0;
+  for (const item of stockItems) {
+    totalVolume += item.openingVolume;
+    totalPcs += item.openingPcs;
+    totalValue += item.openingValue;
+    totalRRValue += item.rrWeekValue;
+    totalRRVolume += item.rrWeekVolume;
+    const tier = item.action.includes("\u{1F534}") ? "bad" : item.action.includes("\u{1F7E1}") ? "warn" : item.action.includes("\u{1F7E2}") ? "good" : "nodata";
+    if (tier === "bad") totalOOS += 1;
+    else if (tier === "warn") totalRunningOut += 1;
+    else if (tier === "good") totalOK += 1;
+    else totalNoData += 1;
+  }
+  const totalDays = weightedCoverDays(totalValue, totalRRValue);
+  const stockTotal = {
+    volume: totalVolume,
+    pcs: totalPcs,
+    value: totalValue,
+    rrWeekValue: totalRRValue,
+    rrWeekVolume: totalRRVolume,
+    daysStock: totalDays,
+    itemCount: stockItems.length,
+    outOfStockCount: totalOOS,
+    runningOutCount: totalRunningOut,
+    okCount: totalOK,
+    noDataCount: totalNoData,
+    action: stockStatus(totalDays, totalValue, totalRRValue),
+  };
+
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, weeklyProjection, stockItems, stockTotal };
 }
 
 async function loadLatestSnapshot(): Promise<Dataset | null> {

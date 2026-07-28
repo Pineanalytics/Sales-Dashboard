@@ -39,6 +39,22 @@ export default async function AdminUsersPage({
   const announcementSubject = announcementTemplate?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
   const announcementBody = announcementTemplate?.body ?? DEFAULT_ANNOUNCEMENT_BODY;
 
+  // One batch query for every Team Leader's principal/rep summary (not N+1 per row) —
+  // read-only surfacing of TeamLeaderAssignment data that's already fully editable on
+  // /admin/team-leaders; this page never mutates it.
+  const activeAssignments = await prisma.teamLeaderAssignment.findMany({
+    where: { active: true },
+    select: { teamLeaderId: true, principal: true, employeeCode: true },
+  });
+  const principalSummaryByTeamLeader = new Map<string, { principal: string; repCount: number }[]>();
+  for (const a of activeAssignments) {
+    const byPrincipal = principalSummaryByTeamLeader.get(a.teamLeaderId) ?? [];
+    const existing = byPrincipal.find((p) => p.principal === a.principal);
+    if (existing) existing.repCount += 1;
+    else byPrincipal.push({ principal: a.principal, repCount: 1 });
+    principalSummaryByTeamLeader.set(a.teamLeaderId, byPrincipal);
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(10,31,82,0.25)]">
@@ -345,7 +361,9 @@ export default async function AdminUsersPage({
                   </form>
                 </div>
 
-                {u.role === "VIEWER" ? (
+                {u.role === "ADMIN" ? (
+                  <span className="text-xs text-muted">Administrators always see every report.</span>
+                ) : (
                   <form action={updateUserPagesAction} className="flex flex-col gap-2">
                     <input type="hidden" name="userId" value={u.id} />
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Report visibility</span>
@@ -370,13 +388,38 @@ export default async function AdminUsersPage({
                       Save visibility
                     </button>
                   </form>
-                ) : u.role === "ADMIN" ? (
-                  <span className="text-xs text-muted">Administrators always see every report.</span>
-                ) : (
-                  <span className="text-xs text-muted">
-                    Team Leaders use <Link href="/weekly-targets" className="text-primary-blue hover:underline">Weekly Targets</Link>, scoped to their own team — not the report pages above.
-                  </span>
                 )}
+
+                {u.role === "TEAM_LEADER" ? (
+                  <div className="rounded-xl bg-background-elevated px-4 py-3 flex flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Principals &amp; reps</span>
+                    {!u.teamLeaderId ? (
+                      <span className="text-xs text-muted">No Team Leader linked yet — set one above to assign principals/reps.</span>
+                    ) : (
+                      (() => {
+                        const summary = principalSummaryByTeamLeader.get(u.teamLeaderId) ?? [];
+                        return summary.length === 0 ? (
+                          <span className="text-xs text-muted">Not assigned to any principal yet.</span>
+                        ) : (
+                          <span className="text-xs text-muted-strong">
+                            {summary.map((p) => `${p.principal} (${p.repCount} rep${p.repCount === 1 ? "" : "s"})`).join(", ")}
+                          </span>
+                        );
+                      })()
+                    )}
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <Link
+                        href={u.teamLeaderId ? `/admin/team-leaders?filterTeamLeader=${u.teamLeaderId}` : "/admin/team-leaders"}
+                        className="text-xs font-medium text-primary-blue hover:underline"
+                      >
+                        Manage assignments →
+                      </Link>
+                      <Link href="/weekly-targets" className="text-xs text-primary-blue hover:underline">
+                        Weekly Targets →
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

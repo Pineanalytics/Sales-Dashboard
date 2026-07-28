@@ -19,35 +19,10 @@ import { getWeeksInMonth } from "../weeklyTargets";
 import { buildTlRanking } from "../tlRanking";
 import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
+import { loadTeamLeaderScope, type TeamLeaderScope } from "../teamLeaderScope";
 
 const PERIOD_DESCRIPTION = "mtd = this month to date, qtd = this quarter to date, ytd = year to date, last_month = the prior calendar month.";
 const MAX_ROWS = 12;
-
-/** A Team Leader's own scope, resolved once per chat request from their active
- *  TeamLeaderAssignment rows — the join key set every principal/rep-scoped
- *  tool below filters against. `null` means "no restriction" (admin, or a
- *  VIEWER with page access but no team of their own). */
-export interface TeamLeaderScope {
-  teamLeaderId: string;
-  principals: string[];
-  employeeCodes: string[];
-  normalizedNames: Set<string>; // lowercased employeeName + sapName, for Dataset rows that only carry a name
-}
-
-export async function loadTeamLeaderScope(teamLeaderId: string): Promise<TeamLeaderScope> {
-  const assignments = await prisma.teamLeaderAssignment.findMany({
-    where: { teamLeaderId, active: true },
-    select: { principal: true, employeeCode: true, employeeName: true, sapName: true },
-  });
-  const principals = Array.from(new Set(assignments.map((a) => a.principal)));
-  const employeeCodes = Array.from(new Set(assignments.map((a) => a.employeeCode)));
-  const normalizedNames = new Set<string>();
-  for (const a of assignments) {
-    normalizedNames.add(a.employeeName.trim().toLowerCase());
-    if (a.sapName) normalizedNames.add(a.sapName.trim().toLowerCase());
-  }
-  return { teamLeaderId, principals, employeeCodes, normalizedNames };
-}
 
 function refusal(label: string) {
   return JSON.stringify({ error: `You're scoped to your own team's data — "${label}" isn't one of your assigned principals.` });

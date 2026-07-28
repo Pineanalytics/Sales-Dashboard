@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,14 +31,21 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(Date.UTC(Number(year), monthIndex, 1));
   const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 1));
 
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  if (scope && principal && !scope.principals.includes(principal)) {
+    return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
+  }
+  const principalWhere = principal ? { principal } : scope ? { principal: { in: scope.principals } } : {};
+
   const [weeklyTargets, dailyTargets] = await Promise.all([
     prisma.weeklyTarget.findMany({
-      where: { year, monthLabel, ...(principal ? { principal } : {}) },
+      where: { year, monthLabel, ...principalWhere, ...(scope ? { teamLeaderId: scope.teamLeaderId } : {}) },
       select: { weekLabel: true, weekStartDate: true, principal: true, targetValue: true },
     }),
     prisma.dailyTarget.findMany({
       where: {
-        ...(principal ? { principal } : {}),
+        ...principalWhere,
+        ...(scope ? { teamLeaderId: scope.teamLeaderId } : {}),
         date: { gte: monthStart, lt: monthEnd },
       },
       select: { date: true, principal: true, targetValue: true },

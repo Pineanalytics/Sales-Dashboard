@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +23,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "\"from\" and \"to\" (YYYY-MM-DD) are required." }, { status: 400 });
   }
 
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  if (scope && principal && !scope.principals.includes(principal)) {
+    return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
+  }
+
   const rows = await prisma.dailySalesActual.findMany({
     where: {
       date: { gte: new Date(from), lte: new Date(to) },
-      ...(principal ? { principal } : {}),
+      ...(principal ? { principal } : scope ? { principal: { in: scope.principals } } : {}),
     },
     select: { date: true, principal: true, revenue: true, cogs: true, grossProfit: true },
     orderBy: { date: "asc" },

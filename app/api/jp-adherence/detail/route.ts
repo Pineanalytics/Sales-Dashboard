@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,11 @@ export async function GET(req: NextRequest) {
   const date = new Date(dateParam);
   if (Number.isNaN(date.getTime())) {
     return NextResponse.json({ error: "Invalid date." }, { status: 400 });
+  }
+
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  if (scope && !scope.employeeCodes.includes(employeeCode)) {
+    return NextResponse.json({ error: "That rep isn't on your team." }, { status: 403 });
   }
 
   try {
