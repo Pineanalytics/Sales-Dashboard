@@ -1,6 +1,19 @@
 # Migration plan Step 7: DOMAIN is now the real domain (pinefrostdb.com),
 # so Caddy automatically requests and renews a real Let's Encrypt certificate
 # and serves HTTPS — no manual TLS config needed.
+#
+# Reverse-proxies to "pinefrost-app-1" (the container's own name), not the
+# Compose service alias "app" — field-forms-app (below) was later joined to
+# this same Docker network under an alias that ALSO resolves to "app",
+# so Docker's embedded DNS returned either container ambiguously for that
+# hostname and this domain intermittently served the wrong app. The
+# container's own name has no such collision.
 {$DOMAIN} {
-	reverse_proxy app:3000
+	reverse_proxy pinefrost-app-1:3000
+}
+
+# field-forms app (Latitude / Pinefrost multi-tenant forms), added alongside
+# the main pinefrost site. Separate container on the same Docker network.
+app.pinefrostdb.com {
+	reverse_proxy field-forms-app:3000
 }
