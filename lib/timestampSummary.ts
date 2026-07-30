@@ -122,8 +122,47 @@ function selectedRegionClause(filters: TimestampFilters): Prisma.Sql {
   return filters.region ? Prisma.sql`AND COALESCE(NULLIF(BTRIM(r.region), ''), 'Unassigned') = ${filters.region}` : EMPTY_SQL;
 }
 
-function selectedRoleClause(filters: TimestampFilters): Prisma.Sql {
-  return filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
+/**
+ * A principal-scoped Timestamps view keeps the rep's full working day so that
+ * first/last-call time remains meaningful.  Its role must nevertheless be
+ * determined by the selected principal, not by the individual no-sale call:
+ * a TDR who sells Mars is Secondary for that whole Mars rep-day, including
+ * calls which naturally have no cost centre of their own.
+ */
+export function principalScopedSalesRole(
+  employeeGroup: string,
+  employeeCode: string,
+  principalKey: string | null,
+  storedSalesRole: string
+): string {
+  if (!principalKey) return storedSalesRole;
+
+  const group = employeeGroup.trim().toUpperCase();
+  if (group === "DSR" && (employeeCode.trim() === "1172" || employeeCode.trim() === "1032")) {
+    return "Secondary Sales";
+  }
+  if (group === "TDR" && principalKey.trim().toLowerCase().startsWith("mars")) {
+    return "Secondary Sales";
+  }
+  return ["DSR", "TDR", "KAMS", "ADMIN"].includes(group) ? "Primary Sales" : "Secondary Sales";
+}
+
+function principalScopedSalesRoleExpression(principalKey: string | null): Prisma.Sql {
+  if (!principalKey) return Prisma.sql`r."salesRole"`;
+
+  const selectedMars = principalKey.trim().toLowerCase().startsWith("mars");
+  return Prisma.sql`
+    CASE
+      WHEN UPPER(BTRIM(r."employeeGroup")) = 'DSR' AND BTRIM(r."employeeCode") IN ('1172', '1032') THEN 'Secondary Sales'
+      WHEN UPPER(BTRIM(r."employeeGroup")) = 'TDR' AND ${selectedMars} THEN 'Secondary Sales'
+      WHEN UPPER(BTRIM(r."employeeGroup")) IN ('DSR', 'TDR', 'KAMS', 'ADMIN') THEN 'Primary Sales'
+      ELSE 'Secondary Sales'
+    END
+  `;
+}
+
+function selectedRoleClause(filters: TimestampFilters, salesRole: Prisma.Sql): Prisma.Sql {
+  return filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND ${salesRole} = ${filters.roleFilter}`;
 }
 
 function chartBucket(granularity: TimestampChartGranularity): Prisma.Sql {
@@ -148,7 +187,8 @@ export async function getTimestampSummary(
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
-  const roleClause = selectedRoleClause(filters);
+  const salesRole = principalScopedSalesRoleExpression(filters.principalKey);
+  const roleClause = selectedRoleClause(filters, salesRole);
   const salesExpression = filters.principalKey
     ? Prisma.sql`CASE WHEN string_to_array(COALESCE(r."costCentresBought", ''), ', ') @> ARRAY[${filters.principalKey}]::text[] THEN r.sales ELSE 0 END`
     : Prisma.sql`r.sales`;
@@ -177,7 +217,7 @@ export async function getTimestampSummary(
         r."employeeCode" AS "employeeCode",
         MAX(r."salesRep") AS "salesRep",
         MAX(r.region) AS region,
-        r."salesRole" AS "salesRole",
+        ${salesRole} AS "salesRole",
         MIN(r."callTime") AS "firstCall",
         MAX(r."callTime") AS "lastCall",
         ROUND((EXTRACT(EPOCH FROM MAX(r."callTime") - MIN(r."callTime")) / 3600)::numeric, 2)::double precision AS "hoursInDay",
@@ -188,12 +228,12 @@ export async function getTimestampSummary(
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
         COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
       ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
-      GROUP BY r.date, r."employeeCode", r."salesRole"
+      GROUP BY r.date, r."employeeCode", ${salesRole}
       ORDER BY date, "salesRep", "salesRole"
     `),
     prisma.$queryRaw<MetricRow[]>(Prisma.sql`
       SELECT
-        CASE WHEN GROUPING(r."salesRole") = 1 THEN NULL ELSE r."salesRole" END AS "salesRole",
+        CASE WHEN GROUPING(${salesRole}) = 1 THEN NULL ELSE ${salesRole} END AS "salesRole",
         COUNT(*)::integer AS "totalCalls",
         COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale')::integer AS "productiveCalls",
         COALESCE(ROUND((COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1)::double precision, 0) AS "strikeRate",
@@ -201,12 +241,12 @@ export async function getTimestampSummary(
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
         COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
       ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
-      GROUP BY GROUPING SETS ((r."salesRole"), ())
+      GROUP BY GROUPING SETS ((${salesRole}), ())
     `),
     prisma.$queryRaw<ChartRow[]>(Prisma.sql`
-      SELECT ${bucket} AS bucket, r."salesRole" AS "salesRole", COUNT(*)::integer AS calls
+      SELECT ${bucket} AS bucket, ${salesRole} AS "salesRole", COUNT(*)::integer AS calls
       ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
-      GROUP BY 1, r."salesRole"
+      GROUP BY 1, 2
       ORDER BY bucket, "salesRole"
     `),
   ]);
