@@ -6,7 +6,6 @@ import { OverviewView } from "@/components/views/OverviewView";
 import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
 import { TopPerformers } from "@/components/overview/TopPerformers";
-import { AiInsightsCard } from "@/components/dashboard/AiInsightsCard";
 import { WeekDailyActuals } from "@/components/dashboard/WeekDailyActuals";
 import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
@@ -78,7 +77,6 @@ export default function DashboardPage() {
 
       {tab === "mtd" ? (
         <>
-          <AiInsightsCard />
           <OverviewView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
 
           <DayNameFilter />

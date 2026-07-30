@@ -5,6 +5,8 @@
 // user's DB row maps onto routes with no separate translation table.
 
 export const ALL_PAGE_KEYS = [
+  "frost",
+  "insights",
   "dashboard",
   "sales",
   "time-intelligence",
@@ -17,7 +19,6 @@ export const ALL_PAGE_KEYS = [
   "timestamps",
   "jp-adherence",
   "reports",
-  "frost",
 ] as const;
 
 export type PageKey = (typeof ALL_PAGE_KEYS)[number];
@@ -26,6 +27,8 @@ export type PageKey = (typeof ALL_PAGE_KEYS)[number];
 // icons too, so isn't reused directly here to avoid a server-page → "use
 // client" module import).
 export const PAGE_LABELS: Record<PageKey, string> = {
+  frost: "Frost",
+  insights: "Insights",
   dashboard: "Executive Overview",
   sales: "Sales Performance",
   "time-intelligence": "Time Intelligence",
@@ -38,7 +41,6 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   timestamps: "Timestamps",
   "jp-adherence": "JP Adherence",
   reports: "Reports",
-  frost: "Frost",
 };
 
 export function isPageKey(value: string): value is PageKey {

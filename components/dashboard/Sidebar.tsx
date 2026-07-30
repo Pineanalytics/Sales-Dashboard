@@ -23,6 +23,7 @@ import {
   CalendarCheckmark20Regular,
   TargetArrow20Regular,
   Sparkle20Regular,
+  Lightbulb20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -34,7 +35,12 @@ interface NavItem {
   icon: FluentIcon;
 }
 
+// Frost + Insights lead the list (quick, AI-assisted entry points, grouped
+// near the Header's History control) — the rest of the report pages follow
+// in their original order.
 const NAV_ITEMS: NavItem[] = [
+  { href: "/frost", label: "Frost", icon: Sparkle20Regular },
+  { href: "/insights", label: "Insights", icon: Lightbulb20Regular },
   { href: "/dashboard", label: "Executive Overview", icon: Board20Regular },
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/time-intelligence", label: "Time Intelligence", icon: DataLine20Regular },
@@ -47,7 +53,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
   { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
-  { href: "/frost", label: "Frost", icon: Sparkle20Regular },
 ];
 
 export function Sidebar({ user }: { user?: Session["user"] | null }) {

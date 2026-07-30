@@ -42,7 +42,7 @@ export function AiInsightsCard() {
 
   if (status === "loading") {
     return (
-      <SectionCard title="AI Insights">
+      <SectionCard title="Insights">
         <div className="flex items-center justify-center py-6">
           <Spinner className="h-5 w-5" />
         </div>
@@ -52,7 +52,7 @@ export function AiInsightsCard() {
 
   if (status === "error" || !insight) {
     return (
-      <SectionCard title="AI Insights" action={<Sparkle20Regular className="h-4 w-4 text-muted" />}>
+      <SectionCard title="Insights" action={<Sparkle20Regular className="h-4 w-4 text-muted" />}>
         <p className="px-1 py-2 text-xs text-muted">
           {status === "error" ? "Couldn't load AI insights." : "No digest generated yet — the daily job runs automatically."}
         </p>
@@ -62,7 +62,7 @@ export function AiInsightsCard() {
 
   return (
     <SectionCard
-      title="AI Insights"
+      title="Insights"
       action={<span className="text-xs text-muted">{new Date(insight.generatedAt).toLocaleString()}</span>}
     >
       <p className="px-1 text-sm text-foreground leading-relaxed">{insight.summary}</p>
