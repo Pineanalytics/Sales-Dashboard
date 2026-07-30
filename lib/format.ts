@@ -51,6 +51,16 @@ export function productivityTier(pct: number | null | undefined): Tier {
   return "bad";
 }
 
+/** Operational call strike-rate policy: 75%+ is green, 50.0%-74.9% is
+ * amber, and anything below 50% requires attention. Kept separate from the
+ * broader productivity tier because those dashboards have different targets. */
+export function strikeRateTier(pct: number | null | undefined): Tier {
+  if (pct === null || pct === undefined) return "neutral";
+  if (pct >= 75) return "good";
+  if (pct >= 50) return "warn";
+  return "bad";
+}
+
 export function daysCoverTier(days: number | null | undefined): Tier {
   if (days === null || days === undefined) return "neutral";
   if (days < 7) return "bad";

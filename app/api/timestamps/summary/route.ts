@@ -36,6 +36,15 @@ function parseGranularity(raw: string | null): TimestampChartGranularity | NextR
   return NextResponse.json({ error: '"granularity" must be Hourly, Daily, or Weekly.' }, { status: 400 });
 }
 
+function parseRegion(raw: string | null): string | null | NextResponse {
+  if (!raw) return null;
+  const region = raw.trim();
+  if (!region || region.length > 100) {
+    return NextResponse.json({ error: '"region" must be between 1 and 100 characters.' }, { status: 400 });
+  }
+  return region;
+}
+
 /** Compact server-side aggregate for the Timestamps dashboard. The full call
  * detail remains available through /api/timestamps for report exports, while
  * the interactive page receives only the KPI, chart, filter, and rep-day data
@@ -52,10 +61,12 @@ export async function GET(req: NextRequest) {
   if (roleFilter instanceof NextResponse) return roleFilter;
   const chartGranularity = parseGranularity(req.nextUrl.searchParams.get("granularity"));
   if (chartGranularity instanceof NextResponse) return chartGranularity;
+  const region = parseRegion(req.nextUrl.searchParams.get("region"));
+  if (region instanceof NextResponse) return region;
 
   const principalKey = req.nextUrl.searchParams.get("principal")?.trim() || null;
   const employeeCode = req.nextUrl.searchParams.get("rep")?.trim() || null;
-  const filters: TimestampFilters = { principalKey, date, employeeCode, roleFilter, chartGranularity };
+  const filters: TimestampFilters = { principalKey, date, employeeCode, region, roleFilter, chartGranularity };
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);

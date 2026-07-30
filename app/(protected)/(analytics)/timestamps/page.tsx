@@ -6,12 +6,11 @@ import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regul
 import { useDashboardStore } from "@/lib/store";
 import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
 import { SectionCard } from "@/components/ui/KpiGrid";
-import { Badge } from "@/components/ui/Badge";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
-import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
+import { formatCompact, formatNumber, formatPercent, strikeRateTier } from "@/lib/format";
 import { closingStatus, compareTimeManagementRows, firstCallStatus, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
@@ -50,6 +49,7 @@ interface ChartRow {
 interface TimestampSummaryResponse {
   availableDates: string[];
   availableReps: { employeeCode: string; salesRep: string }[];
+  availableRegions: string[];
   primaryStats: RoleStats;
   secondaryStats: RoleStats;
   overall: RoleStats;
@@ -106,6 +106,23 @@ function closingStatusClass(status: ClosingStatus): string {
   return "text-muted";
 }
 
+function strikeRateTextClass(strikeRate: number): string {
+  const tier = strikeRateTier(strikeRate);
+  if (tier === "good") return "text-emerald-600";
+  if (tier === "warn") return "text-amber-600";
+  return "text-red-600";
+}
+
+function StrikeRateBadge({ strikeRate }: { strikeRate: number }) {
+  const tier = strikeRateTier(strikeRate);
+  const className = tier === "good"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : tier === "warn"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : "border-red-200 bg-red-50 text-red-700";
+  return <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${className}`}>{strikeRate.toFixed(1)}%</span>;
+}
+
 function chartBuckets(rows: ChartRow[], granularity: "Hourly" | "Daily" | "Weekly") {
   if (granularity === "Hourly") {
     const buckets = Array.from({ length: 24 }, (_, hour) => ({ name: hourLabel(hour), Primary: 0, Secondary: 0 }));
@@ -152,7 +169,7 @@ function SalesRoleSnapshot({ title, stats, tone }: { title: string; stats: RoleS
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <CompactMetric label="Calls" value={formatNumber(stats.totalCalls)} />
         <CompactMetric label="Productive" value={formatNumber(stats.productiveCalls)} />
-        <CompactMetric label="Strike rate" value={formatPercent(stats.strikeRate)} valueClass={tierTextClass[productivityTier(stats.strikeRate)]} />
+        <CompactMetric label="Strike rate" value={formatPercent(stats.strikeRate)} valueClass={strikeRateTextClass(stats.strikeRate)} />
         <CompactMetric label="Outlets" value={formatNumber(stats.outletsCovered)} />
         <CompactMetric label="Avg interval" value={stats.avgIntervalMins !== null ? `${stats.avgIntervalMins.toFixed(0)}m` : "--"} />
         <CompactMetric label="Sales" value={formatCompact(stats.sales)} />
@@ -165,9 +182,11 @@ export default function TimestampsPage() {
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [summary, setSummary] = useState<TimestampSummaryResponse | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
@@ -183,6 +202,7 @@ export default function TimestampsPage() {
     if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
     if (selectedDate) params.set("date", selectedDate);
     if (selectedRep) params.set("rep", selectedRep);
+    if (selectedRegion) params.set("region", selectedRegion);
 
     (async () => {
       try {
@@ -203,7 +223,7 @@ export default function TimestampsPage() {
     })();
 
     return () => controller.abort();
-  }, [selectedPrincipalKey, selectedDate, selectedRep, roleFilter, chartGranularity, refreshRevision]);
+  }, [selectedPrincipalKey, selectedDate, selectedRep, selectedRegion, roleFilter, chartGranularity, refreshRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,7 +267,10 @@ export default function TimestampsPage() {
   });
   const visibleSummaries = timeManagementSummaries.slice(0, summaryLimit);
   const buckets = chartBuckets(summary.chartRows, chartGranularity);
-  const reportMonthLabel = summary.availableDates.length ? formatMonthLabel(summary.availableDates[summary.availableDates.length - 1]) : "current month";
+  const availableMonths = Array.from(new Set(summary.availableDates.map((date) => date.slice(0, 7)))).sort();
+  const datesForSelectedMonth = selectedMonth ? summary.availableDates.filter((date) => date.startsWith(selectedMonth)) : summary.availableDates;
+  const selectedMonthLabel = selectedMonth ? formatMonthLabel(`${selectedMonth}-01`) : null;
+  const reportMonthLabel = selectedMonthLabel ?? (availableMonths.length === 1 ? formatMonthLabel(`${availableMonths[0]}-01`) : "available months");
   const reportDateLabel = selectedDate ? formatDateLabel(selectedDate) : `All ${reportMonthLabel}`;
   const reportRoleLabel = roleFilter === "all" ? "All roles" : roleFilter;
 
@@ -257,10 +280,30 @@ export default function TimestampsPage() {
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month / date</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month</span>
             <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
               <select
-                aria-label="Month and date"
+                aria-label="Month"
+                value={selectedMonth ?? ""}
+                onChange={(event) => {
+                  setSelectedMonth(event.target.value || null);
+                  setSelectedDate(null);
+                  setSelectedRep(null);
+                  setRepQuery("");
+                  setSummaryLimit(SUMMARY_PAGE_SIZE);
+                }}
+                className="max-w-[180px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+              >
+                <option value="">All months</option>
+                {availableMonths.map((month) => <option key={month} value={month}>{formatMonthLabel(`${month}-01`)}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Date</span>
+            <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+              <select
+                aria-label="Date"
                 value={selectedDate ?? ""}
                 onChange={(event) => {
                   setSelectedDate(event.target.value || null);
@@ -268,10 +311,10 @@ export default function TimestampsPage() {
                   setRepQuery("");
                   setSummaryLimit(SUMMARY_PAGE_SIZE);
                 }}
-                className="max-w-[180px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+                className="max-w-[160px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
               >
-                <option value="">All {reportMonthLabel}</option>
-                {[...summary.availableDates].reverse().map((date) => <option key={date} value={date}>{formatDateLabel(date)}</option>)}
+                <option value="">All {selectedMonthLabel ?? "dates"}</option>
+                {[...datesForSelectedMonth].reverse().map((date) => <option key={date} value={date}>{formatDateLabel(date)}</option>)}
               </select>
             </div>
           </div>
@@ -321,7 +364,7 @@ export default function TimestampsPage() {
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales role</span>
-            <RoleToggle value={roleFilter} onChange={(role) => { setRoleFilter(role); setSummaryLimit(SUMMARY_PAGE_SIZE); }} />
+            <RoleToggle value={roleFilter} onChange={(role) => { setRoleFilter(role); setSelectedRep(null); setRepQuery(""); setSelectedRegion(null); setSummaryLimit(SUMMARY_PAGE_SIZE); }} />
           </div>
           <span className="mb-1 ml-auto text-xs text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatTime12h(summary.syncUpdatedAt)}` : ""}</span>
         </div>
@@ -372,13 +415,32 @@ export default function TimestampsPage() {
           <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs text-muted">
             <span><strong className="font-semibold text-muted-strong">Date:</strong> {reportDateLabel}</span>
             <span><strong className="font-semibold text-muted-strong">Sales role:</strong> {reportRoleLabel}</span>
+            {selectedRegion ? <span><strong className="font-semibold text-muted-strong">Region:</strong> {selectedRegion}</span> : null}
             {selectedRepName ? <span><strong className="font-semibold text-muted-strong">Rep:</strong> {selectedRepName}</span> : null}
-            {selectedPrincipalKey ? <span><strong className="font-semibold text-muted-strong">Principal:</strong> {selectedPrincipalKey}</span> : null}
+            {selectedPrincipalKey ? <span><span className="font-semibold text-muted-strong">Principal:</span> <strong className="font-bold text-foreground">{selectedPrincipalKey}</strong></span> : null}
           </div>
         }
       >
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="mr-1 text-xs font-semibold text-primary-blue">Time management</span>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-elevated px-3 py-1.5">
+            <label htmlFor="timestamp-region" className="text-[10px] font-semibold uppercase tracking-wide text-muted">Region</label>
+            <select
+              id="timestamp-region"
+              aria-label="Region"
+              value={selectedRegion ?? ""}
+              onChange={(event) => {
+                setSelectedRegion(event.target.value || null);
+                setSelectedRep(null);
+                setRepQuery("");
+                setSummaryLimit(SUMMARY_PAGE_SIZE);
+              }}
+              className="max-w-[150px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+            >
+              <option value="">All regions</option>
+              {summary.availableRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+            </select>
+          </div>
           <button onClick={() => { setTimeManagementFilter("all"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}>
             All reps
           </button>
@@ -392,7 +454,7 @@ export default function TimestampsPage() {
         </div>
         <TableWrap>
           <Thead>
-            <Th>Sales Rep</Th><Th>Region</Th><Th>First Call</Th><Th>Start Status</Th><Th>Last Call</Th><Th>Closing Remark</Th>
+            <Th>Sales Rep</Th><Th>First Call</Th><Th>Start Status</Th><Th>Last Call</Th><Th>Closing Remark</Th>
             <Th align="right">Hours in Day</Th><Th align="right">Calls Made</Th><Th align="right">Productive</Th><Th align="center">Strike Rate</Th><Th align="right">Outlets Covered</Th><Th align="right">Avg Interval (mins)</Th><Th align="right">Sales</Th>
           </Thead>
           <tbody>
@@ -401,19 +463,19 @@ export default function TimestampsPage() {
               const closeStatus = closingStatus(row.date, row.lastCall);
               return (
                 <tr key={`${row.date}|${row.employeeCode}|${row.salesRole}`}>
-                  <Td>{row.salesRep}</Td><Td>{row.region}</Td>
+                  <Td>{row.salesRep}</Td>
                   <Td><span className={`inline-flex items-center gap-1 font-semibold ${timeStatusClass(startStatus)}`}>{startStatus === "late" ? <Warning20Regular /> : startStatus === "on-time" ? <ThumbLike20Regular /> : null}{formatTime12h(row.firstCall)}</span></Td>
                   <Td><span className={`text-xs font-semibold ${timeStatusClass(startStatus)}`}>{timeStatusLabel(startStatus)}</span></Td>
                   <Td><span className={`font-semibold ${closingStatusClass(closeStatus)}`}>{formatTime12h(row.lastCall)}</span></Td>
                   <Td><span className={`inline-flex items-center gap-1 text-xs font-semibold ${closingStatusClass(closeStatus)}`}>{closeStatus === "closed-early" ? <Warning20Regular /> : closeStatus === "closed-on-time" ? <ThumbLike20Regular /> : null}{closingStatusLabel(closeStatus)}</span></Td>
                   <Td align="right">{row.hoursInDay.toFixed(1)}</Td><Td align="right">{formatNumber(row.callsMade)}</Td><Td align="right">{formatNumber(row.productiveCalls)}</Td>
-                  <Td align="center"><Badge tier={productivityTier(row.strikeRatePct)}>{row.strikeRatePct.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
+                  <Td align="center"><StrikeRateBadge strikeRate={row.strikeRatePct} /></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
                 </tr>
               );
             })}
             <TotalRow>
-              <Td>Total</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td align="right">--</Td>
-              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><Badge tier={productivityTier(summary.overall.strikeRate)}>{summary.overall.strikeRate.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
+              <Td>Total</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td align="right">--</Td>
+              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><StrikeRateBadge strikeRate={summary.overall.strikeRate} /></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>

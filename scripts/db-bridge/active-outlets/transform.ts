@@ -95,7 +95,10 @@ const MARS_COST_CENTRE = "mars";
 export function classifySalesRole(userGroup: string, userId: string, costCentre: string): "Primary Sales" | "Secondary Sales" {
   const group = userGroup.trim().toUpperCase();
   const isPrimaryGroup = PRIMARY_GROUPS.has(group);
-  const excludedTdrMars = group === "TDR" && costCentre.trim().toLowerCase().startsWith(MARS_COST_CENTRE);
+  // A TDR call can contain several Cost Centres. Treat the whole call as
+  // Secondary when any product in that basket belongs to Mars, rather than
+  // letting whichever product happened to be processed first decide its role.
+  const excludedTdrMars = group === "TDR" && costCentre.split(",").some((centre) => centre.trim().toLowerCase().startsWith(MARS_COST_CENTRE));
   const excludedDsrCode = group === "DSR" && SECONDARY_DSR_CODES.has(userId.trim());
   return isPrimaryGroup && !excludedTdrMars && !excludedDsrCode ? "Primary Sales" : "Secondary Sales";
 }
@@ -426,7 +429,6 @@ export function buildRepCalls(
     sales: number;
     qty: number;
     costCentres: Set<string>;
-    salesRole: "Primary Sales" | "Secondary Sales" | null;
     noSaleReason: string | null;
   }
   const byKey = new Map<string, CallAgg>();
@@ -451,7 +453,6 @@ export function buildRepCalls(
         sales: 0,
         qty: 0,
         costCentres: new Set(),
-        salesRole: e.salesRole,
         noSaleReason: null,
       };
       byKey.set(k, agg);
@@ -479,7 +480,6 @@ export function buildRepCalls(
         sales: 0,
         qty: 0,
         costCentres: new Set(),
-        salesRole: null,
         noSaleReason: v.noSaleReason,
       };
       byKey.set(k, agg);
@@ -519,7 +519,8 @@ export function buildRepCalls(
       const intervalMins = previousCallTime ? Math.round(((w.callTime.getTime() - previousCallTime.getTime()) / 60000) * 10) / 10 : null;
       previousCallTime = w.callTime;
 
-      const salesRole = w.agg.salesRole ?? classifySalesRole(user?.userGroup ?? "", w.agg.userId, "");
+      const costCentresBought = Array.from(w.agg.costCentres).sort().join(", ");
+      const salesRole = classifySalesRole(user?.userGroup ?? "", w.agg.userId, costCentresBought);
 
       rows.push({
         date: w.agg.date,
@@ -537,7 +538,7 @@ export function buildRepCalls(
         channel: outlet ? resolveChannel(outlet.subChannel, outlet.sourceChannel) : "Retail",
         subChannel: outlet?.subChannel ?? "Unknown",
         territory: outlet?.territory ?? "Unassigned",
-        costCentresBought: Array.from(w.agg.costCentres).sort().join(", "),
+        costCentresBought,
         intervalMins,
         documents,
         sales: Math.round(w.agg.sales * 100) / 100,

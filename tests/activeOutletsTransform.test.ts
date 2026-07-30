@@ -50,6 +50,10 @@ describe("classifySalesRole", () => {
     expect(classifySalesRole("TDR", "999", "Bic-Nairobi")).toBe("Primary Sales");
   });
 
+  it("keeps a TDR Secondary when a mixed basket includes Mars", () => {
+    expect(classifySalesRole("TDR", "999", "Bic-Nairobi, Mars-Nairobi")).toBe("Secondary Sales");
+  });
+
   it("DSR employee codes 1172 and 1032 are Secondary Sales regardless of Cost Centre", () => {
     expect(classifySalesRole("DSR", "1172", "Bic-Nairobi")).toBe("Secondary Sales");
     expect(classifySalesRole("DSR", "1032", "Bic-Nairobi")).toBe("Secondary Sales");
@@ -235,5 +239,24 @@ describe("buildActiveOutletsMonthly — distinct outlets, never summed across mo
     const feb = monthly.find((m) => m.month === "February");
     expect(jan?.distinctOutlets).toBe(1);
     expect(feb?.distinctOutlets).toBe(2);
+  });
+});
+
+describe("buildRepCalls sales-role assignment", () => {
+  it("uses all products on a call when assigning a TDR sales role", () => {
+    const outlets = [outlet({ id: "1" })];
+    const users = [user({ id: "1", userGroup: "TDR" })];
+    const products = [product({ id: "1", sapCode: "BIC12345" }), product({ id: "2", sapCode: "MARS12345" })];
+    const lines = [
+      factLine({ docId: "100", itemId: "1", purchaseTime: new Date("2026-07-10T09:00:00Z") }),
+      factLine({ docId: "101", itemId: "2", purchaseTime: new Date("2026-07-10T09:30:00Z") }),
+    ];
+
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, products, PRINCIPALS);
+    const calls = buildRepCalls(events, [], outlets, users);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].costCentresBought).toBe("Bic-Nairobi, Mars-Nairobi");
+    expect(calls[0].salesRole).toBe("Secondary Sales");
   });
 });
