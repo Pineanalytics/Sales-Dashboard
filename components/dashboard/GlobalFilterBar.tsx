@@ -1,6 +1,7 @@
 "use client";
 
 import { Broom20Regular } from "@fluentui/react-icons";
+import { usePathname } from "next/navigation";
 import { useDashboardStore } from "@/lib/store";
 import { PeriodSelector } from "./PeriodSelector";
 import { PrincipalSelector } from "./PrincipalSelector";
@@ -9,12 +10,16 @@ import { PrincipalSelector } from "./PrincipalSelector";
  *  every analytics page. Principal selection used to live in the Sidebar;
  *  it's a filter, not navigation, so it belongs here instead. */
 export function GlobalFilterBar() {
+  const pathname = usePathname();
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
 
-  if (!dataset) return null;
+  // Timestamps owns a compact report-specific control bar, where its rep,
+  // date, role, and principal filters need to sit together. Keeping this
+  // shared bar there would duplicate the principal control and waste a row.
+  if (!dataset || pathname === "/timestamps") return null;
 
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">

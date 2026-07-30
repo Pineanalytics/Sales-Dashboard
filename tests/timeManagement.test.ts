@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareTimeManagementRows, firstCallStatus, nairobiMinutesAfterMidnight } from "../lib/timeManagement";
+import { closingStatus, compareTimeManagementRows, firstCallStatus, nairobiMinutesAfterMidnight } from "../lib/timeManagement";
 
 describe("first-call time-management policy", () => {
   it("uses Africa/Nairobi time rather than the browser timezone", () => {
@@ -27,5 +27,22 @@ describe("first-call time-management policy", () => {
     ];
 
     expect(rows.sort(compareTimeManagementRows).map((row) => row.salesRep)).toEqual(["Late at 10", "Late at 9:30", "Grace", "Early", "On time"]);
+  });
+});
+
+describe("last-call closing policy", () => {
+  const middayNairobi = new Date("2026-07-31T09:00:00.000Z");
+
+  it("marks elapsed days closed before 4:00 PM as early", () => {
+    expect(closingStatus("2026-07-30", "2026-07-30T12:59:00.000Z", middayNairobi)).toBe("closed-early");
+  });
+
+  it("accepts a 4:00 PM or later last call on elapsed days", () => {
+    expect(closingStatus("2026-07-30", "2026-07-30T13:00:00.000Z", middayNairobi)).toBe("closed-on-time");
+  });
+
+  it("does not assess the current or a future day before it has elapsed", () => {
+    expect(closingStatus("2026-07-31", "2026-07-31T08:00:00.000Z", middayNairobi)).toBe("day-in-progress");
+    expect(closingStatus("2026-08-01", "2026-08-01T08:00:00.000Z", middayNairobi)).toBe("not-due");
   });
 });

@@ -2,19 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Clock20Regular, Dismiss12Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
+import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
-import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
-import { AnimatedValue } from "@/components/ui/AnimatedValue";
+import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
-import { compareTimeManagementRows, firstCallStatus, type TimeManagementStatus } from "@/lib/timeManagement";
+import { closingStatus, compareTimeManagementRows, firstCallStatus, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 interface RoleStats {
@@ -62,14 +60,18 @@ interface TimestampSummaryResponse {
 
 type TimeManagementFilter = "all" | "attention" | "thumbs-up";
 
-const SUMMARY_PAGE_SIZE = 100;
+const SUMMARY_PAGE_SIZE = 50;
 
 function formatTime12h(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", { timeZone: "Africa/Nairobi", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 function formatDateLabel(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "numeric", month: "short" });
+  return new Date(`${dateStr}T12:00:00.000Z`).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "numeric", month: "short" });
+}
+
+function formatMonthLabel(dateStr: string): string {
+  return new Date(`${dateStr}T12:00:00.000Z`).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", month: "long", year: "numeric" });
 }
 
 function hourLabel(hour: number): string {
@@ -87,6 +89,20 @@ function timeStatusLabel(status: TimeManagementStatus): string {
 function timeStatusClass(status: TimeManagementStatus): string {
   if (status === "late") return "text-red-600";
   if (status === "on-time") return "text-emerald-600";
+  return "text-muted";
+}
+
+function closingStatusLabel(status: ClosingStatus): string {
+  if (status === "closed-early") return "Closed before 4:00 PM";
+  if (status === "closed-on-time") return "Closed 4:00 PM+";
+  if (status === "day-in-progress") return "Day still in progress";
+  if (status === "not-due") return "Not due yet";
+  return "Time unavailable";
+}
+
+function closingStatusClass(status: ClosingStatus): string {
+  if (status === "closed-early") return "text-red-600";
+  if (status === "closed-on-time") return "text-emerald-600";
   return "text-muted";
 }
 
@@ -114,6 +130,35 @@ function chartBuckets(rows: ChartRow[], granularity: "Hourly" | "Daily" | "Weekl
   return Array.from(byBucket.entries())
     .sort(([a], [b]) => (granularity === "Daily" ? a.localeCompare(b) : Number(a) - Number(b)))
     .map(([, bucket]) => bucket);
+}
+
+function CompactMetric({ label, value, valueClass = "" }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/70 bg-surface px-2.5 py-2">
+      <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+      <div className={`mt-0.5 truncate text-base font-semibold tabular-nums text-brand-navy ${valueClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function SalesRoleSnapshot({ title, stats, tone }: { title: string; stats: RoleStats; tone: "primary" | "secondary" }) {
+  const iconClass = tone === "primary" ? "bg-primary-blue/10 text-primary-blue" : "bg-secondary-blue/10 text-secondary-blue";
+  return (
+    <div className="rounded-xl border border-border bg-background-elevated/35 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${iconClass}`}><PeopleTeam20Regular className="h-4 w-4" /></span>
+        <span className="text-sm font-semibold text-brand-navy">{title}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <CompactMetric label="Calls" value={formatNumber(stats.totalCalls)} />
+        <CompactMetric label="Productive" value={formatNumber(stats.productiveCalls)} />
+        <CompactMetric label="Strike rate" value={formatPercent(stats.strikeRate)} valueClass={tierTextClass[productivityTier(stats.strikeRate)]} />
+        <CompactMetric label="Outlets" value={formatNumber(stats.outletsCovered)} />
+        <CompactMetric label="Avg interval" value={stats.avgIntervalMins !== null ? `${stats.avgIntervalMins.toFixed(0)}m` : "--"} />
+        <CompactMetric label="Sales" value={formatCompact(stats.sales)} />
+      </div>
+    </div>
+  );
 }
 
 export default function TimestampsPage() {
@@ -169,7 +214,7 @@ export default function TimestampsPage() {
         if (!res.ok || cancelled || !hasLoadedSummaryRef.current || body.syncUpdatedAt === lastSeenSyncRef.current) return;
         setRefreshRevision((revision) => revision + 1);
       } catch {
-        // The currently displayed aggregate remains usable; retry on the next check.
+        // Keep the current aggregate visible and retry on the next check.
       }
     };
     void checkForUpdates();
@@ -180,24 +225,12 @@ export default function TimestampsPage() {
     };
   }, []);
 
-  if (status === "loading") return <FullPageSpinner label="Loading Timestamps…" />;
+  if (status === "loading") return <FullPageSpinner label="Loading Timestamps..." />;
   if (status === "error" || !summary) {
-    return (
-      <EmptyState
-        icon={<Clock20Regular className="h-10 w-10" />}
-        title="Couldn't load Timestamps"
-        description="Try refreshing the page. If this keeps happening, the direct-SQL sync may be behind schedule."
-      />
-    );
+    return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Couldn't load Timestamps" description="Try refreshing the page. If this keeps happening, the direct-SQL sync may be behind schedule." />;
   }
   if (summary.summaries.length === 0 && summary.availableDates.length === 0) {
-    return (
-      <EmptyState
-        icon={<Clock20Regular className="h-10 w-10" />}
-        title="No call activity recorded yet this month"
-        description="This page reflects the current calendar month and refreshes automatically from the direct-SQL sync every five minutes."
-      />
-    );
+    return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded yet this month" description="This page reflects the current calendar month and refreshes automatically from the direct-SQL sync every five minutes." />;
   }
 
   const availableReps = summary.availableReps;
@@ -214,129 +247,83 @@ export default function TimestampsPage() {
   });
   const visibleSummaries = timeManagementSummaries.slice(0, summaryLimit);
   const buckets = chartBuckets(summary.chartRows, chartGranularity);
+  const reportMonthLabel = summary.availableDates.length ? formatMonthLabel(summary.availableDates[summary.availableDates.length - 1]) : "current month";
+  const reportDateLabel = selectedDate ? formatDateLabel(selectedDate) : `All ${reportMonthLabel}`;
+  const reportRoleLabel = roleFilter === "all" ? "All roles" : roleFilter;
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard action={<span className="text-xs text-muted">Current calendar month only · Summary-first loading</span>}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-          <div className="shrink-0">
-            <DateCalendarPicker
-              availableDates={summary.availableDates}
-              selectedDate={selectedDate}
-              onSelectDate={(date) => {
-                setSelectedDate(date);
-                setSelectedRep(null);
-                setRepQuery("");
-                setSummaryLimit(SUMMARY_PAGE_SIZE);
-              }}
-              allLabel="All Month"
-            />
-          </div>
-          <div className="h-auto w-px shrink-0 self-stretch bg-border/60 max-lg:hidden" />
-          <div className="flex flex-1 flex-wrap items-start gap-4">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales Role</span>
-              <RoleToggle
-                value={roleFilter}
-                onChange={(role) => {
-                  setRoleFilter(role);
+      <SectionCard title="Timestamps" action={<span className="text-xs text-muted">Current month · summary-first loading</span>}>
+        <div className="flex flex-wrap items-end gap-3">
+          <PrincipalSelector />
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month / date</span>
+            <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+              <select
+                aria-label="Month and date"
+                value={selectedDate ?? ""}
+                onChange={(event) => {
+                  setSelectedDate(event.target.value || null);
+                  setSelectedRep(null);
+                  setRepQuery("");
                   setSummaryLimit(SUMMARY_PAGE_SIZE);
                 }}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by Rep</span>
-              <div className="relative w-56">
-                <input
-                  value={selectedRep ? selectedRepName ?? "" : repQuery}
-                  onChange={(event) => {
-                    setRepQuery(event.target.value);
-                    setSelectedRep(null);
-                    setRepDropdownOpen(true);
-                  }}
-                  onFocus={() => setRepDropdownOpen(true)}
-                  onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
-                  placeholder="Search reps…"
-                  className="w-full rounded-full border border-border bg-surface px-3.5 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-secondary-blue"
-                />
-                {selectedRep ? (
-                  <button
-                    onClick={() => {
-                      setSelectedRep(null);
-                      setRepQuery("");
-                    }}
-                    aria-label="Clear rep filter"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
-                  >
-                    <Dismiss12Regular />
-                  </button>
-                ) : null}
-                {repDropdownOpen && !selectedRep ? (
-                  <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
-                    {repSearchResults.length === 0 ? (
-                      <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
-                    ) : (
-                      repSearchResults.map((rep) => (
-                        <button
-                          key={rep.employeeCode}
-                          onMouseDown={() => {
-                            setSelectedRep(rep.employeeCode);
-                            setRepQuery("");
-                            setRepDropdownOpen(false);
-                            setSummaryLimit(SUMMARY_PAGE_SIZE);
-                          }}
-                          className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
-                        >
-                          {rep.salesRep}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </div>
+                className="max-w-[180px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+              >
+                <option value="">All {reportMonthLabel}</option>
+                {[...summary.availableDates].reverse().map((date) => <option key={date} value={date}>{formatDateLabel(date)}</option>)}
+              </select>
             </div>
           </div>
-        </div>
-      </SectionCard>
-
-      {roleFilter !== "Secondary Sales" ? (
-        <SectionCard title="Primary Sales">
-          <KpiGrid>
-            <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={summary.primaryStats.totalCalls} format={formatNumber} />} />
-            <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={summary.primaryStats.productiveCalls} format={formatNumber} />} />
-            <KpiCard accent="growth" label="Strike Rate" value={<span className={tierTextClass[productivityTier(summary.primaryStats.strikeRate)]}>{formatPercent(summary.primaryStats.strikeRate)}</span>} />
-            <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={summary.primaryStats.outletsCovered} format={formatNumber} />} />
-            <KpiCard accent="revenue" label="Avg Interval Between Calls" value={summary.primaryStats.avgIntervalMins !== null ? `${summary.primaryStats.avgIntervalMins.toFixed(0)}m` : "—"} />
-            <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={summary.primaryStats.sales} format={formatCompact} />} />
-          </KpiGrid>
-        </SectionCard>
-      ) : null}
-
-      {roleFilter !== "Primary Sales" ? (
-        <SectionCard title="Secondary Sales">
-          <KpiGrid>
-            <KpiCard accent="coverage" label="Calls" value={<AnimatedValue value={summary.secondaryStats.totalCalls} format={formatNumber} />} />
-            <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={summary.secondaryStats.productiveCalls} format={formatNumber} />} />
-            <KpiCard accent="growth" label="Strike Rate" value={<span className={tierTextClass[productivityTier(summary.secondaryStats.strikeRate)]}>{formatPercent(summary.secondaryStats.strikeRate)}</span>} />
-            <KpiCard accent="quarter" label="Outlets Covered" value={<AnimatedValue value={summary.secondaryStats.outletsCovered} format={formatNumber} />} />
-            <KpiCard accent="revenue" label="Avg Interval Between Calls" value={summary.secondaryStats.avgIntervalMins !== null ? `${summary.secondaryStats.avgIntervalMins.toFixed(0)}m` : "—"} />
-            <KpiCard accent="mission" label="Sales" value={<AnimatedValue value={summary.secondaryStats.sales} format={formatCompact} />} />
-          </KpiGrid>
-        </SectionCard>
-      ) : null}
-
-      <SectionCard title="Time Management" action={<span className="text-xs text-muted">Green: 9:00 AM or earlier · Red: 9:30 AM or later</span>}>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => { setTimeManagementFilter("all"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}>
-            All reps
-          </button>
-          <button onClick={() => { setTimeManagementFilter("attention"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "attention" ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"}`}>
-            <Warning20Regular /> Needs attention ({needsAttentionCount})
-          </button>
-          <button onClick={() => { setTimeManagementFilter("thumbs-up"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "thumbs-up" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
-            <ThumbLike20Regular /> Thumbs Up ({thumbsUpCount})
-          </button>
-          <span className="ml-auto text-xs text-muted">Live sync every 5 minutes{summary.syncUpdatedAt ? ` · Last synced ${formatTime12h(summary.syncUpdatedAt)}` : ""}</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by rep</span>
+            <div className="relative w-56">
+              <input
+                value={selectedRep ? selectedRepName ?? "" : repQuery}
+                onChange={(event) => {
+                  setRepQuery(event.target.value);
+                  setSelectedRep(null);
+                  setRepDropdownOpen(true);
+                }}
+                onFocus={() => setRepDropdownOpen(true)}
+                onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
+                placeholder="Search reps..."
+                className="w-full rounded-full border border-border bg-surface px-3.5 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-secondary-blue"
+              />
+              {selectedRep ? (
+                <button onClick={() => { setSelectedRep(null); setRepQuery(""); }} aria-label="Clear rep filter" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground">
+                  <Dismiss12Regular />
+                </button>
+              ) : null}
+              {repDropdownOpen && !selectedRep ? (
+                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface shadow-lg">
+                  {repSearchResults.length === 0 ? (
+                    <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
+                  ) : (
+                    repSearchResults.map((rep) => (
+                      <button
+                        key={rep.employeeCode}
+                        onMouseDown={() => {
+                          setSelectedRep(rep.employeeCode);
+                          setRepQuery("");
+                          setRepDropdownOpen(false);
+                          setSummaryLimit(SUMMARY_PAGE_SIZE);
+                        }}
+                        className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
+                      >
+                        {rep.salesRep}
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales role</span>
+            <RoleToggle value={roleFilter} onChange={(role) => { setRoleFilter(role); setSummaryLimit(SUMMARY_PAGE_SIZE); }} />
+          </div>
+          <span className="mb-1 ml-auto text-xs text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatTime12h(summary.syncUpdatedAt)}` : ""}</span>
         </div>
       </SectionCard>
 
@@ -359,7 +346,7 @@ export default function TimestampsPage() {
           </div>
         }
       >
-        <ResponsiveContainer width="100%" height={180}>
+        <ResponsiveContainer width="100%" height={190}>
           <BarChart data={buckets} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barGap={2} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
             <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={chartGranularity === "Hourly" ? 1 : 0} axisLine={false} tickLine={false} />
@@ -372,45 +359,68 @@ export default function TimestampsPage() {
         </ResponsiveContainer>
       </SectionCard>
 
+      <SectionCard title="Sales snapshot" action={<span className="text-xs text-muted">Compact role comparison</span>}>
+        <div className={`grid gap-3 ${roleFilter === "all" ? "lg:grid-cols-2" : "grid-cols-1"}`}>
+          {roleFilter !== "Secondary Sales" ? <SalesRoleSnapshot title="Primary Sales" stats={summary.primaryStats} tone="primary" /> : null}
+          {roleFilter !== "Primary Sales" ? <SalesRoleSnapshot title="Secondary Sales" stats={summary.secondaryStats} tone="secondary" /> : null}
+        </div>
+      </SectionCard>
+
       <SectionCard
         title="Rep Daily Summary"
         action={
-          <span className="text-xs text-muted">
-            {selectedDate ? formatDateLabel(selectedDate) : "Current calendar month"}
-            {selectedRepName ? ` · ${selectedRepName}` : ""}
-            {selectedPrincipalKey ? ` · ${selectedPrincipalKey}` : ""}
-            {timeManagementSummaries.length > visibleSummaries.length ? ` · Showing ${visibleSummaries.length} of ${timeManagementSummaries.length}` : ""}
-          </span>
+          <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs text-muted">
+            <span><strong className="font-semibold text-muted-strong">Date:</strong> {reportDateLabel}</span>
+            <span><strong className="font-semibold text-muted-strong">Sales role:</strong> {reportRoleLabel}</span>
+            {selectedRepName ? <span><strong className="font-semibold text-muted-strong">Rep:</strong> {selectedRepName}</span> : null}
+            {selectedPrincipalKey ? <span><strong className="font-semibold text-muted-strong">Principal:</strong> {selectedPrincipalKey}</span> : null}
+          </div>
         }
       >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs font-semibold text-primary-blue">Time management</span>
+          <button onClick={() => { setTimeManagementFilter("all"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}>
+            All reps
+          </button>
+          <button onClick={() => { setTimeManagementFilter("attention"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "attention" ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"}`}>
+            <Warning20Regular /> Needs attention ({needsAttentionCount})
+          </button>
+          <button onClick={() => { setTimeManagementFilter("thumbs-up"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "thumbs-up" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
+            <ThumbLike20Regular /> Thumbs Up ({thumbsUpCount})
+          </button>
+          <span className="ml-auto text-xs text-muted">Start: green at 9:00 AM or earlier · red at 9:30 AM or later</span>
+        </div>
         <TableWrap>
           <Thead>
-            <Th>Date</Th><Th>Sales Rep</Th><Th>Sales Role</Th><Th>Region</Th><Th>First Call</Th><Th>Time Status</Th><Th>Last Call</Th>
+            <Th>Sales Rep</Th><Th>Region</Th><Th>First Call</Th><Th>Start Status</Th><Th>Last Call</Th><Th>Closing Remark</Th>
             <Th align="right">Hours in Day</Th><Th align="right">Calls Made</Th><Th align="right">Productive</Th><Th align="center">Strike Rate</Th><Th align="right">Outlets Covered</Th><Th align="right">Avg Interval (mins)</Th><Th align="right">Sales</Th>
           </Thead>
           <tbody>
             {visibleSummaries.map((row) => {
-              const timeStatus = firstCallStatus(row.firstCall);
+              const startStatus = firstCallStatus(row.firstCall);
+              const closeStatus = closingStatus(row.date, row.lastCall);
               return (
                 <tr key={`${row.date}|${row.employeeCode}|${row.salesRole}`}>
-                  <Td>{formatDateLabel(row.date)}</Td><Td>{row.salesRep}</Td><Td>{row.salesRole}</Td><Td>{row.region}</Td>
-                  <Td><span className={`inline-flex items-center gap-1 font-semibold ${timeStatusClass(timeStatus)}`}>{timeStatus === "late" ? <Warning20Regular /> : timeStatus === "on-time" ? <ThumbLike20Regular /> : null}{formatTime12h(row.firstCall)}</span></Td>
-                  <Td><span className={`text-xs font-semibold ${timeStatusClass(timeStatus)}`}>{timeStatusLabel(timeStatus)}</span></Td>
-                  <Td>{formatTime12h(row.lastCall)}</Td><Td align="right">{row.hoursInDay.toFixed(1)}</Td><Td align="right">{formatNumber(row.callsMade)}</Td><Td align="right">{formatNumber(row.productiveCalls)}</Td>
-                  <Td align="center"><Badge tier={productivityTier(row.strikeRatePct)}>{row.strikeRatePct.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "—"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
+                  <Td>{row.salesRep}</Td><Td>{row.region}</Td>
+                  <Td><span className={`inline-flex items-center gap-1 font-semibold ${timeStatusClass(startStatus)}`}>{startStatus === "late" ? <Warning20Regular /> : startStatus === "on-time" ? <ThumbLike20Regular /> : null}{formatTime12h(row.firstCall)}</span></Td>
+                  <Td><span className={`text-xs font-semibold ${timeStatusClass(startStatus)}`}>{timeStatusLabel(startStatus)}</span></Td>
+                  <Td><span className={`font-semibold ${closingStatusClass(closeStatus)}`}>{formatTime12h(row.lastCall)}</span></Td>
+                  <Td><span className={`inline-flex items-center gap-1 text-xs font-semibold ${closingStatusClass(closeStatus)}`}>{closeStatus === "closed-early" ? <Warning20Regular /> : closeStatus === "closed-on-time" ? <ThumbLike20Regular /> : null}{closingStatusLabel(closeStatus)}</span></Td>
+                  <Td align="right">{row.hoursInDay.toFixed(1)}</Td><Td align="right">{formatNumber(row.callsMade)}</Td><Td align="right">{formatNumber(row.productiveCalls)}</Td>
+                  <Td align="center"><Badge tier={productivityTier(row.strikeRatePct)}>{row.strikeRatePct.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
                 </tr>
               );
             })}
             <TotalRow>
-              <Td>Total</Td><Td>—</Td><Td>—</Td><Td>—</Td><Td>—</Td><Td>—</Td><Td>—</Td><Td align="right">—</Td>
-              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><Badge tier={productivityTier(summary.overall.strikeRate)}>{summary.overall.strikeRate.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">—</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
+              <Td>Total</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td align="right">--</Td>
+              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><Badge tier={productivityTier(summary.overall.strikeRate)}>{summary.overall.strikeRate.toFixed(1)}%</Badge></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>
         {timeManagementSummaries.length > visibleSummaries.length ? (
           <div className="mt-3 flex justify-center">
             <button onClick={() => setSummaryLimit((limit) => limit + SUMMARY_PAGE_SIZE)} className="rounded-full border border-border bg-surface px-4 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">
-              Show 100 more reps
+              Show 50 more reps
             </button>
           </div>
         ) : null}

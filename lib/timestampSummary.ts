@@ -187,7 +187,7 @@ export async function getTimestampSummary(
         COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
         COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
-      ${from} ${baseWhere} ${dateClause} ${repClause}
+      ${from} ${baseWhere} ${dateClause} ${repClause} ${roleClause}
       GROUP BY GROUPING SETS ((r."salesRole"), ())
     `),
     prisma.$queryRaw<ChartRow[]>(Prisma.sql`
