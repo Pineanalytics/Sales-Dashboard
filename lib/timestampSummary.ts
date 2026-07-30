@@ -80,7 +80,11 @@ function nextUtcDay(date: Date): Date {
  * aggregate queries. This deliberately avoids a wide MATERIALIZED CTE: on
  * the VPS, repeatedly reading that temporary relation was markedly slower
  * than independent grouped scans of the indexed RepCall table. */
-function sourceQuery(now: Date, scope: TeamLeaderScope | null, principalKey: string | null): { from: Prisma.Sql; baseWhere: Prisma.Sql } {
+function sourceQuery(
+  now: Date,
+  scope: TeamLeaderScope | null,
+  principalKey: string | null
+): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
   const { start, end } = monthWindow(now);
   const teamClause = scope
     ? scope.employeeCodes.length > 0
@@ -92,21 +96,32 @@ function sourceQuery(now: Date, scope: TeamLeaderScope | null, principalKey: str
     return {
       from: Prisma.sql`FROM "RepCall" r`,
       baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} ${teamClause}`,
+      salesRole: Prisma.sql`r."salesRole"`,
     };
   }
 
+  // Materialize the selected-principal role before the aggregate queries. A
+  // role expression that reads employeeGroup/employeeCode cannot be selected
+  // directly alongside MIN/MAX/COUNT unless those fields are also grouped.
+  // Keeping it as a derived column preserves one rep-day row and lets every
+  // KPI, chart, and filter use exactly the same classification.
+  const scopedSalesRole = principalScopedSalesRoleExpression(principalKey);
   return {
     from: Prisma.sql`
-      FROM "RepCall" r
-      INNER JOIN (
-        SELECT DISTINCT p.date, p."employeeCode"
-        FROM "RepCall" p
-        WHERE p.date >= ${start} AND p.date < ${end}
-          AND string_to_array(COALESCE(p."costCentresBought", ''), ', ') @> ARRAY[${principalKey}]::text[]
-      ) relevant_rep_days
-        ON relevant_rep_days.date = r.date AND relevant_rep_days."employeeCode" = r."employeeCode"
+      FROM (
+        SELECT r.*, ${scopedSalesRole} AS "principalSalesRole"
+        FROM "RepCall" r
+        INNER JOIN (
+          SELECT DISTINCT p.date, p."employeeCode"
+          FROM "RepCall" p
+          WHERE p.date >= ${start} AND p.date < ${end}
+            AND string_to_array(COALESCE(p."costCentresBought", ''), ', ') @> ARRAY[${principalKey}]::text[]
+        ) relevant_rep_days
+          ON relevant_rep_days.date = r.date AND relevant_rep_days."employeeCode" = r."employeeCode"
+      ) r
     `,
     baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} ${teamClause}`,
+    salesRole: Prisma.sql`r."principalSalesRole"`,
   };
 }
 
@@ -183,11 +198,10 @@ export async function getTimestampSummary(
   scope: TeamLeaderScope | null,
   filters: TimestampFilters
 ): Promise<TimestampSummaryData> {
-  const { from, baseWhere } = sourceQuery(now, scope, filters.principalKey);
+  const { from, baseWhere, salesRole } = sourceQuery(now, scope, filters.principalKey);
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
-  const salesRole = principalScopedSalesRoleExpression(filters.principalKey);
   const roleClause = selectedRoleClause(filters, salesRole);
   const salesExpression = filters.principalKey
     ? Prisma.sql`CASE WHEN string_to_array(COALESCE(r."costCentresBought", ''), ', ') @> ARRAY[${filters.principalKey}]::text[] THEN r.sales ELSE 0 END`
