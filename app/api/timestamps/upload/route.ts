@@ -139,11 +139,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '"windowStart" must be an ISO date string when present.' }, { status: 400 });
   }
   const windowStart = typeof windowStartRaw === "string" ? new Date(windowStartRaw) : null;
+  if (windowStart && Number.isNaN(windowStart.getTime())) {
+    return NextResponse.json({ error: '"windowStart" must be a valid ISO date string when present.' }, { status: 400 });
+  }
+  const retainFromRaw = (body as { retainFrom?: unknown })?.retainFrom;
+  if (retainFromRaw !== undefined && typeof retainFromRaw !== "string") {
+    return NextResponse.json({ error: '"retainFrom" must be an ISO date string when present.' }, { status: 400 });
+  }
+  const retainFrom = typeof retainFromRaw === "string" ? new Date(retainFromRaw) : null;
+  if (retainFrom && Number.isNaN(retainFrom.getTime())) {
+    return NextResponse.json({ error: '"retainFrom" must be a valid ISO date string when present.' }, { status: 400 });
+  }
 
   try {
     const validRows = calls as RepCallUploadRow[];
     await prisma.$transaction(
       async (tx) => {
+        if (retainFrom) {
+          await tx.$executeRaw`DELETE FROM "RepCall" WHERE date < ${retainFrom}`;
+        }
         if (windowStart) {
           await tx.$executeRaw`DELETE FROM "RepCall" WHERE date >= ${windowStart}`;
         }
@@ -153,7 +167,10 @@ export async function POST(req: NextRequest) {
       },
       { timeout: 30000 }
     );
-    return NextResponse.json({ count: validRows.length, windowStart: windowStart?.toISOString() ?? null }, { status: 200 });
+    return NextResponse.json(
+      { count: validRows.length, windowStart: windowStart?.toISOString() ?? null, retainFrom: retainFrom?.toISOString() ?? null },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("Failed to replace RepCall rows", err);
     return NextResponse.json({ error: "Failed to save Timestamps data." }, { status: 500 });

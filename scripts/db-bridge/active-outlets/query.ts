@@ -85,6 +85,18 @@ const SQL_PRODUCTS = `
     AND TRIM(p_skucode) <> ''
 `;
 
+const ID_QUERY_BATCH_SIZE = 1000;
+
+function uniqueIds(ids: Iterable<string>): string[] {
+  return Array.from(new Set(ids)).filter(Boolean);
+}
+
+function idBatches(ids: string[]): string[][] {
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += ID_QUERY_BATCH_SIZE) batches.push(ids.slice(i, i + ID_QUERY_BATCH_SIZE));
+  return batches;
+}
+
 const SQL_SALE_LINES = `
   SELECT
       s.s_id         AS doc_id,
@@ -132,6 +144,32 @@ export async function fetchOutlets(conn: Connection): Promise<OutletRow[]> {
   }));
 }
 
+/** Fetch only the active outlet dimension rows touched by a compact bridge
+ * window. The Timestamps job runs every five minutes, so reading all ~77k
+ * outlets on every pass would make the dimensions, not the live activity,
+ * the dominant Pine workload. */
+export async function fetchOutletsByIds(conn: Connection, ids: Iterable<string>): Promise<OutletRow[]> {
+  const requested = uniqueIds(ids);
+  if (requested.length === 0) return [];
+
+  const rows = await Promise.all(
+    idBatches(requested).map(async (batch) => {
+      const [result] = await conn.query<(RowDataPacket & { o_id: number; o_name: string; sub_channel: string; o_channel: string | null; o_county: string | null })[]>(
+        `${SQL_OUTLETS} AND o_id IN (?)`,
+        [batch]
+      );
+      return result;
+    })
+  );
+  return rows.flat().map((r) => ({
+    id: String(r.o_id),
+    name: r.o_name ?? "",
+    subChannel: r.sub_channel || "Unknown",
+    sourceChannel: r.o_channel?.trim() || "",
+    territory: r.o_county?.trim() || "Unassigned",
+  }));
+}
+
 export async function fetchUsers(conn: Connection): Promise<UserRow[]> {
   const [rows] = await conn.query<(RowDataPacket & { id: number; first_name: string | null; last_name: string | null; salesgroup: string | null; region: string | null })[]>(SQL_USERS);
   return rows.map((r) => ({
@@ -142,9 +180,50 @@ export async function fetchUsers(conn: Connection): Promise<UserRow[]> {
   }));
 }
 
+/** See fetchOutletsByIds: only pull reps which appear in the current rolling
+ * Timestamps window rather than the entire Pine user directory. */
+export async function fetchUsersByIds(conn: Connection, ids: Iterable<string>): Promise<UserRow[]> {
+  const requested = uniqueIds(ids);
+  if (requested.length === 0) return [];
+
+  const rows = await Promise.all(
+    idBatches(requested).map(async (batch) => {
+      const [result] = await conn.query<(RowDataPacket & { id: number; first_name: string | null; last_name: string | null; salesgroup: string | null; region: string | null })[]>(
+        `${SQL_USERS} WHERE id IN (?)`,
+        [batch]
+      );
+      return result;
+    })
+  );
+  return rows.flat().map((r) => ({
+    id: String(r.id),
+    employee: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
+    userGroup: r.salesgroup?.trim() || "Unassigned",
+    region: r.region?.trim() || "Unassigned",
+  }));
+}
+
 export async function fetchProducts(conn: Connection): Promise<ProductRow[]> {
   const [rows] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string })[]>(SQL_PRODUCTS);
   return rows.map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase() }));
+}
+
+/** Fetch only product rows referenced by the sale/order lines in a compact
+ * Timestamps window. No-sale visits do not need a product lookup. */
+export async function fetchProductsByIds(conn: Connection, ids: Iterable<string>): Promise<ProductRow[]> {
+  const requested = uniqueIds(ids);
+  if (requested.length === 0) return [];
+
+  const rows = await Promise.all(
+    idBatches(requested).map(async (batch) => {
+      const [result] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string })[]>(
+        `${SQL_PRODUCTS} AND p_id IN (?)`,
+        [batch]
+      );
+      return result;
+    })
+  );
+  return rows.flat().map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase() }));
 }
 
 async function fetchLines(conn: Connection, sql: string, isOrder: boolean, startDate: Date, endDate: Date): Promise<FactLineRow[]> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useDashboardStore } from "@/lib/store";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -13,8 +13,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass } from "@/lib/format";
+import { compareTimeManagementRows, firstCallStatus, type TimeManagementStatus } from "@/lib/timeManagement";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
-import { Clock20Regular, Dismiss12Regular } from "@fluentui/react-icons";
+import { Clock20Regular, Dismiss12Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 
 interface RepCallRow {
   date: string;
@@ -61,6 +62,8 @@ interface RepDaySummary {
   costCentresCovered: string;
   sales: number;
 }
+
+type TimeManagementFilter = "all" | "attention" | "thumbs-up";
 
 // Africa/Nairobi is a fixed UTC+3 offset year-round (no DST) — used instead of relying
 // on the browser's own local timezone, which would show wrong times for anyone viewing
@@ -119,6 +122,18 @@ function computeRoleStats(rows: RepCallRow[], principalKey: string | null): Role
   return { totalCalls, productiveCalls, strikeRate, outletsCovered, avgIntervalMins, sales };
 }
 
+function timeStatusLabel(status: TimeManagementStatus): string {
+  if (status === "late") return "Needs attention";
+  if (status === "on-time") return "On time";
+  return "Grace window";
+}
+
+function timeStatusClass(status: TimeManagementStatus): string {
+  if (status === "late") return "text-red-600";
+  if (status === "on-time") return "text-emerald-600";
+  return "text-muted";
+}
+
 export default function TimestampsPage() {
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
@@ -129,9 +144,40 @@ export default function TimestampsPage() {
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
+  const [timeManagementFilter, setTimeManagementFilter] = useState<TimeManagementFilter>("all");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const lastSeenSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let intervalId: number | undefined;
+
+    const refreshReplacementWindow = async (from: string) => {
+      const res = await fetch(`/api/timestamps?from=${encodeURIComponent(from)}`, { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to refresh Timestamps data.");
+      if (cancelled) return;
+
+      const replacementStart = new Date(body.from).getTime();
+      setCalls((previous) => [...previous.filter((call) => new Date(call.date).getTime() < replacementStart), ...body.calls]);
+      lastSeenSyncRef.current = body.syncUpdatedAt ?? null;
+      setLastSyncedAt(body.syncUpdatedAt ?? null);
+    };
+
+    const checkForUpdates = async () => {
+      try {
+        const res = await fetch("/api/timestamps/status", { cache: "no-store" });
+        const body = await res.json();
+        if (!res.ok || cancelled) return;
+        const newestSync = body.syncUpdatedAt ?? null;
+        if (newestSync === lastSeenSyncRef.current) return;
+        await refreshReplacementWindow(body.refreshFrom);
+      } catch {
+        // Keep the currently displayed report usable if a background refresh
+        // briefly fails; the next 60-second status check will retry.
+      }
+    };
+
     (async () => {
       try {
         const res = await fetch("/api/timestamps", { cache: "no-store" });
@@ -139,7 +185,11 @@ export default function TimestampsPage() {
         if (!res.ok) throw new Error(body.error || "Failed to load Timestamps data.");
         if (!cancelled) {
           setCalls(body.calls);
+          lastSeenSyncRef.current = body.syncUpdatedAt ?? null;
+          setLastSyncedAt(body.syncUpdatedAt ?? null);
           setStatus("idle");
+          await checkForUpdates();
+          if (!cancelled) intervalId = window.setInterval(() => void checkForUpdates(), 60_000);
         }
       } catch {
         if (!cancelled) setStatus("error");
@@ -147,6 +197,7 @@ export default function TimestampsPage() {
     })();
     return () => {
       cancelled = true;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
     };
   }, []);
 
@@ -254,7 +305,18 @@ export default function TimestampsPage() {
       sales: principalSales(group, selectedPrincipalKey),
     };
   });
-  repDaySummaries.sort((a, b) => (a.date === b.date ? a.salesRep.localeCompare(b.salesRep) : a.date.localeCompare(b.date)));
+  // Attention is intentionally at the top of the operational list: late
+  // starters first (latest first-call first), then the neutral grace window,
+  // with green/on-time reps at the bottom.
+  repDaySummaries.sort(compareTimeManagementRows);
+  const needsAttentionCount = repDaySummaries.filter((row) => firstCallStatus(row.firstCall) === "late").length;
+  const thumbsUpCount = repDaySummaries.filter((row) => firstCallStatus(row.firstCall) === "on-time").length;
+  const timeManagementSummaries = repDaySummaries.filter((row) => {
+    const timeStatus = firstCallStatus(row.firstCall);
+    if (timeManagementFilter === "attention") return timeStatus === "late";
+    if (timeManagementFilter === "thumbs-up") return timeStatus === "on-time";
+    return true;
+  });
 
   // Calls by time bucket, split Primary vs Secondary — Hourly/Daily/Weekly is a
   // display-only aggregation choice, computed from the exact same roleFilteredCalls
@@ -404,6 +466,47 @@ export default function TimestampsPage() {
       ) : null}
 
       <SectionCard
+        title="Time Management"
+        action={
+          <span className="text-xs text-muted">
+            Green: 9:00 AM or earlier · Red: 9:30 AM or later
+          </span>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setTimeManagementFilter("all")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"
+            }`}
+          >
+            All reps
+          </button>
+          <button
+            onClick={() => setTimeManagementFilter("attention")}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              timeManagementFilter === "attention" ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"
+            }`}
+          >
+            <Warning20Regular />
+            Needs attention ({needsAttentionCount})
+          </button>
+          <button
+            onClick={() => setTimeManagementFilter("thumbs-up")}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              timeManagementFilter === "thumbs-up" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
+          >
+            <ThumbLike20Regular />
+            Thumbs Up ({thumbsUpCount})
+          </button>
+          <span className="ml-auto text-xs text-muted">
+            Live sync every 5 minutes{lastSyncedAt ? ` · Last synced ${formatTime12h(lastSyncedAt)}` : ""}
+          </span>
+        </div>
+      </SectionCard>
+
+      <SectionCard
         title="Calls by Time (Primary vs Secondary)"
         action={
           <div className="flex items-center gap-3">
@@ -454,6 +557,7 @@ export default function TimestampsPage() {
             <Th>Sales Role</Th>
             <Th>Region</Th>
             <Th>First Call</Th>
+            <Th>Time Status</Th>
             <Th>Last Call</Th>
             <Th align="right">Hours in Day</Th>
             <Th align="right">Calls Made</Th>
@@ -464,13 +568,23 @@ export default function TimestampsPage() {
             <Th align="right">Sales</Th>
           </Thead>
           <tbody>
-            {repDaySummaries.map((r) => (
+            {timeManagementSummaries.map((r) => {
+              const timeStatus = firstCallStatus(r.firstCall);
+              return (
               <tr key={`${r.date}|${r.employeeCode}|${r.salesRole}`}>
                 <Td>{formatDateLabel(r.date)}</Td>
                 <Td>{r.salesRep}</Td>
                 <Td>{r.salesRole}</Td>
                 <Td>{r.region}</Td>
-                <Td>{formatTime12h(r.firstCall)}</Td>
+                <Td>
+                  <span className={`inline-flex items-center gap-1 font-semibold ${timeStatusClass(timeStatus)}`}>
+                    {timeStatus === "late" ? <Warning20Regular /> : timeStatus === "on-time" ? <ThumbLike20Regular /> : null}
+                    {formatTime12h(r.firstCall)}
+                  </span>
+                </Td>
+                <Td>
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold ${timeStatusClass(timeStatus)}`}>{timeStatusLabel(timeStatus)}</span>
+                </Td>
                 <Td>{formatTime12h(r.lastCall)}</Td>
                 <Td align="right">{r.hoursInDay.toFixed(1)}</Td>
                 <Td align="right">{formatNumber(r.callsMade)}</Td>
@@ -482,9 +596,11 @@ export default function TimestampsPage() {
                 <Td align="right">{r.avgIntervalMins !== null ? r.avgIntervalMins.toFixed(0) : "—"}</Td>
                 <Td align="right">{formatCompact(r.sales)}</Td>
               </tr>
-            ))}
+              );
+            })}
             <TotalRow>
               <Td>Total</Td>
+              <Td>—</Td>
               <Td>—</Td>
               <Td>—</Td>
               <Td>—</Td>

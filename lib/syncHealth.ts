@@ -27,10 +27,11 @@ export interface SyncHealthRow {
  *  run regardless of whether there was anything new to write, so it's the
  *  correct freshness signal now. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, pl, activeOutletsWatermark, jpAdherence] = await Promise.all([
+  const [sales, pl, activeOutletsWatermark, timestampsWatermark, jpAdherence] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
+    prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
     prisma.journeyPlanRow.aggregate({ _max: { createdAt: true } }),
   ]);
 
@@ -43,7 +44,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("sales", "Sales (SAP)", "Twice daily, 06:30 & 17:30", sales._max.updatedAt, 18),
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
-    row("timestamps", "Timestamps (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
+    row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
     row("jpAdherence", "JP Adherence (Pine)", "Twice daily, 08:00 & 19:00", jpAdherence._max.createdAt, 18),
   ];
 }
