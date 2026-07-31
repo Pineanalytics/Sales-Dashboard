@@ -450,7 +450,7 @@ export default function TimestampsPage() {
           <button onClick={() => { setTimeManagementFilter("thumbs-up"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "thumbs-up" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
             <ThumbLike20Regular /> Thumbs Up ({thumbsUpCount})
           </button>
-          <span className="ml-auto text-xs text-muted">Start: green at 9:00 AM or earlier · red at 9:30 AM or later</span>
+          <span className="ml-auto text-xs text-muted">Start: green at 9:30 AM or earlier · red after 9:30 AM</span>
         </div>
         <TableWrap>
           <Thead>

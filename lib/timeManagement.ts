@@ -1,14 +1,11 @@
 /** First-call policy for the operational Timestamps report (Africa/Nairobi).
- * A representative is on time at 09:00 or earlier, has a 29-minute grace
- * window from 09:01 through 09:29, and needs attention from 09:30 onward.
- * The grace window deliberately remains neutral: the agreed late threshold is
- * 09:30, while green recognition is reserved for starting trade by 09:00. */
+ * A representative is on time at 09:30 or earlier and needs attention only
+ * after 09:30. Invalid timestamps remain neutral rather than being assessed. */
 export type TimeManagementStatus = "on-time" | "grace" | "late";
 export type ClosingStatus = "closed-on-time" | "closed-early" | "day-in-progress" | "not-due" | "unknown";
 
 const NAIROBI_UTC_OFFSET_MINUTES = 3 * 60;
-const ON_TIME_CUTOFF_MINUTES = 9 * 60;
-const LATE_CUTOFF_MINUTES = 9 * 60 + 30;
+const ON_TIME_CUTOFF_MINUTES = 9 * 60 + 30;
 const CLOSE_OF_TRADE_CUTOFF_MINUTES = 16 * 60;
 
 export function nairobiMinutesAfterMidnight(iso: string): number | null {
@@ -21,8 +18,7 @@ export function firstCallStatus(firstCall: string): TimeManagementStatus {
   const minutes = nairobiMinutesAfterMidnight(firstCall);
   if (minutes === null) return "grace";
   if (minutes <= ON_TIME_CUTOFF_MINUTES) return "on-time";
-  if (minutes >= LATE_CUTOFF_MINUTES) return "late";
-  return "grace";
+  return "late";
 }
 
 function nairobiDateKey(date: Date): string {
