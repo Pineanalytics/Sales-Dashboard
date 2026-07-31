@@ -19,7 +19,16 @@ function weekdayIndex(date: Date): number | null {
 export interface RepContributionResult {
   principalCount: number;
   repCount: number;
-  unassignedRevenueReps: number; // reps with JPMonthlySplitRow revenue but no TeamLeaderAssignment for that principal
+  unassignedRevenueReps: number; // reps with SAP revenue but no TeamLeaderAssignment for that principal
+}
+
+function trailingMonthWhere(now = new Date()): { OR: { year: string; monthIndex: number }[] } {
+  const periods: { year: string; monthIndex: number }[] = [];
+  for (let offset = 0; offset < 3; offset++) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    periods.push({ year: String(date.getUTCFullYear()), monthIndex: date.getUTCMonth() });
+  }
+  return { OR: periods };
 }
 
 /** Pure share-normalization: proportional to revenue when the group has any
@@ -42,8 +51,12 @@ export function computeSharePcts(revenueByRep: Map<string, number>): Map<string,
  *  revenue falls back to an even split so DailyTarget still has something to
  *  distribute against. Full-replace every call, same pattern as JPMonthlySplitRow. */
 export async function recomputeRepContribution(): Promise<RepContributionResult> {
-  const [splitRows, assignments] = await Promise.all([
-    prisma.jPMonthlySplitRow.groupBy({ by: ["costCentre", "employeeCode", "employeeName"], _sum: { revenue: true } }),
+  const [salesRows, assignments] = await Promise.all([
+    prisma.salesRepActual.groupBy({
+      by: ["principal", "employeeCode", "employeeName"],
+      where: { ...trailingMonthWhere(), employeeCode: { not: null } },
+      _sum: { revenue: true },
+    }),
     prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
   ]);
 
@@ -59,8 +72,9 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
   }
 
   let unassignedRevenueReps = 0;
-  for (const row of splitRows) {
-    const reps = repsByPrincipal.get(row.costCentre);
+  for (const row of salesRows) {
+    if (!row.employeeCode) continue;
+    const reps = repsByPrincipal.get(row.principal);
     const rep = reps?.get(row.employeeCode);
     if (!rep) {
       if ((row._sum.revenue ?? 0) > 0) unassignedRevenueReps += 1;
@@ -102,15 +116,19 @@ export interface UnassignedRevenueRep {
  *  revenue under a principal but no TeamLeaderAssignment row for it, so their
  *  revenue isn't represented in anyone's Contribution split. */
 export async function getUnassignedRevenueReps(): Promise<UnassignedRevenueRep[]> {
-  const [splitRows, assignments] = await Promise.all([
-    prisma.jPMonthlySplitRow.groupBy({ by: ["costCentre", "employeeCode", "employeeName"], _sum: { revenue: true } }),
+  const [salesRows, assignments] = await Promise.all([
+    prisma.salesRepActual.groupBy({
+      by: ["principal", "employeeCode", "employeeName"],
+      where: { ...trailingMonthWhere(), employeeCode: { not: null } },
+      _sum: { revenue: true },
+    }),
     prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true, employeeCode: true } }),
   ]);
   const assignedKeys = new Set(assignments.map((a) => `${a.principal}|${a.employeeCode}`));
 
-  return splitRows
-    .filter((r) => (r._sum.revenue ?? 0) > 0 && !assignedKeys.has(`${r.costCentre}|${r.employeeCode}`))
-    .map((r) => ({ principal: r.costCentre, employeeCode: r.employeeCode, employeeName: r.employeeName, revenue: r._sum.revenue ?? 0 }))
+  return salesRows
+    .filter((r) => r.employeeCode && (r._sum.revenue ?? 0) > 0 && !assignedKeys.has(`${r.principal}|${r.employeeCode}`))
+    .map((r) => ({ principal: r.principal, employeeCode: r.employeeCode!, employeeName: r.employeeName ?? r.employeeCode!, revenue: r._sum.revenue ?? 0 }))
     .sort((a, b) => b.revenue - a.revenue);
 }
 

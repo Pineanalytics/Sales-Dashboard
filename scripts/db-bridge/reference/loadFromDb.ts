@@ -21,6 +21,13 @@ export interface KeyAccountRepRow {
   teamLeader: string;
 }
 
+export interface EmployeeMasterReferenceRow {
+  employeeCode: string;
+  pineName: string;
+  sapName: string;
+  active: boolean;
+}
+
 export async function loadProducts(): Promise<ProductRow[]> {
   const rows = await prisma.product.findMany();
   return rows.map((r) => ({
@@ -46,4 +53,13 @@ export async function loadWarehouses(): Promise<WarehouseRow[]> {
 export async function loadKeyAccountReps(): Promise<KeyAccountRepRow[]> {
   const rows = await prisma.keyAccountRep.findMany();
   return rows.map((r) => ({ rep: r.rep, channel: r.channel, teamLeader: r.teamLeader }));
+}
+
+/** Employee Roaster rows are read from the app database so the direct SAP sync
+ * can resolve SAP salesperson names to Pine employee codes before upload. */
+export async function loadEmployeeMaster(): Promise<EmployeeMasterReferenceRow[]> {
+  const rows = await prisma.employeeMaster.findMany({
+    select: { employeeCode: true, pineName: true, sapName: true, active: true },
+  });
+  return rows.map((r) => ({ employeeCode: r.employeeCode, pineName: r.pineName, sapName: r.sapName, active: r.active }));
 }

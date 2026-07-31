@@ -113,20 +113,20 @@ model TeamLeader {
 // (teamLeaderId, principal) pairs get a Weekly Target grid, and which reps are
 // eligible for that principal's RepContribution split.
 model TeamLeaderAssignment {
-  id           String   @id @default(cuid())
-  teamLeaderId String
-  employeeCode String
-  employeeName String
-  principal    String
+  id              String   @id @default(cuid())
+  teamLeaderId    String
+  employeeCode    String
+  employeeName    String
+  principal       String
   // Below: ported from Target_Management_System.xlsm's Roster sheet.
-  channel      String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
+  channel         String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
   // The Roster's "SAP Name" column — the rep's name as it appears in SAP, distinct from
   // employeeName (the "Employee (Sales Edge Name)" column, the Pine-side name). This is the
   // actual join key for matching rep-level revenue from the Excel-sourced Brand&Customer sheet
   // (MonthlyBrandCustomerRow.salesEmployee is a SAP-side name string) back to a Team Leader —
   // the Pine/SAP name-mismatch problem this project has hit before. Read from the source
   // workbook on the original Roster import but not persisted until now.
-  sapName      String?
+  sapName         String?
   // Admin-declared allocation %, distinct from RepContribution.sharePct (which is computed from
   // actual trailing revenue). Null = not yet declared for this rep/principal — falls back to the
   // computed share. When set, must sum to ~100% across active reps per principal (validated in
@@ -135,10 +135,10 @@ model TeamLeaderAssignment {
   // Soft-remove flag — the normal way to take a rep off a principal (preserves WeeklyTarget/
   // DailyTarget/RepContribution history and this row's own audit trail). Hard delete still
   // exists for genuine mistakes.
-  active       Boolean  @default(true)
-  salesRole    String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
-  updatedAt    DateTime @updatedAt
-  createdAt    DateTime @default(now())
+  active          Boolean  @default(true)
+  salesRole       String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
 
   @@unique([teamLeaderId, employeeCode, principal])
   @@index([teamLeaderId])
@@ -205,17 +205,17 @@ model KeyAccountRep {
 // same as before). Coverage/Brand&Customer/Stock/Weekly Projection remain
 // Excel-sourced; this table intentionally covers Sales only.
 model SalesRecord {
-  id            String   @id @default(cuid())
-  year          String
-  month         String
-  monthIndex    Int
-  location      String
-  principal     String
-  revenue       Float
-  cogs          Float
-  grossProfit   Float
-  updatedAt     DateTime @updatedAt
-  createdAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  year        String
+  month       String
+  monthIndex  Int
+  location    String
+  principal   String
+  revenue     Float
+  cogs        Float
+  grossProfit Float
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
 
   @@unique([year, month, principal])
   @@index([year, month])
@@ -244,6 +244,108 @@ model DailySalesActual {
   @@unique([date, principal, location])
   @@index([date])
   @@index([principal])
+}
+
+// Canonical employee master imported from the Employee Roaster workbook. Pine's
+// Sales Rep Name and SAP's Sales Rep Name are intentionally both retained: Pine
+// drives operational activity (coverage, productivity, JPA, timestamps), while
+// SAP is the source of truth for transaction value and volume. `absolutePrincipal`
+// is deliberately sourced only from the Employee Roaster sheet.
+model EmployeeMaster {
+  id                String   @id @default(cuid())
+  employeeCode      String   @unique
+  company           String?
+  pineName          String
+  sapName           String
+  absolutePrincipal String
+  salesRole         String
+  workGroup         String?
+  region            String?
+  subRegion         String?
+  teamLeader        String?
+  supervisor        String?
+  active            Boolean  @default(true)
+  costCenterCount   Int?
+  salesPoint        String?
+  route             String?
+  location          String?
+  importedAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+
+  contributions EmployeePrincipalContribution[]
+
+  @@index([absolutePrincipal])
+  @@index([active])
+  @@index([sapName])
+}
+
+// A rep may be operationally rostered to one absolute principal yet contribute
+// to more than one principal. This sheet is the source of truth for JPA/target
+// eligibility; it is intentionally separate from EmployeeMaster.absolutePrincipal
+// so Timestamp reporting cannot be reassigned by a contribution allocation.
+model EmployeePrincipalContribution {
+  id              String   @id @default(cuid())
+  employeeId      String
+  principal       String
+  salesRole       String
+  contributionPct Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee EmployeeMaster @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, principal])
+  @@index([principal])
+  @@index([employeeId])
+}
+
+// Rep-grain SAP actuals. These are generated only from SAP invoice/credit-note
+// transactions and carry both the SAP salesperson name and the resolved Pine
+// employee identity. Rows without a master match are retained with a null
+// employeeCode so unmatched SAP revenue is never silently discarded.
+model SalesRepActual {
+  id           String   @id @default(cuid())
+  year         String
+  month        String
+  monthIndex   Int
+  location     String
+  principal    String
+  sapName      String
+  employeeCode String?
+  employeeName String?
+  volume       Float
+  revenue      Float
+  cogs         Float
+  grossProfit  Float
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([year, month, principal, sapName])
+  @@index([principal, year, month])
+  @@index([employeeCode, year, month])
+}
+
+// Day-grain companion to SalesRepActual. It supports operational drill-downs
+// without changing the existing DailySalesActual principal-level feed.
+model DailySalesRepActual {
+  id           String   @id @default(cuid())
+  date         DateTime
+  location     String
+  principal    String
+  sapName      String
+  employeeCode String?
+  employeeName String?
+  volume       Float
+  revenue      Float
+  cogs         Float
+  grossProfit  Float
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([date, principal, sapName])
+  @@index([date, principal])
+  @@index([employeeCode, date])
 }
 
 // P&L journal-entry lines from SAP (OJDT/JDT1 by Cost Centre/Account), pushed
@@ -326,23 +428,23 @@ model ActiveOutlet {
 // already resolved and sent, so the ledger needs to be self-contained for
 // the derivation query below to produce a complete ActiveOutlet row.
 model ActiveOutletEvent {
-  id          String   @id @default(cuid())
-  year        String
-  principal   String
-  customerId  String
-  docId       String // pine.sales/orders doc id
-  isOrder     Boolean
-  date        DateTime
-  sales       Float
-  qty         Float
-  salesRole   String // "Primary Sales" | "Secondary Sales" — this event's own role
-  outletName  String
-  channel     String
-  subChannel  String
-  territory   String
-  repName     String?
-  repGroup    String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  year       String
+  principal  String
+  customerId String
+  docId      String // pine.sales/orders doc id
+  isOrder    Boolean
+  date       DateTime
+  sales      Float
+  qty        Float
+  salesRole  String // "Primary Sales" | "Secondary Sales" — this event's own role
+  outletName String
+  channel    String
+  subChannel String
+  territory  String
+  repName    String?
+  repGroup   String?
+  createdAt  DateTime @default(now())
 
   @@unique([year, principal, customerId, docId, isOrder])
   @@index([year, principal, customerId])
@@ -479,24 +581,24 @@ model JourneyPlanRow {
 // shape), pushed live via app/api/jp-adherence/upload/adherence. Full table
 // replace every sync, same rationale as JourneyPlanRow.
 model JPAdherenceDaily {
-  id                 String   @id @default(cuid())
-  date               DateTime
-  monthLabel         String
-  employeeCode       String
-  employeeName       String
-  userGroup          String
-  salesRole          String
-  costCentre         String
-  outletsPlanned     Int
-  outletsVisited     Int
-  jpAdherencePct     Float
-  productiveOutlets  Int
-  strikeRatePct      Float
-  plannedNotVisited  Int
-  visitedNotPlanned  Int
-  totalActualVisits  Int
-  status             String // "Excellent" | "Good" | "Below Target"
-  createdAt          DateTime @default(now())
+  id                String   @id @default(cuid())
+  date              DateTime
+  monthLabel        String
+  employeeCode      String
+  employeeName      String
+  userGroup         String
+  salesRole         String
+  costCentre        String
+  outletsPlanned    Int
+  outletsVisited    Int
+  jpAdherencePct    Float
+  productiveOutlets Int
+  strikeRatePct     Float
+  plannedNotVisited Int
+  visitedNotPlanned Int
+  totalActualVisits Int
+  status            String // "Excellent" | "Good" | "Below Target"
+  createdAt         DateTime @default(now())
 
   @@unique([date, employeeCode])
   @@index([date])

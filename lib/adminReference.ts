@@ -1,9 +1,6 @@
-// Shared "known values" lookups for the admin entry forms (Team Leaders, Targets) —
-// best-effort lists inferred from data already uploaded (JP Adherence, Rep Call,
-// existing Target rows), not a canonical master roster. If a clean Principal/Rep/Team
-// Leader/Location reference table gets uploaded later, only these functions need to
-// change to source dropdown options from it instead — every page calling them stays
-// as-is.
+// Shared canonical lookup values for the admin entry forms. Employee Roaster is
+// the source of truth when it is present; historical JP/Rep Call/Target data only
+// supplements it so an older record never vanishes from an admin lookup.
 import { prisma } from "./db";
 
 export interface KnownRep {
@@ -12,16 +9,19 @@ export interface KnownRep {
 }
 
 export async function getKnownPrincipals(): Promise<string[]> {
-  const [jpPrincipals, targetPrincipals, rosterPrincipals] = await Promise.all([
+  const [jpPrincipals, targetPrincipals, masterPrincipals, contributionPrincipals] = await Promise.all([
     prisma.jPMonthlySplitRow.findMany({ select: { costCentre: true }, distinct: ["costCentre"] }),
     prisma.target.findMany({ select: { principal: true }, distinct: ["principal"] }),
-    // The declared Roster (TeamLeaderAssignment) is the closest thing to a clean reference
-    // table this app has — see the file header comment above. Active only, so a deactivated
-    // Principal-only-via-Roster doesn't linger in every dropdown.
-    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true }, distinct: ["principal"] }),
+    prisma.employeeMaster.findMany({ where: { active: true }, select: { absolutePrincipal: true }, distinct: ["absolutePrincipal"] }),
+    prisma.employeePrincipalContribution.findMany({ select: { principal: true }, distinct: ["principal"] }),
   ]);
   return Array.from(
-    new Set([...jpPrincipals.map((p) => p.costCentre), ...targetPrincipals.map((p) => p.principal), ...rosterPrincipals.map((p) => p.principal)])
+    new Set([
+      ...masterPrincipals.map((p) => p.absolutePrincipal),
+      ...contributionPrincipals.map((p) => p.principal),
+      ...targetPrincipals.map((p) => p.principal),
+      ...jpPrincipals.map((p) => p.costCentre),
+    ])
   ).sort();
 }
 
@@ -31,15 +31,17 @@ export async function getKnownMainPrincipals(): Promise<string[]> {
 }
 
 export async function getKnownReps(): Promise<KnownRep[]> {
-  const [jpReps, repCallReps, rosterReps] = await Promise.all([
+  const [masterReps, jpReps, repCallReps, rosterReps] = await Promise.all([
+    prisma.employeeMaster.findMany({ where: { active: true }, select: { employeeCode: true, pineName: true } }),
     prisma.jPAdherenceDetail.findMany({ select: { employeeCode: true, employeeName: true }, distinct: ["employeeCode"], take: 2000 }),
     prisma.repCall.findMany({ select: { employeeCode: true, salesRep: true }, distinct: ["employeeCode"], take: 2000 }),
     prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true }, distinct: ["employeeCode"] }),
   ]);
   const repsByCode = new Map<string, string>();
   for (const r of repCallReps) repsByCode.set(r.employeeCode, r.salesRep);
-  for (const r of jpReps) repsByCode.set(r.employeeCode, r.employeeName); // JP Adherence names win — same source RepContribution uses
-  for (const r of rosterReps) repsByCode.set(r.employeeCode, r.employeeName); // Roster (admin-declared) wins over inferred names
+  for (const r of jpReps) repsByCode.set(r.employeeCode, r.employeeName);
+  for (const r of rosterReps) repsByCode.set(r.employeeCode, r.employeeName);
+  for (const r of masterReps) repsByCode.set(r.employeeCode, r.pineName); // canonical Pine name wins
   return Array.from(repsByCode.entries())
     .map(([employeeCode, employeeName]) => ({ employeeCode, employeeName }))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));

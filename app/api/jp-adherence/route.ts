@@ -26,12 +26,17 @@ export async function GET() {
     // everything client-side anyway, and none of these tables have an index covering
     // their old sort columns, which would force a re-sort of the whole table on every
     // chunk otherwise.
-    const [journeyPlan, adherenceDaily, monthlySplit] = await Promise.all([
+    const masterWhere = scope ? { employeeCode: { in: scope.employeeCodes } } : {};
+    const [journeyPlan, adherenceDaily, monthlySplit, employeeMaster] = await Promise.all([
       fetchAllInChunks((page) => prisma.journeyPlanRow.findMany({ where: journeyPlanWhere, orderBy: { id: "asc" }, ...page })),
       fetchAllInChunks((page) => prisma.jPAdherenceDaily.findMany({ where: costCentreWhere, orderBy: { id: "asc" }, ...page })),
       fetchAllInChunks((page) => prisma.jPMonthlySplitRow.findMany({ where: costCentreWhere, orderBy: { id: "asc" }, ...page })),
+      prisma.employeeMaster.findMany({
+        where: masterWhere,
+        select: { employeeCode: true, salesRole: true, contributions: { select: { principal: true } } },
+      }),
     ]);
-    return NextResponse.json({ journeyPlan, adherenceDaily, monthlySplit });
+    return NextResponse.json({ journeyPlan, adherenceDaily, monthlySplit, employeeMaster });
   } catch (err) {
     console.error("Failed to load JP Adherence data", err);
     return NextResponse.json({ error: "Failed to load JP Adherence data." }, { status: 500 });

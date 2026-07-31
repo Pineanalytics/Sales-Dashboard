@@ -15,6 +15,7 @@ const SECTIONS = [
   { href: "/admin/products", title: "Product Master", description: "Item → principal/pack-size reference data.", initials: "PM" },
   { href: "/admin/warehouses", title: "Warehouses", description: "Warehouse → location reference data.", initials: "WH" },
   { href: "/admin/key-account-reps", title: "Key Account Reps", description: "Rep → channel/team-leader reference data.", initials: "KA" },
+  { href: "/admin/employee-master", title: "Employee Master", description: "Pine/SAP name alignment, principal ownership, roles and rep status.", initials: "EM" },
   { href: "/admin/team-leaders", title: "Team Leaders", description: "Team Leader roster + rep/principal assignments.", initials: "TL" },
 ];
 

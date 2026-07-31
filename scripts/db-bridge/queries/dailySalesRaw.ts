@@ -12,6 +12,7 @@ export interface DailySalesRawRow {
   date: string; // "YYYY-MM-DD"
   itemCode: string;
   whsCode: string | null;
+  sapName: string;
   isFreeSale: boolean;
   qtySold: number;
   salesAmount: number;
@@ -24,6 +25,7 @@ interface DailySalesRawRecord {
   DocDate: Date;
   ItemCode: string;
   WhsCode: string | null;
+  "SAP Rep Name": string;
   "Is Free Sale": number;
   QtySold: number;
   "Sales Amount": number;
@@ -59,6 +61,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN -T1.Quantity
                   ELSE T1.Quantity
@@ -87,6 +90,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.Quantity
                   ELSE -T1.Quantity
@@ -112,6 +116,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
           SL.[Doc Date] AS DocDate,
           SL.[Item Code] AS ItemCode,
           SL.[Warehouse Code] AS WhsCode,
+          COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)') AS [SAP Rep Name],
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END AS [Is Free Sale],
           SUM(SL.QtySold) AS QtySold,
           SUM(SL.[Sales Amount]) AS [Sales Amount],
@@ -122,10 +127,12 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
               END) AS [Gross Margin]
       FROM SalesLines SL
       LEFT JOIN PriceLists PL ON PL.ItemCode = SL.[Item Code]
+      LEFT JOIN OSLP SR ON SR.SlpCode = SL.[Salesperson Code]
       GROUP BY
           SL.[Doc Date],
           SL.[Item Code],
           SL.[Warehouse Code],
+          COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)'),
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END;
     `);
 
@@ -133,6 +140,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
     date: r.DocDate.toISOString().slice(0, 10),
     itemCode: r.ItemCode,
     whsCode: r.WhsCode,
+    sapName: r["SAP Rep Name"],
     isFreeSale: r["Is Free Sale"] === 1,
     qtySold: r.QtySold,
     salesAmount: r["Sales Amount"],

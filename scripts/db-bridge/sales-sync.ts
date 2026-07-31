@@ -16,9 +16,10 @@ process.loadEnvFile();
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchYtdRaw } from "./queries/ytdRaw";
 import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
-import { loadProducts, loadWarehouses } from "./reference/loadFromDb";
+import { loadEmployeeMaster, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildDailySales } from "./transform/buildDailySales";
+import { buildDailyRepSales, buildMonthlyRepSales } from "./transform/buildRepSales";
 import principalsData from "./reference/principals.json";
 
 // Trailing window for the day-grain feed (Executive Overview's Week 1-4/Daily
@@ -47,19 +48,24 @@ async function main() {
 
   const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate);
 
-  const [ytdRows, dailyRawRows, products, warehousesData] = await Promise.all([
+  const [ytdRows, dailyRawRows, products, warehousesData, employees] = await Promise.all([
     withConnection(config, (pool) => fetchYtdRaw(pool, asOfDate)),
     withConnection(config, (pool) => fetchDailySalesRaw(pool, dailyStart, dailyEnd)),
     loadProducts(),
     loadWarehouses(),
+    loadEmployeeMaster(),
   ]);
   console.log(
-    `[sales-sync] Fetched ${ytdRows.length} YTD_Raw rows and ${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows and ${warehousesData.length} warehouse rows from Postgres.`
+    `[sales-sync] Fetched ${ytdRows.length} YTD_Raw rows and ${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows, ${warehousesData.length} warehouse rows, and ${employees.length} Employee Roaster rows from Postgres.`
   );
 
   const monthlySales = buildMonthlySales(ytdRows, products, warehousesData, principalsData);
   const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
-  console.log(`[sales-sync] Built ${monthlySales.length} monthly-sales rows and ${dailySales.length} daily-sales rows.`);
+  const monthlyRepSales = buildMonthlyRepSales(ytdRows, products, warehousesData, principalsData, employees);
+  const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
+  console.log(
+    `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, and ${dailyRepSales.length} rep-day rows.`
+  );
 
   const rows = monthlySales.map((r) => ({
     year: r.year,
@@ -106,6 +112,33 @@ async function main() {
     throw new Error(`Daily upload rejected (HTTP ${dailyResponse.status}): ${JSON.stringify(dailyBody)}`);
   }
   console.log(`[sales-sync] Daily upload succeeded. Saved ${dailyBody.count} rows.`);
+
+  console.log(`[sales-sync] Uploading rep-level SAP actuals to ${appUrl}/api/sales/upload-reps...`);
+  const repResponse = await fetch(`${appUrl}/api/sales/upload-reps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    body: JSON.stringify({ monthlyRows: monthlyRepSales, dailyRows: dailyRepSales }),
+  });
+  const repBody = await repResponse.json();
+  if (!repResponse.ok) {
+    throw new Error(`Rep-level upload rejected (HTTP ${repResponse.status}): ${JSON.stringify(repBody)}`);
+  }
+  console.log(
+    `[sales-sync] Rep-level upload succeeded. Saved ${repBody.monthlyRows} monthly and ${repBody.dailyRows} daily rows; ${repBody.unmatchedMonthlyRows} monthly rows remain unmatched to Employee Roaster.`
+  );
+
+  // RepContribution/DailyTarget now use SAP sales actuals, so refresh them in
+  // the same transaction cycle rather than waiting for the next JPA sync.
+  const derivedResponse = await fetch(`${appUrl}/api/jp-adherence/recompute-derived`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    body: "{}",
+  });
+  const derivedBody = await derivedResponse.json();
+  if (!derivedResponse.ok) {
+    throw new Error(`Derived target recompute rejected (HTTP ${derivedResponse.status}): ${JSON.stringify(derivedBody)}`);
+  }
+  console.log(`[sales-sync] Recomputed Target contributions from SAP actuals: ${JSON.stringify(derivedBody.contribution)}.`);
 }
 
 main().catch((err) => {

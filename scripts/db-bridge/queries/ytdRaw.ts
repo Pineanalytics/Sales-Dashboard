@@ -13,6 +13,7 @@ export interface YtdRawRow {
   month: string;
   itemCode: string;
   whsCode: string | null;
+  sapName: string;
   isFreeSale: boolean;
   qtySold: number;
   salesAmount: number;
@@ -31,6 +32,7 @@ interface YtdRawRecord {
   "Month Date": string;
   ItemCode: string;
   WhsCode: string | null;
+  "SAP Rep Name": string;
   "Is Free Sale": number;
   QtySold: number;
   "Sales Amount": number;
@@ -73,6 +75,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN -T1.Quantity
                   ELSE T1.Quantity
@@ -106,6 +109,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.Quantity
                   ELSE -T1.Quantity
@@ -137,6 +141,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN -T1.Quantity
                   ELSE T1.Quantity
@@ -170,6 +175,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
               T1.WhsCode AS [Warehouse Code],
+              T0.SlpCode AS [Salesperson Code],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.Quantity
                   ELSE -T1.Quantity
@@ -204,6 +210,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
           DATEFROMPARTS(YEAR(SL.[Doc Date]), MONTH(SL.[Doc Date]), 1) AS [Month Date],
           SL.[Item Code] AS ItemCode,
           SL.[Warehouse Code] AS WhsCode,
+          COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)') AS [SAP Rep Name],
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END AS [Is Free Sale],
           SUM(SL.QtySold) AS QtySold,
           SUM(SL.[Sales Amount]) AS [Sales Amount],
@@ -215,6 +222,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               END) AS [Gross Margin]
       FROM SalesLines SL
       LEFT JOIN PriceLists PL ON PL.ItemCode = SL.[Item Code]
+      LEFT JOIN OSLP SR ON SR.SlpCode = SL.[Salesperson Code]
       GROUP BY
           SL.Period,
           YEAR(SL.[Doc Date]),
@@ -223,6 +231,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
           DATEFROMPARTS(YEAR(SL.[Doc Date]), MONTH(SL.[Doc Date]), 1),
           SL.[Item Code],
           SL.[Warehouse Code],
+          COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)'),
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END;
     `);
 
@@ -233,6 +242,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
     month: r.Month,
     itemCode: r.ItemCode,
     whsCode: r.WhsCode,
+    sapName: r["SAP Rep Name"],
     isFreeSale: r["Is Free Sale"] === 1,
     qtySold: r.QtySold,
     salesAmount: r["Sales Amount"],

@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass, type Tier } from "@/lib/format";
+import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { CalendarCheckmark20Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
@@ -75,6 +76,12 @@ interface MonthlySplitRow {
   qty: number;
 }
 
+interface EmployeeMasterRow {
+  employeeCode: string;
+  salesRole: string;
+  contributions: { principal: string }[];
+}
+
 const TOP_N_PLAN_ROWS = 200;
 
 function formatDateLabel(dateStr: string): string {
@@ -99,6 +106,7 @@ export default function JpAdherencePage() {
   const [journeyPlan, setJourneyPlan] = useState<JourneyPlanRow[]>([]);
   const [adherenceDaily, setAdherenceDaily] = useState<JpAdherenceDailyRow[]>([]);
   const [monthlySplit, setMonthlySplit] = useState<MonthlySplitRow[]>([]);
+  const [employeeMaster, setEmployeeMaster] = useState<EmployeeMasterRow[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
@@ -116,6 +124,7 @@ export default function JpAdherencePage() {
           setJourneyPlan(body.journeyPlan);
           setAdherenceDaily(body.adherenceDaily);
           setMonthlySplit(body.monthlySplit);
+          setEmployeeMaster(body.employeeMaster ?? []);
           setStatus("idle");
         }
       } catch {
@@ -147,19 +156,33 @@ export default function JpAdherencePage() {
     );
   }
 
-  // Global principal filter — journeyPlan/adherenceDaily/monthlySplit all persist the
-  // real per-line principal (never the internal "Key Accounts" multi-Cost-Centre-rep
-  // grouping token), so filtering by it works correctly even for Key Accounts reps.
-  const planByPrincipal = selectedPrincipalKey ? journeyPlan.filter((r) => r.principalCostCentre === selectedPrincipalKey) : journeyPlan;
-  const dailyByPrincipal = selectedPrincipalKey ? adherenceDaily.filter((r) => r.costCentre === selectedPrincipalKey) : adherenceDaily;
-  const splitByPrincipal = selectedPrincipalKey ? monthlySplit.filter((r) => r.costCentre === selectedPrincipalKey) : monthlySplit;
+  // Contribution is the authoritative principal membership for JPA. A rep may
+  // have one absolute Timestamp principal but be relevant to several JPA
+  // principals. Historical/unmatched reps retain the source cost-centre fallback
+  // rather than disappearing from an existing report.
+  const masterByEmployee = new Map(employeeMaster.map((row) => [row.employeeCode, row]));
+  const isRelevantToPrincipal = (employeeCode: string, sourcePrincipal: string, principalKey: string) => {
+    const master = masterByEmployee.get(employeeCode);
+    if (!master) return normalizePrincipalKey(sourcePrincipal) === principalKey;
+    return master.contributions.some((contribution) => normalizePrincipalKey(contribution.principal) === principalKey);
+  };
+  const roleForEmployee = (employeeCode: string, sourceRole: string) => masterByEmployee.get(employeeCode)?.salesRole ?? sourceRole;
+  const planByPrincipal = selectedPrincipalKey
+    ? journeyPlan.filter((r) => isRelevantToPrincipal(r.employeeCode, r.principalCostCentre, selectedPrincipalKey))
+    : journeyPlan;
+  const dailyByPrincipal = selectedPrincipalKey
+    ? adherenceDaily.filter((r) => isRelevantToPrincipal(r.employeeCode, r.costCentre, selectedPrincipalKey))
+    : adherenceDaily;
+  const splitByPrincipal = selectedPrincipalKey
+    ? monthlySplit.filter((r) => isRelevantToPrincipal(r.employeeCode, r.costCentre, selectedPrincipalKey))
+    : monthlySplit;
 
   const availableDates = Array.from(new Set(dailyByPrincipal.map((r) => dateKey(r.date)))).sort();
   const planByDate = selectedDate ? planByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : planByPrincipal;
   const dailyByDate = selectedDate ? dailyByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : dailyByPrincipal;
-  const splitByRole = roleFilter === "all" ? splitByPrincipal : splitByPrincipal.filter((r) => r.salesRole === roleFilter);
-  const planByRole = roleFilter === "all" ? planByDate : planByDate.filter((r) => r.salesRole === roleFilter);
-  const dailyByRole = roleFilter === "all" ? dailyByDate : dailyByDate.filter((r) => r.salesRole === roleFilter);
+  const splitByRole = roleFilter === "all" ? splitByPrincipal : splitByPrincipal.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
+  const planByRole = roleFilter === "all" ? planByDate : planByDate.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
+  const dailyByRole = roleFilter === "all" ? dailyByDate : dailyByDate.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
 
   const availableReps = Array.from(new Map(dailyByRole.map((r) => [r.employeeCode, r.employeeName] as const)).entries()).sort((a, b) => a[1].localeCompare(b[1]));
   const filteredPlan = selectedRep ? planByRole.filter((r) => r.employeeCode === selectedRep) : planByRole;
@@ -323,7 +346,7 @@ export default function JpAdherencePage() {
               <tr key={`${r.date}|${r.employeeCode}`}>
                 <Td>{formatDateLabel(r.date)}</Td>
                 <Td>{r.employeeName}</Td>
-                <Td>{r.salesRole}</Td>
+                <Td>{roleForEmployee(r.employeeCode, r.salesRole)}</Td>
                 <Td>{r.costCentre}</Td>
                 <Td align="right">{formatNumber(r.outletsPlanned)}</Td>
                 <Td align="right">{formatNumber(r.outletsVisited)}</Td>
@@ -427,7 +450,7 @@ export default function JpAdherencePage() {
               <tr key={`${r.monthLabel}|${r.costCentre}|${r.salesRole}|${r.employeeCode}|${r.activityStatus}`}>
                 <Td>{r.monthLabel}</Td>
                 <Td>{r.costCentre}</Td>
-                <Td>{r.salesRole}</Td>
+                <Td>{roleForEmployee(r.employeeCode, r.salesRole)}</Td>
                 <Td>{r.employeeName}</Td>
                 <Td align="center">
                   <Badge tier={ACTIVITY_STATUS_TIER[r.activityStatus] ?? "neutral"}>{r.activityStatus}</Badge>

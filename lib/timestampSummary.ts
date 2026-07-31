@@ -83,17 +83,14 @@ export function timestampPrincipalKey(principalKey: string): string {
   return normalizePrincipalKey(principalKey);
 }
 
-/** Tests whether any Cost Centre on a call belongs to the selected normalized
- * principal. This keeps Timestamps aligned with the global principal selector
- * without depending on a particular location suffix. */
-function principalMatchClause(principalKey: string, costCentresBought: Prisma.Sql): Prisma.Sql {
+/** Tests the canonical absolute principal from Employee Roaster. Timestamps
+ * are an operational Pine report, so a rep's complete day belongs to the one
+ * absolute principal rather than being reassigned according to a call's sale
+ * cost-centre or their multi-principal JPA contribution allocation. */
+function absolutePrincipalMatchClause(principalKey: string, absolutePrincipal: Prisma.Sql): Prisma.Sql {
   const selectorKey = timestampPrincipalKey(principalKey);
   return Prisma.sql`
-    EXISTS (
-      SELECT 1
-      FROM unnest(string_to_array(COALESCE(${costCentresBought}, ''), ', ')) AS cost_centre(value)
-      WHERE lower(regexp_replace(split_part(BTRIM(cost_centre.value), '-', 1), '[^a-zA-Z0-9]', '', 'g')) = ${selectorKey}
-    )
+    lower(regexp_replace(split_part(BTRIM(${absolutePrincipal}), '-', 1), '[^a-zA-Z0-9]', '', 'g')) = ${selectorKey}
   `;
 }
 
@@ -115,35 +112,22 @@ function sourceQuery(
 
   if (!principalKey) {
     return {
-      from: Prisma.sql`FROM "RepCall" r`,
-      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} ${teamClause}`,
-      salesRole: Prisma.sql`r."salesRole"`,
+      // Keep an unmatched historical Pine rep visible, but use the Employee
+      // Roaster's active flag and sales role whenever a master row exists.
+      from: Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`,
+      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) ${teamClause}`,
+      salesRole: Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`,
     };
   }
 
-  // Materialize the selected-principal role before the aggregate queries. A
-  // role expression that reads employeeGroup/employeeCode cannot be selected
-  // directly alongside MIN/MAX/COUNT unless those fields are also grouped.
-  // Keeping it as a derived column preserves one rep-day row and lets every
-  // KPI, chart, and filter use exactly the same classification.
-  const scopedSalesRole = principalScopedSalesRoleExpression(principalKey);
-  const principalMatch = principalMatchClause(principalKey, Prisma.sql`p."costCentresBought"`);
+  // Principal-scoped Timestamps always use the roster's absolute principal.
+  // This includes every call in a matching rep-day (not only sales calls),
+  // which keeps first/last-call time and coverage meaningful.
+  const absolutePrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`);
   return {
-    from: Prisma.sql`
-      FROM (
-        SELECT r.*, ${scopedSalesRole} AS "principalSalesRole"
-        FROM "RepCall" r
-        INNER JOIN (
-          SELECT DISTINCT p.date, p."employeeCode"
-          FROM "RepCall" p
-          WHERE p.date >= ${start} AND p.date < ${end}
-            AND ${principalMatch}
-        ) relevant_rep_days
-          ON relevant_rep_days.date = r.date AND relevant_rep_days."employeeCode" = r."employeeCode"
-      ) r
-    `,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} ${teamClause}`,
-    salesRole: Prisma.sql`r."principalSalesRole"`,
+    from: Prisma.sql`FROM "RepCall" r INNER JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND em.active AND ${absolutePrincipalMatch} ${teamClause}`,
+    salesRole: Prisma.sql`em."salesRole"`,
   };
 }
 
@@ -225,9 +209,7 @@ export async function getTimestampSummary(
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
   const roleClause = selectedRoleClause(filters, salesRole);
-  const salesExpression = filters.principalKey
-    ? Prisma.sql`CASE WHEN ${principalMatchClause(filters.principalKey, Prisma.sql`r."costCentresBought"`)} THEN r.sales ELSE 0 END`
-    : Prisma.sql`r.sales`;
+  const salesExpression = Prisma.sql`r.sales`;
   const bucket = chartBucket(filters.chartGranularity);
 
   const [dateRows, regionRows, repRows, summaryRows, metricRows, chartRows] = await Promise.all([

@@ -138,13 +138,13 @@ export async function createAssignmentAction(formData: FormData) {
   const user = await requireAdmin();
   const teamLeaderId = str(formData, "teamLeaderId");
   const employeeCode = str(formData, "employeeCode");
-  const employeeName = str(formData, "employeeName");
+  let employeeName = str(formData, "employeeName");
   // A typed "new Principal" wins over the dropdown pick — lets a genuinely new
   // Principal (not yet in Target/JP data) be assigned without blocking on it existing.
   const principal = str(formData, "newPrincipal") || str(formData, "principal");
   const channel = str(formData, "channel") || null;
-  const contributionPct = pct(formData, "contributionPct");
-  const salesRole = str(formData, "salesRole") || "PRIMARY";
+  let contributionPct = pct(formData, "contributionPct");
+  let salesRole = str(formData, "salesRole") || "PRIMARY";
 
   // Carries the just-used Team Leader + Principal back into the form (see the redirects
   // below) so adding several reps in a row to the same Team Leader × Principal doesn't
@@ -155,9 +155,38 @@ export async function createAssignmentAction(formData: FormData) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader, Employee Code, and Principal are required.") + carryForward);
   }
 
+  const master = await prisma.employeeMaster.findUnique({
+    where: { employeeCode },
+    include: { contributions: { where: { principal }, select: { principal: true } } },
+  });
+  if (master) {
+    if (master.contributions.length === 0) {
+      redirect(
+        "/admin/team-leaders?error=" +
+          encodeURIComponent(`${master.pineName} is not assigned to ${principal} in the Employee Roaster Contribution sheet.`) +
+          carryForward
+      );
+    }
+    employeeName = master.pineName;
+    salesRole = master.salesRole === "Primary Sales" ? "PRIMARY" : "SECONDARY";
+    // Source Contribution is role-normalized; it is not the Team Leader's
+    // optional target allocation, so a manual value is left as entered.
+    contributionPct = contributionPct ?? null;
+  }
+
   try {
     await prisma.teamLeaderAssignment.create({
-      data: { teamLeaderId, employeeCode, employeeName: employeeName || employeeCode, principal, channel, contributionPct, salesRole },
+      data: {
+        teamLeaderId,
+        employeeCode,
+        employeeName: employeeName || employeeCode,
+        sapName: master?.sapName ?? null,
+        principal,
+        channel,
+        contributionPct,
+        active: master?.active ?? true,
+        salesRole,
+      },
     });
   } catch (err: unknown) {
     const message =
@@ -191,7 +220,9 @@ export async function updateAssignmentAction(formData: FormData) {
 
   const channel = str(formData, "channel") || null;
   const contributionPct = pct(formData, "contributionPct");
-  const salesRole = str(formData, "salesRole") || "PRIMARY";
+  let salesRole = str(formData, "salesRole") || "PRIMARY";
+  const master = await prisma.employeeMaster.findUnique({ where: { employeeCode: existing.employeeCode }, select: { salesRole: true } });
+  if (master) salesRole = master.salesRole === "Primary Sales" ? "PRIMARY" : "SECONDARY";
 
   await prisma.teamLeaderAssignment.update({
     where: { id },
