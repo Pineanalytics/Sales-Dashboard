@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { principalScopedSalesRole } from "@/lib/timestampSummary";
+import { principalScopedSalesRole, timestampPrincipalKey } from "@/lib/timestampSummary";
 
 describe("principalScopedSalesRole", () => {
+  it("uses the same normalized key as the global principal selector", () => {
+    expect(timestampPrincipalKey("Mars-Nairobi")).toBe("mars");
+    expect(timestampPrincipalKey("Bic-Nairobi")).toBe("bic");
+    expect(timestampPrincipalKey("Weetabix-Nairobi")).toBe("weetabix");
+  });
+
   it("keeps a TDR in Secondary for a Mars-selected rep-day, including no-sale calls", () => {
     expect(principalScopedSalesRole("TDR", "1155", "Mars-Nairobi", "Primary Sales")).toBe("Secondary Sales");
     expect(principalScopedSalesRole("TDR", "1155", "Mars-Nairobi", "Secondary Sales")).toBe("Secondary Sales");

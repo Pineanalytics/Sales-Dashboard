@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { normalizePrincipalKey } from "@/lib/normalize";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
 
 export type TimestampRoleFilter = "all" | "Primary Sales" | "Secondary Sales";
@@ -76,6 +77,26 @@ function nextUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
 }
 
+/** The global principal selector uses this normalized brand key, whereas
+ * Timestamps stores the full Cost Centre name (for example, `Mars-Nairobi`). */
+export function timestampPrincipalKey(principalKey: string): string {
+  return normalizePrincipalKey(principalKey);
+}
+
+/** Tests whether any Cost Centre on a call belongs to the selected normalized
+ * principal. This keeps Timestamps aligned with the global principal selector
+ * without depending on a particular location suffix. */
+function principalMatchClause(principalKey: string, costCentresBought: Prisma.Sql): Prisma.Sql {
+  const selectorKey = timestampPrincipalKey(principalKey);
+  return Prisma.sql`
+    EXISTS (
+      SELECT 1
+      FROM unnest(string_to_array(COALESCE(${costCentresBought}, ''), ', ')) AS cost_centre(value)
+      WHERE lower(regexp_replace(split_part(BTRIM(cost_centre.value), '-', 1), '[^a-zA-Z0-9]', '', 'g')) = ${selectorKey}
+    )
+  `;
+}
+
 /** Produces a direct source relation and predicates for the dashboard's
  * aggregate queries. This deliberately avoids a wide MATERIALIZED CTE: on
  * the VPS, repeatedly reading that temporary relation was markedly slower
@@ -106,6 +127,7 @@ function sourceQuery(
   // Keeping it as a derived column preserves one rep-day row and lets every
   // KPI, chart, and filter use exactly the same classification.
   const scopedSalesRole = principalScopedSalesRoleExpression(principalKey);
+  const principalMatch = principalMatchClause(principalKey, Prisma.sql`p."costCentresBought"`);
   return {
     from: Prisma.sql`
       FROM (
@@ -115,7 +137,7 @@ function sourceQuery(
           SELECT DISTINCT p.date, p."employeeCode"
           FROM "RepCall" p
           WHERE p.date >= ${start} AND p.date < ${end}
-            AND string_to_array(COALESCE(p."costCentresBought", ''), ', ') @> ARRAY[${principalKey}]::text[]
+            AND ${principalMatch}
         ) relevant_rep_days
           ON relevant_rep_days.date = r.date AND relevant_rep_days."employeeCode" = r."employeeCode"
       ) r
@@ -165,7 +187,7 @@ export function principalScopedSalesRole(
 function principalScopedSalesRoleExpression(principalKey: string | null): Prisma.Sql {
   if (!principalKey) return Prisma.sql`r."salesRole"`;
 
-  const selectedMars = principalKey.trim().toLowerCase().startsWith("mars");
+  const selectedMars = timestampPrincipalKey(principalKey) === "mars";
   return Prisma.sql`
     CASE
       WHEN UPPER(BTRIM(r."employeeGroup")) = 'DSR' AND BTRIM(r."employeeCode") IN ('1172', '1032') THEN 'Secondary Sales'
@@ -204,7 +226,7 @@ export async function getTimestampSummary(
   const regionClause = selectedRegionClause(filters);
   const roleClause = selectedRoleClause(filters, salesRole);
   const salesExpression = filters.principalKey
-    ? Prisma.sql`CASE WHEN string_to_array(COALESCE(r."costCentresBought", ''), ', ') @> ARRAY[${filters.principalKey}]::text[] THEN r.sales ELSE 0 END`
+    ? Prisma.sql`CASE WHEN ${principalMatchClause(filters.principalKey, Prisma.sql`r."costCentresBought"`)} THEN r.sales ELSE 0 END`
     : Prisma.sql`r.sales`;
   const bucket = chartBucket(filters.chartGranularity);
 
