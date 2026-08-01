@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { getJpAdherenceDetail } from "@/lib/jpAdherence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Lazy drill-down: JPAdherenceDetail is only fetched for one rep-day at a
-// time (?date=YYYY-MM-DD&employeeCode=...), never the whole table, since it
-// can be structurally large (multi-month x many-outlet explosion).
+// Lazy drill-down: the rep-day detail (planned vs actual, outlet by outlet) is
+// only computed for one rep-day at a time (?date=YYYY-MM-DD&employeeCode=...),
+// never the whole month, since a live join over the full plan/RepCall window
+// would be needlessly wide for what's just a modal's worth of rows.
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
@@ -31,10 +32,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const detail = await prisma.jPAdherenceDetail.findMany({
-      where: { date, employeeCode },
-      orderBy: [{ customerName: "asc" }],
-    });
+    const detail = await getJpAdherenceDetail(date, employeeCode);
     return NextResponse.json({ detail });
   } catch (err) {
     console.error("Failed to load JP Adherence detail", err);

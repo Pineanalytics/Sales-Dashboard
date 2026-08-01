@@ -472,10 +472,10 @@ const timestampsReport: ReportDefinition = {
   },
 };
 
-interface JPAdherenceDailyRow {
+interface JPRepDaySummaryRow {
   date: string;
   employeeName: string;
-  costCentre: string;
+  salesRole: string;
   outletsPlanned: number;
   outletsVisited: number;
   jpAdherencePct: number;
@@ -483,45 +483,38 @@ interface JPAdherenceDailyRow {
   strikeRatePct: number;
   status: string;
 }
-interface JPMonthlySplitRow {
-  monthLabel: string;
+interface JPMonthlyCoverageRow {
   year: string;
   monthIndex: number;
-  costCentre: string;
+  principal: string;
+  principalKey: string;
   salesRole: string;
   employeeName: string;
   activityStatus: string;
   coverage: number;
   productive: number;
   productivityPct: number;
-  revenue: number;
 }
 
 const jpAdherenceReport: ReportDefinition = {
   key: "jp-adherence",
   label: "JP Adherence",
-  description: "Journey plan adherence and monthly split, trailing 90 days.",
+  description: "Journey plan adherence (planned vs. RepCall-verified actual visits) and monthly coverage.",
   pageKey: "jp-adherence",
   async build({ period, principalKey, repFilter }) {
-    const res = await fetch("/api/jp-adherence", { cache: "no-store" });
-    if (!res.ok) return emptyReport("JP Adherence");
-    const body = (await res.json()) as { adherenceDaily: JPAdherenceDailyRow[]; monthlySplit: JPMonthlySplitRow[] };
-
     const bounds = dateBoundsForPeriod(period);
-    const monthKeys = periodMonthKeys(period);
+    if (!bounds) return emptyReport("JP Adherence");
+    const params = new URLSearchParams({ from: bounds.from.toISOString(), to: bounds.to.toISOString() });
+    if (principalKey) params.set("principal", principalKey);
+    const res = await fetch(`/api/jp-adherence?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return emptyReport("JP Adherence");
+    const body = (await res.json()) as { repDaySummary: JPRepDaySummaryRow[]; monthlyCoverage: JPMonthlyCoverageRow[] };
 
-    const adherenceDaily = body.adherenceDaily.filter((d) => {
-      if (bounds) {
-        const dt = new Date(d.date);
-        if (dt < bounds.from || dt > bounds.to) return false;
-      }
-      if (principalKey && d.costCentre !== principalKey) return false;
-      if (!matchesRep(d.employeeName, repFilter)) return false;
-      return true;
-    });
-    const monthlySplit = body.monthlySplit.filter((m) => {
+    const monthKeys = periodMonthKeys(period);
+    const repDaySummary = body.repDaySummary.filter((d) => matchesRep(d.employeeName, repFilter));
+    const monthlyCoverage = body.monthlyCoverage.filter((m) => {
       if (!monthKeys.has(`${m.year}|${m.monthIndex}`)) return false;
-      if (principalKey && m.costCentre !== principalKey) return false;
+      if (principalKey && m.principalKey !== principalKey) return false;
       if (!matchesRep(m.employeeName, repFilter)) return false;
       return true;
     });
@@ -532,11 +525,11 @@ const jpAdherenceReport: ReportDefinition = {
       sections: [
         {
           title: "Adherence Daily",
-          columns: ["Date", "Employee", "Cost Centre", "Planned", "Visited", "Adherence %", "Productive", "Strike Rate %", "Status"],
-          rows: adherenceDaily.map((d) => [
+          columns: ["Date", "Employee", "Role", "Planned", "Visited", "Adherence %", "Productive", "Strike Rate %", "Status"],
+          rows: repDaySummary.map((d) => [
             new Date(d.date).toLocaleDateString(),
             d.employeeName,
-            d.costCentre,
+            d.salesRole,
             d.outletsPlanned,
             d.outletsVisited,
             d.jpAdherencePct,
@@ -546,9 +539,9 @@ const jpAdherenceReport: ReportDefinition = {
           ]),
         },
         {
-          title: "Monthly Split",
-          columns: ["Month", "Cost Centre", "Sales Role", "Employee", "Activity Status", "Coverage", "Productive", "Productivity %", "Revenue"],
-          rows: monthlySplit.map((m) => [m.monthLabel, m.costCentre, m.salesRole, m.employeeName, m.activityStatus, m.coverage, m.productive, m.productivityPct, round2(m.revenue)]),
+          title: "Monthly Coverage",
+          columns: ["Month", "Principal", "Sales Role", "Employee", "Activity Status", "Coverage", "Productive", "Productivity %"],
+          rows: monthlyCoverage.map((m) => [`${m.monthIndex + 1}/${m.year}`, m.principal, m.salesRole, m.employeeName, m.activityStatus, m.coverage, m.productive, m.productivityPct]),
         },
       ],
     };

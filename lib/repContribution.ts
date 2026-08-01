@@ -136,6 +136,11 @@ export async function getUnassignedRevenueReps(): Promise<UnassignedRevenueRep[]
 // were on leave most of the week) — fall back to the deeper-history layer.
 const MIN_DETAIL_VISITS_FOR_LAYER_1 = 3;
 const EVEN_WEEKDAY_SPLIT = [0.2, 0.2, 0.2, 0.2, 0.2];
+// Layer 1 needs to stay a genuinely *recent* signal — RepCall's own 3-month
+// retention is too wide a window for MIN_DETAIL_VISITS_FOR_LAYER_1's "too thin
+// to trust" threshold to mean anything (every active rep would trivially
+// clear 3 visits against 3 months of history, so Layer 2/3 would never fire).
+const WEEKDAY_WEIGHT_LOOKBACK_DAYS = 14;
 
 /** Pure 3-layer fallback, given precomputed Mon-Fri count arrays (length 5) for
  *  each source: Layer 1 (most precise) — Detail's productive-visit counts, used
@@ -157,15 +162,18 @@ export function computeWeekdayWeights(detailCounts: number[], dailyCounts: numbe
 }
 
 /** Weekday (Mon-Fri) visit-count histogram for one rep, normalized to sum 1.
- *  Layer 1: JPAdherenceDetail.productiveFlag over whatever's stored (kept to the
- *  most recent RECENT_UPLOAD_DAYS=7 — effectively "last week" already). Layer 2:
- *  JPAdherenceDaily.totalActualVisits by weekday-of-date, which — unlike Detail —
- *  stays full-90-day, so it's real trailing history even though it can't split
- *  productive-vs-not the way Detail can. See computeWeekdayWeights for the
- *  fallback logic itself. */
+ *  Both layers now read RepCall (Timestamps' own live data) instead of the
+ *  retired JPAdherenceDetail/JPAdherenceDaily tables. Layer 1: productive
+ *  (callOutcome='Sale') calls in the trailing WEEKDAY_WEIGHT_LOOKBACK_DAYS —
+ *  a genuinely recent signal, matching the original Detail table's own
+ *  trailing-~7-day persisted window. Layer 2: every RepCall row for the rep
+ *  (unbounded beyond RepCall's own 3-month retention) — deeper history,
+ *  coarser signal, same role as the old Daily-sourced layer. See
+ *  computeWeekdayWeights for the fallback logic itself. */
 async function weekdayWeightsForRep(employeeCode: string): Promise<number[]> {
-  const detailRows = await prisma.jPAdherenceDetail.findMany({
-    where: { employeeCode, productiveFlag: true },
+  const lookbackStart = new Date(Date.now() - WEEKDAY_WEIGHT_LOOKBACK_DAYS * 86400000);
+  const detailRows = await prisma.repCall.findMany({
+    where: { employeeCode, callOutcome: "Sale", date: { gte: lookbackStart } },
     select: { date: true },
   });
   const detailCounts = [0, 0, 0, 0, 0];
@@ -179,14 +187,14 @@ async function weekdayWeightsForRep(employeeCode: string): Promise<number[]> {
     return computeWeekdayWeights(detailCounts, [0, 0, 0, 0, 0]);
   }
 
-  const dailyRows = await prisma.jPAdherenceDaily.findMany({
+  const dailyRows = await prisma.repCall.findMany({
     where: { employeeCode },
-    select: { date: true, totalActualVisits: true },
+    select: { date: true },
   });
   const dailyCounts = [0, 0, 0, 0, 0];
   for (const r of dailyRows) {
     const idx = weekdayIndex(r.date);
-    if (idx !== null) dailyCounts[idx] += r.totalActualVisits;
+    if (idx !== null) dailyCounts[idx] += 1;
   }
 
   return computeWeekdayWeights(detailCounts, dailyCounts);

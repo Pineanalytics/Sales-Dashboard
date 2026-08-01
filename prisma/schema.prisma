@@ -537,138 +537,38 @@ model RepCall {
 // a rep's current territory, but only the most recent RECENT_UPLOAD_DAYS (7)
 // worth of rows are actually persisted here — the first live run generated
 // 800K+ rows across the full 90 days (862 reps x ~65 workdays), which is both
-// impractical to serve on a page load and far more history than the page's
-// route table is ever used for. JP Adherence Daily/Monthly Split (below)
-// stay full-90-day-scoped since they're small aggregates, not raw per-visit
-// rows. Full table replace every sync (not upsert-on-key, unlike
-// ActiveOutlet) — a planned row that falls out of the rolling window must
-// disappear, not linger forever, same precedent as RepCall.
-// costCentre/principalCostCentre is always the real per-line principal (e.g.
-// "Mars-Nairobi"), never the internal "Key Accounts" multi-Cost-Centre-rep
-// grouping token used only inside the route algorithm.
+// The Journey Plan is now an authoritative business upload (scripts/jp-adherence/
+// import-plan.ts, from a Journey Plan workbook), not a derived/inferred route —
+// one row per planned rep/outlet/date visit, matching the source file's own grain.
+// Adherence itself (planned vs actual) is computed live by joining this table
+// against RepCall (Timestamps' own live-synced data) in lib/jpAdherence.ts, rather
+// than stored in a separately-synced table — there is nothing here to keep in sync
+// on a schedule, only whatever the latest uploaded plan says. principal is
+// deliberately not stored here: JP Adherence's principal scoping has always been
+// EmployeePrincipalContribution-based (a rep can be relevant to several JPA
+// principals), resolved via join at query time, same as before. teamLeader is
+// display-only, sourced straight from the upload — never used for access scoping
+// (that's TeamLeaderScope/employeeCode, as everywhere else in this app).
 model JourneyPlanRow {
-  id                  String   @id @default(cuid())
-  costCentreGroup     String // "Key Accounts" for multi-CC reps, else the bare Cost Centre
-  principalCostCentre String // the rep's actual per-line Cost Centre, e.g. "Mars-Nairobi"
-  salesRole           String
-  userGroup           String
-  employeeCode        String
-  employeeName        String
-  monthLabel          String // "Jul-2026"
-  day                 String // "Monday".."Friday"
-  date                DateTime
-  weekOfMonth         Int
-  dayIndex            Int // 0=Mon..4=Fri
-  routeSeq            Int
-  customerId          String
-  customerName        String
-  territory           String
-  latitude            Float?
-  longitude           Float?
-  visitsPerWeek       Int
-  minOutletsTarget    Int
-  dayOutletCount      Int
-  status              String // "OK" | "BELOW TARGET"
-  createdAt           DateTime @default(now())
+  id           String   @id @default(cuid())
+  date         DateTime
+  day          String // "Monday".."Sunday", from source
+  employeeCode String
+  employeeName String
+  customerId   String
+  customerName String
+  region       String // source "Location"
+  teamLeader   String // display only — never used for access scoping
+  routeName    String
+  subRegion    String
+  salesRole    String // "Primary Sales" | "Secondary Sales"
+  channel      String
+  monthLabel   String // "Jul-2026" — convenience for the Month filter/display
+  createdAt    DateTime @default(now())
 
   @@unique([date, employeeCode, customerId])
   @@index([date])
   @@index([employeeCode, date])
-}
-
-// JP Adherence — one row per Date+Employee comparing planned vs actual visit
-// activity (scripts/db-bridge/jp-adherence, build_jp_adherence's jp_summary
-// shape), pushed live via app/api/jp-adherence/upload/adherence. Full table
-// replace every sync, same rationale as JourneyPlanRow.
-model JPAdherenceDaily {
-  id                String   @id @default(cuid())
-  date              DateTime
-  monthLabel        String
-  employeeCode      String
-  employeeName      String
-  userGroup         String
-  salesRole         String
-  costCentre        String
-  outletsPlanned    Int
-  outletsVisited    Int
-  jpAdherencePct    Float
-  productiveOutlets Int
-  strikeRatePct     Float
-  plannedNotVisited Int
-  visitedNotPlanned Int
-  totalActualVisits Int
-  status            String // "Excellent" | "Good" | "Below Target"
-  createdAt         DateTime @default(now())
-
-  @@unique([date, employeeCode])
-  @@index([date])
-  @@index([employeeCode, date])
-}
-
-// JP Adherence Detail — one row per planned-or-unplanned visit event, backing
-// the page's rep-day drill-down (lazy-loaded via app/api/jp-adherence/detail,
-// not shipped on initial page load). JPAdherenceDaily's own aggregates are
-// computed from the FULL 90-day detail set in-memory during the sync, before
-// this table is trimmed for storage — see JourneyPlanRow's comment for why
-// only the most recent RECENT_UPLOAD_DAYS (7) are actually persisted here
-// (the full 90-day detail set hit 1M+ rows on the first live run). Full
-// table replace every sync, same rationale as JourneyPlanRow.
-model JPAdherenceDetail {
-  id                  String   @id @default(cuid())
-  date                DateTime
-  monthLabel          String
-  day                 String
-  employeeCode        String
-  employeeName        String
-  userGroup           String
-  salesRole           String
-  costCentre          String
-  principalCostCentre String
-  customerId          String
-  customerName        String
-  territory           String
-  plannedFlag         Boolean
-  visitedFlag         Boolean
-  productiveFlag      Boolean
-  visitType           String
-  revenue             Float
-  qty                 Float // no carton-conversion data is plumbed into this bridge (unlike the Python reference's Converter.xlsx) — raw units, matching RepCall/ActiveOutlet's own qty convention
-  jpStatus            String // "Planned & Productive" | "Planned & Visited" | "Planned Not Visited" | "Unplanned Visit"
-  latitude            Float?
-  longitude           Float?
-  createdAt           DateTime @default(now())
-
-  @@unique([date, employeeCode, customerId])
-  @@index([date])
-  @@index([employeeCode, date])
-}
-
-// Monthly Split — Month x CostCentre x SalesRole x Rep x ActivityStatus flat
-// rows (no Sub Total/TOTAL, per the source script's design), from
-// scripts/db-bridge/jp-adherence's buildMonthlySplit, pushed via
-// app/api/jp-adherence/upload/monthly-split. Full table replace every sync,
-// same rationale as JourneyPlanRow — reflects only the trailing 90-day
-// window, not a persistent YTD history.
-model JPMonthlySplitRow {
-  id              String   @id @default(cuid())
-  monthLabel      String // "Jul-2026"
-  monthIndex      Int
-  year            String
-  costCentre      String
-  salesRole       String
-  employeeCode    String
-  employeeName    String
-  activityStatus  String // "Active" | "Inactive"
-  coverage        Int
-  productive      Int
-  productivityPct Float
-  revenue         Float
-  qty             Float // see JPAdherenceDetail.qty comment — no carton-conversion data in this bridge
-  createdAt       DateTime @default(now())
-
-  @@unique([monthLabel, costCentre, salesRole, employeeCode, activityStatus])
-  @@index([monthLabel])
-  @@index([employeeCode])
 }
 
 // Weekly revenue targets per Team Leader x Principal x Week, entered via

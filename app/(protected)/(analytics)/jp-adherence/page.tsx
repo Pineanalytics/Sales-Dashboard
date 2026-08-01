@@ -13,61 +13,56 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DateCalendarPicker } from "@/components/ui/DateCalendarPicker";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, productivityTier, tierTextClass, type Tier } from "@/lib/format";
-import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle, CHART_COLORS } from "@/components/charts/theme";
 import { CalendarCheckmark20Regular, Dismiss12Regular } from "@fluentui/react-icons";
 
-interface JourneyPlanRow {
-  costCentreGroup: string;
-  principalCostCentre: string;
-  salesRole: string;
-  userGroup: string;
-  employeeCode: string;
-  employeeName: string;
-  monthLabel: string;
-  day: string;
-  date: string;
-  weekOfMonth: number;
-  dayIndex: number;
-  routeSeq: number;
-  customerId: string;
-  customerName: string;
-  territory: string;
-  latitude: number | null;
-  longitude: number | null;
-  visitsPerWeek: number;
-  minOutletsTarget: number;
-  dayOutletCount: number;
-  status: string;
-}
-
-interface JpAdherenceDailyRow {
-  date: string;
-  monthLabel: string;
-  employeeCode: string;
-  employeeName: string;
-  userGroup: string;
-  salesRole: string;
-  costCentre: string;
+interface JpKpis {
   outletsPlanned: number;
   outletsVisited: number;
   jpAdherencePct: number;
   productiveOutlets: number;
   strikeRatePct: number;
   plannedNotVisited: number;
-  visitedNotPlanned: number;
-  totalActualVisits: number;
+  unplannedVisits: number;
+}
+
+interface JpRepDaySummaryRow {
+  date: string;
+  employeeCode: string;
+  employeeName: string;
+  salesRole: string;
+  outletsPlanned: number;
+  outletsVisited: number;
+  jpAdherencePct: number;
+  productiveOutlets: number;
+  strikeRatePct: number;
+  plannedNotVisited: number;
   status: string;
 }
 
-interface MonthlySplitRow {
-  monthLabel: string;
-  monthIndex: number;
-  year: string;
-  costCentre: string;
-  salesRole: string;
+interface JpPlanRow {
+  date: string;
+  day: string;
   employeeCode: string;
   employeeName: string;
+  customerId: string;
+  customerName: string;
+  region: string;
+  teamLeader: string;
+  routeName: string;
+  subRegion: string;
+  salesRole: string;
+  channel: string;
+}
+
+interface JpMonthlyCoverageRow {
+  year: string;
+  monthIndex: number;
+  employeeCode: string;
+  employeeName: string;
+  principal: string;
+  principalKey: string;
+  salesRole: string;
   activityStatus: string;
   coverage: number;
   productive: number;
@@ -76,16 +71,30 @@ interface MonthlySplitRow {
   qty: number;
 }
 
-interface EmployeeMasterRow {
-  employeeCode: string;
-  salesRole: string;
-  contributions: { principal: string }[];
+interface JpAdherenceResponse {
+  kpis: JpKpis;
+  repDaySummary: JpRepDaySummaryRow[];
+  planRows: JpPlanRow[];
+  availableMonths: string[];
+  availableDates: string[];
+  availableReps: { employeeCode: string; employeeName: string }[];
+  monthlyCoverage: JpMonthlyCoverageRow[];
 }
 
-const TOP_N_PLAN_ROWS = 200;
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function currentMonthLabel(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(month: string): string {
+  const [y, m] = month.split("-");
+  return new Date(Date.UTC(Number(y), Number(m) - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
 
 function formatDateLabel(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return new Date(`${dateStr.slice(0, 10)}T12:00:00.000Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 function dateKey(dateStr: string): string {
@@ -97,17 +106,15 @@ const ADHERENCE_STATUS_TIER: Record<string, Tier> = {
   Good: "warn",
   "Below Target": "bad",
 };
-const PLAN_STATUS_TIER: Record<string, Tier> = { OK: "good", "BELOW TARGET": "bad" };
 const ACTIVITY_STATUS_TIER: Record<string, Tier> = { Active: "good", Inactive: "bad" };
 
 export default function JpAdherencePage() {
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
-  const [journeyPlan, setJourneyPlan] = useState<JourneyPlanRow[]>([]);
-  const [adherenceDaily, setAdherenceDaily] = useState<JpAdherenceDailyRow[]>([]);
-  const [monthlySplit, setMonthlySplit] = useState<MonthlySplitRow[]>([]);
-  const [employeeMaster, setEmployeeMaster] = useState<EmployeeMasterRow[]>([]);
+  const [data, setData] = useState<JpAdherenceResponse | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthLabel());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDayNames, setSelectedDayNames] = useState<string[]>([]);
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
@@ -115,16 +122,20 @@ export default function JpAdherencePage() {
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
+    const params = new URLSearchParams({ month: selectedMonth, role: roleFilter });
+    if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
+    if (selectedDate) params.set("date", selectedDate);
+    if (selectedDayNames.length > 0) params.set("dayNames", selectedDayNames.join(","));
+    if (selectedRep) params.set("rep", selectedRep);
+
     (async () => {
       try {
-        const res = await fetch("/api/jp-adherence", { cache: "no-store" });
+        const res = await fetch(`/api/jp-adherence?${params.toString()}`, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || "Failed to load JP Adherence data.");
         if (!cancelled) {
-          setJourneyPlan(body.journeyPlan);
-          setAdherenceDaily(body.adherenceDaily);
-          setMonthlySplit(body.monthlySplit);
-          setEmployeeMaster(body.employeeMaster ?? []);
+          setData(body);
           setStatus("idle");
         }
       } catch {
@@ -134,10 +145,10 @@ export default function JpAdherencePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedMonth, selectedPrincipalKey, selectedDate, selectedDayNames, selectedRep, roleFilter]);
 
   if (status === "loading") return <FullPageSpinner label="Loading JP Adherence…" />;
-  if (status === "error") {
+  if (status === "error" || !data) {
     return (
       <EmptyState
         icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
@@ -146,67 +157,17 @@ export default function JpAdherencePage() {
       />
     );
   }
-  if (adherenceDaily.length === 0) {
-    return (
-      <EmptyState
-        icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
-        title="No Journey Plan data yet"
-        description="This page reflects a rolling 90-day window and refreshes automatically from the twice-daily direct-SQL sync — no manual upload needed."
-      />
-    );
-  }
 
-  // Contribution is the authoritative principal membership for JPA. A rep may
-  // have one absolute Timestamp principal but be relevant to several JPA
-  // principals. Historical/unmatched reps retain the source cost-centre fallback
-  // rather than disappearing from an existing report.
-  const masterByEmployee = new Map(employeeMaster.map((row) => [row.employeeCode, row]));
-  const isRelevantToPrincipal = (employeeCode: string, sourcePrincipal: string, principalKey: string) => {
-    const master = masterByEmployee.get(employeeCode);
-    if (!master) return normalizePrincipalKey(sourcePrincipal) === principalKey;
-    return master.contributions.some((contribution) => normalizePrincipalKey(contribution.principal) === principalKey);
-  };
-  const roleForEmployee = (employeeCode: string, sourceRole: string) => masterByEmployee.get(employeeCode)?.salesRole ?? sourceRole;
-  const planByPrincipal = selectedPrincipalKey
-    ? journeyPlan.filter((r) => isRelevantToPrincipal(r.employeeCode, r.principalCostCentre, selectedPrincipalKey))
-    : journeyPlan;
-  const dailyByPrincipal = selectedPrincipalKey
-    ? adherenceDaily.filter((r) => isRelevantToPrincipal(r.employeeCode, r.costCentre, selectedPrincipalKey))
-    : adherenceDaily;
-  const splitByPrincipal = selectedPrincipalKey
-    ? monthlySplit.filter((r) => isRelevantToPrincipal(r.employeeCode, r.costCentre, selectedPrincipalKey))
-    : monthlySplit;
+  const hasData = data.repDaySummary.length > 0 || data.planRows.length > 0;
 
-  const availableDates = Array.from(new Set(dailyByPrincipal.map((r) => dateKey(r.date)))).sort();
-  const planByDate = selectedDate ? planByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : planByPrincipal;
-  const dailyByDate = selectedDate ? dailyByPrincipal.filter((r) => dateKey(r.date) === selectedDate) : dailyByPrincipal;
-  const splitByRole = roleFilter === "all" ? splitByPrincipal : splitByPrincipal.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
-  const planByRole = roleFilter === "all" ? planByDate : planByDate.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
-  const dailyByRole = roleFilter === "all" ? dailyByDate : dailyByDate.filter((r) => roleForEmployee(r.employeeCode, r.salesRole) === roleFilter);
+  const availableMonths = data.availableMonths.length > 0 ? data.availableMonths : [selectedMonth];
+  const selectedRepName = selectedRep ? data.availableReps.find((r) => r.employeeCode === selectedRep)?.employeeName : undefined;
+  const repSearchResults = (repQuery.trim() ? data.availableReps.filter((r) => r.employeeName.toLowerCase().includes(repQuery.trim().toLowerCase())) : data.availableReps).slice(0, 10);
 
-  const availableReps = Array.from(new Map(dailyByRole.map((r) => [r.employeeCode, r.employeeName] as const)).entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  const filteredPlan = selectedRep ? planByRole.filter((r) => r.employeeCode === selectedRep) : planByRole;
-  const filteredDaily = selectedRep ? dailyByRole.filter((r) => r.employeeCode === selectedRep) : dailyByRole;
-  const filteredSplit = selectedRep ? splitByRole.filter((r) => r.employeeCode === selectedRep) : splitByRole;
-
-  const selectedRepName = selectedRep ? availableReps.find(([code]) => code === selectedRep)?.[1] : undefined;
-  const repSearchResults = (repQuery.trim() ? availableReps.filter(([, name]) => name.toLowerCase().includes(repQuery.trim().toLowerCase())) : availableReps).slice(0, 10);
-
-  // Distinct-outlet-weighted averages (sum(visited)/sum(planned)) rather than a naive
-  // average of daily percentages — avoids the "average of ratios" distortion when reps
-  // have very different planned-outlet counts.
-  const totalPlanned = filteredDaily.reduce((s, r) => s + r.outletsPlanned, 0);
-  const totalVisited = filteredDaily.reduce((s, r) => s + r.outletsVisited, 0);
-  const totalProductive = filteredDaily.reduce((s, r) => s + r.productiveOutlets, 0);
-  const totalPlannedNotVisited = filteredDaily.reduce((s, r) => s + r.plannedNotVisited, 0);
-  const totalVisitedNotPlanned = filteredDaily.reduce((s, r) => s + r.visitedNotPlanned, 0);
-  const avgAdherencePct = totalPlanned > 0 ? (totalVisited / totalPlanned) * 100 : 0;
-  const avgStrikeRatePct = totalVisited > 0 ? (totalProductive / totalVisited) * 100 : 0;
-
-  // Trend by date — same distinct-outlet-weighted calculation, re-aggregated per date
-  // since a date can carry several rep rows.
+  // Trend by date — re-aggregated (sum(visited)/sum(planned)) rather than a naive
+  // average of daily percentages, avoiding the "average of ratios" distortion.
   const byDate = new Map<string, { planned: number; visited: number; productive: number }>();
-  for (const r of filteredDaily) {
+  for (const r of data.repDaySummary) {
     const k = dateKey(r.date);
     const acc = byDate.get(k) ?? { planned: 0, visited: 0, productive: 0 };
     acc.planned += r.outletsPlanned;
@@ -222,17 +183,62 @@ export default function JpAdherencePage() {
       "Strike Rate %": acc.visited > 0 ? Math.round((acc.productive / acc.visited) * 1000) / 10 : 0,
     }));
 
-  const capped = filteredPlan.slice(0, TOP_N_PLAN_ROWS);
+  // Monthly Coverage is a broader multi-month view (RepCall's own retention),
+  // independent of the day-level Adherence's Month/Date/Day-Name selection —
+  // only Principal/Role/Rep narrow it, matching the page's original intent.
+  const monthlyCoverage = data.monthlyCoverage.filter((m) => {
+    if (roleFilter !== "all" && m.salesRole !== roleFilter) return false;
+    if (selectedRep && m.employeeCode !== selectedRep) return false;
+    return true;
+  });
+
+  const toggleDayName = (day: string) => {
+    setSelectedDayNames((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
+  };
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard action={<span className="text-xs text-muted">Trailing 90-day window</span>}>
+      <SectionCard title="JP Adherence" action={<span className="text-xs text-muted">{formatMonthLabel(selectedMonth)}</span>}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
           <div className="shrink-0">
-            <DateCalendarPicker availableDates={availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
+            <DateCalendarPicker availableDates={data.availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
           </div>
           <div className="h-auto w-px shrink-0 self-stretch bg-border/60 max-lg:hidden" />
           <div className="flex flex-1 flex-wrap items-start gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month</span>
+              <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+                <select
+                  aria-label="Month"
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    setSelectedMonth(e.target.value);
+                    setSelectedDate(null);
+                  }}
+                  className="max-w-[180px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+                >
+                  {availableMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {formatMonthLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Day</span>
+              <div className="flex flex-wrap gap-1">
+                {DAY_NAMES.map((day) => (
+                  <button
+                    key={day}
+                    onClick={() => toggleDayName(day)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${selectedDayNames.includes(day) ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}
+                  >
+                    {day.slice(0, 3)}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales Role</span>
               <RoleToggle value={roleFilter} onChange={setRoleFilter} />
@@ -269,17 +275,17 @@ export default function JpAdherencePage() {
                     {repSearchResults.length === 0 ? (
                       <div className="px-4 py-2 text-xs text-muted">No matching reps</div>
                     ) : (
-                      repSearchResults.map(([code, name]) => (
+                      repSearchResults.map((rep) => (
                         <button
-                          key={code}
+                          key={rep.employeeCode}
                           onMouseDown={() => {
-                            setSelectedRep(code);
+                            setSelectedRep(rep.employeeCode);
                             setRepQuery("");
                             setRepDropdownOpen(false);
                           }}
                           className="block w-full px-4 py-2 text-left text-sm text-foreground hover:bg-accent-blue-soft"
                         >
-                          {name}
+                          {rep.employeeName}
                         </button>
                       ))
                     )}
@@ -291,194 +297,191 @@ export default function JpAdherencePage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="JP Adherence">
-        <KpiGrid>
-          <KpiCard accent="coverage" label="Outlets Planned" value={<AnimatedValue value={totalPlanned} format={formatNumber} />} />
-          <KpiCard accent="coverage" label="Outlets Visited" value={<AnimatedValue value={totalVisited} format={formatNumber} />} />
-          <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(avgAdherencePct)]}>{formatPercent(avgAdherencePct)}</span>} />
-          <KpiCard accent="quarter" label="Strike Rate" value={<span className={tierTextClass[productivityTier(avgStrikeRatePct)]}>{formatPercent(avgStrikeRatePct)}</span>} />
-          <KpiCard accent="revenue" label="Planned Not Visited" value={<AnimatedValue value={totalPlannedNotVisited} format={formatNumber} />} />
-          <KpiCard accent="mission" label="Unplanned Visits" value={<AnimatedValue value={totalVisitedNotPlanned} format={formatNumber} />} />
-        </KpiGrid>
-      </SectionCard>
+      {!hasData ? (
+        <EmptyState
+          icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
+          title="No Journey Plan data for this period"
+          description="Pick a different month above, or upload a new Journey Plan via scripts/jp-adherence/import-plan.ts. Adherence is measured against RepCall's live Timestamps data, refreshed every 5 minutes."
+        />
+      ) : (
+        <>
+          <SectionCard title="JP Adherence">
+            <KpiGrid>
+              <KpiCard accent="coverage" label="Outlets Planned" value={<AnimatedValue value={data.kpis.outletsPlanned} format={formatNumber} />} />
+              <KpiCard accent="coverage" label="Outlets Visited" value={<AnimatedValue value={data.kpis.outletsVisited} format={formatNumber} />} />
+              <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(data.kpis.jpAdherencePct)]}>{formatPercent(data.kpis.jpAdherencePct)}</span>} />
+              <KpiCard accent="quarter" label="Strike Rate" value={<span className={tierTextClass[productivityTier(data.kpis.strikeRatePct)]}>{formatPercent(data.kpis.strikeRatePct)}</span>} />
+              <KpiCard accent="revenue" label="Planned Not Visited" value={<AnimatedValue value={data.kpis.plannedNotVisited} format={formatNumber} />} />
+              <KpiCard accent="mission" label="Unplanned Visits" value={<AnimatedValue value={data.kpis.unplannedVisits} format={formatNumber} />} />
+            </KpiGrid>
+          </SectionCard>
 
-      <SectionCard title="JP Adherence Trend" action={<span className="text-xs text-muted">Adherence % vs Strike Rate %</span>}>
-        <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
-            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} />
-            <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} unit="%" axisLine={false} tickLine={false} width={32} />
-            <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-            <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
-            <Line type="monotone" dataKey="Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </SectionCard>
+          <SectionCard title="JP Adherence Trend" action={<span className="text-xs text-muted">Adherence % vs Strike Rate %</span>}>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} />
+                <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} unit="%" axisLine={false} tickLine={false} width={32} />
+                <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
+                <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
+                <Line type="monotone" dataKey="Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </SectionCard>
 
-      <SectionCard
-        title="JP Adherence Report"
-        action={
-          <span className="text-xs text-muted">
-            {selectedDate ? formatDateLabel(selectedDate) : "Trailing 90 days"}
-            {selectedRepName ? ` · ${selectedRepName}` : ""}
-            {selectedPrincipalKey ? ` · ${selectedPrincipalKey}` : ""}
-          </span>
-        }
-      >
-        <TableWrap>
-          <Thead>
-            <Th>Date</Th>
-            <Th>Employee</Th>
-            <Th>Sales Role</Th>
-            <Th>Cost Centre</Th>
-            <Th align="right">Planned</Th>
-            <Th align="right">Visited</Th>
-            <Th align="center">Adherence %</Th>
-            <Th align="right">Productive</Th>
-            <Th align="center">Strike Rate</Th>
-            <Th align="right">Planned Not Visited</Th>
-            <Th align="right">Unplanned</Th>
-            <Th align="center">Status</Th>
-          </Thead>
-          <tbody>
-            {filteredDaily.map((r) => (
-              <tr key={`${r.date}|${r.employeeCode}`}>
-                <Td>{formatDateLabel(r.date)}</Td>
-                <Td>{r.employeeName}</Td>
-                <Td>{roleForEmployee(r.employeeCode, r.salesRole)}</Td>
-                <Td>{r.costCentre}</Td>
-                <Td align="right">{formatNumber(r.outletsPlanned)}</Td>
-                <Td align="right">{formatNumber(r.outletsVisited)}</Td>
-                <Td align="center">
-                  <Badge tier={productivityTier(r.jpAdherencePct * 100)}>{(r.jpAdherencePct * 100).toFixed(1)}%</Badge>
-                </Td>
-                <Td align="right">{formatNumber(r.productiveOutlets)}</Td>
-                <Td align="center">
-                  <Badge tier={productivityTier(r.strikeRatePct * 100)}>{(r.strikeRatePct * 100).toFixed(1)}%</Badge>
-                </Td>
-                <Td align="right">{formatNumber(r.plannedNotVisited)}</Td>
-                <Td align="right">{formatNumber(r.visitedNotPlanned)}</Td>
-                <Td align="center">
-                  <Badge tier={ADHERENCE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
-                </Td>
-              </tr>
-            ))}
-            <TotalRow>
-              <Td>Total</Td>
-              <Td>—</Td>
-              <Td>—</Td>
-              <Td>—</Td>
-              <Td align="right">{formatNumber(totalPlanned)}</Td>
-              <Td align="right">{formatNumber(totalVisited)}</Td>
-              <Td align="center">
-                <Badge tier={productivityTier(avgAdherencePct)}>{avgAdherencePct.toFixed(1)}%</Badge>
-              </Td>
-              <Td align="right">{formatNumber(totalProductive)}</Td>
-              <Td align="center">
-                <Badge tier={productivityTier(avgStrikeRatePct)}>{avgStrikeRatePct.toFixed(1)}%</Badge>
-              </Td>
-              <Td align="right">{formatNumber(totalPlannedNotVisited)}</Td>
-              <Td align="right">{formatNumber(totalVisitedNotPlanned)}</Td>
-              <Td align="center">—</Td>
-            </TotalRow>
-          </tbody>
-        </TableWrap>
-      </SectionCard>
+          <SectionCard
+            title="JP Adherence Report"
+            action={
+              <span className="text-xs text-muted">
+                {selectedDate ? formatDateLabel(selectedDate) : formatMonthLabel(selectedMonth)}
+                {selectedRepName ? ` · ${selectedRepName}` : ""}
+                {selectedPrincipalKey ? ` · ${selectedPrincipalKey}` : ""}
+              </span>
+            }
+          >
+            <TableWrap>
+              <Thead>
+                <Th>Date</Th>
+                <Th>Employee</Th>
+                <Th>Sales Role</Th>
+                <Th align="right">Planned</Th>
+                <Th align="right">Visited</Th>
+                <Th align="center">Adherence %</Th>
+                <Th align="right">Productive</Th>
+                <Th align="center">Strike Rate</Th>
+                <Th align="right">Planned Not Visited</Th>
+                <Th align="center">Status</Th>
+              </Thead>
+              <tbody>
+                {data.repDaySummary.map((r) => (
+                  <tr key={`${r.date}|${r.employeeCode}`}>
+                    <Td>{formatDateLabel(r.date)}</Td>
+                    <Td>{r.employeeName}</Td>
+                    <Td>{r.salesRole}</Td>
+                    <Td align="right">{formatNumber(r.outletsPlanned)}</Td>
+                    <Td align="right">{formatNumber(r.outletsVisited)}</Td>
+                    <Td align="center">
+                      <Badge tier={productivityTier(r.jpAdherencePct)}>{r.jpAdherencePct.toFixed(1)}%</Badge>
+                    </Td>
+                    <Td align="right">{formatNumber(r.productiveOutlets)}</Td>
+                    <Td align="center">
+                      <Badge tier={productivityTier(r.strikeRatePct)}>{r.strikeRatePct.toFixed(1)}%</Badge>
+                    </Td>
+                    <Td align="right">{formatNumber(r.plannedNotVisited)}</Td>
+                    <Td align="center">
+                      <Badge tier={ADHERENCE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
+                    </Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td>Total</Td>
+                  <Td>—</Td>
+                  <Td>—</Td>
+                  <Td align="right">{formatNumber(data.kpis.outletsPlanned)}</Td>
+                  <Td align="right">{formatNumber(data.kpis.outletsVisited)}</Td>
+                  <Td align="center">
+                    <Badge tier={productivityTier(data.kpis.jpAdherencePct)}>{data.kpis.jpAdherencePct.toFixed(1)}%</Badge>
+                  </Td>
+                  <Td align="right">{formatNumber(data.kpis.productiveOutlets)}</Td>
+                  <Td align="center">
+                    <Badge tier={productivityTier(data.kpis.strikeRatePct)}>{data.kpis.strikeRatePct.toFixed(1)}%</Badge>
+                  </Td>
+                  <Td align="right">{formatNumber(data.kpis.plannedNotVisited)}</Td>
+                  <Td align="center">—</Td>
+                </TotalRow>
+              </tbody>
+            </TableWrap>
+          </SectionCard>
 
-      <SectionCard
-        title="Journey Plan"
-        action={
-          <span className="text-xs text-muted">
-            Most recent 7 days only ·{" "}
-            {filteredPlan.length > TOP_N_PLAN_ROWS ? `Showing top ${TOP_N_PLAN_ROWS} of ${formatNumber(filteredPlan.length)} rows` : `${formatNumber(filteredPlan.length)} rows`}
-          </span>
-        }
-      >
-        <TableWrap>
-          <Thead>
-            <Th>Date</Th>
-            <Th>Day</Th>
-            <Th>Employee</Th>
-            <Th>Cost Centre</Th>
-            <Th>Customer</Th>
-            <Th>Territory</Th>
-            <Th align="right">Route Seq</Th>
-            <Th align="right">Visits/Week</Th>
-            <Th align="right">Day Outlet Count</Th>
-            <Th align="right">Min Target</Th>
-            <Th align="center">Status</Th>
-          </Thead>
-          <tbody>
-            {capped.map((r) => (
-              <tr key={`${r.date}|${r.employeeCode}|${r.customerId}`}>
-                <Td>{formatDateLabel(r.date)}</Td>
-                <Td>{r.day}</Td>
-                <Td>{r.employeeName}</Td>
-                <Td>{r.principalCostCentre}</Td>
-                <Td>{r.customerName}</Td>
-                <Td>{r.territory}</Td>
-                <Td align="right">{r.routeSeq}</Td>
-                <Td align="right">{r.visitsPerWeek}</Td>
-                <Td align="right">{formatNumber(r.dayOutletCount)}</Td>
-                <Td align="right">{formatNumber(r.minOutletsTarget)}</Td>
-                <Td align="center">
-                  <Badge tier={PLAN_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      </SectionCard>
+          <SectionCard
+            title="Journey Plan"
+            action={
+              <span className="text-xs text-muted">
+                {data.planRows.length >= 500 ? `Showing first 500 rows` : `${formatNumber(data.planRows.length)} rows`}
+              </span>
+            }
+          >
+            <TableWrap>
+              <Thead>
+                <Th>Date</Th>
+                <Th>Day</Th>
+                <Th>Employee</Th>
+                <Th>Team Leader</Th>
+                <Th>Customer</Th>
+                <Th>Region</Th>
+                <Th>Sub Region</Th>
+                <Th>Route</Th>
+                <Th>Channel</Th>
+              </Thead>
+              <tbody>
+                {data.planRows.map((r) => (
+                  <tr key={`${r.date}|${r.employeeCode}|${r.customerId}`}>
+                    <Td>{formatDateLabel(r.date)}</Td>
+                    <Td>{r.day}</Td>
+                    <Td>{r.employeeName}</Td>
+                    <Td>{r.teamLeader}</Td>
+                    <Td>{r.customerName}</Td>
+                    <Td>{r.region}</Td>
+                    <Td>{r.subRegion}</Td>
+                    <Td>{r.routeName}</Td>
+                    <Td>{r.channel}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          </SectionCard>
 
-      <SectionCard title="Monthly Split">
-        <TableWrap>
-          <Thead>
-            <Th>Month</Th>
-            <Th>Cost Centre</Th>
-            <Th>Sales Role</Th>
-            <Th>Employee</Th>
-            <Th align="center">Activity Status</Th>
-            <Th align="right">Coverage</Th>
-            <Th align="right">Productive</Th>
-            <Th align="center">Productivity %</Th>
-            <Th align="right">Revenue</Th>
-            <Th align="right">Qty</Th>
-          </Thead>
-          <tbody>
-            {filteredSplit.map((r) => (
-              <tr key={`${r.monthLabel}|${r.costCentre}|${r.salesRole}|${r.employeeCode}|${r.activityStatus}`}>
-                <Td>{r.monthLabel}</Td>
-                <Td>{r.costCentre}</Td>
-                <Td>{roleForEmployee(r.employeeCode, r.salesRole)}</Td>
-                <Td>{r.employeeName}</Td>
-                <Td align="center">
-                  <Badge tier={ACTIVITY_STATUS_TIER[r.activityStatus] ?? "neutral"}>{r.activityStatus}</Badge>
-                </Td>
-                <Td align="right">{formatNumber(r.coverage)}</Td>
-                <Td align="right">{formatNumber(r.productive)}</Td>
-                <Td align="center">
-                  <Badge tier={productivityTier(r.productivityPct * 100)}>{(r.productivityPct * 100).toFixed(1)}%</Badge>
-                </Td>
-                <Td align="right">{formatCompact(r.revenue)}</Td>
-                <Td align="right">{formatNumber(r.qty)}</Td>
-              </tr>
-            ))}
-            <TotalRow>
-              <Td>Total</Td>
-              <Td>—</Td>
-              <Td>—</Td>
-              <Td>—</Td>
-              <Td align="center">—</Td>
-              <Td align="right">{formatNumber(filteredSplit.reduce((s, r) => s + r.coverage, 0))}</Td>
-              <Td align="right">{formatNumber(filteredSplit.reduce((s, r) => s + r.productive, 0))}</Td>
-              <Td align="center">—</Td>
-              <Td align="right">{formatCompact(filteredSplit.reduce((s, r) => s + r.revenue, 0))}</Td>
-              <Td align="right">{formatNumber(filteredSplit.reduce((s, r) => s + r.qty, 0))}</Td>
-            </TotalRow>
-          </tbody>
-        </TableWrap>
-      </SectionCard>
+          <SectionCard title="Monthly Coverage" action={<span className="text-xs text-muted">Coverage/productivity: Pine (RepCall) · all retained months</span>}>
+            <TableWrap>
+              <Thead>
+                <Th>Month</Th>
+                <Th>Principal</Th>
+                <Th>Sales Role</Th>
+                <Th>Employee</Th>
+                <Th align="center">Activity Status</Th>
+                <Th align="right">Coverage</Th>
+                <Th align="right">Productive</Th>
+                <Th align="center">Productivity %</Th>
+                <Th align="right">Revenue</Th>
+                <Th align="right">Qty</Th>
+              </Thead>
+              <tbody>
+                {monthlyCoverage.map((r) => (
+                  <tr key={`${r.year}-${r.monthIndex}|${r.employeeCode}`}>
+                    <Td>{`${r.monthIndex + 1}/${r.year}`}</Td>
+                    <Td>{r.principal}</Td>
+                    <Td>{r.salesRole}</Td>
+                    <Td>{r.employeeName}</Td>
+                    <Td align="center">
+                      <Badge tier={ACTIVITY_STATUS_TIER[r.activityStatus] ?? "neutral"}>{r.activityStatus}</Badge>
+                    </Td>
+                    <Td align="right">{formatNumber(r.coverage)}</Td>
+                    <Td align="right">{formatNumber(r.productive)}</Td>
+                    <Td align="center">
+                      <Badge tier={productivityTier(r.productivityPct)}>{r.productivityPct.toFixed(1)}%</Badge>
+                    </Td>
+                    <Td align="right">{formatCompact(r.revenue)}</Td>
+                    <Td align="right">{formatNumber(r.qty)}</Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td>Total</Td>
+                  <Td>—</Td>
+                  <Td>—</Td>
+                  <Td>—</Td>
+                  <Td align="center">—</Td>
+                  <Td align="right">{formatNumber(monthlyCoverage.reduce((s, r) => s + r.coverage, 0))}</Td>
+                  <Td align="right">{formatNumber(monthlyCoverage.reduce((s, r) => s + r.productive, 0))}</Td>
+                  <Td align="center">—</Td>
+                  <Td align="right">{formatCompact(monthlyCoverage.reduce((s, r) => s + r.revenue, 0))}</Td>
+                  <Td align="right">{formatNumber(monthlyCoverage.reduce((s, r) => s + r.qty, 0))}</Td>
+                </TotalRow>
+              </tbody>
+            </TableWrap>
+          </SectionCard>
+        </>
+      )}
     </div>
   );
 }

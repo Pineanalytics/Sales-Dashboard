@@ -25,7 +25,14 @@ export interface SyncHealthRow {
  *  otherwise look identical to a missed/failed run under the old
  *  data-table-timestamp check. SyncWatermark is bumped on every *successful*
  *  run regardless of whether there was anything new to write, so it's the
- *  correct freshness signal now. */
+ *  correct freshness signal now.
+ *
+ *  JP Adherence's Journey Plan is a manually-uploaded business workbook (see
+ *  scripts/jp-adherence/import-plan.ts), not a scheduled sync — a ~35-day
+ *  threshold flags a genuinely stale plan (no new month uploaded) without
+ *  falsely alarming for most of every month between uploads. Adherence
+ *  "actuals" freshness is already covered by the "timestamps" row above,
+ *  since JP Adherence now reads RepCall directly. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   const [sales, pl, activeOutletsWatermark, timestampsWatermark, jpAdherence] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
@@ -45,6 +52,6 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
-    row("jpAdherence", "JP Adherence (Pine)", "Twice daily, 08:00 & 19:00", jpAdherence._max.createdAt, 18),
+    row("jpAdherence", "JP Adherence Plan (manual upload)", "Uploaded monthly via scripts/jp-adherence/import-plan.ts", jpAdherence._max.createdAt, 35 * 24),
   ];
 }

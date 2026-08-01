@@ -4,6 +4,7 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
+import { getMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
@@ -85,28 +86,25 @@ async function overlaySales(dataset: Dataset): Promise<Dataset> {
   return { ...dataset, monthlySales: merged };
 }
 
-/** Merges the JP Adherence bridge's already-computed monthly rollup
- *  (JPMonthlySplitRow — synced twice daily straight from Pine) onto
- *  dataset.monthlyCoverage, instead of Coverage & Productivity needing its
- *  own separate Pine SQL bridge. JPMonthlySplitRow tracks Active/Inactive
- *  outlets as separate rows for the same (month, Cost Centre, role, rep) —
- *  summed here first, since MonthlyCoverageRow has no activityStatus split
- *  of its own and productivityPct must be recomputed from the summed
- *  coverage/productive (never averaged — same distinct-outlet-weighted
- *  principle used everywhere else in this codebase, avoiding the "average of
- *  ratios" distortion). JPMonthlySplitRow only covers a rolling ~90-day
- *  window (see its own schema comment), so this is a MERGE like overlaySales,
- *  not a full replace — older Excel-sourced months are left untouched.
- *  Matches on principalKey (normalized brand), not the raw principal string,
- *  since Pine's Cost Centre names and the Excel Coverage sheet's "Principal"
- *  column aren't guaranteed to use identical text — normalizePrincipalKey()
- *  is the whole point of that function existing. Bridge coverage is known to
- *  read higher than the old Excel figures (non-retroactive per-month
- *  counting vs. whatever the Excel pivot did) — see project notes; that's
- *  the intended, going-forward number now. */
+/** Merges lib/jpAdherence.ts's live RepCall-derived monthly coverage rollup
+ *  onto dataset.monthlyCoverage, instead of Coverage & Productivity needing
+ *  its own separate Pine SQL bridge (the old JPMonthlySplitRow, synced twice
+ *  daily straight from Pine, has been retired — JP Adherence itself now reads
+ *  RepCall directly rather than a redundant second Pine fetch). The rollup
+ *  tracks Active/Inactive as separate rows for the same (month, principal,
+ *  role, rep) — summed here first, since MonthlyCoverageRow has no
+ *  activityStatus split of its own and productivityPct must be recomputed
+ *  from the summed coverage/productive (never averaged — same distinct-
+ *  outlet-weighted principle used everywhere else in this codebase, avoiding
+ *  the "average of ratios" distortion). The rollup only covers RepCall's own
+ *  3-trailing-month retention, so this is a MERGE like overlaySales, not a
+ *  full replace — older Excel-sourced months are left untouched. Bridge
+ *  coverage is known to read higher than the old Excel figures (non-
+ *  retroactive per-month counting vs. whatever the Excel pivot did) — see
+ *  project notes; that's the intended, going-forward number now. */
 async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
-  const splitRows = await prisma.jPMonthlySplitRow.findMany();
-  if (splitRows.length === 0) return dataset;
+  const rollupRows = await getMonthlyCoverageRollup(null);
+  if (rollupRows.length === 0) return dataset;
 
   interface Agg {
     year: string;
@@ -119,9 +117,8 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
     productiveCalls: number;
   }
   const byKey = new Map<string, Agg>();
-  for (const r of splitRows) {
-    const principalKey = normalizePrincipalKey(r.costCentre);
-    const key = `${r.year}|${r.monthIndex}|${principalKey}|${r.employeeName}|${r.salesRole}`;
+  for (const r of rollupRows) {
+    const key = `${r.year}|${r.monthIndex}|${r.principalKey}|${r.employeeName}|${r.salesRole}`;
     const agg = byKey.get(key);
     if (agg) {
       agg.coverage += r.coverage;
@@ -130,8 +127,8 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
       byKey.set(key, {
         year: r.year,
         monthIndex: r.monthIndex,
-        principalKey,
-        principal: r.costCentre,
+        principalKey: r.principalKey,
+        principal: r.principal,
         salesRole: r.salesRole,
         employeeName: r.employeeName,
         coverage: r.coverage,

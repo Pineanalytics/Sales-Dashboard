@@ -20,6 +20,8 @@ import { buildTlRanking } from "../tlRanking";
 import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
 import { loadTeamLeaderScope, type TeamLeaderScope } from "../teamLeaderScope";
+import { getJpAdherenceSummary } from "../jpAdherence";
+import { normalizePrincipalKey } from "../normalize";
 
 const PERIOD_DESCRIPTION = "mtd = this month to date, qtd = this quarter to date, ytd = year to date, last_month = the prior calendar month.";
 const MAX_ROWS = 12;
@@ -319,29 +321,19 @@ function makeJpAdherenceTool(scope: TeamLeaderScope | null) {
       const selection = resolveKeywordPeriod(args.period);
       const months = resolvePeriodMonths(selection);
       if (months.length === 0) return JSON.stringify({ error: "Couldn't resolve that period." });
-      // JPAdherenceDaily.monthLabel is stored abbreviated ("Jul-2026"), unlike
-      // CANONICAL_MONTHS' full names ("July") used elsewhere in this file.
-      const monthLabels = Array.from(new Set(months.map((m) => `${CANONICAL_MONTHS[m.monthIndex].slice(0, 3)}-${m.year}`)));
+      const start = new Date(Date.UTC(Number(months[0].year), months[0].monthIndex, 1));
+      const lastMonth = months[months.length - 1];
+      const end = new Date(Date.UTC(Number(lastMonth.year), lastMonth.monthIndex + 1, 1));
 
-      const where: Record<string, unknown> = { monthLabel: { in: monthLabels } };
-      if (args.principal) where.costCentre = args.principal;
-      else if (scope) where.costCentre = { in: scope.principals };
-      if (scope) where.employeeCode = { in: scope.employeeCodes };
-
-      const rows = await prisma.jPAdherenceDaily.findMany({
-        where,
-        select: { employeeCode: true, employeeName: true, outletsPlanned: true, outletsVisited: true, productiveOutlets: true, jpAdherencePct: true, strikeRatePct: true },
-      });
-      if (rows.length === 0) return JSON.stringify({ error: "No JP Adherence data for that period/scope." });
-
-      const totalPlanned = rows.reduce((s, r) => s + r.outletsPlanned, 0);
-      const totalVisited = rows.reduce((s, r) => s + r.outletsVisited, 0);
-      const totalProductive = rows.reduce((s, r) => s + r.productiveOutlets, 0);
-      const avgAdherencePct = rows.reduce((s, r) => s + r.jpAdherencePct, 0) / rows.length;
-      const avgStrikeRatePct = rows.reduce((s, r) => s + r.strikeRatePct, 0) / rows.length;
+      const summary = await getJpAdherenceSummary(
+        { start, end },
+        scope,
+        { principalKey: args.principal ? normalizePrincipalKey(args.principal) : null, date: null, dayNames: null, roleFilter: "all", employeeCode: null }
+      );
+      if (summary.repDaySummary.length === 0) return JSON.stringify({ error: "No JP Adherence data for that period/scope." });
 
       const byRep = new Map<string, { employeeName: string; adherenceSum: number; strikeSum: number; days: number }>();
-      for (const r of rows) {
+      for (const r of summary.repDaySummary) {
         const e = byRep.get(r.employeeCode) ?? { employeeName: r.employeeName, adherenceSum: 0, strikeSum: 0, days: 0 };
         e.adherenceSum += r.jpAdherencePct;
         e.strikeSum += r.strikeRatePct;
@@ -354,11 +346,11 @@ function makeJpAdherenceTool(scope: TeamLeaderScope | null) {
       const truncated = reps.length > MAX_ROWS;
 
       return JSON.stringify({
-        totalPlannedOutlets: totalPlanned,
-        totalVisitedOutlets: totalVisited,
-        totalProductiveOutlets: totalProductive,
-        avgAdherencePct,
-        avgStrikeRatePct,
+        totalPlannedOutlets: summary.kpis.outletsPlanned,
+        totalVisitedOutlets: summary.kpis.outletsVisited,
+        totalProductiveOutlets: summary.kpis.productiveOutlets,
+        avgAdherencePct: summary.kpis.jpAdherencePct,
+        avgStrikeRatePct: summary.kpis.strikeRatePct,
         lowestAdherenceReps: reps.slice(0, MAX_ROWS),
         truncated,
         totalReps: reps.length,
