@@ -4,10 +4,11 @@ import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContri
 
 export const runtime = "nodejs";
 
-// Triggered by scripts/db-bridge/jp-adherence/run.ts as the final step of the
-// sync, after Monthly Split has finished uploading — recomputes Contribution-by-
-// Rep and Daily Projection from data that sync just refreshed. No request body:
-// this is a signal, not a data upload (unlike the other jp-adherence routes).
+// Recomputes Contribution-by-Rep and Daily Projection whenever the data they're
+// derived from changes — triggered independently by scripts/db-bridge/sales-sync.ts
+// (after every SAP sync), admin/team-leaders/actions.ts, and
+// admin/employee-master/actions.ts (after roster/assignment edits). No request
+// body: this is a signal, not a data upload (unlike the other jp-adherence routes).
 function hasValidApiKey(req: NextRequest): boolean {
   const expected = process.env.UPLOAD_API_KEY;
   if (!expected) return false;

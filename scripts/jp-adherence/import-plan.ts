@@ -4,6 +4,7 @@
 // replaces exactly the calendar months the file's own dates span, leaving every other
 // month's already-uploaded plan untouched.
 import * as XLSX from "xlsx";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_WORKBOOK_PATH = "F:\\Raw Reports\\Journey Plan.xlsx";
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -60,11 +61,19 @@ export function salesRole(value: unknown, rowNumber: number): string {
   throw new Error(`Unknown Sales Role on row ${rowNumber}: ${text(value) || "(blank)"}.`);
 }
 
+// SheetJS's cellDates:true conversion is unreliable for this workbook (observed
+// producing "2026-06-30T20:59:44Z" for what Excel itself stores as a clean
+// "2026-08-03" serial) — reading the raw numeric serial and converting by hand,
+// rounded to the nearest whole day, avoids that entirely. Excel's epoch is
+// 1899-12-30 (not 1900-01-01) to account for its own fake 1900-leap-year bug.
+const EXCEL_EPOCH_UTC_MS = Date.UTC(1899, 11, 30);
 function excelDate(value: unknown, rowNumber: number): Date {
-  if (value instanceof Date) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(EXCEL_EPOCH_UTC_MS + Math.round(value) * 86400000);
+  }
   const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid Date on row ${rowNumber}: ${String(value)}.`);
-  return parsed;
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
 }
 
 export function monthLabel(date: Date): string {
@@ -79,7 +88,7 @@ function readSheet(workbook: XLSX.WorkBook, name: string): SourceRow[] {
 
 function main(): { rows: JourneyPlanUploadRow[]; workbookPath: string } {
   const workbookPath = process.argv[2] || DEFAULT_WORKBOOK_PATH;
-  const workbook = XLSX.readFile(workbookPath, { cellDates: true });
+  const workbook = XLSX.readFile(workbookPath, { cellDates: false });
   const source = readSheet(workbook, SHEET_NAME);
 
   const rows = source.map((row, index) => {
@@ -159,7 +168,9 @@ async function run() {
 
 // Only run when executed directly (tsx scripts/jp-adherence/import-plan.ts),
 // not when imported by tests for its pure helpers (salesRole, monthLabel).
-const isMainModule = process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}`;
+// pathToFileURL handles Windows drive letters/spaces correctly, unlike a
+// manual "file://" + argv[1] concat, which silently never matches on Windows.
+const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMainModule) {
   run().catch((err) => {
     console.error("[jp-adherence] FAILED:", err);
