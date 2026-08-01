@@ -250,10 +250,7 @@ export default function TimestampsPage() {
   if (status === "error" || !summary) {
     return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Couldn't load Timestamps" description="Try refreshing the page. If this keeps happening, the direct-SQL sync may be behind schedule." />;
   }
-  if (summary.summaries.length === 0 && summary.availableDates.length === 0) {
-    return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded for this period" description="Pick a different month above, or check back shortly — the current month refreshes automatically from the direct-SQL sync every five minutes." />;
-  }
-
+  const hasData = summary.summaries.length > 0 || summary.availableDates.length > 0;
   const availableReps = summary.availableReps;
   const selectedRepName = selectedRep ? availableReps.find((rep) => rep.employeeCode === selectedRep)?.salesRep : undefined;
   const repSearchResults = (repQuery.trim() ? availableReps.filter((rep) => rep.salesRep.toLowerCase().includes(repQuery.trim().toLowerCase())) : availableReps).slice(0, 10);
@@ -371,6 +368,10 @@ export default function TimestampsPage() {
         </div>
       </SectionCard>
 
+      {!hasData ? (
+        <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded for this period" description="Pick a different month above, or check back shortly — the current month refreshes automatically from the direct-SQL sync every five minutes." />
+      ) : (
+      <>
       <SectionCard
         title="Calls by Time (Primary vs Secondary)"
         action={
@@ -488,6 +489,8 @@ export default function TimestampsPage() {
           </div>
         ) : null}
       </SectionCard>
+      </>
+      )}
     </div>
   );
 }
