@@ -8,6 +8,8 @@ export type TimestampChartGranularity = "Hourly" | "Daily" | "Weekly";
 
 export interface TimestampFilters {
   principalKey: string | null;
+  /** "YYYY-MM"; null defaults to the current calendar month. */
+  month: string | null;
   date: Date | null;
   employeeCode: string | null;
   region: string | null;
@@ -73,6 +75,15 @@ function monthWindow(now: Date): { start: Date; end: Date } {
   return { start, end };
 }
 
+/** "YYYY-MM" -> that month's [start, end) window. Falls back to the current
+ * month for a missing/malformed value rather than throwing, since this only
+ * ever reaches here after the API route's own regex validation. */
+function resolveMonthWindow(now: Date, month: string | null): { start: Date; end: Date } {
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) return monthWindow(now);
+  const [year, mon] = month.split("-").map(Number);
+  return { start: new Date(Date.UTC(year, mon - 1, 1)), end: new Date(Date.UTC(year, mon, 1)) };
+}
+
 function nextUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
 }
@@ -99,11 +110,11 @@ function absolutePrincipalMatchClause(principalKey: string, absolutePrincipal: P
  * the VPS, repeatedly reading that temporary relation was markedly slower
  * than independent grouped scans of the indexed RepCall table. */
 function sourceQuery(
-  now: Date,
+  monthRange: { start: Date; end: Date },
   scope: TeamLeaderScope | null,
   principalKey: string | null
 ): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
-  const { start, end } = monthWindow(now);
+  const { start, end } = monthRange;
   const teamClause = scope
     ? scope.employeeCodes.length > 0
       ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`
@@ -204,7 +215,7 @@ export async function getTimestampSummary(
   scope: TeamLeaderScope | null,
   filters: TimestampFilters
 ): Promise<TimestampSummaryData> {
-  const { from, baseWhere, salesRole } = sourceQuery(now, scope, filters.principalKey);
+  const { from, baseWhere, salesRole } = sourceQuery(resolveMonthWindow(now, filters.month), scope, filters.principalKey);
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);

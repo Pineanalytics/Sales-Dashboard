@@ -21,6 +21,7 @@ import {
 } from "../active-outlets/query";
 import { buildRepCalls, collapseToPurchaseEvents } from "../active-outlets/transform";
 import principalsData from "../reference/principals.json";
+import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "timestamps";
@@ -29,6 +30,13 @@ const BATCH_SIZE = 2000;
 
 function currentMonthStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+// How far back RepCall is allowed to keep rows. Kept wider than the current
+// month (unlike the rolling fetch window below) so the Timestamps page's
+// Month selector has more than the current month to offer.
+function retentionStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (TIMESTAMPS_RETENTION_MONTHS - 1), 1));
 }
 
 function rollingWindow(now: Date): { start: Date; end: Date; nextDay: Date } {
@@ -126,7 +134,7 @@ async function main() {
     console.log(`[timestamps] NOTE: ${unmatchedSkuCount} purchase/SKU lines had no resolvable Cost Centre but remain productive calls.`);
   }
 
-  const uploaded = await uploadCallsBatched(appUrl, apiKey, callRows, start, currentMonthStart(now));
+  const uploaded = await uploadCallsBatched(appUrl, apiKey, callRows, start, retentionStart(now));
   if (!uploaded) {
     process.exitCode = 1;
     console.log("[timestamps] Skipping watermark update because the upload failed - the next run will rebuild the same window.");

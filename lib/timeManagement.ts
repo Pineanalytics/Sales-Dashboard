@@ -8,6 +8,24 @@ const NAIROBI_UTC_OFFSET_MINUTES = 3 * 60;
 const ON_TIME_CUTOFF_MINUTES = 9 * 60 + 30;
 const CLOSE_OF_TRADE_CUTOFF_MINUTES = 16 * 60;
 
+/** How many trailing calendar months RepCall keeps before the upload route's
+ * retainFrom purge drops them. Shared by the live sync (what it's allowed to
+ * delete) and the Timestamps page (which months it offers in its selector),
+ * so the two stay in lockstep. */
+export const TIMESTAMPS_RETENTION_MONTHS = 3;
+
+/** "YYYY-MM" for the current month plus the trailing retained months, newest
+ * first — exactly the months the retention window guarantees may have data,
+ * without needing a server round-trip just to populate a month picker. */
+export function recentMonthOptions(now: Date, count = TIMESTAMPS_RETENTION_MONTHS): string[] {
+  const months: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return months;
+}
+
 export function nairobiMinutesAfterMidnight(iso: string): number | null {
   const value = new Date(iso);
   if (Number.isNaN(value.getTime())) return null;

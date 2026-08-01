@@ -11,9 +11,12 @@ export const runtime = "nodejs";
 // scoped to windowStart..now instead of always wiping the whole table (see
 // scripts/db-bridge/active-outlets/run.ts's incremental mode, which only
 // rebuilds the last 2 days; a day that's fully in the past doesn't need
-// re-sequencing every hourly run). Full-mode runs pass the start of the
-// current month, equivalent to the old unconditional full-table wipe. Same
-// CHUNK_SIZE rationale as /api/pl/upload.
+// re-sequencing every hourly run). retainFrom separately caps how far back
+// RepCall keeps rows at all — the live sync passes
+// lib/timeManagement.ts's TIMESTAMPS_RETENTION_MONTHS trailing months, not
+// just the current month, so the Timestamps page can browse recent history
+// rather than only ever the current month. Same CHUNK_SIZE rationale as
+// /api/pl/upload.
 const CHUNK_SIZE = 500;
 
 interface RepCallUploadRow {

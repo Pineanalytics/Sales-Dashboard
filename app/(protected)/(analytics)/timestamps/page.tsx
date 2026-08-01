@@ -11,7 +11,7 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, strikeRateTier } from "@/lib/format";
-import { closingStatus, compareTimeManagementRows, firstCallStatus, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
+import { closingStatus, compareTimeManagementRows, firstCallStatus, recentMonthOptions, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 interface RoleStats {
@@ -200,6 +200,7 @@ export default function TimestampsPage() {
     const controller = new AbortController();
     const params = new URLSearchParams({ role: roleFilter, granularity: chartGranularity });
     if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
+    if (selectedMonth) params.set("month", selectedMonth);
     if (selectedDate) params.set("date", selectedDate);
     if (selectedRep) params.set("rep", selectedRep);
     if (selectedRegion) params.set("region", selectedRegion);
@@ -223,7 +224,7 @@ export default function TimestampsPage() {
     })();
 
     return () => controller.abort();
-  }, [selectedPrincipalKey, selectedDate, selectedRep, selectedRegion, roleFilter, chartGranularity, refreshRevision]);
+  }, [selectedPrincipalKey, selectedMonth, selectedDate, selectedRep, selectedRegion, roleFilter, chartGranularity, refreshRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -250,7 +251,7 @@ export default function TimestampsPage() {
     return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Couldn't load Timestamps" description="Try refreshing the page. If this keeps happening, the direct-SQL sync may be behind schedule." />;
   }
   if (summary.summaries.length === 0 && summary.availableDates.length === 0) {
-    return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded yet this month" description="This page reflects the current calendar month and refreshes automatically from the direct-SQL sync every five minutes." />;
+    return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded for this period" description="Pick a different month above, or check back shortly — the current month refreshes automatically from the direct-SQL sync every five minutes." />;
   }
 
   const availableReps = summary.availableReps;
@@ -267,7 +268,7 @@ export default function TimestampsPage() {
   });
   const visibleSummaries = timeManagementSummaries.slice(0, summaryLimit);
   const buckets = chartBuckets(summary.chartRows, chartGranularity);
-  const availableMonths = Array.from(new Set(summary.availableDates.map((date) => date.slice(0, 7)))).sort();
+  const availableMonths = recentMonthOptions(new Date()).slice().reverse();
   const datesForSelectedMonth = selectedMonth ? summary.availableDates.filter((date) => date.startsWith(selectedMonth)) : summary.availableDates;
   const selectedMonthLabel = selectedMonth ? formatMonthLabel(`${selectedMonth}-01`) : null;
   const reportMonthLabel = selectedMonthLabel ?? (availableMonths.length === 1 ? formatMonthLabel(`${availableMonths[0]}-01`) : "available months");
@@ -276,7 +277,7 @@ export default function TimestampsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard title="Timestamps" action={<span className="text-xs text-muted">Current month · summary-first loading</span>}>
+      <SectionCard title="Timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span>}>
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">

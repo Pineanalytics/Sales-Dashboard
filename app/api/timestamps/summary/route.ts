@@ -36,6 +36,14 @@ function parseGranularity(raw: string | null): TimestampChartGranularity | NextR
   return NextResponse.json({ error: '"granularity" must be Hourly, Daily, or Weekly.' }, { status: 400 });
 }
 
+function parseMonth(raw: string | null): string | null | NextResponse {
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}$/.test(raw)) {
+    return NextResponse.json({ error: '"month" must be a YYYY-MM value.' }, { status: 400 });
+  }
+  return raw;
+}
+
 function parseRegion(raw: string | null): string | null | NextResponse {
   if (!raw) return null;
   const region = raw.trim();
@@ -57,6 +65,8 @@ export async function GET(req: NextRequest) {
 
   const date = parseDate(req.nextUrl.searchParams.get("date"));
   if (date instanceof NextResponse) return date;
+  const month = parseMonth(req.nextUrl.searchParams.get("month"));
+  if (month instanceof NextResponse) return month;
   const roleFilter = parseRole(req.nextUrl.searchParams.get("role"));
   if (roleFilter instanceof NextResponse) return roleFilter;
   const chartGranularity = parseGranularity(req.nextUrl.searchParams.get("granularity"));
@@ -66,7 +76,7 @@ export async function GET(req: NextRequest) {
 
   const principalKey = req.nextUrl.searchParams.get("principal")?.trim() || null;
   const employeeCode = req.nextUrl.searchParams.get("rep")?.trim() || null;
-  const filters: TimestampFilters = { principalKey, date, employeeCode, region, roleFilter, chartGranularity };
+  const filters: TimestampFilters = { principalKey, month, date, employeeCode, region, roleFilter, chartGranularity };
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
