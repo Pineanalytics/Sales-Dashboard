@@ -200,7 +200,14 @@ function selectedRoleClause(filters: TimestampFilters, salesRole: Prisma.Sql): P
 function chartBucket(granularity: TimestampChartGranularity): Prisma.Sql {
   if (granularity === "Daily") return Prisma.sql`to_char(r.date, 'YYYY-MM-DD')`;
   if (granularity === "Weekly") return Prisma.sql`CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer`;
-  return Prisma.sql`EXTRACT(HOUR FROM r."callTime" AT TIME ZONE 'Africa/Nairobi')::integer`;
+  // "callTime" is a naive `timestamp` column holding a genuine UTC instant
+  // (same convention as lib/timeManagement.ts's nairobiMinutesAfterMidnight:
+  // UTC hour + 3 = Nairobi wall-clock). Postgres's `AT TIME ZONE` on a naive
+  // column does the OPPOSITE conversion — it treats the value as already
+  // being Nairobi-local and subtracts 3h to reach UTC, which silently shifted
+  // every hourly bucket backward by 3 hours (an 8am first call bucketed at
+  // 2am). A plain interval add matches the established convention exactly.
+  return Prisma.sql`EXTRACT(HOUR FROM (r."callTime" + INTERVAL '3 hours'))::integer`;
 }
 
 function emptyStats(): TimestampRoleStats {
