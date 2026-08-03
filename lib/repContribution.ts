@@ -315,7 +315,22 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
     }
   }
 
-  await prisma.$transaction([prisma.dailyTarget.deleteMany({}), prisma.dailyTarget.createMany({ data: toCreate })]);
+  // skipDuplicates guards against a genuine edge case: two WeeklyTarget rows
+  // for the same (teamLeaderId, principal) whose weekStartDates are close
+  // enough (1-4 days apart) that their Mon-Fri expansions overlap on the same
+  // calendar date for the same rep — WeeklyTarget's own unique key only
+  // prevents an *exact* weekStartDate duplicate, not a near one. Rather than
+  // let this rebuild-from-scratch computation hard-fail the whole recompute
+  // (and anything that triggers it, e.g. a Roster import) over what's
+  // ultimately a display-projection ambiguity, the first-generated row for
+  // that key wins and the rest are silently dropped.
+  const created = await prisma.$transaction([
+    prisma.dailyTarget.deleteMany({}),
+    prisma.dailyTarget.createMany({ data: toCreate, skipDuplicates: true }),
+  ]);
+  if (created[1].count < toCreate.length) {
+    console.warn(`recomputeDailyTargets: skipped ${toCreate.length - created[1].count} overlapping-week duplicate(s) out of ${toCreate.length} generated rows.`);
+  }
 
-  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: toCreate.length };
+  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: created[1].count };
 }
