@@ -467,12 +467,14 @@ export const syncHealthTool = betaTool({
  *  it's a different trust tier from everything above (see SYSTEM_PROMPT in
  *  agent.ts for the usage/labeling rules that keep it from being confused
  *  with the app's "never invent, only report what's real" data). max_uses
- *  caps searches per turn, both for cost and to stop a single question from
- *  spiraling into an open-ended research session. */
+ *  caps searches per turn, both for cost and because each search's raw
+ *  result content shares the same reply token budget as the synthesized
+ *  answer itself — too many searches in one turn was observed cutting
+ *  answers off mid-sentence before there was any room left to write them. */
 const webSearchTool = {
   type: "web_search_20250305" as const,
   name: "web_search" as const,
-  max_uses: 3,
+  max_uses: 2,
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous

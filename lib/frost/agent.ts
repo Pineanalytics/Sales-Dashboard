@@ -41,7 +41,10 @@ const SYSTEM_PROMPT =
   "open that part of your answer with a plain-language flag such as \"From a web search (not our own data, " +
   "unverified):\" before the finding, and name the source. If a user asks you to compare a Pinefrost figure " +
   "against a competitor's, get the Pinefrost figure from the tools above and clearly mark the competitor side " +
-  "as unverified web research, side by side — never blend the two into one number.\n\n" +
+  "as unverified web research, side by side — never blend the two into one number. After a web search, " +
+  "SYNTHESIZE the results into your own 3-5 sentence summary — don't quote or restate search-result text at " +
+  "length; the raw results themselves consume a lot of your reply budget, so keep what you actually write " +
+  "tight, or a long search session can leave too little room to finish your own sentence.\n\n" +
   FROST_SEMANTIC_NOTES +
   "\n\n" +
   "When your answer centers on a small number of concrete figures worth highlighting (e.g. a revenue vs " +
@@ -78,7 +81,7 @@ export async function runFrostChat(
 
   const finalMessage = await client.beta.messages.toolRunner({
     model: MODEL,
-    max_tokens: 2048,
+    max_tokens: 4096,
     system: SYSTEM_PROMPT,
     tools,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
