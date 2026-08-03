@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ weeklyTargets: validRows.length, contribution, daily }, { status: 200 });
   } catch (err) {
     console.error("Failed to import Weekly Targets", err);
-    return NextResponse.json({ error: "Failed to save Weekly Target data." }, { status: 500 });
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "Failed to save Weekly Target data.", detail }, { status: 500 });
   }
 }
