@@ -192,9 +192,39 @@ function parseTargets(workbook: XLSX.WorkBook): TargetUploadRow[] {
     });
 }
 
+// The workbook labels a month-boundary week under BOTH months that touch it
+// (e.g. the Monday of 2026-03-29 appears as both "Mar Week 5" — Period=March
+// — and "Apr Week 1" — Period=April, "the week containing April 1st") —
+// confirmed by direct inspection: 94 (teamLeaderName, principal,
+// weekStartDate) triples appear twice, always one such pair. WeeklyTarget's
+// own unique key is (teamLeaderId, principal, weekStartDate) with no room for
+// two month labels on the same date, so only one can be kept. Resolved by
+// matching this app's own week/month convention (lib/weeklyTargets.ts's
+// getWeeksInMonth/getMondaysInMonth): a week belongs to whichever calendar
+// month its own Monday falls in — so 2026-03-29 keeps its "March" row and
+// drops the "April" duplicate, keeping this import consistent with how a
+// Team Leader's own grid on /weekly-targets already buckets that same week.
+function dedupeWeeklyRows(rows: WeeklyUploadRow[]): WeeklyUploadRow[] {
+  const byKey = new Map<string, WeeklyUploadRow>();
+  for (const row of rows) {
+    const key = `${row.teamLeaderName}|${row.principal}|${row.weekStartDate}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+    const trueMonthIndex = new Date(row.weekStartDate).getUTCMonth();
+    const rowMatchesTrueMonth = CANONICAL_MONTHS.indexOf(row.monthLabel) === trueMonthIndex;
+    if (rowMatchesTrueMonth) byKey.set(key, row);
+    // else: existing already matches (or neither does, in which case the
+    // first-seen row is kept deterministically) — leave existing in place.
+  }
+  return Array.from(byKey.values());
+}
+
 function parseWeekly(workbook: XLSX.WorkBook): WeeklyUploadRow[] {
   const source = readSheet(workbook, WEEKLY_SHEET);
-  return source
+  const rows = source
     .filter((row) => text(row["Team Leader"]) !== "" && row["Week Start"] !== null)
     .map((row, index) => {
       const rowNumber = index + 4;
@@ -209,6 +239,7 @@ function parseWeekly(workbook: XLSX.WorkBook): WeeklyUploadRow[] {
         targetValue: nullableNumber(row["* Weekly Target"]) ?? 0,
       };
     });
+  return dedupeWeeklyRows(rows);
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
