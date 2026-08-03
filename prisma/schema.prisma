@@ -675,7 +675,14 @@ model DailyTarget {
   weekdayWeightUsed Float
   createdAt         DateTime @default(now())
 
-  @@unique([employeeCode, principal, date])
+  // teamLeaderId is part of the key, not just employeeCode/principal/date — a
+  // rep can genuinely be an active assignment under more than one Team Leader
+  // for the same principal (e.g. Mars-Nairobi's 5 Team Leaders can share
+  // reps), so recomputeDailyTargets (lib/repContribution.ts) can legitimately
+  // produce one row per Team Leader for the same rep/principal/day. Confirmed
+  // by a real production collision on (employeeCode, principal, date) alone
+  // once the updated Roster introduced multiple Team Leaders per principal.
+  @@unique([employeeCode, principal, teamLeaderId, date])
   @@index([date])
   @@index([employeeCode, date])
 }
