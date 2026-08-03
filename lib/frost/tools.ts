@@ -460,6 +460,21 @@ export const syncHealthTool = betaTool({
   },
 });
 
+/** Anthropic's server-executed web search — not a betaTool() wrapper, since
+ *  there's no local run() to call: Claude issues the search and reads the
+ *  results itself, server-side, and only the final answer comes back to us.
+ *  This is the one Frost tool that reaches outside this app's own data, so
+ *  it's a different trust tier from everything above (see SYSTEM_PROMPT in
+ *  agent.ts for the usage/labeling rules that keep it from being confused
+ *  with the app's "never invent, only report what's real" data). max_uses
+ *  caps searches per turn, both for cost and to stop a single question from
+ *  spiraling into an open-ended research session. */
+const webSearchTool = {
+  type: "web_search_20250305" as const,
+  name: "web_search" as const,
+  max_uses: 3,
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous
 // tool array: each tool above is fully typed against its own schema at its
 // definition site; this registry only needs to hold and filter/build them.
@@ -475,6 +490,7 @@ const TOOL_REGISTRY: { create: (scope: TeamLeaderScope | null) => any; requiresP
   { create: makeActiveOutletsSummaryTool, requiresPage: "active-outlets" },
   { create: makeComparePeriodsTool, requiresPage: "sales" },
   { create: () => syncHealthTool, requiresPage: "admin" },
+  { create: () => webSearchTool, requiresPage: "frost" },
 ];
 
 /** Scopes Frost's toolset to whatever the requesting user is already allowed

@@ -7,12 +7,6 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import type { FrostMessage } from "@/lib/frost/agent";
 
-const SUGGESTIONS = [
-  "How is this month's sales tracking against target?",
-  "Which reps have the best coverage this month?",
-  "Are any of our data syncs stale right now?",
-];
-
 /** Local rendering shape — extends the plain {role, content} wire format with
  *  the optional structured block Frost's API returns for the most recent
  *  assistant turn. Only `role`/`content` ever go back to the server (see
@@ -121,17 +115,6 @@ export function FrostChat() {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
               <Sparkle20Regular className="h-8 w-8 text-primary-blue" />
               <p className="text-sm text-muted">Ask Frost a question about your data.</p>
-              <div className="flex flex-col gap-1.5">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => send(s)}
-                    className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-muted-strong transition-colors hover:border-primary-blue hover:text-primary-blue"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
             </div>
           ) : (
             messages.map((m, i) => {
