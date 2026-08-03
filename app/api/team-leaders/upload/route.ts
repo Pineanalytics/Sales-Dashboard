@@ -175,6 +175,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     console.error("Failed to import Roster", err);
-    return NextResponse.json({ error: "Failed to save Roster data." }, { status: 500 });
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "Failed to save Roster data.", detail }, { status: 500 });
   }
 }

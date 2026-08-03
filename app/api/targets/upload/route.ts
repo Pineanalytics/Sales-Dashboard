@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ targets: validRows.length }, { status: 200 });
   } catch (err) {
     console.error("Failed to import Targets", err);
-    return NextResponse.json({ error: "Failed to save Target data." }, { status: 500 });
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "Failed to save Target data.", detail }, { status: 500 });
   }
 }
