@@ -668,13 +668,21 @@ model DailyTarget {
 // AiInsightFinding[] (see lib/aiInsights.ts) rather than a relational table —
 // a small, display-only structure with no need for independent querying.
 model AiInsight {
-  id          String   @id @default(cuid())
-  generatedAt DateTime @default(now())
-  summary     String
-  findings    String // JSON-serialized AiInsightFinding[]
-  model       String // the Claude model ID that produced this digest
+  id            String   @id @default(cuid())
+  generatedAt   DateTime @default(now())
+  summary       String
+  findings      String // JSON-serialized AiInsightFinding[]
+  model         String // the Claude model ID that produced this digest
+  periodKind    String   @default("MTD") // PeriodKind from lib/timeIntelligence.ts, matching the top PeriodSelector's selection at generation time
+  periodYear    String   @default("")
+  periodMonth   String?
+  periodToYear  String? // CUSTOM range only
+  periodToMonth String? // CUSTOM range only
+  principalKey  String? // exact raw Principal string from the Sales dataset, or null for "All Principals"
+  cacheKey      String   @default("") // periodKind|year|month|toYear|toMonth|principalKey — exact-match lookup for "is there already a fresh digest for this selection"
 
   @@index([generatedAt])
+  @@index([cacheKey, generatedAt])
 }
 
 // Frost conversation history (Phase 3 of the Frost AI agent expansion) — lets
