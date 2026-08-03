@@ -42,6 +42,14 @@
 #>
 param(
     [switch]$PushSchema,
+    # Only needed when a schema change narrows or restructures an existing
+    # constraint (e.g. widening a @@unique to add a column) - Prisma flags
+    # this generically as "possible data loss" even when the change is
+    # provably safe for existing rows (a widened unique key can never
+    # conflict with data that already satisfied the narrower one). Opt-in
+    # per invocation, never a default, so a genuinely destructive change
+    # still stops for review.
+    [switch]$AcceptDataLoss,
     [string]$SshKey = "$HOME/.ssh/pinefrost_hostinger",
     [string]$SshTarget = "root@187.77.80.216",
     [string]$RemotePath = "/opt/pinefrost"
@@ -88,10 +96,11 @@ try {
 
     if ($PushSchema) {
         Write-Host "==> Pushing prisma/schema.prisma to the VPS's production Postgres..." -ForegroundColor Cyan
+        $pushArgs = if ($AcceptDataLoss) { ' db push --accept-data-loss' } else { ' db push' }
         $pushCmd = 'source ' + $RemotePath + '/.env && docker run --rm --network pinefrost_default ' +
             '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
             '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
-            '-w /app pinefrost-builder:latest node ./node_modules/prisma/build/index.js db push'
+            '-w /app pinefrost-builder:latest node ./node_modules/prisma/build/index.js' + $pushArgs
         Invoke-Ssh $pushCmd
     }
 
