@@ -153,13 +153,44 @@ export async function getWeeklyRollupByPrincipalMonth(year: string): Promise<Map
   return sumWeeklyTargetsByPrincipalMonth(rows);
 }
 
-export type MonthlyVarianceStatus = "no-target" | "match" | "variance";
+export type MonthlyVarianceStatus = "no-target" | "match" | "over" | "under" | "in-progress";
 
-/** Decides the Monthly-vs-Weekly-roll-up badge shown on /weekly-targets:
- *  "no-target" when no admin-entered Monthly Target exists yet for that
- *  principal/month, "match" within a 1-unit rounding tolerance, else
- *  "variance". Pure so the threshold is unit-testable independent of the page. */
-export function classifyMonthlyVariance(monthlyValue: number | null, weeklySum: number): MonthlyVarianceStatus {
+/** Decides the Monthly-vs-Weekly-roll-up status shown on /weekly-targets and
+ *  targets-overview: "no-target" when no admin-entered Monthly Target exists
+ *  yet for that principal/month; "match" within a 1-unit rounding tolerance;
+ *  "over" the instant the weekly sum exceeds the Monthly Target, regardless
+ *  of how many weeks are still unfilled — exceeding is worth flagging
+ *  immediately, not just once the month is fully projected; "under" only
+ *  once every week in the month has a real (non-Pending) figure and the sum
+ *  is still short — a Team Leader mid-month naturally hasn't hit the total
+ *  yet, so that partial state is "in-progress", not a real understatement.
+ *  Pure so the threshold is unit-testable independent of the page. */
+export function classifyMonthlyVariance(
+  monthlyValue: number | null,
+  weeklySum: number,
+  weeksFilled: number,
+  weeksTotal: number
+): MonthlyVarianceStatus {
   if (monthlyValue === null) return "no-target";
-  return Math.abs(monthlyValue - weeklySum) < 1 ? "match" : "variance";
+  const diff = weeklySum - monthlyValue;
+  if (Math.abs(diff) < 1) return "match";
+  if (diff > 0) return "over";
+  return weeksFilled < weeksTotal ? "in-progress" : "under";
+}
+
+/** Per-principal count of WeeklyTarget rows that have a real (non-Pending,
+ *  i.e. > 0) figure versus the total rows that exist for that principal in
+ *  the given month, across every Team Leader serving it — feeds
+ *  classifyMonthlyVariance's weeksFilled/weeksTotal so "under" only fires
+ *  once a principal's projection is actually complete. */
+export async function getWeeklyCompletionByPrincipalMonth(year: string, monthLabel: string): Promise<Map<string, { filled: number; total: number }>> {
+  const rows = await prisma.weeklyTarget.findMany({ where: { year, monthLabel }, select: { principal: true, targetValue: true } });
+  const map = new Map<string, { filled: number; total: number }>();
+  for (const r of rows) {
+    const s = map.get(r.principal) ?? { filled: 0, total: 0 };
+    s.total += 1;
+    if (r.targetValue > 0) s.filled += 1;
+    map.set(r.principal, s);
+  }
+  return map;
 }

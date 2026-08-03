@@ -5,7 +5,6 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { invalidateDatasetCache } from "@/lib/datasetStore";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
-import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import type { Target, TeamLeaderAssignment } from "@prisma/client";
 
@@ -90,25 +89,26 @@ async function logAssignmentAudit(
 }
 
 /** Edits the shared, principal-level Monthly Target (Value/Volume/Coverage/
- *  Productivity). Permission: an ADMIN can edit any principal; a TEAM_LEADER
- *  can edit any principal in their own scope (lib/teamLeaderScope.ts) —
- *  including one shared with other Team Leaders (Mars-Nairobi × 5, e.g.) per
- *  the explicit product decision to allow it with full audit logging rather
- *  than block it. */
+ *  Productivity) — the official company commitment for that principal.
+ *  Admin-only: a Team Leader's own amend rights live at the rep level
+ *  (updateAssignmentMetadataAction's contributionPct) and the Weekly Target
+ *  level (app/(protected)/weekly-targets — a Team Leader's weekly
+ *  projections must sum toward this same Monthly figure, but never edit it
+ *  directly). Reverses an earlier version of this action that let any Team
+ *  Leader sharing a principal edit the Monthly figure directly — per direct
+ *  correction, that's now reserved for Admin. */
 export async function updateTargetValueAction(formData: FormData) {
   const user = await requireViewer();
   const suffix = filterSuffix(formData);
+  if (user.role !== "ADMIN") {
+    redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("Only an admin can edit the official Monthly Target.") + suffix);
+  }
   const year = str(formData, "year");
   const month = str(formData, "month");
   const principal = str(formData, "principal");
 
   if (!year || !month || !principal) {
     redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("Missing year/month/principal.") + suffix);
-  }
-
-  const scope = await resolveScopeForSession(user.role, user.teamLeaderId ?? null);
-  if (scope && !scope.principals.includes(principal)) {
-    redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent(`You're not assigned to ${principal}.`) + suffix);
   }
 
   const values = {

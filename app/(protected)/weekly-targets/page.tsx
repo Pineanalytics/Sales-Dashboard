@@ -3,7 +3,13 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
-import { getWeeksInMonth, ensureWeeklyTargetGrid, getWeeklyRollupByPrincipalMonth, classifyMonthlyVariance } from "@/lib/weeklyTargets";
+import {
+  getWeeksInMonth,
+  ensureWeeklyTargetGrid,
+  getWeeklyRollupByPrincipalMonth,
+  getWeeklyCompletionByPrincipalMonth,
+  classifyMonthlyVariance,
+} from "@/lib/weeklyTargets";
 import { saveWeeklyTargetsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +105,7 @@ export default async function WeeklyTargetsPage({
   const overallSum = summaryRows.reduce((s, r) => s + r.targetValue, 0);
 
   const rollup = await getWeeklyRollupByPrincipalMonth(year);
+  const completion = await getWeeklyCompletionByPrincipalMonth(year, month);
   const monthlyTargets = await prisma.target.findMany({ where: { year, month, principal: { in: principals } } });
   const monthlyTargetByPrincipal = new Map(monthlyTargets.map((t) => [t.principal, t]));
 
@@ -328,13 +335,18 @@ export default async function WeeklyTargetsPage({
                     const weeklySum = rollup.get(`${principal}|${month}`) ?? 0;
                     const monthlyTarget = monthlyTargetByPrincipal.get(principal);
                     const monthlyValue = monthlyTarget?.valueTarget ?? null;
-                    const varianceStatus = classifyMonthlyVariance(monthlyValue, weeklySum);
+                    const c = completion.get(principal) ?? { filled: 0, total: 0 };
+                    const varianceStatus = classifyMonthlyVariance(monthlyValue, weeklySum, c.filled, c.total);
                     const status =
                       varianceStatus === "no-target"
                         ? { label: "No Monthly Target set — set it on Targets", className: "text-muted" }
                         : varianceStatus === "match"
                           ? { label: "Matches", className: "text-accent-green" }
-                          : { label: "Variance", className: "text-accent-amber" };
+                          : varianceStatus === "over"
+                            ? { label: "Exceeds Monthly Target", className: "text-accent-red" }
+                            : varianceStatus === "under"
+                              ? { label: "Understated vs. Monthly Target", className: "text-accent-red" }
+                              : { label: `In progress (${c.filled}/${c.total} weeks projected)`, className: "text-accent-amber" };
                     return (
                       <tr key={principal}>
                         <td className="px-6 py-3 border-b border-border/60">{principal}</td>

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
 
 async function requireAdminOrTeamLeader() {
   const session = await auth();
@@ -64,6 +65,15 @@ export async function saveWeeklyTargetsAction(formData: FormData) {
       },
     });
     changedCount += 1;
+  }
+
+  // A changed Weekly Target feeds directly into DailyTarget (recomputeDailyTargets
+  // rebuilds it from every WeeklyTarget row × RepContribution share × weekday
+  // weights) — without this, the Daily Projection page would show stale figures
+  // until some unrelated sync happened to fire a recompute.
+  if (changedCount > 0) {
+    await recomputeRepContribution();
+    await recomputeDailyTargets();
   }
 
   const suffix = `&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&teamLeader=${encodeURIComponent(teamLeaderId)}`;

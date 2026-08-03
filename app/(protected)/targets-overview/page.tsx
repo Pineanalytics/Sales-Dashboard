@@ -5,7 +5,16 @@ import { prisma } from "@/lib/db";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { getTargetsOverview } from "@/lib/targetsOverview";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { getWeeksInMonth, classifyMonthlyVariance, type MonthlyVarianceStatus } from "@/lib/weeklyTargets";
 import { updateTargetValueAction, updateAssignmentMetadataAction } from "./actions";
+
+const VARIANCE_STATUS_COPY: Record<MonthlyVarianceStatus, { label: string; className: string }> = {
+  "no-target": { label: "No Monthly Target set", className: "text-muted" },
+  match: { label: "Matches Monthly Target", className: "text-accent-green" },
+  over: { label: "Exceeds Monthly Target", className: "text-accent-red" },
+  under: { label: "Understated vs. Monthly Target", className: "text-accent-red" },
+  "in-progress": { label: "In progress", className: "text-accent-amber" },
+};
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +72,48 @@ export default async function TargetsOverviewPage({
   ]);
   const years = Array.from(new Set([...targetYears.map((t) => t.year), year])).sort();
 
+  // Weekly Targets summary — "split by week ranks, Week 1 through the last
+  // week of the month" — only meaningful for a single selected month (a
+  // roster/target row filtered to "All months" has no single week grid to
+  // show). Scoped to the same Team Leaders/principals the rest of this page
+  // already resolved, so a Team Leader never sees another team's weekly
+  // figures here either.
+  const weeks = month ? getWeeksInMonth(Number(year), CANONICAL_MONTHS.indexOf(month)) : [];
+  const weeklyTeamLeaderIds = teamLeaders.map((tl) => tl.id);
+  const weeklyRows =
+    weeks.length > 0 && principals.length > 0 && weeklyTeamLeaderIds.length > 0
+      ? await prisma.weeklyTarget.findMany({
+          where: {
+            weekStartDate: { in: weeks.map((w) => w.weekStartDate) },
+            principal: { in: principals },
+            teamLeaderId: params.teamLeaderId ? params.teamLeaderId : { in: weeklyTeamLeaderIds },
+          },
+          select: { principal: true, weekLabel: true, weekStartDate: true, targetValue: true },
+        })
+      : [];
+  const weeklySumByKey = new Map<string, number>();
+  for (const r of weeklyRows) {
+    const key = `${r.principal}|${r.weekLabel}`;
+    weeklySumByKey.set(key, (weeklySumByKey.get(key) ?? 0) + r.targetValue);
+  }
+  const monthlyValueByPrincipal = new Map(targetRows.filter((t) => t.month === month).map((t) => [t.principal, t.valueTarget]));
+  const weeklyPrincipalSummary = principals.map((principal) => {
+    let sum = 0;
+    let filled = 0;
+    const cells = weeks.map((w) => {
+      const value = weeklySumByKey.get(`${principal}|${w.weekLabel}`) ?? 0;
+      sum += value;
+      if (value > 0) filled += 1;
+      return { weekLabel: w.weekLabel, value };
+    });
+    const monthlyValue = monthlyValueByPrincipal.get(principal) ?? null;
+    const status = classifyMonthlyVariance(monthlyValue, sum, filled, weeks.length);
+    return { principal, cells, sum, monthlyValue, status };
+  });
+  const weeklyEditLink = `/weekly-targets?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}${
+    params.teamLeaderId ? `&teamLeader=${encodeURIComponent(params.teamLeaderId)}` : ""
+  }`;
+
   const editingTargetKey = params.editTarget;
   const editingAssignmentId = params.editAssignment;
 
@@ -97,8 +148,11 @@ export default async function TargetsOverviewPage({
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Targets Overview</h1>
         <p className="mt-1 text-sm text-white/70">
-          Monthly Targets per principal alongside the Roster that splits them down to individual reps — filter by Employee, Principal,
-          Month, Team Leader, or Region. {isAdmin ? "As an admin, you can edit any row." : "You can edit any principal you're assigned to, and your own reps' roster details."}
+          Monthly Targets per principal, the Weekly projections that roll up to them, and the Roster that splits them down to
+          individual reps — filter by Employee, Principal, Month, Team Leader, or Region.{" "}
+          {isAdmin
+            ? "As an admin, you can edit Monthly Targets, Weekly projections, and Roster rows."
+            : "The official Monthly Target is set by an admin. You can amend your team's Weekly projections and your own reps' roster details — your weekly numbers should add up to the Monthly figure."}
         </p>
       </div>
 
@@ -206,7 +260,10 @@ export default async function TargetsOverviewPage({
               <tbody>
                 {targetRows.map((t) => {
                   const key = `${t.principal}::${t.month}`;
-                  const canEdit = isAdmin || (scope ? scope.principals.includes(t.principal) : false);
+                  // Admin-only: the official Monthly Target is a company commitment, not
+                  // something a Team Leader amends directly — their own provision to amend
+                  // lives at the rep/roster level and the Weekly Targets section below.
+                  const canEdit = isAdmin;
                   if (editingTargetKey === key) {
                     return (
                       <tr key={key}>
@@ -285,6 +342,70 @@ export default async function TargetsOverviewPage({
             </table>
           </div>
         </div>
+
+        {month ? (
+          <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-primary-blue">
+                  Weekly Targets — {month} {year} ({weeks.length} week{weeks.length === 1 ? "" : "s"})
+                </h2>
+                <p className="mt-1 text-[13px] text-muted">
+                  Each Team Leader projects their own weekly figure within the full Monthly Target — flagged the instant it&apos;s
+                  exceeded, or as understated once every week is filled in and the sum still falls short.
+                </p>
+              </div>
+              <Link
+                href={weeklyEditLink}
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white whitespace-nowrap"
+              >
+                Amend Weekly Targets →
+              </Link>
+            </div>
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-medium">Principal</th>
+                    {weeks.map((w) => (
+                      <th key={w.weekLabel} className="px-3 py-3 text-right font-medium whitespace-nowrap">
+                        {w.weekLabel}
+                      </th>
+                    ))}
+                    <th className="px-6 py-3 text-right font-medium">Weekly Sum</th>
+                    <th className="px-6 py-3 text-right font-medium">Monthly Target</th>
+                    <th className="px-6 py-3 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeklyPrincipalSummary.map((row) => {
+                    const status = VARIANCE_STATUS_COPY[row.status];
+                    return (
+                      <tr key={row.principal}>
+                        <td className="px-6 py-3 border-b border-border/60 font-medium">{row.principal}</td>
+                        {row.cells.map((c) => (
+                          <td key={c.weekLabel} className="px-3 py-2 border-b border-border/60 text-right">
+                            {c.value > 0 ? fmtNum(c.value) : <span className="text-muted">—</span>}
+                          </td>
+                        ))}
+                        <td className="px-6 py-3 border-b border-border/60 text-right font-medium">{fmtNum(row.sum)}</td>
+                        <td className="px-6 py-3 border-b border-border/60 text-right">{fmtNum(row.monthlyValue)}</td>
+                        <td className={`px-6 py-3 border-b border-border/60 font-medium ${status.className}`}>{status.label}</td>
+                      </tr>
+                    );
+                  })}
+                  {weeklyPrincipalSummary.length === 0 ? (
+                    <tr>
+                      <td colSpan={weeks.length + 4} className="px-6 py-8 text-center text-muted">
+                        No Weekly Targets for this filter yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="p-6 pb-0">

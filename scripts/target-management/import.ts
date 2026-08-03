@@ -1,11 +1,15 @@
-// Imports both sheets of the authoritative Target Management workbook from a
+// Imports three sheets of the authoritative Target Management workbook from a
 // local source path and posts normalized rows to the production dashboard —
 // Roster (Team Leader × Employee × Principal, plus the region/HR-style
-// reference columns) and Targets Per Principal (monthly company-wide
-// targets). Permanent, re-run whenever a new workbook version is supplied —
-// both upload routes upsert idempotently, so re-running never duplicates or
-// loses rows. The source workbook is never copied into the web container;
-// the database holds the durable master.
+// reference columns), Targets Per Principal (monthly company-wide targets),
+// and Weekly (real, business-authored per-Team-Leader-and-Principal weekly
+// projections — confirmed non-default by direct inspection: 151/704 rows
+// diverge from the naive Monthly pro-rata split). Permanent, re-run whenever
+// a new workbook version is supplied — every upload route upserts
+// idempotently, so re-running never duplicates or loses rows. Roster is
+// uploaded first so every Team Leader named in Weekly already exists by the
+// time that upload runs. The source workbook is never copied into the web
+// container; the database holds the durable master.
 process.loadEnvFile();
 
 import * as XLSX from "xlsx";
@@ -14,6 +18,7 @@ const DEFAULT_WORKBOOK_PATH = "F:\\Raw Reports\\Target_Management_System.xlsm";
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const ROSTER_SHEET = "Roster";
 const TARGETS_SHEET = "Targets Per Principal";
+const WEEKLY_SHEET = "Weekly";
 // Both sheets carry a 2-row instructions banner above the real header (see the
 // workbook's own "Use HOME > 2. Roster..." / "Use the VBA form..." rows) — the
 // real header is on row 3, i.e. SheetJS's 0-indexed range start of 2.
@@ -61,6 +66,16 @@ interface TargetUploadRow {
   volumeTarget: number | null;
   coverageTarget: number | null;
   productivityTarget: number | null;
+}
+
+interface WeeklyUploadRow {
+  teamLeaderName: string;
+  principal: string;
+  year: string;
+  monthLabel: string;
+  weekLabel: string;
+  weekStartDate: string; // ISO date
+  targetValue: number;
 }
 
 function text(value: unknown): string {
@@ -177,6 +192,25 @@ function parseTargets(workbook: XLSX.WorkBook): TargetUploadRow[] {
     });
 }
 
+function parseWeekly(workbook: XLSX.WorkBook): WeeklyUploadRow[] {
+  const source = readSheet(workbook, WEEKLY_SHEET);
+  return source
+    .filter((row) => text(row["Team Leader"]) !== "" && row["Week Start"] !== null)
+    .map((row, index) => {
+      const rowNumber = index + 4;
+      const weekStart = excelDate(row["Week Start"], rowNumber);
+      return {
+        teamLeaderName: requiredText(row, "Team Leader", rowNumber, WEEKLY_SHEET),
+        principal: requiredText(row, "Principal", rowNumber, WEEKLY_SHEET),
+        year: String(weekStart.getUTCFullYear()),
+        monthLabel: requiredText(row, "Month Name", rowNumber, WEEKLY_SHEET),
+        weekLabel: requiredText(row, "Week Name", rowNumber, WEEKLY_SHEET),
+        weekStartDate: weekStart.toISOString(),
+        targetValue: nullableNumber(row["* Weekly Target"]) ?? 0,
+      };
+    });
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -201,8 +235,10 @@ async function run() {
   const workbook = XLSX.readFile(workbookPath, { cellDates: false });
   const roster = parseRoster(workbook);
   const targets = parseTargets(workbook);
-  console.log(`[target-management] Read ${roster.length} Roster rows and ${targets.length} Target rows from ${workbookPath}.`);
+  const weekly = parseWeekly(workbook);
+  console.log(`[target-management] Read ${roster.length} Roster rows, ${targets.length} Target rows, ${weekly.length} Weekly rows from ${workbookPath}.`);
 
+  // Roster first — every Team Leader named in Weekly must already exist.
   let rosterUploaded = 0;
   for (const batch of chunk(roster, BATCH_SIZE)) {
     if (batch.length === 0) continue;
@@ -221,7 +257,16 @@ async function run() {
     console.log(`[target-management] Targets: ${targetsUploaded}/${targets.length} uploaded.`);
   }
 
-  console.log(`[target-management] Done: ${rosterUploaded} Roster row(s), ${targetsUploaded} Target row(s).`);
+  let weeklyUploaded = 0;
+  for (const batch of chunk(weekly, BATCH_SIZE)) {
+    if (batch.length === 0) continue;
+    const result = await postJson(appUrl, apiKey, "/api/weekly-targets/upload", { rows: batch });
+    if (!result.ok) throw new Error(`Weekly batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
+    weeklyUploaded += batch.length;
+    console.log(`[target-management] Weekly: ${weeklyUploaded}/${weekly.length} uploaded.`);
+  }
+
+  console.log(`[target-management] Done: ${rosterUploaded} Roster row(s), ${targetsUploaded} Target row(s), ${weeklyUploaded} Weekly row(s).`);
 }
 
 run().catch((err) => {

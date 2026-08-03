@@ -88,18 +88,26 @@ describe("sumWeeklyTargetsByPrincipalMonth", () => {
 
 describe("classifyMonthlyVariance", () => {
   it("flags no-target when the admin hasn't set a Monthly Target", () => {
-    expect(classifyMonthlyVariance(null, 15000)).toBe("no-target");
+    expect(classifyMonthlyVariance(null, 15000, 4, 4)).toBe("no-target");
   });
 
   it("matches within a 1-unit rounding tolerance", () => {
-    expect(classifyMonthlyVariance(15000, 15000)).toBe("match");
-    expect(classifyMonthlyVariance(15000, 15000.4)).toBe("match");
-    expect(classifyMonthlyVariance(15000, 14999.6)).toBe("match");
+    expect(classifyMonthlyVariance(15000, 15000, 4, 4)).toBe("match");
+    expect(classifyMonthlyVariance(15000, 15000.4, 4, 4)).toBe("match");
+    expect(classifyMonthlyVariance(15000, 14999.6, 4, 4)).toBe("match");
   });
 
-  it("flags variance just outside the tolerance", () => {
-    expect(classifyMonthlyVariance(15000, 15001)).toBe("variance");
-    expect(classifyMonthlyVariance(15000, 12000)).toBe("variance");
+  it("flags 'over' the instant the weekly sum exceeds the Monthly Target, even mid-month", () => {
+    expect(classifyMonthlyVariance(15000, 15001, 4, 4)).toBe("over");
+    expect(classifyMonthlyVariance(15000, 20000, 1, 4)).toBe("over");
+  });
+
+  it("flags 'in-progress' (not 'under') when the sum is short but weeks are still unfilled", () => {
+    expect(classifyMonthlyVariance(15000, 12000, 2, 4)).toBe("in-progress");
+  });
+
+  it("flags 'under' only once every week is filled and the sum is still short", () => {
+    expect(classifyMonthlyVariance(15000, 12000, 4, 4)).toBe("under");
   });
 });
 
