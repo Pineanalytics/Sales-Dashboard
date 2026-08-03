@@ -24,6 +24,7 @@ import {
   TargetArrow20Regular,
   Sparkle20Regular,
   Lightbulb20Regular,
+  Table20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -172,6 +173,23 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
                   <TargetArrow20Regular />
                 </span>
                 <span className={expanded ? "" : "md:hidden"}>Weekly Targets</span>
+              </Link>
+              <Link
+                href="/targets-overview"
+                title="Targets Overview"
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                  expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                } ${
+                  pathname?.startsWith("/targets-overview")
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                    : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                }`}
+              >
+                <span className={pathname?.startsWith("/targets-overview") ? "text-white" : "text-secondary-blue"}>
+                  <Table20Regular />
+                </span>
+                <span className={expanded ? "" : "md:hidden"}>Targets Overview</span>
               </Link>
             </nav>
           </>

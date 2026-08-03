@@ -137,12 +137,31 @@ model TeamLeaderAssignment {
   // exists for genuine mistakes.
   active          Boolean  @default(true)
   salesRole       String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
+  // Below: ported from the updated Target_Management_System.xlsm's Roster sheet
+  // (2026-08-03 refresh — 21 columns, up from the original 12-column import).
+  // region/subRegion are Team-Leader-editable (their own reps only, see
+  // targets-overview/actions.ts); the rest are reference data re-synced only by
+  // re-running scripts/target-management/import.ts, not inline-editable — keeps
+  // the Roster from drifting from the authoritative HR/ops source between imports.
+  region                String?
+  subRegion             String?
+  supervisor            String?
+  workGroup             String?
+  company               String?
+  costCenter            String?
+  absolutePrincipal     String?
+  costCenterCount       Int?
+  salesPoint            String?
+  route                 String?
+  location              String?
+  sourceContributionPct Float? // the Roster's own un-normalized "Source Contribution %" basis
   updatedAt       DateTime @updatedAt
   createdAt       DateTime @default(now())
 
   @@unique([teamLeaderId, employeeCode, principal])
   @@index([teamLeaderId])
   @@index([principal])
+  @@index([region])
 }
 
 model TeamLeaderAssignmentAuditLog {

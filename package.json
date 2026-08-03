@@ -21,6 +21,7 @@
     "timestamps:sync": "tsx scripts/db-bridge/timestamps/run.ts",
     "jp-adherence:import-plan": "tsx scripts/jp-adherence/import-plan.ts",
     "employee-master:import": "tsx scripts/employee-master/import.ts",
+    "target-management:import": "tsx scripts/target-management/import.ts",
     "ai-insights:sync": "tsx scripts/ai-insights/trigger.ts"
   },
   "prisma": {
