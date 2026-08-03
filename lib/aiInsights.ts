@@ -249,7 +249,7 @@ export async function generateAiInsights(): Promise<AiInsightRecord> {
   const client = new Anthropic();
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system:
       "You are a sales operations analyst for a Kenyan FMCG distributor. You are given pre-computed " +
       "figures only — never invent or adjust a number, only interpret the ones provided. Write in plain, " +
