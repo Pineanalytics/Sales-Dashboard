@@ -12,6 +12,7 @@ import {
   updateAssignmentAction,
   deactivateAssignmentAction,
   deleteAssignmentAction,
+  uploadRosterCsvAction,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -121,6 +122,30 @@ export default async function AdminTeamLeadersPage({
             .
           </div>
         ) : null}
+
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Upload Roster (CSV)</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Expects the Target_Management_System.xlsm workbook&apos;s own Roster sheet, exported as CSV (a single header row —
+            Employee Code, Employee (Sales Edge Name), SAP Name, Channel, Team Leader, Principal, * Contribution %, Active
+            (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated.
+          </p>
+          <form action={uploadRosterCsvAction} className="mt-4 flex flex-wrap items-center gap-4">
+            <input
+              type="file"
+              name="file"
+              accept=".csv"
+              required
+              className="text-sm text-foreground file:mr-4 file:rounded-full file:border-0 file:bg-background-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-blue hover:file:bg-accent-blue-soft"
+            />
+            <button
+              type="submit"
+              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+            >
+              Upload
+            </button>
+          </form>
+        </div>
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Team Leader roster</h2>

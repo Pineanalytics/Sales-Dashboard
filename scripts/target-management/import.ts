@@ -12,7 +12,9 @@
 // container; the database holds the durable master.
 process.loadEnvFile();
 
+import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
+import { parseRosterCsv } from "../../lib/rosterImport";
 
 const DEFAULT_WORKBOOK_PATH = "F:\\Raw Reports\\Target_Management_System.xlsm";
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -257,11 +259,35 @@ async function postJson(appUrl: string, apiKey: string, path: string, body: unkn
   return { ok: response.ok, status: response.status, body: await response.json() };
 }
 
+// A plain CSV export of just the Roster sheet (single header row, no 2-row
+// banner, no Targets/Weekly sheets to speak of) — the same source the browser
+// upload on /admin/team-leaders accepts, via the shared lib/rosterImport.ts
+// parser. Lets this permanent script also run against a CSV export without
+// requiring the full .xlsm workbook.
+function isCsvPath(path: string): boolean {
+  return path.toLowerCase().endsWith(".csv");
+}
+
 async function run() {
   const apiKey = process.env.UPLOAD_API_KEY;
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY in .env.");
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const workbookPath = process.argv[2] || DEFAULT_WORKBOOK_PATH;
+
+  if (isCsvPath(workbookPath)) {
+    const roster = parseRosterCsv(readFileSync(workbookPath));
+    console.log(`[target-management] Read ${roster.length} Roster rows from CSV ${workbookPath}.`);
+    let rosterUploaded = 0;
+    for (const batch of chunk(roster, BATCH_SIZE)) {
+      if (batch.length === 0) continue;
+      const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch });
+      if (!result.ok) throw new Error(`Roster batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
+      rosterUploaded += batch.length;
+      console.log(`[target-management] Roster: ${rosterUploaded}/${roster.length} uploaded.`);
+    }
+    console.log(`[target-management] Done: ${rosterUploaded} Roster row(s) (CSV import, Targets/Weekly untouched).`);
+    return;
+  }
 
   const workbook = XLSX.readFile(workbookPath, { cellDates: false });
   const roster = parseRoster(workbook);

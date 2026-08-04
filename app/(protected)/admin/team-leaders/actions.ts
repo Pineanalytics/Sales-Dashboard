@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
+import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
 import type { TeamLeaderAssignment } from "@prisma/client";
 
 async function requireAdmin() {
@@ -132,6 +133,42 @@ export async function deleteTeamLeaderAction(formData: FormData) {
   await prisma.teamLeader.delete({ where: { id } });
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Team Leader "${teamLeader.name}" and their assignments.`));
+}
+
+/** Browser-based alternative to running scripts/target-management/import.ts locally —
+ *  accepts a plain CSV export of the workbook's own Roster sheet (same 21 columns,
+ *  single header row) and upserts it through the exact same lib/rosterImport.ts logic
+ *  the API-key-gated upload route uses. Lets an admin refresh the whole Roster from a
+ *  CSV without a local script run. */
+export async function uploadRosterCsvAction(formData: FormData) {
+  await requireAdmin();
+
+  const file = formData.get("file");
+  if (!file || !(file instanceof File) || file.size === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Attach a Roster CSV file to upload."));
+  }
+
+  let rows;
+  try {
+    const buffer = Buffer.from(await (file as File).arrayBuffer());
+    rows = parseRosterCsv(buffer);
+  } catch (err) {
+    const message = err instanceof RosterParseError ? err.message : "Failed to read the uploaded CSV file.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  let result;
+  try {
+    result = await upsertRosterRows(rows);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to save the Roster import.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect(
+    "/admin/team-leaders?success=" +
+      encodeURIComponent(`Imported ${result.assignments} Roster row(s) across ${result.teamLeaders} Team Leader(s).`)
+  );
 }
 
 export async function createAssignmentAction(formData: FormData) {
