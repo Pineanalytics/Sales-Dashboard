@@ -6,13 +6,13 @@ import { getOrder360Summary, type Order360Filters } from "@/lib/order360Summary"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function parseDate(raw: string | null): Date | null | NextResponse {
+function parseDate(raw: string | null, paramName: string): Date | null | NextResponse {
   if (!raw) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return NextResponse.json({ error: '"date" must be a YYYY-MM-DD value.' }, { status: 400 });
+    return NextResponse.json({ error: `"${paramName}" must be a YYYY-MM-DD value.` }, { status: 400 });
   }
   const parsed = new Date(`${raw}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) return NextResponse.json({ error: '"date" must be valid.' }, { status: 400 });
+  if (Number.isNaN(parsed.getTime())) return NextResponse.json({ error: `"${paramName}" must be valid.` }, { status: 400 });
   return parsed;
 }
 
@@ -43,12 +43,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: '"month" must be a YYYY-MM value.' }, { status: 400 });
   }
   const weekLabel = req.nextUrl.searchParams.get("week")?.trim() || null;
-  const date = parseDate(req.nextUrl.searchParams.get("date"));
-  if (date instanceof NextResponse) return date;
+  const dateFrom = parseDate(req.nextUrl.searchParams.get("dateFrom"), "dateFrom");
+  if (dateFrom instanceof NextResponse) return dateFrom;
+  const dateTo = parseDate(req.nextUrl.searchParams.get("dateTo"), "dateTo");
+  if (dateTo instanceof NextResponse) return dateTo;
   const dayNames = parseDayNames(req.nextUrl.searchParams.get("dayNames"));
   if (dayNames instanceof NextResponse) return dayNames;
 
-  const filters: Order360Filters = { month, weekLabel: month ? weekLabel : null, date, dayNames };
+  const filters: Order360Filters = { month, weekLabel: month ? weekLabel : null, dateFrom, dateTo, dayNames };
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);

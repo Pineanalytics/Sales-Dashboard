@@ -18,8 +18,10 @@ export interface Order360Filters {
   month: string | null;
   /** Week label from lib/weeklyTargets's getWeeksInMonth (e.g. "Aug Week 1"); requires month. */
   weekLabel: string | null;
-  /** Single specific order date. */
-  date: Date | null;
+  /** Date range (inclusive on both ends); either end may be set alone for an
+   *  open-ended range. Takes precedence over month/week when either is set. */
+  dateFrom: Date | null;
+  dateTo: Date | null;
   /** Mon-Sun subset; empty/null = no day-of-week restriction. */
   dayNames: string[] | null;
 }
@@ -188,11 +190,18 @@ export function vanDisplayName(van: string, driverNames: Iterable<string>): stri
   return names.length ? `${van} ${names.join(" + ")}` : van;
 }
 
-function resolveDateRange(now: Date, filters: Order360Filters): { start: Date; end: Date } | null {
-  if (filters.date) {
-    const d = filters.date;
-    const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-    return { start, end: new Date(start.getTime() + 86400000) };
+function utcMidnight(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function resolveDateRange(now: Date, filters: Order360Filters): { start: Date | null; end: Date | null } | null {
+  if (filters.dateFrom || filters.dateTo) {
+    // Either end can be left open: "From" alone means "from X through today";
+    // "To" alone means "everything up to and including Y." "To" is inclusive,
+    // so its upper bound is the start of the next day.
+    const start = filters.dateFrom ? utcMidnight(filters.dateFrom) : null;
+    const end = filters.dateTo ? new Date(utcMidnight(filters.dateTo).getTime() + 86400000) : null;
+    return { start, end };
   }
   if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) {
     const [year, mon] = filters.month.split("-").map(Number);
@@ -245,8 +254,9 @@ export function groupPerf(rows: OrderRecord[], nameField: "clearedBy" | "picker"
 
 export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | null, filters: Order360Filters): Promise<Order360Summary> {
   const range = resolveDateRange(now, filters);
+  const orderDateWhere = range ? { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) } : undefined;
   const rows = await prisma.orderRecord.findMany({
-    where: range ? { orderDate: { gte: range.start, lt: range.end } } : {},
+    where: orderDateWhere ? { orderDate: orderDateWhere } : {},
     orderBy: { orderDate: "desc" },
   });
 

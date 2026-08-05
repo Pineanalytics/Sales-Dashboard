@@ -56,6 +56,12 @@ const TABS: { key: TabKey; label: string }[] = [
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+// <option> background/color isn't reliably picked up from an ancestor's
+// color-scheme on every Windows Chrome build - set it explicitly so the
+// dropdown popup itself (not just the closed control) stays legible instead
+// of falling back to the OS's light list-box chrome under white text.
+const OPTION_STYLE: React.CSSProperties = { backgroundColor: O360.panelSoft, color: "#fff" };
+
 function toBacklogRows(rows: RespBacklogRow[], stage?: string): BacklogRow[] {
   return rows.map((r) => ({ ...r, stage }));
 }
@@ -82,7 +88,8 @@ export default function Order360Page() {
 
   const [month, setMonth] = useState<string | null>(null);
   const [week, setWeek] = useState<string | null>(null);
-  const [date, setDate] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [dayNames, setDayNames] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -90,7 +97,8 @@ export default function Order360Page() {
     const params = new URLSearchParams();
     if (month) params.set("month", month);
     if (month && week) params.set("week", week);
-    if (date) params.set("date", date);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
     if (dayNames.size > 0 && dayNames.size < 7) params.set("dayNames", Array.from(dayNames).join(","));
 
     (async () => {
@@ -109,7 +117,7 @@ export default function Order360Page() {
       }
     })();
     return () => controller.abort();
-  }, [month, week, date, dayNames]);
+  }, [month, week, dateFrom, dateTo, dayNames]);
 
   const jump = (key: string) => setTab(key as TabKey);
 
@@ -166,18 +174,36 @@ export default function Order360Page() {
         </div>
         <div className="flex flex-wrap items-end gap-2.5">
           <FilterSelect label="Month" value={month ?? ""} onChange={(v) => { setMonth(v || null); setWeek(null); }}>
-            <option value="">All loaded months</option>
-            {data.availableMonths.map((m) => <option key={m} value={m}>{m}</option>)}
+            <option value="" style={OPTION_STYLE}>All loaded months</option>
+            {data.availableMonths.map((m) => <option key={m} value={m} style={OPTION_STYLE}>{m}</option>)}
           </FilterSelect>
           {month ? (
             <FilterSelect label="Week" value={week ?? ""} onChange={(v) => setWeek(v || null)}>
-              <option value="">Whole month</option>
-              {data.availableWeeks.map((w) => <option key={w} value={w}>{w}</option>)}
+              <option value="" style={OPTION_STYLE}>Whole month</option>
+              {data.availableWeeks.map((w) => <option key={w} value={w} style={OPTION_STYLE}>{w}</option>)}
             </FilterSelect>
           ) : null}
           <div className="flex flex-col gap-1">
-            <span className={`text-[10px] font-semibold uppercase tracking-wide ${O360.textMuted}`}>Date</span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-white outline-none" />
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${O360.textMuted}`}>Date from</span>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[12px] outline-none"
+              style={{ colorScheme: "dark", backgroundColor: O360.panelSoft, color: "#fff" }}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className={`text-[10px] font-semibold uppercase tracking-wide ${O360.textMuted}`}>Date to</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[12px] outline-none"
+              style={{ colorScheme: "dark", backgroundColor: O360.panelSoft, color: "#fff" }}
+            />
           </div>
           <div className="flex flex-col gap-1">
             <span className={`text-[10px] font-semibold uppercase tracking-wide ${O360.textMuted}`}>Day Name</span>
@@ -452,7 +478,12 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
   return (
     <div className="flex flex-col gap-1">
       <span className={`text-[10px] font-semibold uppercase tracking-wide ${O360.textMuted}`}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] font-semibold text-white outline-none">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-full border border-white/10 px-3 py-1.5 text-[12px] font-semibold outline-none"
+        style={{ colorScheme: "dark", backgroundColor: O360.panelSoft, color: "#fff" }}
+      >
         {children}
       </select>
     </div>
