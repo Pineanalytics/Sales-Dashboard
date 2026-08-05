@@ -125,6 +125,18 @@ table tbody tr:hover {
   background-color: var(--surface-hover);
 }
 
+/* Order 360 (app/(protected)/(analytics)/order-360) renders its own dark tables —
+   the light-theme striping/hover above use --background-elevated/--surface-hover,
+   both light tokens, which read as near-white rows under Order 360's white text.
+   Scoped under its own wrapper class (higher specificity wins) rather than
+   touching the shared rule every other (light) table in the app relies on. */
+.order360-scope table tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.order360-scope table tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
 /* Reusable soft cyan glow — active controls, selected sidebar items, button hover. */
 .shadow-cyan-glow {
   box-shadow: 0 0 0 3px rgba(37, 216, 255, 0.25), 0 4px 14px rgba(37, 216, 255, 0.3);

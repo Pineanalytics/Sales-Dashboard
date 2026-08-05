@@ -154,7 +154,7 @@ export default function Order360Page() {
   const filteredActionRows = actionFilter === "all" ? actionRows : actionRows.filter((r) => r.stage === actionFilter);
 
   return (
-    <div className="rounded-3xl p-3 sm:p-5" style={{ background: `linear-gradient(180deg, ${O360.base}, #060a16)` }}>
+    <div className="order360-scope rounded-3xl p-3 sm:p-5" style={{ background: `linear-gradient(180deg, ${O360.base}, #060a16)`, colorScheme: "dark" }}>
       {/* Header + filters */}
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
