@@ -18,6 +18,7 @@ export const ALL_PAGE_KEYS = [
   "active-outlets",
   "timestamps",
   "jp-adherence",
+  "order-360",
   "reports",
 ] as const;
 
@@ -40,6 +41,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   "active-outlets": "Active Outlets",
   timestamps: "Timestamps",
   "jp-adherence": "JP Adherence",
+  "order-360": "Order 360",
   reports: "Reports",
 };
 

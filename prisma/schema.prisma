@@ -555,6 +555,59 @@ model RepCall {
   @@index([employeeCode, date])
 }
 
+// Order 360 — one row per SAP order, sourced directly from pine's SAP_Orders
+// (joined to users/loading/vans/payments), mirroring
+// Order_360_Extractor.py's QUERY. Funnel/pending/age/leaderboard figures are all
+// derived live from these boolean flags + orderDate on read
+// (lib/order360Summary.ts) — nothing here is precomputed. Initial load covers
+// the trailing 3 months; a daily 18:30 sync then tops up only that day's rows
+// (scripts/db-bridge/order-360/run.ts), same incremental philosophy as RepCall.
+model OrderRecord {
+  id            String    @id @default(cuid())
+  orderDate     DateTime // so.Creation_Date, date-truncated
+  erpNumber     String // so.DocNum - natural key
+  invoiceNumber String? // so.Reference_No
+  picklistId    String?
+  customer      String
+  fsr           String
+  amount        Float
+
+  clearedBy   String?
+  cleared     Boolean
+  clearedDate DateTime?
+
+  picker    String?
+  picked    Boolean
+  pickDate  DateTime?
+
+  dispatcher   String?
+  dispatched   Boolean
+  dispatchDate DateTime?
+
+  auditedBy String?
+  audited   Boolean
+
+  van          String?
+  driver       String?
+  delivered    Boolean
+  deliveryDate DateTime?
+
+  isReturn      Boolean
+  returnDocType String? // raw so.Doc_Type ("Credit Note") when isReturn
+  returnedBy    String?
+
+  podStatus  String?
+  stk        Boolean
+  paymentRef String?
+  amountPaid Float?
+
+  createdAt DateTime @default(now())
+
+  @@unique([erpNumber])
+  @@index([orderDate])
+  @@index([fsr])
+}
+
 // Journey Plan — one row per planned rep x outlet x date, derived from the
 // "pine" field-force DB's historical visit-frequency + geo-sweep route/home-day
 // algorithm (scripts/db-bridge/jp-adherence), pushed live via
