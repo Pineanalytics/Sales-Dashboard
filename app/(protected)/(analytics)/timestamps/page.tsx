@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
@@ -10,7 +10,7 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
-import { formatCompact, formatNumber, formatPercent, strikeRateTier } from "@/lib/format";
+import { formatCompact, formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
 import { closingStatus, compareTimeManagementRows, firstCallStatus, recentMonthOptions, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
@@ -44,6 +44,19 @@ interface ChartRow {
   bucket: number | string;
   salesRole: string;
   calls: number;
+}
+
+interface RepProductivityRow {
+  employeeCode: string;
+  salesRep: string;
+  region: string;
+  salesRole: string;
+  callsMade: number;
+  productiveCalls: number;
+  strikeRatePct: number;
+  outletsCovered: number;
+  productiveDays: number;
+  sales: number;
 }
 
 interface TimestampSummaryResponse {
@@ -148,6 +161,43 @@ function chartBuckets(rows: ChartRow[], granularity: "Hourly" | "Daily" | "Weekl
   return Array.from(byBucket.entries())
     .sort(([a], [b]) => (granularity === "Daily" ? a.localeCompare(b) : Number(a) - Number(b)))
     .map(([, bucket]) => bucket);
+}
+
+/** Rolls the already-filtered rep-day summaries (already scoped by every active
+ *  filter — month/date/rep/region/team leader/role — server-side) up to one row
+ *  per rep, so Productive Days sits directly alongside the same Calls Made/
+ *  Strike Rate/Outlets/Sales figures the day-grain table below already shows,
+ *  rather than only appearing as a single aggregate number. */
+function buildRepProductivitySummary(summaries: RepDaySummary[]): RepProductivityRow[] {
+  const byRep = new Map<string, RepProductivityRow & { productiveDates: Set<string> }>();
+  for (const row of summaries) {
+    const existing = byRep.get(row.employeeCode) ?? {
+      employeeCode: row.employeeCode,
+      salesRep: row.salesRep,
+      region: row.region,
+      salesRole: row.salesRole,
+      callsMade: 0,
+      productiveCalls: 0,
+      strikeRatePct: 0,
+      outletsCovered: 0,
+      productiveDays: 0,
+      sales: 0,
+      productiveDates: new Set<string>(),
+    };
+    existing.callsMade += row.callsMade;
+    existing.productiveCalls += row.productiveCalls;
+    existing.outletsCovered += row.outletsCovered;
+    existing.sales += row.sales;
+    if (row.productiveCalls > 0) existing.productiveDates.add(row.date);
+    byRep.set(row.employeeCode, existing);
+  }
+  return Array.from(byRep.values())
+    .map(({ productiveDates, ...rest }) => ({
+      ...rest,
+      strikeRatePct: rest.callsMade > 0 ? Math.round((rest.productiveCalls / rest.callsMade) * 1000) / 10 : 0,
+      productiveDays: productiveDates.size,
+    }))
+    .sort((a, b) => b.productiveDays - a.productiveDays || b.strikeRatePct - a.strikeRatePct);
 }
 
 function CompactMetric({ label, value, valueClass = "" }: { label: string; value: string; valueClass?: string }) {
@@ -271,6 +321,8 @@ export default function TimestampsPage() {
   const buckets = chartBuckets(summary.chartRows, chartGranularity);
   const primaryProductiveDays = new Set(summary.summaries.filter((r) => r.salesRole === "Primary Sales" && r.productiveCalls > 0).map((r) => r.date)).size;
   const secondaryProductiveDays = new Set(summary.summaries.filter((r) => r.salesRole === "Secondary Sales" && r.productiveCalls > 0).map((r) => r.date)).size;
+  const repProductivitySummary = buildRepProductivitySummary(summary.summaries);
+  const topProductiveDaysReps = repProductivitySummary.slice(0, 15);
   const availableMonths = recentMonthOptions(new Date()).slice().reverse();
   const datesForSelectedMonth = selectedMonth ? summary.availableDates.filter((date) => date.startsWith(selectedMonth)) : summary.availableDates;
   const selectedMonthLabel = selectedMonth ? formatMonthLabel(`${selectedMonth}-01`) : null;
@@ -415,6 +467,51 @@ export default function TimestampsPage() {
           {roleFilter !== "Secondary Sales" ? <SalesRoleSnapshot title="Primary Sales" stats={summary.primaryStats} tone="primary" productiveDays={primaryProductiveDays} /> : null}
           {roleFilter !== "Primary Sales" ? <SalesRoleSnapshot title="Secondary Sales" stats={summary.secondaryStats} tone="secondary" productiveDays={secondaryProductiveDays} /> : null}
         </div>
+      </SectionCard>
+
+      <SectionCard title="Productive Days by Rep" action={<span className="text-xs text-muted">Top {topProductiveDaysReps.length} of {repProductivitySummary.length} reps · vs. Calls Made &amp; Strike Rate</span>}>
+        <ResponsiveContainer width="100%" height={Math.max(180, topProductiveDaysReps.length * 26)}>
+          <BarChart data={topProductiveDaysReps.map((r) => ({ name: r.salesRep, value: r.productiveDays }))} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_COLOR} />
+            <XAxis type="number" allowDecimals={false} fontSize={10} stroke={CHART_AXIS_COLOR} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="name" width={120} fontSize={10} stroke={CHART_AXIS_COLOR} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => [`${value} day(s)`, "Productive Days"]} />
+            <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={16}>
+              {topProductiveDaysReps.map((r, index) => (
+                <Cell key={index} fill={tierBarColor[strikeRateTier(r.strikeRatePct)]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+
+        <TableWrap>
+          <Thead>
+            <Th>Sales Rep</Th>
+            <Th>Region</Th>
+            <Th>Sales Role</Th>
+            <Th align="right">Calls Made</Th>
+            <Th align="right">Productive</Th>
+            <Th align="center">Strike Rate</Th>
+            <Th align="right">Outlets Covered</Th>
+            <Th align="right">Productive Days</Th>
+            <Th align="right">Sales</Th>
+          </Thead>
+          <tbody>
+            {repProductivitySummary.map((row) => (
+              <tr key={row.employeeCode}>
+                <Td>{row.salesRep}</Td>
+                <Td>{row.region}</Td>
+                <Td>{row.salesRole}</Td>
+                <Td align="right">{formatNumber(row.callsMade)}</Td>
+                <Td align="right">{formatNumber(row.productiveCalls)}</Td>
+                <Td align="center"><StrikeRateBadge strikeRate={row.strikeRatePct} /></Td>
+                <Td align="right">{formatNumber(row.outletsCovered)}</Td>
+                <Td align="right"><span className="font-semibold text-brand-navy">{formatNumber(row.productiveDays)}</span></Td>
+                <Td align="right">{formatCompact(row.sales)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
       </SectionCard>
 
       <SectionCard
