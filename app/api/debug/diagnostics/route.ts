@@ -103,6 +103,10 @@ export async function GET(req: NextRequest) {
   `;
   const employeeMasterSapNames = await prisma.employeeMaster.findMany({ select: { sapName: true, employeeCode: true, pineName: true } });
 
+  const nyeriDailyTargetCount = await prisma.dailyTarget.count({ where: { employeeCode: "NYERI" } });
+  const nyeriEmployeeMaster = await prisma.employeeMaster.findMany({ where: { employeeCode: { contains: "NYERI" } } });
+  const nyeriAssignments = await prisma.teamLeaderAssignment.findMany({ where: { employeeCode: { contains: "NYERI" } }, select: { employeeCode: true, active: true, principal: true, teamLeaderId: true } });
+
   return NextResponse.json({
     currentPeriod: { year, monthIndex },
     weeklyTarget: { count: weeklyTargetCount, sumTargetValue: weeklyTargetSum._sum.targetValue },
@@ -133,5 +137,8 @@ export async function GET(req: NextRequest) {
     nonNumericEmployeeCodes,
     unmatchedSalesRepGrouped: unmatchedSalesRepGrouped.map((r) => ({ sapName: r.sapName, count: Number(r.c), revenue: r.rev })),
     employeeMasterSapNames,
+    nyeriDailyTargetCount,
+    nyeriEmployeeMaster,
+    nyeriAssignments,
   });
 }
