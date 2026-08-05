@@ -64,6 +64,36 @@ export function closingStatus(date: string, lastCall: string, now = new Date()):
   return minutes >= CLOSE_OF_TRADE_CUTOFF_MINUTES ? "closed-on-time" : "closed-early";
 }
 
+/** Mean of a rep's daily first/last-call minutes-after-midnight across every
+ *  day in the current selection — the counterpart to the per-day value
+ *  nairobiMinutesAfterMidnight returns, used when a full month (no single
+ *  date) is selected so "First Call"/"Last Call" reflects a rep's typical
+ *  start/finish rather than whichever single day happens to sort first. */
+export function averageMinutes(minutesList: number[]): number | null {
+  if (minutesList.length === 0) return null;
+  return minutesList.reduce((sum, m) => sum + m, 0) / minutesList.length;
+}
+
+/** Inverse of nairobiMinutesAfterMidnight: builds a real ISO instant (today's
+ *  date, arbitrary) carrying the given Nairobi clock time, so an averaged
+ *  minutes-after-midnight value can still flow through every existing
+ *  ISO-string-based formatter/status function unchanged. */
+export function isoFromNairobiMinutes(minutes: number, base = new Date()): string {
+  const utcMinutesTotal = (((Math.round(minutes) - NAIROBI_UTC_OFFSET_MINUTES) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const result = new Date(base);
+  result.setUTCHours(Math.floor(utcMinutesTotal / 60), utcMinutesTotal % 60, 0, 0);
+  return result.toISOString();
+}
+
+/** Same closed-early/closed-on-time threshold closingStatus uses, but without
+ *  its date-elapsed branches (today/future) — for an averaged monthly row
+ *  there's no single calendar date to check "has this day finished yet"
+ *  against, only a typical last-call time worth judging on its own. */
+export function closingStatusForMinutes(lastCallMinutes: number | null): ClosingStatus {
+  if (lastCallMinutes === null) return "unknown";
+  return lastCallMinutes >= CLOSE_OF_TRADE_CUTOFF_MINUTES ? "closed-on-time" : "closed-early";
+}
+
 export function timeManagementRank(status: TimeManagementStatus): number {
   if (status === "late") return 0;
   if (status === "grace") return 1;

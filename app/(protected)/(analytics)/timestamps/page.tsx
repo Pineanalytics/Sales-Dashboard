@@ -11,7 +11,18 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatCompact, formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
-import { closingStatus, compareTimeManagementRows, firstCallStatus, recentMonthOptions, type ClosingStatus, type TimeManagementStatus } from "@/lib/timeManagement";
+import {
+  averageMinutes,
+  closingStatus,
+  closingStatusForMinutes,
+  compareTimeManagementRows,
+  firstCallStatus,
+  isoFromNairobiMinutes,
+  nairobiMinutesAfterMidnight,
+  recentMonthOptions,
+  type ClosingStatus,
+  type TimeManagementStatus,
+} from "@/lib/timeManagement";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 interface RoleStats {
@@ -44,6 +55,10 @@ interface ChartRow {
   bucket: number | string;
   salesRole: string;
   calls: number;
+}
+
+interface RepMonthlyAverageRow extends RepDaySummary {
+  daysWorked: number;
 }
 
 interface RepProductivityRow {
@@ -200,6 +215,90 @@ function buildRepProductivitySummary(summaries: RepDaySummary[]): RepProductivit
     .sort((a, b) => b.productiveDays - a.productiveDays || b.strikeRatePct - a.strikeRatePct);
 }
 
+/** Rolls day-grain rep summaries up to one row per rep with First Call/Last
+ *  Call averaged (mean of each day's Nairobi clock time, not whichever day
+ *  happens to sort first) — used whenever no single date is selected, so a
+ *  full-month view shows each rep's typical start/finish instead of a long
+ *  day-by-day list. Calls/Productive/Outlets/Sales are summed; Strike Rate is
+ *  recomputed from the summed totals (not an average of daily percentages).
+ *  The result is shaped exactly like a day-grain RepDaySummary (with a
+ *  synthetic firstCall/lastCall ISO carrying only the averaged clock time) so
+ *  every existing status/sort/badge function keeps working unmodified. */
+function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageRow[] {
+  interface Accumulator {
+    employeeCode: string;
+    salesRep: string;
+    region: string;
+    salesRole: string;
+    firstCallMinutes: number[];
+    lastCallMinutes: number[];
+    hoursInDaySum: number;
+    callsMade: number;
+    productiveCalls: number;
+    outletsCovered: number;
+    intervalSum: number;
+    intervalCount: number;
+    sales: number;
+    days: number;
+  }
+  const byRep = new Map<string, Accumulator>();
+  for (const row of summaries) {
+    const acc = byRep.get(row.employeeCode) ?? {
+      employeeCode: row.employeeCode,
+      salesRep: row.salesRep,
+      region: row.region,
+      salesRole: row.salesRole,
+      firstCallMinutes: [],
+      lastCallMinutes: [],
+      hoursInDaySum: 0,
+      callsMade: 0,
+      productiveCalls: 0,
+      outletsCovered: 0,
+      intervalSum: 0,
+      intervalCount: 0,
+      sales: 0,
+      days: 0,
+    };
+    const firstMinutes = nairobiMinutesAfterMidnight(row.firstCall);
+    const lastMinutes = nairobiMinutesAfterMidnight(row.lastCall);
+    if (firstMinutes !== null) acc.firstCallMinutes.push(firstMinutes);
+    if (lastMinutes !== null) acc.lastCallMinutes.push(lastMinutes);
+    acc.hoursInDaySum += row.hoursInDay;
+    acc.callsMade += row.callsMade;
+    acc.productiveCalls += row.productiveCalls;
+    acc.outletsCovered += row.outletsCovered;
+    if (row.avgIntervalMins !== null) {
+      acc.intervalSum += row.avgIntervalMins;
+      acc.intervalCount += 1;
+    }
+    acc.sales += row.sales;
+    acc.days += 1;
+    byRep.set(row.employeeCode, acc);
+  }
+
+  return Array.from(byRep.values()).map((acc) => {
+    const avgFirst = averageMinutes(acc.firstCallMinutes) ?? 0;
+    const avgLast = averageMinutes(acc.lastCallMinutes) ?? 0;
+    return {
+      date: "",
+      employeeCode: acc.employeeCode,
+      salesRep: acc.salesRep,
+      region: acc.region,
+      salesRole: acc.salesRole,
+      firstCall: isoFromNairobiMinutes(avgFirst),
+      lastCall: isoFromNairobiMinutes(avgLast),
+      hoursInDay: acc.days > 0 ? acc.hoursInDaySum / acc.days : 0,
+      callsMade: acc.callsMade,
+      productiveCalls: acc.productiveCalls,
+      strikeRatePct: acc.callsMade > 0 ? Math.round((acc.productiveCalls / acc.callsMade) * 1000) / 10 : 0,
+      outletsCovered: acc.outletsCovered,
+      avgIntervalMins: acc.intervalCount > 0 ? Math.round((acc.intervalSum / acc.intervalCount) * 10) / 10 : null,
+      sales: acc.sales,
+      daysWorked: acc.days,
+    };
+  });
+}
+
 function CompactMetric({ label, value, valueClass = "" }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-border/70 bg-surface px-2.5 py-2">
@@ -308,7 +407,12 @@ export default function TimestampsPage() {
   const availableReps = summary.availableReps;
   const selectedRepName = selectedRep ? availableReps.find((rep) => rep.employeeCode === selectedRep)?.salesRep : undefined;
   const repSearchResults = (repQuery.trim() ? availableReps.filter((rep) => rep.salesRep.toLowerCase().includes(repQuery.trim().toLowerCase())) : availableReps).slice(0, 10);
-  const sortedSummaries = [...summary.summaries].sort(compareTimeManagementRows);
+  // No single date selected ("All <month>" or "All months") -> average per rep
+  // instead of a long day-by-day list, so First/Last Call reflects each rep's
+  // typical time rather than whichever day happens to sort first.
+  const isMonthlyAverage = selectedDate === null;
+  const repRows: (RepDaySummary | RepMonthlyAverageRow)[] = isMonthlyAverage ? buildRepMonthlyAverages(summary.summaries) : summary.summaries;
+  const sortedSummaries = [...repRows].sort(compareTimeManagementRows);
   const needsAttentionCount = sortedSummaries.filter((row) => firstCallStatus(row.firstCall) === "late").length;
   const thumbsUpCount = sortedSummaries.filter((row) => firstCallStatus(row.firstCall) === "on-time").length;
   const timeManagementSummaries = sortedSummaries.filter((row) => {
@@ -515,9 +619,10 @@ export default function TimestampsPage() {
       </SectionCard>
 
       <SectionCard
-        title="Rep Daily Summary"
+        title={isMonthlyAverage ? "Rep Monthly Average" : "Rep Daily Summary"}
         action={
           <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs text-muted">
+            {isMonthlyAverage ? <span className="font-semibold text-primary-blue">First/Last Call averaged per rep across {reportMonthLabel}</span> : null}
             <span><strong className="font-semibold text-muted-strong">Date:</strong> {reportDateLabel}</span>
             <span><strong className="font-semibold text-muted-strong">Sales role:</strong> {reportRoleLabel}</span>
             {selectedRegion ? <span><strong className="font-semibold text-muted-strong">Region:</strong> {selectedRegion}</span> : null}
@@ -578,13 +683,14 @@ export default function TimestampsPage() {
         </div>
         <TableWrap>
           <Thead>
-            <Th>Sales Rep</Th><Th>First Call</Th><Th>Start Status</Th><Th>Last Call</Th><Th>Closing Remark</Th>
+            <Th>Sales Rep</Th><Th>{isMonthlyAverage ? "Avg First Call" : "First Call"}</Th><Th>Start Status</Th><Th>{isMonthlyAverage ? "Avg Last Call" : "Last Call"}</Th><Th>Closing Remark</Th>
             <Th align="right">Hours in Day</Th><Th align="right">Calls Made</Th><Th align="right">Productive</Th><Th align="center">Strike Rate</Th><Th align="right">Outlets Covered</Th><Th align="right">Avg Interval (mins)</Th><Th align="right">Sales</Th>
+            {isMonthlyAverage ? <Th align="right">Days Worked</Th> : null}
           </Thead>
           <tbody>
             {visibleSummaries.map((row) => {
               const startStatus = firstCallStatus(row.firstCall);
-              const closeStatus = closingStatus(row.date, row.lastCall);
+              const closeStatus = isMonthlyAverage ? closingStatusForMinutes(nairobiMinutesAfterMidnight(row.lastCall)) : closingStatus(row.date, row.lastCall);
               return (
                 <tr key={`${row.date}|${row.employeeCode}|${row.salesRole}`}>
                   <Td>{row.salesRep}</Td>
@@ -594,12 +700,14 @@ export default function TimestampsPage() {
                   <Td><span className={`inline-flex items-center gap-1 text-xs font-semibold ${closingStatusClass(closeStatus)}`}>{closeStatus === "closed-early" ? <Warning20Regular /> : closeStatus === "closed-on-time" ? <ThumbLike20Regular /> : null}{closingStatusLabel(closeStatus)}</span></Td>
                   <Td align="right">{row.hoursInDay.toFixed(1)}</Td><Td align="right">{formatNumber(row.callsMade)}</Td><Td align="right">{formatNumber(row.productiveCalls)}</Td>
                   <Td align="center"><StrikeRateBadge strikeRate={row.strikeRatePct} /></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
+                  {isMonthlyAverage ? <Td align="right">{formatNumber((row as RepMonthlyAverageRow).daysWorked)}</Td> : null}
                 </tr>
               );
             })}
             <TotalRow>
               <Td>Total</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td align="right">--</Td>
               <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><StrikeRateBadge strikeRate={summary.overall.strikeRate} /></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
+              {isMonthlyAverage ? <Td align="right">--</Td> : null}
             </TotalRow>
           </tbody>
         </TableWrap>

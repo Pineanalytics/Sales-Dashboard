@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { closingStatus, compareTimeManagementRows, firstCallStatus, nairobiMinutesAfterMidnight } from "../lib/timeManagement";
+import {
+  averageMinutes,
+  closingStatus,
+  closingStatusForMinutes,
+  compareTimeManagementRows,
+  firstCallStatus,
+  isoFromNairobiMinutes,
+  nairobiMinutesAfterMidnight,
+} from "../lib/timeManagement";
 
 describe("first-call time-management policy", () => {
   it("uses Africa/Nairobi time rather than the browser timezone", () => {
@@ -43,5 +51,27 @@ describe("last-call closing policy", () => {
   it("does not assess the current or a future day before it has elapsed", () => {
     expect(closingStatus("2026-07-31", "2026-07-31T08:00:00.000Z", middayNairobi)).toBe("day-in-progress");
     expect(closingStatus("2026-08-01", "2026-08-01T08:00:00.000Z", middayNairobi)).toBe("not-due");
+  });
+});
+
+describe("monthly averaging (full-month Timestamps view)", () => {
+  it("averages a rep's daily minutes instead of picking whichever day sorts first", () => {
+    // 9:00, 9:30, 10:00 Nairobi -> mean 9:30
+    expect(averageMinutes([9 * 60, 9 * 60 + 30, 10 * 60])).toBe(9 * 60 + 30);
+  });
+
+  it("returns null for an empty list rather than 0 or NaN", () => {
+    expect(averageMinutes([])).toBeNull();
+  });
+
+  it("round-trips through isoFromNairobiMinutes back to the same minutes-after-midnight", () => {
+    const iso = isoFromNairobiMinutes(9 * 60 + 15);
+    expect(nairobiMinutesAfterMidnight(iso)).toBe(9 * 60 + 15);
+  });
+
+  it("judges an averaged last-call time on the same 4:00 PM threshold, with no date-elapsed dependency", () => {
+    expect(closingStatusForMinutes(16 * 60 - 1)).toBe("closed-early");
+    expect(closingStatusForMinutes(16 * 60)).toBe("closed-on-time");
+    expect(closingStatusForMinutes(null)).toBe("unknown");
   });
 });
