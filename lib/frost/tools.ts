@@ -19,7 +19,7 @@ import { getWeeksInMonth } from "../weeklyTargets";
 import { buildTlRanking } from "../tlRanking";
 import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
-import { loadTeamLeaderScope, type TeamLeaderScope } from "../teamLeaderScope";
+import { loadTeamLeaderScope, loadViewerPrincipalScope, type TeamLeaderScope } from "../teamLeaderScope";
 import { getJpAdherenceSummary } from "../jpAdherence";
 import { normalizePrincipalKey } from "../normalize";
 
@@ -195,7 +195,17 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
       const result = buildTlRanking(repRevenue, assignments, teamLeaders, weeklyTargets, args.principal ?? null);
       if (!scope) return JSON.stringify(result);
 
-      const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+      if (scope.teamLeaderId) {
+        const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+        return JSON.stringify({ rankings, unmatchedReps: [] });
+      }
+      // Principal-restricted VIEWER: every Team Leader with an active assignment
+      // under an allowed principal — see the matching comment in the /api/dashboard/
+      // tl-ranking route for why mtdTarget/mtdRevenue stay un-narrowed by principal.
+      const allowedTeamLeaderIds = new Set(
+        assignments.filter((a) => a.active && scope.principals.includes(a.principal)).map((a) => a.teamLeaderId)
+      );
+      const rankings = result.rankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
       return JSON.stringify({ rankings, unmatchedReps: [] });
     },
   });
@@ -232,7 +242,7 @@ function makeWeeklyTargetTool(scope: TeamLeaderScope | null) {
       const weeklyTargetWhere: Record<string, unknown> = { year: currentMonth.year, monthLabel: currentMonth.month };
       if (args.principal) weeklyTargetWhere.principal = args.principal;
       else if (scope) weeklyTargetWhere.principal = { in: scope.principals };
-      if (scope) weeklyTargetWhere.teamLeaderId = scope.teamLeaderId;
+      if (scope?.teamLeaderId) weeklyTargetWhere.teamLeaderId = scope.teamLeaderId;
 
       const [dailySales, weeklyTargets] = await Promise.all([
         prisma.dailySalesActual.findMany({ where: dailySalesWhere, select: { date: true, revenue: true } }),
@@ -284,7 +294,7 @@ function makeDailyProjectionTool(scope: TeamLeaderScope | null) {
       const dailyTargetWhere: Record<string, unknown> = { date: { gte: todayStart, lt: todayEnd } };
       if (args.principal) dailyTargetWhere.principal = args.principal;
       else if (scope) dailyTargetWhere.principal = { in: scope.principals };
-      if (scope) dailyTargetWhere.teamLeaderId = scope.teamLeaderId;
+      if (scope?.teamLeaderId) dailyTargetWhere.teamLeaderId = scope.teamLeaderId;
 
       const dailySalesWhere: Record<string, unknown> = { date: { gte: todayStart, lt: todayEnd } };
       if (args.principal) dailySalesWhere.principal = args.principal;
@@ -499,11 +509,24 @@ const TOOL_REGISTRY: { create: (scope: TeamLeaderScope | null) => any; requiresP
  *  to see on the live dashboard — a user without Profitability access doesn't
  *  get a P&L tool just because they can phrase a question about it. A
  *  TEAM_LEADER additionally gets every principal/rep-scoped tool rebuilt
- *  against their own TeamLeaderAssignment rows, so (e.g.) get_sales_vs_target
- *  reflects their own team, not the whole company — matching how
- *  /weekly-targets already restricts a TEAM_LEADER session. */
-export async function toolsForUser(allowedPages: readonly string[], isAdmin: boolean, teamLeaderId: string | null) {
-  const scope = !isAdmin && teamLeaderId ? await loadTeamLeaderScope(teamLeaderId) : null;
+ *  against their own TeamLeaderAssignment rows, and a principal-restricted
+ *  VIEWER gets the same rebuilt against their own User.allowedPrincipals — so
+ *  (e.g.) get_sales_vs_target reflects only what that session can see,
+ *  matching how /weekly-targets and every Prisma-backed dashboard route
+ *  already restrict these two session kinds. */
+export async function toolsForUser(
+  allowedPages: readonly string[],
+  isAdmin: boolean,
+  teamLeaderId: string | null,
+  allowedPrincipals: readonly string[] = []
+) {
+  const scope = isAdmin
+    ? null
+    : teamLeaderId
+      ? await loadTeamLeaderScope(teamLeaderId)
+      : allowedPrincipals.length > 0
+        ? await loadViewerPrincipalScope([...allowedPrincipals])
+        : null;
   return TOOL_REGISTRY.filter((entry) => (entry.requiresPage === "admin" ? isAdmin : isAdmin || allowedPages.includes(entry.requiresPage))).map((entry) =>
     entry.create(scope)
   );

@@ -65,7 +65,7 @@ export default async function TargetsOverviewPage({
     region: params.region || undefined,
   };
 
-  const scope = await resolveScopeForSession(user.role, user.teamLeaderId ?? null);
+  const scope = await resolveScopeForSession(user.role, user.teamLeaderId ?? null, user.allowedPrincipals);
   const [{ targetRows, rosterRows, principals, teamLeaders, regions }, targetYears] = await Promise.all([
     getTargetsOverview(filters, scope),
     prisma.target.findMany({ select: { year: true }, distinct: ["year"] }),

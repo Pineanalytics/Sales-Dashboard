@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const from = parseFrom(req, monthStart, monthEnd);
     if (from instanceof NextResponse) return from;
 
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
     const where = {
       date: { gte: from, lt: monthEnd },
       ...(scope ? { employeeCode: { in: scope.employeeCodes } } : {}),

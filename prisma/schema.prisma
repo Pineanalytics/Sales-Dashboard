@@ -41,6 +41,13 @@ model User {
   status       UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
   allowedPages String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
   teamLeaderId String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER
+  // Restricts a VIEWER-role login to specific principals (Cost Centres) across the whole
+  // app — dataset, every Prisma-backed dashboard/report route, and Frost — the same
+  // scoping mechanism a TEAM_LEADER already gets via teamLeaderId, just principal-only
+  // (no rep/employeeCode identity of their own). Empty = unrestricted, matching this
+  // project's "default-all-pages on approval" convention: an existing VIEWER's access
+  // never narrows just because this field shipped. Unused for ADMIN/TEAM_LEADER.
+  allowedPrincipals String[] @default([])
   createdAt    DateTime   @default(now())
 }
 

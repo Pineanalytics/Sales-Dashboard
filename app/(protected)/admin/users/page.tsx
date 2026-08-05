@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 import { ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "@/lib/email";
+import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import {
   createUserAction,
@@ -12,6 +13,7 @@ import {
   rejectUserAction,
   updateUserRoleAction,
   updateUserPagesAction,
+  updateUserPrincipalsAction,
   resetPasswordAction,
   saveAnnouncementTemplateAction,
   resetAnnouncementTemplateAction,
@@ -35,6 +37,7 @@ export default async function AdminUsersPage({
   const pending = allUsers.filter((u) => u.status === "PENDING");
   const approved = allUsers.filter((u) => u.status === "APPROVED");
   const teamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
+  const knownPrincipals = await getKnownPrincipals();
   const announcementTemplate = await prisma.emailTemplate.findUnique({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
   const announcementSubject = announcementTemplate?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
   const announcementBody = announcementTemplate?.body ?? DEFAULT_ANNOUNCEMENT_BODY;
@@ -389,6 +392,40 @@ export default async function AdminUsersPage({
                     </button>
                   </form>
                 )}
+
+                {u.role === "VIEWER" ? (
+                  <form action={updateUserPrincipalsAction} className="flex flex-col gap-2">
+                    <input type="hidden" name="userId" value={u.id} />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                      Principal visibility {u.allowedPrincipals.length === 0 ? "(unrestricted — sees every principal)" : `(restricted to ${u.allowedPrincipals.length})`}
+                    </span>
+                    <div className="flex max-h-40 flex-wrap gap-x-4 gap-y-2 overflow-y-auto rounded-xl bg-background-elevated p-3">
+                      {knownPrincipals.length === 0 ? (
+                        <span className="text-xs text-muted">No principals found yet.</span>
+                      ) : (
+                        knownPrincipals.map((p) => (
+                          <label key={p} className="inline-flex items-center gap-1.5 text-xs text-muted-strong">
+                            <input
+                              type="checkbox"
+                              name="principals"
+                              value={p}
+                              defaultChecked={u.allowedPrincipals.includes(p)}
+                              className="rounded border-border text-primary-blue focus:ring-secondary-blue"
+                            />
+                            {p}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    <span className="text-xs text-muted">Leave every box unchecked for unrestricted (default). Check one or more to limit this login to just those principals, everywhere in the app.</span>
+                    <button
+                      type="submit"
+                      className="mt-1 self-start rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                    >
+                      Save principal visibility
+                    </button>
+                  </form>
+                ) : null}
 
                 {u.role === "TEAM_LEADER" ? (
                   <div className="rounded-xl bg-background-elevated px-4 py-3 flex flex-col gap-1.5">

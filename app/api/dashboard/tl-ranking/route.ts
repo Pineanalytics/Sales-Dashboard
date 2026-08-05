@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "\"repRevenue\", \"year\", and \"monthLabel\" are required." }, { status: 400 });
   }
 
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
   if (scope && principalFilter && !scope.principals.includes(principalFilter)) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
@@ -54,6 +54,20 @@ export async function POST(req: NextRequest) {
   const result = buildTlRanking(repRevenue, assignments, teamLeaders, weeklyTargets, principalFilter ?? null);
   if (!scope) return NextResponse.json(result);
 
-  const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+  if (scope.teamLeaderId) {
+    const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+    return NextResponse.json({ rankings, unmatchedReps: [] });
+  }
+
+  // Principal-restricted VIEWER (no single TL identity of their own): show every
+  // Team Leader who has at least one active assignment under an allowed principal.
+  // Note: mtdTarget/mtdRevenue for those visible rows still reflects each TL's full
+  // cross-principal total, not narrowed to just the allowed principal — the same
+  // limitation a TEAM_LEADER session already has (buildTlRanking has no per-
+  // principal target breakdown), so this isn't a new inconsistency.
+  const allowedTeamLeaderIds = new Set(
+    assignments.filter((a) => a.active && scope.principals.includes(a.principal)).map((a) => a.teamLeaderId)
+  );
+  const rankings = result.rankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
   return NextResponse.json({ rankings, unmatchedReps: [] });
 }

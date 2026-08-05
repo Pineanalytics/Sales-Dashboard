@@ -31,21 +31,27 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(Date.UTC(Number(year), monthIndex, 1));
   const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 1));
 
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
   if (scope && principal && !scope.principals.includes(principal)) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
   const principalWhere = principal ? { principal } : scope ? { principal: { in: scope.principals } } : {};
 
+  // scope.teamLeaderId is null for a principal-restricted VIEWER (no team-leader
+  // identity of their own) — only narrow by it when it's actually set, otherwise
+  // principalWhere alone is the whole restriction, giving them every Team
+  // Leader's Weekly/Daily targets for their allowed principals.
+  const teamLeaderWhere = scope?.teamLeaderId ? { teamLeaderId: scope.teamLeaderId } : {};
+
   const [weeklyTargets, dailyTargets] = await Promise.all([
     prisma.weeklyTarget.findMany({
-      where: { year, monthLabel, ...principalWhere, ...(scope ? { teamLeaderId: scope.teamLeaderId } : {}) },
+      where: { year, monthLabel, ...principalWhere, ...teamLeaderWhere },
       select: { weekLabel: true, weekStartDate: true, principal: true, targetValue: true },
     }),
     prisma.dailyTarget.findMany({
       where: {
         ...principalWhere,
-        ...(scope ? { teamLeaderId: scope.teamLeaderId } : {}),
+        ...teamLeaderWhere,
         date: { gte: monthStart, lt: monthEnd },
       },
       select: { date: true, principal: true, targetValue: true },

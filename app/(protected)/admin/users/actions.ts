@@ -152,6 +152,23 @@ export async function updateUserPagesAction(formData: FormData) {
   redirect("/admin/users?success=" + encodeURIComponent(`Updated report access for ${target.email}.`));
 }
 
+// VIEWER-only: restricts which principals a login can see, everywhere data is served
+// (dataset, every Prisma-backed dashboard/report route, Frost) — see
+// lib/teamLeaderScope.ts's loadViewerPrincipalScope. Empty selection = unrestricted,
+// same "default to full access, narrow explicitly" convention as allowedPages.
+export async function updateUserPrincipalsAction(formData: FormData) {
+  await requireAdmin();
+  const userId = String(formData.get("userId") || "");
+  const principals = formData.getAll("principals").map(String).filter((p) => p.trim().length > 0);
+
+  const target = await prisma.user.update({ where: { id: userId }, data: { allowedPrincipals: principals } });
+  const message =
+    principals.length === 0
+      ? `${target.email} can now see every principal (unrestricted).`
+      : `${target.email} is now restricted to ${principals.length} principal(s).`;
+  redirect("/admin/users?success=" + encodeURIComponent(message));
+}
+
 export async function resetPasswordAction(formData: FormData) {
   await requireAdmin();
   const userId = String(formData.get("userId") || "");

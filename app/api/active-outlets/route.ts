@@ -14,7 +14,7 @@ export async function GET() {
   }
 
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
     const principalWhere = scope ? { principal: { in: scope.principals } } : {};
     const [outlets, monthly] = await Promise.all([
       // Ordered by id (the indexed primary key), not principal/outletName — the page
