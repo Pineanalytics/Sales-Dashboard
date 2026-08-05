@@ -78,6 +78,31 @@ export async function GET(req: NextRequest) {
   const sampleWeeklyTarget = await prisma.weeklyTarget.findFirst({ orderBy: { updatedAt: "desc" }, select: { teamLeaderId: true, principal: true, weekStartDate: true, targetValue: true } });
   const sampleDailyTarget = await prisma.dailyTarget.findFirst({ orderBy: { date: "desc" }, select: { employeeCode: true, principal: true, teamLeaderId: true, date: true, targetValue: true } });
 
+  // Deep dive: DailyTarget/WeeklyTarget date sanity, bad employeeCodes, unmatched SAP names.
+  const dailyTargetOutOfRange = await prisma.dailyTarget.count({
+    where: { OR: [{ date: { lt: new Date(Date.UTC(2025, 0, 1)) } }, { date: { gte: new Date(Date.UTC(2027, 0, 1)) } }] },
+  });
+  const weeklyTargetOutOfRange = await prisma.weeklyTarget.findMany({
+    where: { OR: [{ weekStartDate: { lt: new Date(Date.UTC(2025, 0, 1)) } }, { weekStartDate: { gte: new Date(Date.UTC(2027, 0, 1)) } }] },
+    select: { teamLeaderId: true, principal: true, year: true, monthLabel: true, weekLabel: true, weekStartDate: true, targetValue: true },
+    take: 20,
+  });
+  const dailyTargetByYear = await prisma.$queryRaw<{ y: number; c: bigint }[]>`
+    SELECT EXTRACT(YEAR FROM date)::int AS y, COUNT(*)::bigint AS c FROM "DailyTarget" GROUP BY y ORDER BY y
+  `;
+
+  const allActiveAssignments = await prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true, principal: true, teamLeaderId: true } });
+  const employeeMasterCodes = new Set((await prisma.employeeMaster.findMany({ select: { employeeCode: true } })).map((e) => e.employeeCode));
+  const assignmentsWithUnknownEmployeeCode = allActiveAssignments.filter((a) => !employeeMasterCodes.has(a.employeeCode));
+  const nonNumericEmployeeCodes = allActiveAssignments.filter((a) => !/^\d+$/.test(a.employeeCode));
+
+  const unmatchedSalesRepGrouped = await prisma.$queryRaw<{ sapName: string; c: bigint; rev: number }[]>`
+    SELECT "sapName", COUNT(*)::bigint AS c, SUM(revenue)::double precision AS rev
+    FROM "SalesRepActual" WHERE "employeeCode" IS NULL
+    GROUP BY "sapName" ORDER BY rev DESC LIMIT 20
+  `;
+  const employeeMasterSapNames = await prisma.employeeMaster.findMany({ select: { sapName: true, employeeCode: true, pineName: true } });
+
   return NextResponse.json({
     currentPeriod: { year, monthIndex },
     weeklyTarget: { count: weeklyTargetCount, sumTargetValue: weeklyTargetSum._sum.targetValue },
@@ -101,5 +126,12 @@ export async function GET(req: NextRequest) {
     sampleUnmatchedSapNames,
     sampleWeeklyTarget,
     sampleDailyTarget,
+    dailyTargetOutOfRange,
+    weeklyTargetOutOfRange,
+    dailyTargetByYear: dailyTargetByYear.map((r) => ({ year: r.y, count: Number(r.c) })),
+    assignmentsWithUnknownEmployeeCode,
+    nonNumericEmployeeCodes,
+    unmatchedSalesRepGrouped: unmatchedSalesRepGrouped.map((r) => ({ sapName: r.sapName, count: Number(r.c), revenue: r.rev })),
+    employeeMasterSapNames,
   });
 }
