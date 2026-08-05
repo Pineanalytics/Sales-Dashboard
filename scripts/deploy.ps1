@@ -80,7 +80,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "scp failed" }
     Remove-Item $tarPath -Force
 
-    Write-Host "==> Extracting over $RemotePath (leaves .env untouched - it isn't tracked)..." -ForegroundColor Cyan
+    # `tar -xf` only overlays files present in the new archive - it never removes a
+    # file that existed on a previous deploy but has since been deleted from git, so
+    # without this the VPS's tree silently accumulates stale files forever (a real
+    # bug this project hit: a removed debug route kept serving requests through two
+    # further deploys because its file just sat there, untouched by tar). Wiping
+    # $RemotePath first (except .env, which isn't tracked and must survive) makes
+    # every deploy an exact mirror of the committed tree, matching this script's own
+    # documented intent.
+    Write-Host "==> Clearing $RemotePath (except .env) before extracting..." -ForegroundColor Cyan
+    Invoke-Ssh "find $RemotePath -mindepth 1 -not -name '.env' -delete"
+
+    Write-Host "==> Extracting the committed tree into $RemotePath..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && tar -xf /tmp/pinefrost-deploy.tar && rm /tmp/pinefrost-deploy.tar"
 
     Write-Host "==> Rebuilding the app image..." -ForegroundColor Cyan
