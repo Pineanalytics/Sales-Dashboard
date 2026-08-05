@@ -50,6 +50,7 @@ interface TimestampSummaryResponse {
   availableDates: string[];
   availableReps: { employeeCode: string; salesRep: string }[];
   availableRegions: string[];
+  availableTeamLeaders: string[];
   primaryStats: RoleStats;
   secondaryStats: RoleStats;
   overall: RoleStats;
@@ -158,7 +159,7 @@ function CompactMetric({ label, value, valueClass = "" }: { label: string; value
   );
 }
 
-function SalesRoleSnapshot({ title, stats, tone }: { title: string; stats: RoleStats; tone: "primary" | "secondary" }) {
+function SalesRoleSnapshot({ title, stats, tone, productiveDays }: { title: string; stats: RoleStats; tone: "primary" | "secondary"; productiveDays: number }) {
   const iconClass = tone === "primary" ? "bg-primary-blue/10 text-primary-blue" : "bg-secondary-blue/10 text-secondary-blue";
   return (
     <div className="rounded-xl border border-border bg-background-elevated/35 p-3">
@@ -173,6 +174,7 @@ function SalesRoleSnapshot({ title, stats, tone }: { title: string; stats: RoleS
         <CompactMetric label="Outlets" value={formatNumber(stats.outletsCovered)} />
         <CompactMetric label="Avg interval" value={stats.avgIntervalMins !== null ? `${stats.avgIntervalMins.toFixed(0)}m` : "--"} />
         <CompactMetric label="Sales" value={formatCompact(stats.sales)} />
+        <CompactMetric label="Productive days" value={formatNumber(productiveDays)} />
       </div>
     </div>
   );
@@ -187,6 +189,7 @@ export default function TimestampsPage() {
   const [repQuery, setRepQuery] = useState("");
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [selectedTeamLeader, setSelectedTeamLeader] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
@@ -204,6 +207,7 @@ export default function TimestampsPage() {
     if (selectedDate) params.set("date", selectedDate);
     if (selectedRep) params.set("rep", selectedRep);
     if (selectedRegion) params.set("region", selectedRegion);
+    if (selectedTeamLeader) params.set("teamLeader", selectedTeamLeader);
 
     (async () => {
       try {
@@ -224,7 +228,7 @@ export default function TimestampsPage() {
     })();
 
     return () => controller.abort();
-  }, [selectedPrincipalKey, selectedMonth, selectedDate, selectedRep, selectedRegion, roleFilter, chartGranularity, refreshRevision]);
+  }, [selectedPrincipalKey, selectedMonth, selectedDate, selectedRep, selectedRegion, selectedTeamLeader, roleFilter, chartGranularity, refreshRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,6 +269,8 @@ export default function TimestampsPage() {
   });
   const visibleSummaries = timeManagementSummaries.slice(0, summaryLimit);
   const buckets = chartBuckets(summary.chartRows, chartGranularity);
+  const primaryProductiveDays = new Set(summary.summaries.filter((r) => r.salesRole === "Primary Sales" && r.productiveCalls > 0).map((r) => r.date)).size;
+  const secondaryProductiveDays = new Set(summary.summaries.filter((r) => r.salesRole === "Secondary Sales" && r.productiveCalls > 0).map((r) => r.date)).size;
   const availableMonths = recentMonthOptions(new Date()).slice().reverse();
   const datesForSelectedMonth = selectedMonth ? summary.availableDates.filter((date) => date.startsWith(selectedMonth)) : summary.availableDates;
   const selectedMonthLabel = selectedMonth ? formatMonthLabel(`${selectedMonth}-01`) : null;
@@ -406,8 +412,8 @@ export default function TimestampsPage() {
 
       <SectionCard title="Sales snapshot" action={<span className="text-xs text-muted">Compact role comparison</span>}>
         <div className={`grid gap-3 ${roleFilter === "all" ? "lg:grid-cols-2" : "grid-cols-1"}`}>
-          {roleFilter !== "Secondary Sales" ? <SalesRoleSnapshot title="Primary Sales" stats={summary.primaryStats} tone="primary" /> : null}
-          {roleFilter !== "Primary Sales" ? <SalesRoleSnapshot title="Secondary Sales" stats={summary.secondaryStats} tone="secondary" /> : null}
+          {roleFilter !== "Secondary Sales" ? <SalesRoleSnapshot title="Primary Sales" stats={summary.primaryStats} tone="primary" productiveDays={primaryProductiveDays} /> : null}
+          {roleFilter !== "Primary Sales" ? <SalesRoleSnapshot title="Secondary Sales" stats={summary.secondaryStats} tone="secondary" productiveDays={secondaryProductiveDays} /> : null}
         </div>
       </SectionCard>
 
@@ -418,6 +424,7 @@ export default function TimestampsPage() {
             <span><strong className="font-semibold text-muted-strong">Date:</strong> {reportDateLabel}</span>
             <span><strong className="font-semibold text-muted-strong">Sales role:</strong> {reportRoleLabel}</span>
             {selectedRegion ? <span><strong className="font-semibold text-muted-strong">Region:</strong> {selectedRegion}</span> : null}
+            {selectedTeamLeader ? <span><strong className="font-semibold text-muted-strong">Team Leader:</strong> {selectedTeamLeader}</span> : null}
             {selectedRepName ? <span><strong className="font-semibold text-muted-strong">Rep:</strong> {selectedRepName}</span> : null}
             {selectedPrincipalKey ? <span><span className="font-semibold text-muted-strong">Principal:</span> <strong className="font-bold text-foreground">{selectedPrincipalKey}</strong></span> : null}
           </div>
@@ -441,6 +448,24 @@ export default function TimestampsPage() {
             >
               <option value="">All regions</option>
               {summary.availableRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+            </select>
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-elevated px-3 py-1.5">
+            <label htmlFor="timestamp-team-leader" className="text-[10px] font-semibold uppercase tracking-wide text-muted">Team Leader</label>
+            <select
+              id="timestamp-team-leader"
+              aria-label="Team Leader"
+              value={selectedTeamLeader ?? ""}
+              onChange={(event) => {
+                setSelectedTeamLeader(event.target.value || null);
+                setSelectedRep(null);
+                setRepQuery("");
+                setSummaryLimit(SUMMARY_PAGE_SIZE);
+              }}
+              className="max-w-[160px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+            >
+              <option value="">All Team Leaders</option>
+              {summary.availableTeamLeaders.map((tl) => <option key={tl} value={tl}>{tl}</option>)}
             </select>
           </div>
           <button onClick={() => { setTimeManagementFilter("all"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}>

@@ -20,6 +20,26 @@ export interface RepContributionResult {
   principalCount: number;
   repCount: number;
   unassignedRevenueReps: number; // reps with SAP revenue but no TeamLeaderAssignment for that principal
+  skippedUnknownEmployeeCodes: number; // active assignments whose employeeCode has no EmployeeMaster row
+}
+
+/** Legacy/manually-typed TeamLeaderAssignment rows (from before the Employee
+ *  Roaster's employeeCode convention existed, or a typo in the Add-assignment
+ *  form) sometimes carry a name, van/route label, or ad-hoc short code as
+ *  "employeeCode" instead of a real one — e.g. "NYERI", "Eric Ndirangu",
+ *  "VAN 1 WEETABIX - KDL 904E". Left unfiltered, these generate real
+ *  RepContribution/DailyTarget rows for a rep that doesn't exist, diluting
+ *  the share every genuine rep on that Principal/Team Leader gets. Confirmed
+ *  via a live production diagnostic (2026-08-05): ~70+ such rows, mostly
+ *  under EABL-Nyahururu/EABL-Nyeri/Unilever-Nyeri, predating those principals'
+ *  reps ever being onboarded into EmployeeMaster. Filtered out here (not
+ *  deleted — matches this project's reject-deletes convention) until the
+ *  Employee Roaster is extended to cover them for real. */
+async function filterToKnownEmployees<T extends { employeeCode: string }>(rows: T[]): Promise<{ known: T[]; skipped: number }> {
+  const codes = Array.from(new Set(rows.map((r) => r.employeeCode)));
+  const knownCodes = new Set((await prisma.employeeMaster.findMany({ where: { employeeCode: { in: codes } }, select: { employeeCode: true } })).map((e) => e.employeeCode));
+  const known = rows.filter((r) => knownCodes.has(r.employeeCode));
+  return { known, skipped: rows.length - known.length };
 }
 
 function trailingMonthWhere(now = new Date()): { OR: { year: string; monthIndex: number }[] } {
@@ -51,7 +71,7 @@ export function computeSharePcts(revenueByRep: Map<string, number>): Map<string,
  *  revenue falls back to an even split so DailyTarget still has something to
  *  distribute against. Full-replace every call, same pattern as JPMonthlySplitRow. */
 export async function recomputeRepContribution(): Promise<RepContributionResult> {
-  const [salesRows, assignments] = await Promise.all([
+  const [salesRows, rawAssignments] = await Promise.all([
     prisma.salesRepActual.groupBy({
       by: ["principal", "employeeCode", "employeeName"],
       where: { ...trailingMonthWhere(), employeeCode: { not: null } },
@@ -59,6 +79,10 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
     }),
     prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
   ]);
+  const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
+  if (skippedUnknownEmployeeCodes > 0) {
+    console.warn(`recomputeRepContribution: skipped ${skippedUnknownEmployeeCodes} active TeamLeaderAssignment row(s) with an employeeCode not in EmployeeMaster.`);
+  }
 
   const assignmentKey = (principal: string, employeeCode: string) => `${principal}|${employeeCode}`;
   const teamLeaderByAssignment = new Map<string, string>();
@@ -101,7 +125,7 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
 
   await prisma.$transaction([prisma.repContribution.deleteMany({}), prisma.repContribution.createMany({ data: toCreate })]);
 
-  return { principalCount: repsByPrincipal.size, repCount: toCreate.length, unassignedRevenueReps };
+  return { principalCount: repsByPrincipal.size, repCount: toCreate.length, unassignedRevenueReps, skippedUnknownEmployeeCodes };
 }
 
 export interface UnassignedRevenueRep {
@@ -203,6 +227,7 @@ async function weekdayWeightsForRep(employeeCode: string): Promise<number[]> {
 export interface DailyTargetResult {
   weeklyTargetsProcessed: number;
   dailyRowsCreated: number;
+  skippedUnknownEmployeeCodes: number;
 }
 
 export interface ContributionTotalWarning {
@@ -251,11 +276,15 @@ export function resolveRepSharePct(declaredPct: number | null | undefined, compu
  *  team-leader/principal pairs), and correctness matters more than incremental
  *  update complexity here. */
 export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
-  const [weeklyTargets, assignments, contributions] = await Promise.all([
+  const [weeklyTargets, rawAssignments, contributions] = await Promise.all([
     prisma.weeklyTarget.findMany(),
     prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
     prisma.repContribution.findMany(),
   ]);
+  const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
+  if (skippedUnknownEmployeeCodes > 0) {
+    console.warn(`recomputeDailyTargets: skipped ${skippedUnknownEmployeeCodes} active TeamLeaderAssignment row(s) with an employeeCode not in EmployeeMaster.`);
+  }
 
   const repsByTeamLeaderPrincipal = new Map<string, { employeeCode: string; employeeName: string }[]>();
   // Declared Contribution % (admin-set on the Roster, see TeamLeaderAssignment.contributionPct)
@@ -332,5 +361,5 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
     console.warn(`recomputeDailyTargets: skipped ${toCreate.length - created[1].count} overlapping-week duplicate(s) out of ${toCreate.length} generated rows.`);
   }
 
-  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: created[1].count };
+  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: created[1].count, skippedUnknownEmployeeCodes };
 }

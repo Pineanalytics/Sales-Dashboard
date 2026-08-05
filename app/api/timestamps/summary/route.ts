@@ -76,7 +76,8 @@ export async function GET(req: NextRequest) {
 
   const principalKey = req.nextUrl.searchParams.get("principal")?.trim() || null;
   const employeeCode = req.nextUrl.searchParams.get("rep")?.trim() || null;
-  const filters: TimestampFilters = { principalKey, month, date, employeeCode, region, roleFilter, chartGranularity };
+  const teamLeader = req.nextUrl.searchParams.get("teamLeader")?.trim() || null;
+  const filters: TimestampFilters = { principalKey, month, date, employeeCode, region, teamLeader, roleFilter, chartGranularity };
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);

@@ -13,6 +13,8 @@ export interface JpAdherenceFilters {
   dayNames: string[] | null;
   roleFilter: SalesRoleFilter;
   employeeCode: string | null;
+  /** Employee Roaster's EmployeeMaster.teamLeader free-text value. */
+  teamLeader: string | null;
 }
 
 export interface JpAdherenceKpis {
@@ -90,6 +92,7 @@ export interface JpAdherenceSummary {
   availableMonths: string[];
   availableDates: string[];
   availableReps: { employeeCode: string; employeeName: string }[];
+  availableTeamLeaders: string[];
 }
 
 const EMPTY_SQL = Prisma.sql``;
@@ -135,15 +138,30 @@ async function principalEligibleEmployeeCodes(principalKey: string): Promise<str
   return rows.filter((r) => r.contributions.some((c) => normalizePrincipalKey(c.principal) === principalKey)).map((r) => r.employeeCode);
 }
 
+async function teamLeaderEligibleEmployeeCodes(teamLeader: string): Promise<string[]> {
+  const rows = await prisma.employeeMaster.findMany({ where: { teamLeader }, select: { employeeCode: true } });
+  return rows.map((r) => r.employeeCode);
+}
+
 /** ANDs together every employeeCode-based restriction (TeamLeaderScope, principal
- *  contribution membership, rep search) into one list, or "ALL" when unrestricted.
- *  Role filtering is NOT included here — both JourneyPlanRow and RepCall already carry
- *  their own salesRole column directly (no EmployeeMaster join needed for that one). */
-async function resolveEmployeeCodeFilter(scope: TeamLeaderScope | null, principalKey: string | null, employeeCode: string | null): Promise<string[] | "ALL"> {
+ *  contribution membership, Employee Roaster team leader, rep search) into one list,
+ *  or "ALL" when unrestricted. Role filtering is NOT included here — both
+ *  JourneyPlanRow and RepCall already carry their own salesRole column directly (no
+ *  EmployeeMaster join needed for that one). */
+async function resolveEmployeeCodeFilter(
+  scope: TeamLeaderScope | null,
+  principalKey: string | null,
+  employeeCode: string | null,
+  teamLeader: string | null
+): Promise<string[] | "ALL"> {
   let codes: string[] | null = null;
   if (scope) codes = scope.employeeCodes;
   if (principalKey) {
     const eligible = await principalEligibleEmployeeCodes(principalKey);
+    codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
+  }
+  if (teamLeader) {
+    const eligible = await teamLeaderEligibleEmployeeCodes(teamLeader);
     codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
   }
   if (employeeCode) codes = codes ? codes.filter((c) => c === employeeCode) : [employeeCode];
@@ -187,7 +205,7 @@ interface PlanJoinRow {
  *  Covers everything except Unplanned Visits (which by definition has no plan row to
  *  anchor on — see getUnplannedVisits). */
 async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpRepDaySummaryRow[]> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode);
+  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
   const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND p."salesRole" = ${filters.roleFilter}`;
   const dateClause = filters.date ? Prisma.sql`AND p.date >= ${filters.date} AND p.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
 
@@ -235,7 +253,7 @@ async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeade
 /** RepCall rows with no matching plan row for that rep-day-outlet — a visit that
  *  wasn't on the plan at all. */
 async function getUnplannedVisits(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<number> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode);
+  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
   const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
   const dateClause = filters.date ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
 
@@ -268,7 +286,7 @@ function aggregateKpis(repDaySummary: JpRepDaySummaryRow[], unplannedVisits: num
 }
 
 async function getPlanRows(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpPlanRow[]> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode);
+  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
   const where: Prisma.Sql[] = [Prisma.sql`p.date >= ${range.start} AND p.date < ${range.end}`];
   if (codes !== "ALL") {
     if (codes.length === 0) where.push(Prisma.sql`false`);
@@ -290,11 +308,25 @@ async function getPlanRows(range: { start: Date; end: Date }, scope: TeamLeaderS
   return rows.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10) }));
 }
 
+/** Distinct Employee Roaster team leader names within the caller's own
+ *  TeamLeaderScope (or all, for admin/unscoped) — independent of the current
+ *  month/date/role/rep selection, matching how availableReps/availableMonths
+ *  are also computed as a stable filter-option list, not a narrowing result. */
+async function getAvailableTeamLeaders(scope: TeamLeaderScope | null): Promise<string[]> {
+  const rows = await prisma.employeeMaster.findMany({
+    where: { active: true, teamLeader: { not: null }, ...(scope ? { employeeCode: { in: scope.employeeCodes } } : {}) },
+    select: { teamLeader: true },
+    distinct: ["teamLeader"],
+  });
+  return rows.map((r) => r.teamLeader!).sort();
+}
+
 export async function getJpAdherenceSummary(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpAdherenceSummary> {
-  const [repDaySummary, unplannedVisits, planRows] = await Promise.all([
+  const [repDaySummary, unplannedVisits, planRows, availableTeamLeaders] = await Promise.all([
     getRepDayRows(range, scope, filters),
     getUnplannedVisits(range, scope, filters),
     getPlanRows(range, scope, filters),
+    getAvailableTeamLeaders(scope),
   ]);
 
   const availableDates = Array.from(new Set(repDaySummary.map((r) => r.date))).sort();
@@ -309,6 +341,7 @@ export async function getJpAdherenceSummary(range: { start: Date; end: Date }, s
     availableMonths: [],
     availableDates,
     availableReps,
+    availableTeamLeaders,
   };
 }
 

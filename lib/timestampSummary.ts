@@ -13,6 +13,8 @@ export interface TimestampFilters {
   date: Date | null;
   employeeCode: string | null;
   region: string | null;
+  /** Employee Roaster's EmployeeMaster.teamLeader free-text value. */
+  teamLeader: string | null;
   roleFilter: TimestampRoleFilter;
   chartGranularity: TimestampChartGranularity;
 }
@@ -53,6 +55,7 @@ export interface TimestampSummaryData {
   availableDates: string[];
   availableReps: { employeeCode: string; salesRep: string }[];
   availableRegions: string[];
+  availableTeamLeaders: string[];
   primaryStats: TimestampRoleStats;
   secondaryStats: TimestampRoleStats;
   overall: TimestampRoleStats;
@@ -64,6 +67,7 @@ type SummaryRow = TimestampRepDaySummary;
 interface RepRow { employeeCode: string; salesRep: string }
 interface DateRow { date: string }
 interface RegionRow { region: string }
+interface TeamLeaderRow { teamLeader: string }
 interface MetricRow extends TimestampRoleStats { salesRole: string | null }
 type ChartRow = TimestampChartRow;
 
@@ -154,6 +158,10 @@ function selectedRegionClause(filters: TimestampFilters): Prisma.Sql {
   return filters.region ? Prisma.sql`AND COALESCE(NULLIF(BTRIM(r.region), ''), 'Unassigned') = ${filters.region}` : EMPTY_SQL;
 }
 
+function selectedTeamLeaderClause(filters: TimestampFilters): Prisma.Sql {
+  return filters.teamLeader ? Prisma.sql`AND em."teamLeader" = ${filters.teamLeader}` : EMPTY_SQL;
+}
+
 /**
  * A principal-scoped Timestamps view keeps the rep's full working day so that
  * first/last-call time remains meaningful.  Its role must nevertheless be
@@ -226,11 +234,12 @@ export async function getTimestampSummary(
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
+  const teamLeaderClause = selectedTeamLeaderClause(filters);
   const roleClause = selectedRoleClause(filters, salesRole);
   const salesExpression = Prisma.sql`r.sales`;
   const bucket = chartBucket(filters.chartGranularity);
 
-  const [dateRows, regionRows, repRows, summaryRows, metricRows, chartRows] = await Promise.all([
+  const [dateRows, regionRows, teamLeaderRows, repRows, summaryRows, metricRows, chartRows] = await Promise.all([
     prisma.$queryRaw<DateRow[]>(Prisma.sql`
       SELECT DISTINCT to_char(r.date, 'YYYY-MM-DD') AS date
       ${from} ${baseWhere}
@@ -241,9 +250,15 @@ export async function getTimestampSummary(
       ${from} ${baseWhere} ${dateClause} ${roleClause}
       ORDER BY region
     `),
+    prisma.$queryRaw<TeamLeaderRow[]>(Prisma.sql`
+      SELECT DISTINCT em."teamLeader" AS "teamLeader"
+      ${from} ${baseWhere} ${dateClause} ${roleClause}
+      AND em."teamLeader" IS NOT NULL
+      ORDER BY "teamLeader"
+    `),
     prisma.$queryRaw<RepRow[]>(Prisma.sql`
       SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep"
-      ${from} ${baseWhere} ${dateClause} ${regionClause} ${roleClause}
+      ${from} ${baseWhere} ${dateClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY r."employeeCode"
       ORDER BY "salesRep"
     `),
@@ -263,7 +278,7 @@ export async function getTimestampSummary(
         COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
         COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
-      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
+      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY r.date, r."employeeCode", ${salesRole}
       ORDER BY date, "salesRep", "salesRole"
     `),
@@ -276,12 +291,12 @@ export async function getTimestampSummary(
         COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
         COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
-      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
+      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY GROUPING SETS ((${salesRole}), ())
     `),
     prisma.$queryRaw<ChartRow[]>(Prisma.sql`
       SELECT ${bucket} AS bucket, ${salesRole} AS "salesRole", COUNT(*)::integer AS calls
-      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${roleClause}
+      ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY 1, 2
       ORDER BY bucket, "salesRole"
     `),
@@ -293,6 +308,7 @@ export async function getTimestampSummary(
   return {
     availableDates: dateRows.map((row) => row.date),
     availableRegions: regionRows.map((row) => row.region),
+    availableTeamLeaders: teamLeaderRows.map((row) => row.teamLeader),
     availableReps: repRows,
     primaryStats,
     secondaryStats,

@@ -69,7 +69,8 @@ export async function GET(req: NextRequest) {
 
   const principalKey = req.nextUrl.searchParams.get("principal")?.trim() || null;
   const employeeCode = req.nextUrl.searchParams.get("rep")?.trim() || null;
-  const filters: JpAdherenceFilters = { principalKey, date, dayNames, roleFilter, employeeCode };
+  const teamLeader = req.nextUrl.searchParams.get("teamLeader")?.trim() || null;
+  const filters: JpAdherenceFilters = { principalKey, date, dayNames, roleFilter, employeeCode, teamLeader };
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId);

@@ -328,7 +328,7 @@ function makeJpAdherenceTool(scope: TeamLeaderScope | null) {
       const summary = await getJpAdherenceSummary(
         { start, end },
         scope,
-        { principalKey: args.principal ? normalizePrincipalKey(args.principal) : null, date: null, dayNames: null, roleFilter: "all", employeeCode: null }
+        { principalKey: args.principal ? normalizePrincipalKey(args.principal) : null, date: null, dayNames: null, roleFilter: "all", employeeCode: null, teamLeader: null }
       );
       if (summary.repDaySummary.length === 0) return JSON.stringify({ error: "No JP Adherence data for that period/scope." });
 

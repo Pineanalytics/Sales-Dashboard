@@ -78,6 +78,7 @@ interface JpAdherenceResponse {
   availableMonths: string[];
   availableDates: string[];
   availableReps: { employeeCode: string; employeeName: string }[];
+  availableTeamLeaders: string[];
   monthlyCoverage: JpMonthlyCoverageRow[];
 }
 
@@ -119,6 +120,7 @@ export default function JpAdherencePage() {
   const [selectedRep, setSelectedRep] = useState<string | null>(null);
   const [repDropdownOpen, setRepDropdownOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [selectedTeamLeader, setSelectedTeamLeader] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +130,7 @@ export default function JpAdherencePage() {
     if (selectedDate) params.set("date", selectedDate);
     if (selectedDayNames.length > 0) params.set("dayNames", selectedDayNames.join(","));
     if (selectedRep) params.set("rep", selectedRep);
+    if (selectedTeamLeader) params.set("teamLeader", selectedTeamLeader);
 
     (async () => {
       try {
@@ -145,7 +148,7 @@ export default function JpAdherencePage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedMonth, selectedPrincipalKey, selectedDate, selectedDayNames, selectedRep, roleFilter]);
+  }, [selectedMonth, selectedPrincipalKey, selectedDate, selectedDayNames, selectedRep, selectedTeamLeader, roleFilter]);
 
   if (status === "loading") return <FullPageSpinner label="Loading JP Adherence…" />;
   if (status === "error" || !data) {
@@ -163,6 +166,11 @@ export default function JpAdherencePage() {
   const availableMonths = data.availableMonths.length > 0 ? data.availableMonths : [selectedMonth];
   const selectedRepName = selectedRep ? data.availableReps.find((r) => r.employeeCode === selectedRep)?.employeeName : undefined;
   const repSearchResults = (repQuery.trim() ? data.availableReps.filter((r) => r.employeeName.toLowerCase().includes(repQuery.trim().toLowerCase())) : data.availableReps).slice(0, 10);
+
+  // Productive Days: distinct dates in the current selection where the rep(s) actually
+  // made a productive (Sale-outcome) visit — derived client-side from repDaySummary,
+  // which already reflects every active filter (month/date/day-names/role/TL/rep).
+  const productiveDaysCount = new Set(data.repDaySummary.filter((r) => r.productiveOutlets > 0).map((r) => r.date)).size;
 
   // Trend by date — re-aggregated (sum(visited)/sum(planned)) rather than a naive
   // average of daily percentages, avoiding the "average of ratios" distortion.
@@ -244,6 +252,28 @@ export default function JpAdherencePage() {
               <RoleToggle value={roleFilter} onChange={setRoleFilter} />
             </div>
             <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Team Leader</span>
+              <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+                <select
+                  aria-label="Team Leader"
+                  value={selectedTeamLeader ?? ""}
+                  onChange={(e) => {
+                    setSelectedTeamLeader(e.target.value || null);
+                    setSelectedRep(null);
+                    setRepQuery("");
+                  }}
+                  className="max-w-[160px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+                >
+                  <option value="">All Team Leaders</option>
+                  {data.availableTeamLeaders.map((tl) => (
+                    <option key={tl} value={tl}>
+                      {tl}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by Rep</span>
               <div className="relative w-56">
                 <input
@@ -313,6 +343,7 @@ export default function JpAdherencePage() {
               <KpiCard accent="quarter" label="Strike Rate" value={<span className={tierTextClass[productivityTier(data.kpis.strikeRatePct)]}>{formatPercent(data.kpis.strikeRatePct)}</span>} />
               <KpiCard accent="revenue" label="Planned Not Visited" value={<AnimatedValue value={data.kpis.plannedNotVisited} format={formatNumber} />} />
               <KpiCard accent="mission" label="Unplanned Visits" value={<AnimatedValue value={data.kpis.unplannedVisits} format={formatNumber} />} />
+              <KpiCard accent="coverage" label="Productive Days" value={<AnimatedValue value={productiveDaysCount} format={formatNumber} />} sublabel="Days with ≥1 productive visit" />
             </KpiGrid>
           </SectionCard>
 
@@ -335,6 +366,7 @@ export default function JpAdherencePage() {
             action={
               <span className="text-xs text-muted">
                 {selectedDate ? formatDateLabel(selectedDate) : formatMonthLabel(selectedMonth)}
+                {selectedTeamLeader ? ` · ${selectedTeamLeader}` : ""}
                 {selectedRepName ? ` · ${selectedRepName}` : ""}
                 {selectedPrincipalKey ? ` · ${selectedPrincipalKey}` : ""}
               </span>
