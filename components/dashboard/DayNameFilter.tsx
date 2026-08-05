@@ -24,18 +24,18 @@ export function DayNameFilter() {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Day Name</span>
-      <div className="flex flex-wrap gap-1 rounded-2xl bg-background-elevated p-1">
+      <div className="grid grid-cols-2 gap-1.5">
         {ALL_DAY_NAMES.map((day) => {
           const active = selectedDayNames.has(day);
           return (
             <button
               key={day}
               onClick={() => toggleDayName(day)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-300 ${
-                active ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"
+              className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors duration-200 ${
+                active ? "bg-brand-orange text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
               }`}
             >
-              {SHORT_LABELS[day]}
+              {day}
             </button>
           );
         })}

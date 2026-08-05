@@ -141,9 +141,11 @@ export function WeekDailyActuals({
   const todayActual = revenueByDate.get(todayKey) ?? 0;
   const todayVariance = todayActual - todayProjection;
 
+  const WEEK_ACCENTS = ["green", "amber", "purple", "blue"] as const;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <SectionCard title="This Week Projection">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <SectionCard title="This Week Projection" accent="navy">
         <div className="flex flex-col gap-1.5 text-sm">
           <Row label="Weeks Projection" value={formatCompact(currentWeek?.projection ?? 0)} />
           <Row label="Actuals" value={formatCompact(currentWeek?.actual ?? 0)} />
@@ -151,7 +153,7 @@ export function WeekDailyActuals({
         </div>
       </SectionCard>
 
-      <SectionCard title="Daily Projection">
+      <SectionCard title="Daily Projection" accent="navy">
         <div className="flex flex-col gap-1.5 text-sm">
           <Row label="Daily Projection" value={formatCompact(todayProjection)} />
           <Row label="Actuals" value={formatCompact(todayActual)} />
@@ -159,8 +161,8 @@ export function WeekDailyActuals({
         </div>
       </SectionCard>
 
-      {weekCards.map((w) => (
-        <SectionCard key={w.label} title={`Week ${w.index}${w.isCurrentWeek ? " (Current Week)" : ""}`}>
+      {weekCards.map((w, i) => (
+        <SectionCard key={w.label} title={`Week ${w.index}${w.isCurrentWeek ? " (Current Week)" : ""}`} accent={w.isCurrentWeek ? "purple" : WEEK_ACCENTS[i % WEEK_ACCENTS.length]}>
           <div className="flex flex-col gap-1.5 text-sm">
             <Row label="Projection" value={formatCompact(w.projection)} />
             <Row label="Actual" value={formatCompact(w.actual)} />

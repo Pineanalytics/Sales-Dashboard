@@ -25,7 +25,7 @@ export function MissionProgressBars({
   const pct = totalTarget > 0 ? Math.min(100, (totalActual / totalTarget) * 100) : 0;
 
   return (
-    <SectionCard title={title}>
+    <SectionCard title={title} accent="navy">
       <div className="grid grid-cols-2 gap-4 text-sm mb-4">
         <div>
           <span className="block text-muted-strong text-xs">{leftLabel}</span>

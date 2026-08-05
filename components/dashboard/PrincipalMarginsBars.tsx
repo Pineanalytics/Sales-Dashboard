@@ -20,7 +20,7 @@ export function PrincipalMarginsBars({ dataset, period }: { dataset: Dataset; pe
   const maxMargin = Math.max(...byPrincipal.map((p) => p.grossMarginPct ?? 0), 1);
 
   return (
-    <SectionCard title="Principal Margins">
+    <SectionCard title="Principal Margins" accent="blue">
       <div className="flex flex-col gap-2">
         {byPrincipal.map((p) => {
           const pct = p.grossMarginPct ?? 0;

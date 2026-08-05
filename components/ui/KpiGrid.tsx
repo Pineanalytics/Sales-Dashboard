@@ -5,7 +5,54 @@ export function KpiGrid({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-1 min-[560px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{children}</div>;
 }
 
-export function SectionCard({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
+export type CardAccent = "blue" | "green" | "red" | "amber" | "purple" | "navy";
+
+// True red/green/amber (not this app's rebranded accent-* tokens, which resolve to
+// blue/orange/cyan) — matching the reference Power BI dashboard's literal color coding
+// for variance/achievement (green = ahead, red = behind, amber = borderline).
+const ACCENT_BORDER: Record<CardAccent, string> = {
+  blue: "border-l-primary-blue",
+  green: "border-l-emerald-500",
+  red: "border-l-red-500",
+  amber: "border-l-amber-500",
+  purple: "border-l-violet-600",
+  navy: "border-l-dark-navy",
+};
+
+export function SectionCard({
+  title,
+  action,
+  children,
+  accent,
+}: {
+  title?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  /** Opt-in left-border accent + fixed elevation, matching the reference executive
+   *  dashboard's dense KPI-panel look. Omit to keep this card's original top-border
+   *  hover-lift style unchanged — every existing call site is unaffected. */
+  accent?: CardAccent;
+}) {
+  if (accent) {
+    return (
+      <div
+        className={`rounded-xl border-l-4 ${ACCENT_BORDER[accent]} bg-surface p-4 shadow-[0_4px_14px_rgba(10,31,82,0.10)] transition-shadow duration-300 hover:shadow-[0_8px_24px_rgba(10,31,82,0.16)]`}
+      >
+        {title || action ? (
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            {title ? (
+              <h3 className="border-b border-primary-blue/25 pb-1 text-[12px] font-bold uppercase tracking-wide text-primary-blue">{title}</h3>
+            ) : (
+              <span />
+            )}
+            {action}
+          </div>
+        ) : null}
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border-t-2 border-t-primary-blue bg-surface p-4 shadow-[0_1px_3px_rgba(10,31,82,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(10,31,82,0.12)] hover:-translate-y-0.5">
       {title || action ? (

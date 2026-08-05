@@ -62,7 +62,7 @@ export function TlRankingTable({
   const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
 
   return (
-    <SectionCard title="TL Ranking">
+    <SectionCard title="TL Ranking" accent="blue">
       <TableWrap>
         <Thead>
           <Th>Team Leader</Th>
