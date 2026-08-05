@@ -25,14 +25,20 @@ export interface RepContributionResult {
 
 /** Legacy/manually-typed TeamLeaderAssignment rows (from before the Employee
  *  Roaster's employeeCode convention existed, or a typo in the Add-assignment
- *  form) sometimes carry a name, van/route label, or ad-hoc short code as
- *  "employeeCode" instead of a real one — e.g. "NYERI", "Eric Ndirangu",
- *  "VAN 1 WEETABIX - KDL 904E". Left unfiltered, these generate real
- *  RepContribution/DailyTarget rows for a rep that doesn't exist, diluting
- *  the share every genuine rep on that Principal/Team Leader gets. Confirmed
- *  via a live production diagnostic (2026-08-05): ~70+ such rows, mostly
- *  under EABL-Nyahururu/EABL-Nyeri/Unilever-Nyeri, predating those principals'
- *  reps ever being onboarded into EmployeeMaster. Filtered out here (not
+ *  form) sometimes carry a name or van/route label as "employeeCode" for a
+ *  rep that was never actually onboarded into EmployeeMaster — e.g. "Eric
+ *  Ndirangu", "VAN 1 WEETABIX - KDL 904E" (confirmed via a live production
+ *  diagnostic, 2026-08-05, both genuinely absent from EmployeeMaster and
+ *  showing large unmatched SAP revenue under their literal name). Not every
+ *  unconventional employeeCode is bad data, though — "NYERI" looked like one
+ *  of these at first glance but turned out to be a real, if unusually coded,
+ *  EmployeeMaster row, so the filter below (existence in EmployeeMaster, not
+ *  a numeric-code shape check) is what actually matters, not the code's
+ *  format. Left unfiltered, these generate real RepContribution/DailyTarget
+ *  rows for a rep that doesn't exist, diluting the share every genuine rep on
+ *  that Principal/Team Leader gets. Confirmed impact: 98 such rows, mostly
+ *  under EABL-Nyahururu/EABL-Nyeri, cut DailyTarget from 44,279 to 17,366
+ *  rows on the next recompute. Filtered out here (not
  *  deleted — matches this project's reject-deletes convention) until the
  *  Employee Roaster is extended to cover them for real. */
 async function filterToKnownEmployees<T extends { employeeCode: string }>(rows: T[]): Promise<{ known: T[]; skipped: number }> {
