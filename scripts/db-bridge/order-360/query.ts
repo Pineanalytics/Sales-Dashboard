@@ -270,13 +270,19 @@ export async function fetchOrders(conn: Connection, start: Date, end: Date): Pro
   return rows.map(mapRow);
 }
 
+// Both bounds passed to the query are inclusive whole calendar days
+// (CAST(? AS DATE) / DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY) above, matching
+// the source script's own chunking) - each window's end must therefore be one
+// day BEFORE the next window's start, or the boundary day gets fetched twice
+// (mirrors _build_windows in orders_360_pymysql.py exactly: chunkDays - 1
+// offset, cur <= end loop, cur advances to winEnd + 1 day).
 function buildWindows(start: Date, end: Date, chunkDays: number): Array<{ start: Date; end: Date }> {
   const windows: Array<{ start: Date; end: Date }> = [];
   let cur = new Date(start);
-  while (cur < end) {
-    const winEnd = new Date(Math.min(cur.getTime() + chunkDays * 86400000, end.getTime()));
+  while (cur <= end) {
+    const winEnd = new Date(Math.min(cur.getTime() + (chunkDays - 1) * 86400000, end.getTime()));
     windows.push({ start: new Date(cur), end: winEnd });
-    cur = winEnd;
+    cur = new Date(winEnd.getTime() + 86400000);
   }
   return windows;
 }
