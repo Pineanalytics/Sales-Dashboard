@@ -282,30 +282,41 @@ export default function Order360Page() {
             </O360Panel>
           ) : null}
 
-          <O360Panel title="Critical findings">
+          <O360Panel title="Critical findings" note="Ask Frost for a deeper read on any of these — it can reason over the live numbers, not just template them.">
             <div className="grid gap-3 sm:grid-cols-2">
-              {topDriver ? (
+              {/* Every callout below only renders when it names a real, non-zero
+                  finding - an all-zero backlog (e.g. once nearly everything
+                  dispatched now counts as Delivered) is good news, not a "0
+                  orders worth KES 0" critical finding. */}
+              {topDriver && topDriver.pendingOrders > 0 ? (
                 <O360Callout tag="Highest value risk" cta={{ label: "View delivery breakdown", onClick: () => jump("delivery") }}>
                   <strong>{topDriver.name}</strong> is carrying {fmtNum(topDriver.pendingOrders)} audited orders worth {fmtKES(topDriver.pendingValue, true)} not yet marked delivered (avg age {topDriver.avgAgePending}d, oldest {topDriver.maxAgePending}d).
                 </O360Callout>
               ) : null}
-              <O360Callout tag="Confirmation gap" tone="warn">
-                {data.meta.podConfirmedPct === 0
-                  ? `All ${fmtNum(deliveredCount)} orders marked "Delivered" have no POD/payment confirmation — likely credit sales or unconfirmed deliveries; verify manually.`
-                  : `${fmtNum(data.meta.podUnconfirmedCount)} of the ${fmtNum(deliveredCount)} orders marked "Delivered" (${data.meta.podConfirmedPct}% confirmed) have no POD/payment record — likely credit sales or unconfirmed/lost deliveries; verify manually.`}
-              </O360Callout>
+              {deliveredCount > 0 ? (
+                <O360Callout tag="Confirmation gap" tone="warn">
+                  {data.meta.podConfirmedPct === 0
+                    ? `All ${fmtNum(deliveredCount)} orders marked "Delivered" have no POD/payment confirmation — likely credit sales or unconfirmed deliveries; verify manually.`
+                    : `${fmtNum(data.meta.podUnconfirmedCount)} of the ${fmtNum(deliveredCount)} orders marked "Delivered" (${data.meta.podConfirmedPct}% confirmed) have no POD/payment record — likely credit sales or unconfirmed/lost deliveries; verify manually.`}
+                </O360Callout>
+              ) : null}
               {zeroDeliveryDrivers.length > 0 ? (
                 <O360Callout tag="No delivery closed, ever" tone="info" cta={{ label: "View delivery breakdown", onClick: () => jump("delivery") }}>
                   {zeroDeliveryDrivers.length} van(s) ({zeroDeliveryDrivers.map((d) => d.name).join(", ")}) have not closed a single delivery this window despite carrying {fmtNum(zeroDeliveryDrivers.reduce((s, d) => s + d.pendingOrders, 0))} assigned orders.
                 </O360Callout>
               ) : null}
-              <O360Callout tag="Largest single gate" cta={{ label: "Open action list", onClick: () => jump("action") }}>
-                The biggest bottleneck by volume is <strong>delivery confirmation</strong>: {fmtNum(data.backlog.delivery.length)} orders ({fmtKES(data.backlog.delivery.reduce((s, r) => s + r.amount, 0), true)}) are audited and out for delivery but not yet closed out.
-              </O360Callout>
+              {data.backlog.delivery.length > 0 ? (
+                <O360Callout tag="Largest single gate" cta={{ label: "Open action list", onClick: () => jump("action") }}>
+                  The biggest bottleneck by volume is <strong>delivery confirmation</strong>: {fmtNum(data.backlog.delivery.length)} orders ({fmtKES(data.backlog.delivery.reduce((s, r) => s + r.amount, 0), true)}) are audited and out for delivery but not yet closed out.
+                </O360Callout>
+              ) : null}
               {data.returns.spotlight ? (
                 <O360Callout tag={data.returns.spotlight.name} tone="info" cta={{ label: "View returns", onClick: () => jump("returns") }}>
                   Of {fmtNum(data.returns.spotlight.pending)} orders not yet marked delivered, {fmtNum(data.returns.spotlight.returns)} are logged returns worth {fmtKES(data.returns.spotlight.returnsValue, true)} — {fmtNum(data.returns.spotlight.pendingNonReturn)} order(s) are genuinely still in transit.
                 </O360Callout>
+              ) : null}
+              {!(topDriver && topDriver.pendingOrders > 0) && deliveredCount === 0 && zeroDeliveryDrivers.length === 0 && data.backlog.delivery.length === 0 && !data.returns.spotlight ? (
+                <div className={`text-[12px] ${O360.textMuted} sm:col-span-2`}>No notable findings for this window — nothing stuck, nothing unconfirmed, nothing to flag.</div>
               ) : null}
             </div>
           </O360Panel>

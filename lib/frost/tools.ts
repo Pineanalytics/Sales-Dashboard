@@ -21,6 +21,7 @@ import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
 import { loadTeamLeaderScope, loadViewerPrincipalScope, type TeamLeaderScope } from "../teamLeaderScope";
 import { getJpAdherenceSummary } from "../jpAdherence";
+import { getOrder360Summary } from "../order360Summary";
 import { normalizePrincipalKey } from "../normalize";
 
 const PERIOD_DESCRIPTION = "mtd = this month to date, qtd = this quarter to date, ytd = year to date, last_month = the prior calendar month.";
@@ -407,6 +408,61 @@ function makeActiveOutletsSummaryTool(scope: TeamLeaderScope | null) {
   });
 }
 
+/** Order 360's own "Critical findings" panel on the dashboard is a fixed set of
+ *  template callouts, each hidden when its underlying figure is zero (see
+ *  app/(protected)/(analytics)/order-360/page.tsx) — but a fixed template
+ *  can't adapt its framing to what's actually notable in a given window. This
+ *  tool hands Frost the same underlying numbers instead, so it can reason
+ *  about what's actually worth flagging (or correctly say "nothing stuck"
+ *  rather than templating a finding out of an all-zero backlog). */
+function makeOrder360Tool(scope: TeamLeaderScope | null) {
+  return betaTool({
+    name: "get_order_360_summary",
+    description:
+      "Order fulfillment pipeline health (SAP_Orders synced from Pine): funnel counts per stage (Invoiced/Cleared/Picked/Dispatched/Audited/Delivered), open backlog per gate, POD/payment delivery-confirmation split, top at-risk delivery vans, returns, and STK payment coverage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: 'A specific loaded month as "YYYY-MM". Omit for the full loaded history (up to the last 3 months).' },
+      },
+      additionalProperties: false,
+    },
+    run: async (args) => {
+      const month = typeof args.month === "string" && /^\d{4}-\d{2}$/.test(args.month) ? args.month : null;
+      const summary = await getOrder360Summary(new Date(), scope, { month, weekLabel: null, dateFrom: null, dateTo: null, dayNames: null });
+      if (summary.meta.totalOrders === 0) return JSON.stringify({ error: "No Order 360 data for that window." });
+
+      const pendingDeliveryDrivers = summary.perf.deliveryDrivers
+        .filter((d) => d.pendingOrders > 0)
+        .sort((a, b) => b.pendingValue - a.pendingValue)
+        .slice(0, MAX_ROWS)
+        .map((d) => ({ name: d.name, pendingOrders: d.pendingOrders, pendingValue: d.pendingValue, avgAgePendingDays: d.avgAgePending, unconfirmedDeliveredOrders: d.unconfirmedOrders }));
+
+      return JSON.stringify({
+        range: summary.meta.range,
+        totalOrders: summary.meta.totalOrders,
+        totalValue: summary.meta.totalValue,
+        funnel: summary.funnel,
+        openBacklogByGate: {
+          clearance: summary.backlog.clearance.length,
+          pick: summary.backlog.pick.length,
+          dispatch: summary.backlog.dispatch.length,
+          audit: summary.backlog.audit.length,
+          delivery: summary.backlog.delivery.length,
+        },
+        podConfirmedPct: summary.meta.podConfirmedPct,
+        podConfirmedCount: summary.meta.podConfirmedCount,
+        podUnconfirmedCount: summary.meta.podUnconfirmedCount,
+        podUnconfirmedDisclaimer:
+          "Orders counted as Delivered without a POD/payment record are dispatched-only with no return logged - could be a credit sale (paid outside STK) or a genuinely unconfirmed/lost delivery. Pine's data alone can't tell which, so frame this as needing manual verification, not a confirmed loss.",
+        pendingDeliveryDrivers,
+        returns: { totalCount: summary.returns.totalCount, totalValue: summary.returns.totalValue },
+        payments: { stkCount: summary.payments.stkCount, noStkCount: summary.payments.noStkCount, mismatchCount: summary.payments.mismatchCount },
+      });
+    },
+  });
+}
+
 function makeComparePeriodsTool(scope: TeamLeaderScope | null) {
   return betaTool({
     name: "compare_periods",
@@ -500,6 +556,7 @@ const TOOL_REGISTRY: { create: (scope: TeamLeaderScope | null) => any; requiresP
   { create: makeDailyProjectionTool, requiresPage: "dashboard" },
   { create: makeJpAdherenceTool, requiresPage: "jp-adherence" },
   { create: makeActiveOutletsSummaryTool, requiresPage: "active-outlets" },
+  { create: makeOrder360Tool, requiresPage: "order-360" },
   { create: makeComparePeriodsTool, requiresPage: "sales" },
   { create: () => syncHealthTool, requiresPage: "admin" },
   { create: () => webSearchTool, requiresPage: "frost" },
