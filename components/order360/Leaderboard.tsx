@@ -27,6 +27,8 @@ export interface DriverLeaderboardItem {
   name: string;
   deliveredOrders: number;
   deliveredValue: number;
+  confirmedOrders: number;
+  unconfirmedOrders: number;
   pendingOrders: number;
   pendingValue: number;
   returnsCount: number;
@@ -55,6 +57,11 @@ export function DriverLeaderboard({ items }: { items: DriverLeaderboardItem[] })
               {i.deliveredOrders} done &middot; <span style={{ color: O360.warn }}>{i.pendingOrders} pending</span>
               <br />
               {fmtKES(i.pendingValue, true)} tied up
+              {i.unconfirmedOrders > 0 ? (
+                <span className="ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: `${O360.warn}22`, color: O360.warn }} title="Delivered but no POD/payment record - possible credit sale or unconfirmed delivery">
+                  {i.unconfirmedOrders} unconfirmed
+                </span>
+              ) : null}
               {i.returnsCount > 0 ? (
                 <span className="ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: `${O360.bad}22`, color: O360.bad }}>
                   {i.returnsCount} return{i.returnsCount > 1 ? "s" : ""}

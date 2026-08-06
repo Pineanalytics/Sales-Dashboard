@@ -36,6 +36,7 @@ interface OrderUploadRow {
   audited: boolean;
   van: string | null;
   driver: string | null;
+  deliveredBy: string | null;
   delivered: boolean;
   deliveryDate: string | null;
   isReturn: boolean;
@@ -86,6 +87,7 @@ function isValidRow(row: unknown): row is OrderUploadRow {
     typeof r.audited === "boolean" &&
     isOptionalString(r.van) &&
     isOptionalString(r.driver) &&
+    isOptionalString(r.deliveredBy) &&
     typeof r.delivered === "boolean" &&
     isOptionalString(r.deliveryDate) &&
     typeof r.isReturn === "boolean" &&
@@ -105,11 +107,11 @@ function toDate(v: string | null): Date | null {
 async function insertChunk(tx: Prisma.TransactionClient, rows: OrderUploadRow[]) {
   const values = rows.map(
     (r) =>
-      Prisma.sql`(${randomUUID()}, ${new Date(r.orderDate)}, ${r.erpNumber}, ${r.invoiceNumber}, ${r.picklistId}, ${r.customer}, ${r.fsr}, ${r.amount}, ${r.clearedBy}, ${r.cleared}, ${toDate(r.clearedDate)}, ${r.picker}, ${r.picked}, ${toDate(r.pickDate)}, ${r.dispatcher}, ${r.dispatched}, ${toDate(r.dispatchDate)}, ${r.auditedBy}, ${r.audited}, ${r.van}, ${r.driver}, ${r.delivered}, ${toDate(r.deliveryDate)}, ${r.isReturn}, ${r.returnDocType}, ${r.returnedBy}, ${r.podStatus}, ${r.stk}, ${r.paymentRef}, ${r.amountPaid}, now())`
+      Prisma.sql`(${randomUUID()}, ${new Date(r.orderDate)}, ${r.erpNumber}, ${r.invoiceNumber}, ${r.picklistId}, ${r.customer}, ${r.fsr}, ${r.amount}, ${r.clearedBy}, ${r.cleared}, ${toDate(r.clearedDate)}, ${r.picker}, ${r.picked}, ${toDate(r.pickDate)}, ${r.dispatcher}, ${r.dispatched}, ${toDate(r.dispatchDate)}, ${r.auditedBy}, ${r.audited}, ${r.van}, ${r.driver}, ${r.deliveredBy}, ${r.delivered}, ${toDate(r.deliveryDate)}, ${r.isReturn}, ${r.returnDocType}, ${r.returnedBy}, ${r.podStatus}, ${r.stk}, ${r.paymentRef}, ${r.amountPaid}, now())`
   );
 
   await tx.$executeRaw`
-    INSERT INTO "OrderRecord" (id, "orderDate", "erpNumber", "invoiceNumber", "picklistId", customer, fsr, amount, "clearedBy", cleared, "clearedDate", picker, picked, "pickDate", dispatcher, dispatched, "dispatchDate", "auditedBy", audited, van, driver, delivered, "deliveryDate", "isReturn", "returnDocType", "returnedBy", "podStatus", stk, "paymentRef", "amountPaid", "createdAt")
+    INSERT INTO "OrderRecord" (id, "orderDate", "erpNumber", "invoiceNumber", "picklistId", customer, fsr, amount, "clearedBy", cleared, "clearedDate", picker, picked, "pickDate", dispatcher, dispatched, "dispatchDate", "auditedBy", audited, van, driver, "deliveredBy", delivered, "deliveryDate", "isReturn", "returnDocType", "returnedBy", "podStatus", stk, "paymentRef", "amountPaid", "createdAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT ("erpNumber") DO UPDATE SET
       "invoiceNumber" = EXCLUDED."invoiceNumber",
@@ -130,6 +132,7 @@ async function insertChunk(tx: Prisma.TransactionClient, rows: OrderUploadRow[])
       audited = EXCLUDED.audited,
       van = EXCLUDED.van,
       driver = EXCLUDED.driver,
+      "deliveredBy" = EXCLUDED."deliveredBy",
       delivered = EXCLUDED.delivered,
       "deliveryDate" = EXCLUDED."deliveryDate",
       "isReturn" = EXCLUDED."isReturn",

@@ -1,10 +1,29 @@
-// Order 360 SQL — adapted from the user-supplied Order_360_Extractor.py's QUERY,
+// Order 360 SQL — adapted from the user-supplied orders_360_pymysql.py's QUERY
+// (the corrected revision, superseding the original Order_360_Extractor.py),
 // verified against the live pine database. Kept as a single wide LEFT-JOIN query
-// (SAP_Orders -> users x4 -> loading -> vans -> payments) exactly like the source
-// script: SAP_Orders/payments are missing indexes on the columns this joins/filters
-// on (Creation_Date, PicklistId, pay_sid/pay_type) and the bridge's DB user can't
-// create them, so a wide date range must be pulled as several small concurrent
-// chunks rather than one query - see fetchOrdersChunked below.
+// (SAP_Orders -> users x4 -> loading -> vans -> payments, plus two small lookup
+// subqueries) exactly like the source script: SAP_Orders/payments are missing
+// indexes on the columns this joins/filters on (Creation_Date, PicklistId,
+// pay_sid/pay_type) and the bridge's DB user can't create them, so a wide date
+// range must be pulled as several small concurrent chunks rather than one query
+// - see fetchOrdersChunked below.
+//
+// The corrected revision fixed two real bugs the original had (both reported
+// against the live dashboard, see lib/order360Summary.ts's header note):
+//   1. Payments were joined one-row-per-payment, so an order with >1 payment
+//      record (split/multiple STK pushes) fanned out into duplicate order rows
+//      (same invoice/amount/date/customer) and "Amount Paid" only reflected one
+//      arbitrary payment instead of the true total. Fixed by pre-aggregating
+//      payments to one row per order (GROUP BY pay_sid, SUM/GROUP_CONCAT,
+//      pay_status = 1 only) before joining.
+//   2. "Delivered" required a POD record, so orders dispatched without ever
+//      getting a POD/payment confirmation (credit sales paid outside STK, or
+//      genuinely lost/unconfirmed deliveries) never counted as delivered,
+//      which also made "POD confirmed %" a tautological 100%. Fixed by
+//      widening Delivered to include any non-return dispatched order, with a
+//      separate `amountPaid !== null` check (see podConfirmed in
+//      lib/order360Summary.ts) distinguishing POD/payment-confirmed deliveries
+//      from dispatched-only ones for the UI's disclaimer.
 import type { Connection, RowDataPacket } from "mysql2/promise";
 
 export interface OrderRow {
@@ -33,6 +52,7 @@ export interface OrderRow {
 
   van: string | null;
   driver: string | null;
+  deliveredBy: string | null;
   delivered: boolean;
   deliveryDate: Date | null;
 
@@ -82,21 +102,33 @@ const QUERY = `
       CONVERT(v.va_reg USING utf8mb4) COLLATE utf8mb4_unicode_ci AS van,
       CONCAT(CONVERT(dr.first_name USING utf8mb4) COLLATE utf8mb4_unicode_ci,' ',
              CONVERT(dr.last_name  USING utf8mb4) COLLATE utf8mb4_unicode_ci) AS driver,
-      CASE WHEN pay.pay_pod IS NOT NULL THEN 1 ELSE 0 END AS delivered,
-      pay.pay_date                         AS delivery_date,
+      CASE WHEN drv.drive_name IS NOT NULL
+           THEN CONCAT(drv.drive_name, ' - ', drv.reg_plate)
+      END                                   AS delivered_by,
+
+      CASE
+          WHEN so.Doc_Type = 'Credit Note' THEN 0
+          WHEN pay.delivery_date IS NOT NULL AND pay.total_paid IS NOT NULL THEN 1
+          WHEN l.l_dispatched = 'yes' THEN 1
+          ELSE 0
+      END                                   AS delivered,
+      CASE
+          WHEN so.Doc_Type = 'Credit Note' THEN NULL
+          ELSE COALESCE(pay.delivery_date, l.l_dispatch_date)
+      END                                   AS delivery_date,
 
       CASE WHEN so.Doc_Type = 'Credit Note' THEN 1 ELSE 0 END AS is_return,
       so.Doc_Type                          AS return_doc_type,
       CASE WHEN so.Doc_Type = 'Credit Note' THEN so.Created_By END AS returned_by,
 
-      pay.pay_pod                          AS pod_status,
+      pay.pod_list                         AS pod_status,
       CASE
-          WHEN pay.pay_pod IS NOT NULL AND pay.pay_pod <> '' THEN 1
-          WHEN pay.pay_reference IS NOT NULL AND pay.pay_reference <> '' THEN 1
+          WHEN pay.pod_list IS NOT NULL AND pay.pod_list <> '' THEN 1
+          WHEN pay.ref_list IS NOT NULL AND pay.ref_list <> '' THEN 1
           ELSE 0
       END                                   AS stk,
-      pay.pay_reference                    AS payment_ref,
-      pay.pay_amount                       AS amount_paid
+      pay.ref_list                         AS payment_ref,
+      pay.total_paid                       AS amount_paid
 
   FROM pine.SAP_Orders so
 
@@ -107,10 +139,47 @@ const QUERY = `
   LEFT JOIN pine.users au   ON au.id = l.l_audits_userid
   LEFT JOIN pine.vans v     ON v.va_id = l.l_van
   LEFT JOIN pine.users dr   ON dr.id = CAST(v.va_userid AS UNSIGNED)
-  LEFT JOIN pine.payments pay ON pay.pay_sid = so.id AND pay.pay_type = 'orders'
 
-  WHERE so.Creation_Date >= ?
-    AND so.Creation_Date < ?
+  -- Curated van/driver directory for "Delivered By" - keyed off the driver's
+  -- Pine username, kept in sync with orders_360_pymysql.py's own hardcoded
+  -- list (that script is the source of truth for this mapping; update both
+  -- together if drivers/vans change).
+  LEFT JOIN (
+      SELECT 'albanus.mutunga'  AS uname, 'Albanus+Lilian'   AS drive_name, 'KCR 085G' AS reg_plate
+      UNION ALL SELECT 'malachi.goodluck', 'Munyao+Malachi', 'KDP 440E'
+      UNION ALL SELECT 'susan.mwangi',     'Paul+Susan',     'KCR 086G'
+      UNION ALL SELECT 'abiud.ocharo',     'Abiud',          'KCR 143P'
+      UNION ALL SELECT 'gideon.biwott',    'Gideon+Musyoka', 'KDN 372S'
+      UNION ALL SELECT 'emmanuel.okumu',   'Laban+Ochieng',  'KCY 168N'
+      UNION ALL SELECT 'lameck.momanyi',   'Lameck',         'KDQ 908D'
+      UNION ALL SELECT 'francis.kariuki',  'Cyrus',          'KDP 631X'
+      UNION ALL SELECT 'robert.ouko',      'Robert+Timothy', 'KDD 124K'
+      UNION ALL SELECT 'edwin.mwaura',     'Mwaura',         'KDL 904E'
+      UNION ALL SELECT 'boaz.oduka',       'Boaz',           'KDE 045L'
+      UNION ALL SELECT 'purity.wangombe',  'Purity+Bosco',   'KDL 733D'
+      UNION ALL SELECT 'reuben.maina',     'Chris+Lavine',   'KCR 088G'
+      UNION ALL SELECT 'david.mwololo',    'David+John',     'KDH 253Z'
+      UNION ALL SELECT 'joseph.wamai',     'Babayo',         'KDU 963P'
+  ) drv ON drv.uname COLLATE utf8mb4_unicode_ci = LOWER(CONVERT(dr.username USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+
+  -- Payments pre-aggregated to one row per order (pay_status = 1 = confirmed
+  -- only) before joining - the fix for both the duplicate-order-row bug and
+  -- "Amount Paid" only reflecting one of several split payments.
+  LEFT JOIN (
+      SELECT
+          pay_sid,
+          SUM(pay_amount)                                            AS total_paid,
+          MAX(pay_date)                                              AS delivery_date,
+          GROUP_CONCAT(DISTINCT pay_reference ORDER BY pay_reference SEPARATOR ', ') AS ref_list,
+          GROUP_CONCAT(DISTINCT pay_pod       ORDER BY pay_pod       SEPARATOR ', ') AS pod_list
+      FROM pine.payments
+      WHERE pay_type = 'orders'
+        AND pay_status = 1
+      GROUP BY pay_sid
+  ) pay ON pay.pay_sid = so.id
+
+  WHERE so.Creation_Date >= CAST(? AS DATE)
+    AND so.Creation_Date < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)
 `;
 
 interface RawOrderRow extends RowDataPacket {
@@ -134,6 +203,7 @@ interface RawOrderRow extends RowDataPacket {
   audited: number;
   van: string | null;
   driver: string | null;
+  delivered_by: string | null;
   delivered: number;
   delivery_date: Date | null;
   is_return: number;
@@ -177,6 +247,7 @@ function mapRow(r: RawOrderRow): OrderRow {
 
     van: blankToNull(r.van),
     driver: blankToNull(r.driver),
+    deliveredBy: blankToNull(r.delivered_by),
     delivered: r.delivered === 1,
     deliveryDate: r.delivery_date ? new Date(r.delivery_date) : null,
 
@@ -191,12 +262,11 @@ function mapRow(r: RawOrderRow): OrderRow {
   };
 }
 
-/** Single-window fetch - fine for a small (e.g. one-day) range. */
+/** Single-window fetch - fine for a small (e.g. one-day) range. Both bounds are
+ *  whole calendar days (CAST(... AS DATE) in the query above, matching the
+ *  source script's own chunking) - end is inclusive of its entire day. */
 export async function fetchOrders(conn: Connection, start: Date, end: Date): Promise<OrderRow[]> {
-  const [rows] = await conn.query<RawOrderRow[]>(QUERY, [
-    start.toISOString().slice(0, 19).replace("T", " "),
-    end.toISOString().slice(0, 19).replace("T", " "),
-  ]);
+  const [rows] = await conn.query<RawOrderRow[]>(QUERY, [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)]);
   return rows.map(mapRow);
 }
 

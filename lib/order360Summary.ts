@@ -31,7 +31,15 @@ export interface Order360Meta {
   reportDate: string;
   totalOrders: number;
   totalValue: number;
+  /** % of Delivered orders with a confirmed POD/payment record (amountPaid
+   *  not null) - see podConfirmedCount/podUnconfirmedCount for the raw split. */
   podConfirmedPct: number;
+  podConfirmedCount: number;
+  /** Delivered because dispatched (no return logged) but with no POD/payment
+   *  record - could be a credit sale (paid outside STK/POD) or a genuinely
+   *  unconfirmed/lost delivery. Surfaced as a disclaimer in the UI rather than
+   *  silently folded into "Delivered." */
+  podUnconfirmedCount: number;
 }
 
 export interface Order360FunnelStage {
@@ -49,6 +57,10 @@ export interface Order360DeliveryDriver {
   name: string;
   deliveredOrders: number;
   deliveredValue: number;
+  /** Subset of deliveredOrders with a confirmed POD/payment record vs.
+   *  delivered-because-dispatched-only (see Order360Meta.podUnconfirmedCount). */
+  confirmedOrders: number;
+  unconfirmedOrders: number;
   pendingOrders: number;
   pendingValue: number;
   avgAgePending: number;
@@ -190,6 +202,15 @@ export function vanDisplayName(van: string, driverNames: Iterable<string>): stri
   return names.length ? `${van} ${names.join(" + ")}` : van;
 }
 
+/** deliveredBy (the source query's curated "Name - REG" van/driver directory,
+ *  keyed off the driver's Pine username) is the authoritative display name
+ *  once present; falls back to the van-reg + observed-driver-first-name
+ *  derivation only for a van/driver combo the directory doesn't recognize. */
+export function resolveDriverName(row: Pick<OrderRecord, "deliveredBy" | "van" | "driver">): string {
+  if (row.deliveredBy) return row.deliveredBy;
+  return vanDisplayName(row.van || "Unassigned Van", row.driver ? [row.driver] : []);
+}
+
 function utcMidnight(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
@@ -279,9 +300,13 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
   // ---------- meta + funnel ----------
   const totalOrders = scopedRows.length;
   const totalValue = scopedRows.reduce((s, r) => s + r.amount, 0);
+  // "Delivered" includes any non-return dispatched order (see query.ts's header
+  // note on the corrected source query) - amountPaid non-null is what actually
+  // distinguishes a POD/payment-confirmed delivery from a dispatched-only one.
   const deliveredRows = scopedRows.filter((r) => r.delivered);
-  const podConfirmed = deliveredRows.filter((r) => r.podStatus && !/without confirmation/i.test(r.podStatus));
-  const podConfirmedPct = deliveredRows.length ? Math.round((podConfirmed.length / deliveredRows.length) * 1000) / 10 : 0;
+  const podConfirmedRows = deliveredRows.filter((r) => r.amountPaid !== null);
+  const podUnconfirmedCount = deliveredRows.length - podConfirmedRows.length;
+  const podConfirmedPct = deliveredRows.length ? Math.round((podConfirmedRows.length / deliveredRows.length) * 1000) / 10 : 0;
 
   const dates = scopedRows.map((r) => r.orderDate).sort((a, b) => a.getTime() - b.getTime());
   const rangeLabel = dates.length ? `${ymd(dates[0])} to ${ymd(dates[dates.length - 1])} (as of ${ymd(now)})` : `No orders in this window (as of ${ymd(now)})`;
@@ -301,7 +326,7 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
     dispatch: pendingDispatch.map((r) => toBacklogRow(r, "Dispatch Team")),
     audit: pendingAudit.map((r) => toBacklogRow(r, "Audit Team")),
     delivery: pendingDelivery.map((r) => ({
-      ...toBacklogRow(r, vanDisplayName(r.van || "Unassigned Van", r.driver ? [r.driver] : [])),
+      ...toBacklogRow(r, resolveDriverName(r)),
       returned: r.isReturn,
       returnType: r.isReturn ? returnTypeFor(r, scopedRows) : null,
     })),
@@ -393,20 +418,19 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
     byFsrMap.set(r.fsr, agg);
   }
 
-  const vanTotals = new Map<string, { stkOrders: number; totalOrders: number; stkValue: number; driverNames: Set<string> }>();
+  const vanTotals = new Map<string, { stkOrders: number; totalOrders: number; stkValue: number; sample: OrderRecord }>();
   for (const r of scopedRows) {
     if (!r.van) continue;
-    const agg = vanTotals.get(r.van) ?? { stkOrders: 0, totalOrders: 0, stkValue: 0, driverNames: new Set<string>() };
+    const agg = vanTotals.get(r.van) ?? { stkOrders: 0, totalOrders: 0, stkValue: 0, sample: r };
     agg.totalOrders += 1;
     if (r.stk) {
       agg.stkOrders += 1;
       agg.stkValue += r.amount;
     }
-    if (r.driver) agg.driverNames.add(r.driver);
     vanTotals.set(r.van, agg);
   }
-  const byVan: Order360VanStk[] = Array.from(vanTotals.entries()).map(([van, v]) => ({
-    name: vanDisplayName(van, v.driverNames),
+  const byVan: Order360VanStk[] = Array.from(vanTotals.values()).map((v) => ({
+    name: resolveDriverName(v.sample),
     orders: v.stkOrders,
     value: v.stkValue,
     totalOrders: v.totalOrders,
@@ -430,7 +454,7 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
   };
 
   return {
-    meta: { range: rangeLabel, reportDate: ymd(now), totalOrders, totalValue, podConfirmedPct },
+    meta: { range: rangeLabel, reportDate: ymd(now), totalOrders, totalValue, podConfirmedPct, podConfirmedCount: podConfirmedRows.length, podUnconfirmedCount },
     funnel,
     perf,
     backlog,
@@ -455,12 +479,24 @@ export function returnTypeFor(returnRow: OrderRecord, allRows: OrderRecord[]): "
 export function buildDeliveryDrivers(allRows: OrderRecord[], pendingDelivery: OrderRecord[], now: Date): Order360DeliveryDriver[] {
   const byVan = new Map<
     string,
-    { deliveredOrders: number; deliveredValue: number; pendingOrders: number; pendingValue: number; pendingAges: number[]; returnsCount: number; returnsValue: number; driverNames: Set<string> }
+    {
+      deliveredOrders: number;
+      deliveredValue: number;
+      confirmedOrders: number;
+      unconfirmedOrders: number;
+      pendingOrders: number;
+      pendingValue: number;
+      pendingAges: number[];
+      returnsCount: number;
+      returnsValue: number;
+      sample: OrderRecord;
+    }
   >();
-  function bucket(van: string) {
+  function bucket(r: OrderRecord) {
+    const van = r.van!;
     let b = byVan.get(van);
     if (!b) {
-      b = { deliveredOrders: 0, deliveredValue: 0, pendingOrders: 0, pendingValue: 0, pendingAges: [], returnsCount: 0, returnsValue: 0, driverNames: new Set() };
+      b = { deliveredOrders: 0, deliveredValue: 0, confirmedOrders: 0, unconfirmedOrders: 0, pendingOrders: 0, pendingValue: 0, pendingAges: [], returnsCount: 0, returnsValue: 0, sample: r };
       byVan.set(van, b);
     }
     return b;
@@ -468,11 +504,12 @@ export function buildDeliveryDrivers(allRows: OrderRecord[], pendingDelivery: Or
 
   for (const r of allRows) {
     if (!r.van) continue;
-    const b = bucket(r.van);
-    if (r.driver) b.driverNames.add(r.driver);
+    const b = bucket(r);
     if (r.delivered) {
       b.deliveredOrders += 1;
       b.deliveredValue += r.amount;
+      if (r.amountPaid !== null) b.confirmedOrders += 1;
+      else b.unconfirmedOrders += 1;
     }
     if (r.isReturn) {
       b.returnsCount += 1;
@@ -481,17 +518,19 @@ export function buildDeliveryDrivers(allRows: OrderRecord[], pendingDelivery: Or
   }
   for (const r of pendingDelivery) {
     if (!r.van) continue;
-    const b = bucket(r.van);
+    const b = bucket(r);
     b.pendingOrders += 1;
     b.pendingValue += r.amount;
     b.pendingAges.push(ageInDays(r.orderDate, now));
   }
 
-  return Array.from(byVan.entries())
-    .map(([van, b]) => ({
-      name: vanDisplayName(van, b.driverNames),
+  return Array.from(byVan.values())
+    .map((b) => ({
+      name: resolveDriverName(b.sample),
       deliveredOrders: b.deliveredOrders,
       deliveredValue: b.deliveredValue,
+      confirmedOrders: b.confirmedOrders,
+      unconfirmedOrders: b.unconfirmedOrders,
       pendingOrders: b.pendingOrders,
       pendingValue: b.pendingValue,
       avgAgePending: b.pendingAges.length ? Math.round((b.pendingAges.reduce((s, a) => s + a, 0) / b.pendingAges.length) * 10) / 10 : 0,

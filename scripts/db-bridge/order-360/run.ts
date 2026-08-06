@@ -87,7 +87,11 @@ async function main() {
 
   const now = new Date();
   const syncState = await getSyncState(appUrl, apiKey);
-  const isFullMode = !syncState.lastFullResyncAt;
+  // ORDER360_FORCE_FULL=1 re-runs the full 3-month backfill even though a
+  // watermark already exists - the upload route upserts (ON CONFLICT DO
+  // UPDATE), so this is the way to true up already-loaded history after a
+  // business-logic fix in query.ts, without a separate one-off script.
+  const isFullMode = !syncState.lastFullResyncAt || process.env.ORDER360_FORCE_FULL === "1";
 
   const makeConnection = () =>
     mysql.createConnection({ host: config.host, port: config.port, user: config.user, password: config.password, database: config.database });

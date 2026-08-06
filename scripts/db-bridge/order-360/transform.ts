@@ -32,6 +32,7 @@ export interface OrderRecordUploadRow {
 
   van: string | null;
   driver: string | null;
+  deliveredBy: string | null;
   delivered: boolean;
   deliveryDate: Date | null;
 

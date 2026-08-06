@@ -589,6 +589,11 @@ model OrderRecord {
 
   van          String?
   driver       String?
+  // Curated "Name - REG" attribution from the source query's hardcoded van/driver
+  // directory (keyed off the driver's Pine username) - the authoritative display
+  // name for delivery attribution once present; van/driver above stay as the raw
+  // Pine values. Null when the driver isn't in that directory.
+  deliveredBy  String?
   delivered    Boolean
   deliveryDate DateTime?
 

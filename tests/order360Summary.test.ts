@@ -8,6 +8,7 @@ import {
   dottedName,
   groupPerf,
   order360AgeBucket,
+  resolveDriverName,
   returnTypeFor,
   vanDisplayName,
 } from "../lib/order360Summary";
@@ -35,6 +36,7 @@ function makeOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     audited: false,
     van: null,
     driver: null,
+    deliveredBy: null,
     delivered: false,
     deliveryDate: null,
     isReturn: false,
@@ -155,7 +157,7 @@ describe("dottedName / vanDisplayName", () => {
 describe("delivery driver leaderboard", () => {
   it("splits delivered vs pending per van and averages pending age", () => {
     const rows = [
-      makeOrder({ erpNumber: "1", van: "KDE 045L", driver: "Boaz Otieno", delivered: true, amount: 500 }),
+      makeOrder({ erpNumber: "1", van: "KDE 045L", driver: "Boaz Otieno", delivered: true, amount: 500, amountPaid: 500 }),
       makeOrder({ erpNumber: "2", van: "KDE 045L", driver: "Boaz Otieno", cleared: true, picked: true, dispatched: true, audited: true, amount: 300, orderDate: new Date("2026-07-28T00:00:00.000Z") }),
     ];
     const pendingDelivery = computePendingBacklogs(rows).delivery;
@@ -166,6 +168,8 @@ describe("delivery driver leaderboard", () => {
         name: "KDE 045L Boaz",
         deliveredOrders: 1,
         deliveredValue: 500,
+        confirmedOrders: 1,
+        unconfirmedOrders: 0,
         pendingOrders: 1,
         pendingValue: 300,
         avgAgePending: 4,
@@ -174,6 +178,33 @@ describe("delivery driver leaderboard", () => {
         returnsValue: 0,
       },
     ]);
+  });
+
+  it("splits delivered orders into POD/payment-confirmed vs dispatched-only unconfirmed", () => {
+    const rows = [
+      makeOrder({ erpNumber: "1", van: "KDE 045L", driver: "Boaz Otieno", delivered: true, amount: 500, amountPaid: 500 }),
+      makeOrder({ erpNumber: "2", van: "KDE 045L", driver: "Boaz Otieno", delivered: true, amount: 300, amountPaid: null }),
+    ];
+    const drivers = buildDeliveryDrivers(rows, [], new Date("2026-08-01T00:00:00.000Z"));
+    expect(drivers[0].deliveredOrders).toBe(2);
+    expect(drivers[0].confirmedOrders).toBe(1);
+    expect(drivers[0].unconfirmedOrders).toBe(1);
+  });
+
+  it("prefers the curated deliveredBy directory name over the derived van/driver name", () => {
+    const rows = [makeOrder({ erpNumber: "1", van: "KDE 045L", driver: "Boaz Otieno", deliveredBy: "Boaz - KDE 045L", delivered: true, amount: 500, amountPaid: 500 })];
+    const drivers = buildDeliveryDrivers(rows, [], new Date("2026-08-01T00:00:00.000Z"));
+    expect(drivers[0].name).toBe("Boaz - KDE 045L");
+  });
+});
+
+describe("resolveDriverName", () => {
+  it("uses the curated deliveredBy name when present", () => {
+    expect(resolveDriverName({ deliveredBy: "Purity+Bosco - KDL 733D", van: "KDL 733D", driver: "Purity Wangombe" })).toBe("Purity+Bosco - KDL 733D");
+  });
+
+  it("falls back to the derived van/driver name when deliveredBy is null", () => {
+    expect(resolveDriverName({ deliveredBy: null, van: "KDX 001A", driver: "New Guy" })).toBe("KDX 001A New");
   });
 });
 

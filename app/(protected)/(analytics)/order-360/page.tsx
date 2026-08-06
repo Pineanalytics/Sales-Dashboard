@@ -12,7 +12,19 @@ import { BacklogTable, type BacklogRow } from "@/components/order360/BacklogTabl
 
 interface FunnelStage { stage: string; count: number }
 interface PerfPerson { name: string; orders: number; value: number }
-interface DeliveryDriver { name: string; deliveredOrders: number; deliveredValue: number; pendingOrders: number; pendingValue: number; avgAgePending: number; maxAgePending: number; returnsCount: number; returnsValue: number }
+interface DeliveryDriver {
+  name: string;
+  deliveredOrders: number;
+  deliveredValue: number;
+  confirmedOrders: number;
+  unconfirmedOrders: number;
+  pendingOrders: number;
+  pendingValue: number;
+  avgAgePending: number;
+  maxAgePending: number;
+  returnsCount: number;
+  returnsValue: number;
+}
 interface RespBacklogRow { ref: string; date: string; customer: string; fsr: string; amount: number; age: number; owner: string; returned?: boolean; returnType?: string | null }
 interface ReturnRow { ref: string; date: string; customer: string; fsr: string; type: "Full" | "Partial"; returnDate: string | null; amount: number; owner: string }
 interface PaymentRow { ref: string; date: string; customer: string; fsr: string; paymentRef: string; amount: number; amountPaid: number }
@@ -21,7 +33,7 @@ interface VanStk { name: string; orders: number; value: number; totalOrders: num
 interface Spotlight { name: string; dispatched: number; delivered: number; pending: number; returns: number; returnsValue: number; pendingNonReturn: number }
 
 interface Order360Response {
-  meta: { range: string; reportDate: string; totalOrders: number; totalValue: number; podConfirmedPct: number };
+  meta: { range: string; reportDate: string; totalOrders: number; totalValue: number; podConfirmedPct: number; podConfirmedCount: number; podUnconfirmedCount: number };
   funnel: FunnelStage[];
   perf: { clearance: PerfPerson[]; pick: PerfPerson[]; dispatch: PerfPerson[]; audit: PerfPerson[]; deliveryDrivers: DeliveryDriver[] };
   backlog: { clearance: RespBacklogRow[]; pick: RespBacklogRow[]; dispatch: RespBacklogRow[]; audit: RespBacklogRow[]; delivery: RespBacklogRow[] };
@@ -247,8 +259,14 @@ export default function Order360Page() {
             <O360KpiCard label="Fully Delivered" value={fmtNum(deliveredCount)} sub={`${deliveredPct}% of all orders`} accent="good" />
             <O360KpiCard label="Open Backlog" value={fmtNum(totalBacklog)} sub="across 5 gates" accent="warn" />
             <O360KpiCard label="Value Tied Up" value={fmtKES(totalBacklogValue, true)} sub="stuck somewhere in the pipeline" accent="gold" />
-            <O360KpiCard label="PODs Confirmed" value={`${data.meta.podConfirmedPct}%`} sub="of delivered orders" accent="bad" />
+            <O360KpiCard label="POD/Payment Confirmed" value={`${data.meta.podConfirmedPct}%`} sub={`${fmtNum(data.meta.podConfirmedCount)} of ${fmtNum(deliveredCount)} delivered orders`} accent="bad" />
           </O360KpiGrid>
+
+          {data.meta.podUnconfirmedCount > 0 ? (
+            <div className="rounded-xl border p-3.5 text-[12px]" style={{ background: `${O360.warn}14`, borderColor: `${O360.warn}33`, color: "rgba(255,255,255,0.85)" }}>
+              <strong style={{ color: O360.warn }}>Disclaimer:</strong> {fmtNum(data.meta.podUnconfirmedCount)} of the {fmtNum(deliveredCount)} orders marked &quot;Delivered&quot; have no POD or payment record on file — they&apos;re counted as delivered only because they were dispatched with no return logged. This most likely means a <strong>credit sale</strong> (paid outside STK/mobile money) or a <strong>lost/unconfirmed delivery</strong> — Order 360 cannot distinguish the two from Pine&apos;s data alone, so treat this figure as needing manual verification, not a confirmed count.
+            </div>
+          ) : null}
 
           <O360Panel title="Pipeline flow" note="Click a drop-off badge to jump to that backlog">
             <PipelineTrack stages={pipelineStages} onJump={jump} />
@@ -273,8 +291,8 @@ export default function Order360Page() {
               ) : null}
               <O360Callout tag="Confirmation gap" tone="warn">
                 {data.meta.podConfirmedPct === 0
-                  ? `All ${fmtNum(deliveredCount)} orders marked "Delivered" have no confirmed proof-of-delivery in this window.`
-                  : `Only ${data.meta.podConfirmedPct}% of the ${fmtNum(deliveredCount)} orders marked "Delivered" have a confirmed proof-of-delivery record.`}
+                  ? `All ${fmtNum(deliveredCount)} orders marked "Delivered" have no POD/payment confirmation — likely credit sales or unconfirmed deliveries; verify manually.`
+                  : `${fmtNum(data.meta.podUnconfirmedCount)} of the ${fmtNum(deliveredCount)} orders marked "Delivered" (${data.meta.podConfirmedPct}% confirmed) have no POD/payment record — likely credit sales or unconfirmed/lost deliveries; verify manually.`}
               </O360Callout>
               {zeroDeliveryDrivers.length > 0 ? (
                 <O360Callout tag="No delivery closed, ever" tone="info" cta={{ label: "View delivery breakdown", onClick: () => jump("delivery") }}>
@@ -330,6 +348,11 @@ export default function Order360Page() {
             {data.backlog.delivery.some((r) => r.returned) ? (
               <div className={`mb-1 text-[11px] ${O360.textMuted}`}>
                 {fmtNum(data.backlog.delivery.filter((r) => r.returned).length)} of the orders above are already logged as <strong className="text-white/80">returns</strong>, not goods still in transit — see the Returns tab.
+              </div>
+            ) : null}
+            {data.meta.podUnconfirmedCount > 0 ? (
+              <div className="mt-2 rounded-lg border p-2.5 text-[11px]" style={{ background: `${O360.warn}14`, borderColor: `${O360.warn}33`, color: "rgba(255,255,255,0.8)" }}>
+                <strong style={{ color: O360.warn }}>Disclaimer:</strong> {fmtNum(data.meta.podUnconfirmedCount)} delivered order(s) here have no POD or payment record — counted as delivered only because they were dispatched with no return logged. Likely a credit sale or an unconfirmed/lost delivery; verify manually (flagged &quot;unconfirmed&quot; per-van below).
               </div>
             ) : null}
           </O360Panel>
