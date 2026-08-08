@@ -155,7 +155,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
                   <div className="text-sm font-medium truncate">{user?.name || "Account"}</div>
                   <div className="text-xs text-muted truncate">{user?.email}</div>
                   <span className="mt-2 inline-block rounded-full bg-accent-blue-soft px-2 py-0.5 text-[11px] font-semibold text-accent-blue">
-                    {user?.role === "ADMIN" ? "Administrator" : "Viewer"}
+                    {{ ADMIN: "Administrator", TEAM_LEADER: "Team Leader", SUPERVISOR: "Sales Supervisor", VIEWER: "Viewer" }[user?.role ?? "VIEWER"]}
                   </span>
                 </div>
                 {isAdmin ? (

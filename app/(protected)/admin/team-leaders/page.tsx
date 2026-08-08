@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getKnownReps, getKnownPrincipals } from "@/lib/adminReference";
 import { validateContributionTotals } from "@/lib/repContribution";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import {
   createTeamLeaderAction,
   renameTeamLeaderAction,
@@ -36,9 +37,11 @@ export default async function AdminTeamLeadersPage({
   }>;
 }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "ADMIN") {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
+  const isAdmin = session.user.role === "ADMIN";
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
 
   const {
     error,
@@ -52,8 +55,11 @@ export default async function AdminTeamLeadersPage({
   } = await searchParams;
 
   const [teamLeaders, assignments, knownReps, knownPrincipals] = await Promise.all([
-    prisma.teamLeader.findMany({ orderBy: { name: "asc" } }),
-    prisma.teamLeaderAssignment.findMany({ orderBy: [{ teamLeaderId: "asc" }, { principal: "asc" }, { employeeName: "asc" }] }),
+    prisma.teamLeader.findMany({ where: scope ? { id: { in: scope.teamLeaderIds } } : {}, orderBy: { name: "asc" } }),
+    prisma.teamLeaderAssignment.findMany({
+      where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
+      orderBy: [{ teamLeaderId: "asc" }, { principal: "asc" }, { employeeName: "asc" }],
+    }),
     getKnownReps(),
     getKnownPrincipals(),
   ]);
@@ -147,8 +153,13 @@ export default async function AdminTeamLeadersPage({
           </form>
         </div>
 
+        {isAdmin ? (
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Team Leader roster</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Creating/renaming/removing a Team Leader entity itself is admin-only — a Sales Supervisor manages the rep
+            assignments under their existing Team Leaders below, not the Team Leaders themselves.
+          </p>
           <form action={createTeamLeaderAction} className="mt-4 flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Name</label>
@@ -203,6 +214,7 @@ export default async function AdminTeamLeadersPage({
             {teamLeaders.length === 0 ? <p className="text-sm text-muted">No Team Leaders yet — add one above.</p> : null}
           </div>
         </div>
+        ) : null}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Assign a rep to a Team Leader × Principal</h2>

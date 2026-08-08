@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     // only gets a per-request filtered copy of the response, never an unscoped
     // Dataset over the wire. PrincipalSelector.tsx and every lib/timeIntelligence.ts
     // summarizer need no changes: they already just read whatever's in this object.
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     if (scope && dataset) {
       const principalKeys = new Set(scope.principals.map(normalizePrincipalKey));
       dataset = filterDatasetToPrincipals(dataset, principalKeys);

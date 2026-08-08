@@ -83,7 +83,12 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
       where: { ...trailingMonthWhere(), employeeCode: { not: null } },
       _sum: { revenue: true },
     }),
-    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
+    // PRIMARY only — actual SAP sales/targets are a Primary-role concern (see this
+    // file's header note on requirement #1/#4). Secondary reps' performance is
+    // measured via Pine/Timestamps call activity instead (lib/timestampSummary.ts),
+    // not this contribution/target-allocation pipeline, so they never dilute a
+    // Primary rep's share or receive one of their own.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" } }),
   ]);
   const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
   if (skippedUnknownEmployeeCodes > 0) {
@@ -162,6 +167,27 @@ export async function getUnassignedRevenueReps(): Promise<UnassignedRevenueRep[]
     .sort((a, b) => b.revenue - a.revenue);
 }
 
+export interface WeeklyTargetWithNoPrimaryReps {
+  teamLeaderId: string;
+  principal: string;
+  targetValue: number;
+}
+
+/** Read-only companion to recomputeDailyTargets's own weeklyTargetsWithNoPrimaryReps
+ *  count, for display on /weekly-targets/contribution — a (teamLeaderId, principal)
+ *  pair with a non-zero Weekly Target but zero active Primary-role assignees, so that
+ *  target silently produces no DailyTarget rows on the next recompute. */
+export async function getWeeklyTargetsWithNoPrimaryReps(): Promise<WeeklyTargetWithNoPrimaryReps[]> {
+  const [weeklyTargets, primaryAssignments] = await Promise.all([
+    prisma.weeklyTarget.findMany({ where: { targetValue: { not: 0 } }, select: { teamLeaderId: true, principal: true, targetValue: true } }),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" }, select: { teamLeaderId: true, principal: true } }),
+  ]);
+  const hasPrimaryRep = new Set(primaryAssignments.map((a) => `${a.teamLeaderId}|${a.principal}`));
+  return weeklyTargets
+    .filter((wt) => !hasPrimaryRep.has(`${wt.teamLeaderId}|${wt.principal}`))
+    .sort((a, b) => b.targetValue - a.targetValue);
+}
+
 // Below this, a rep's "preceding week" signal is too thin to trust (e.g. they
 // were on leave most of the week) — fall back to the deeper-history layer.
 const MIN_DETAIL_VISITS_FOR_LAYER_1 = 3;
@@ -234,6 +260,12 @@ export interface DailyTargetResult {
   weeklyTargetsProcessed: number;
   dailyRowsCreated: number;
   skippedUnknownEmployeeCodes: number;
+  // A (teamLeaderId, principal) pair whose active assignees are entirely Secondary
+  // now has zero Primary reps to split its WeeklyTarget across, so that Weekly
+  // figure silently produces no DailyTarget rows (falls into the reps.length === 0
+  // skip below) — surfaced here rather than left invisible, since it looks
+  // identical to "nobody's assigned at all" otherwise.
+  weeklyTargetsWithNoPrimaryReps: number;
 }
 
 export interface ContributionTotalWarning {
@@ -284,7 +316,8 @@ export function resolveRepSharePct(declaredPct: number | null | undefined, compu
 export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   const [weeklyTargets, rawAssignments, contributions] = await Promise.all([
     prisma.weeklyTarget.findMany(),
-    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
+    // PRIMARY only — see recomputeRepContribution's matching comment.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" } }),
     prisma.repContribution.findMany(),
   ]);
   const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
@@ -320,9 +353,14 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   }
 
   const toCreate: Prisma.DailyTargetCreateManyInput[] = [];
+  let weeklyTargetsWithNoPrimaryReps = 0;
   for (const wt of weeklyTargets) {
     const reps = repsByTeamLeaderPrincipal.get(`${wt.teamLeaderId}|${wt.principal}`) ?? [];
-    if (reps.length === 0 || wt.targetValue === 0) continue;
+    if (reps.length === 0) {
+      if (wt.targetValue !== 0) weeklyTargetsWithNoPrimaryReps += 1;
+      continue;
+    }
+    if (wt.targetValue === 0) continue;
 
     for (const rep of reps) {
       const sharePct = resolveRepSharePct(
@@ -367,5 +405,5 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
     console.warn(`recomputeDailyTargets: skipped ${toCreate.length - created[1].count} overlapping-week duplicate(s) out of ${toCreate.length} generated rows.`);
   }
 
-  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: created[1].count, skippedUnknownEmployeeCodes };
+  return { weeklyTargetsProcessed: weeklyTargets.length, dailyRowsCreated: created[1].count, skippedUnknownEmployeeCodes, weeklyTargetsWithNoPrimaryReps };
 }

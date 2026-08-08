@@ -81,7 +81,8 @@ export async function POST(req: NextRequest) {
     const isAdmin = session.user.role === "ADMIN";
     const teamLeaderId = session.user.role === "TEAM_LEADER" ? session.user.teamLeaderId : null;
     const allowedPrincipals = session.user.role === "VIEWER" ? session.user.allowedPrincipals : [];
-    const result = await runFrostChat(messages, session.user.allowedPages, isAdmin, teamLeaderId, allowedPrincipals);
+    const supervisorId = session.user.role === "SUPERVISOR" ? session.user.supervisorId : null;
+    const result = await runFrostChat(messages, session.user.allowedPages, isAdmin, teamLeaderId, allowedPrincipals, supervisorId);
 
     await Promise.all([
       prisma.frostConversationMessage.create({ data: { conversationId, role: "assistant", content: result.text } }),

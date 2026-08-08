@@ -2,19 +2,21 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { getUnassignedRevenueReps } from "@/lib/repContribution";
+import { getUnassignedRevenueReps, getWeeklyTargetsWithNoPrimaryReps } from "@/lib/repContribution";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContributionByRepPage() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
   const isAdmin = session.user.role === "ADMIN";
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
 
   const contributions = await prisma.repContribution.findMany({
-    where: isAdmin ? {} : { teamLeaderId: session.user.teamLeaderId },
+    where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
     orderBy: [{ principal: "asc" }, { sharePct: "desc" }],
   });
   const [teamLeaders, assignments] = await Promise.all([
@@ -24,6 +26,7 @@ export default async function ContributionByRepPage() {
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const assignmentByPrincipalRep = new Map(assignments.map((a) => [`${a.principal}|${a.employeeCode}`, a]));
   const unassigned = isAdmin ? await getUnassignedRevenueReps() : [];
+  const noPrimaryReps = isAdmin ? await getWeeklyTargetsWithNoPrimaryReps() : [];
 
   const byPrincipal = new Map<string, typeof contributions>();
   for (const c of contributions) {
@@ -60,6 +63,22 @@ export default async function ContributionByRepPage() {
             {unassigned
               .slice(0, 3)
               .map((u) => `${u.employeeName} (${u.principal})`)
+              .join(", ")}
+            .
+          </div>
+        ) : null}
+
+        {noPrimaryReps.length > 0 ? (
+          <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-accent-amber shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            {noPrimaryReps.length} Weekly Target(s) have no active Primary-role rep to split across — only Primary reps
+            receive a Contribution/Daily Projection share (Secondary performance is tracked via{" "}
+            <Link href="/timestamps" className="underline">
+              Timestamps
+            </Link>{" "}
+            instead). Largest:{" "}
+            {noPrimaryReps
+              .slice(0, 3)
+              .map((w) => `${teamLeaderNameById.get(w.teamLeaderId) ?? w.teamLeaderId} / ${w.principal}`)
               .join(", ")}
             .
           </div>

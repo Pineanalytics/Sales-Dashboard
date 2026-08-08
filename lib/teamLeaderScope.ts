@@ -16,6 +16,13 @@ import { prisma } from "./db";
  *  teamLeaderId as "don't narrow by identity, only by principals". */
 export interface TeamLeaderScope {
   teamLeaderId: string | null;
+  /** SUPERVISOR-only — the Supervisor row's own id (null for every other scope kind). */
+  supervisorId: string | null;
+  /** Every Team Leader id this scope covers: [teamLeaderId] for TEAM_LEADER, every
+   *  Team Leader under a Supervisor for SUPERVISOR, [] for a principal-scoped VIEWER
+   *  (no team-leader identity of their own). The list a SUPERVISOR-scoped write
+   *  action checks row-ownership against (e.g. admin/team-leaders/actions.ts). */
+  teamLeaderIds: string[];
   principals: string[];
   employeeCodes: string[];
   normalizedNames: Set<string>; // lowercased employeeName + sapName, for rows that only carry a name
@@ -70,7 +77,14 @@ export async function loadTeamLeaderScope(teamLeaderId: string): Promise<TeamLea
     }
   }
 
-  return { teamLeaderId, principals: Array.from(principals), employeeCodes: Array.from(employeeCodes), normalizedNames };
+  return {
+    teamLeaderId,
+    supervisorId: null,
+    teamLeaderIds: [teamLeaderId],
+    principals: Array.from(principals),
+    employeeCodes: Array.from(employeeCodes),
+    normalizedNames,
+  };
 }
 
 /** A principal-restricted VIEWER's scope — every rep whose absolute principal
@@ -96,18 +110,53 @@ export async function loadViewerPrincipalScope(allowedPrincipals: string[]): Pro
     normalizedNames.add(e.sapName.trim().toLowerCase());
   }
 
-  return { teamLeaderId: null, principals, employeeCodes: Array.from(employeeCodes), normalizedNames };
+  return { teamLeaderId: null, supervisorId: null, teamLeaderIds: [], principals, employeeCodes: Array.from(employeeCodes), normalizedNames };
+}
+
+/** A Sales Supervisor's scope — every active TeamLeaderAssignment row under their
+ *  Supervisor id (a direct FK query, unlike loadTeamLeaderScope's fuzzy
+ *  EmployeeMaster.supervisor name-matching — see this file's header note). Covers
+ *  every Team Leader/rep/principal their group touches, across however many Team
+ *  Leaders report to them. */
+export async function loadSupervisorScope(supervisorId: string): Promise<TeamLeaderScope> {
+  const assignments = await prisma.teamLeaderAssignment.findMany({
+    where: { supervisorId, active: true },
+    select: { teamLeaderId: true, principal: true, employeeCode: true, employeeName: true, sapName: true },
+  });
+
+  const teamLeaderIds = new Set<string>();
+  const principals = new Set<string>();
+  const employeeCodes = new Set<string>();
+  const normalizedNames = new Set<string>();
+  for (const a of assignments) {
+    teamLeaderIds.add(a.teamLeaderId);
+    principals.add(a.principal);
+    employeeCodes.add(a.employeeCode);
+    normalizedNames.add(a.employeeName.trim().toLowerCase());
+    if (a.sapName) normalizedNames.add(a.sapName.trim().toLowerCase());
+  }
+
+  return {
+    teamLeaderId: null,
+    supervisorId,
+    teamLeaderIds: Array.from(teamLeaderIds),
+    principals: Array.from(principals),
+    employeeCodes: Array.from(employeeCodes),
+    normalizedNames,
+  };
 }
 
 /** Resolves a request's TeamLeaderScope from session fields, or null when the
- *  caller isn't scoped at all (admin, an unrestricted VIEWER, or a TEAM_LEADER
- *  with no team linked yet). Shared helper so every route applies the exact
- *  same rule for "should this session be scoped at all." */
+ *  caller isn't scoped at all (admin, an unrestricted VIEWER, or a TEAM_LEADER/
+ *  SUPERVISOR with no team/group linked yet). Shared helper so every route applies
+ *  the exact same rule for "should this session be scoped at all." */
 export async function resolveScopeForSession(
   role: string,
   teamLeaderId: string | null,
-  allowedPrincipals?: string[]
+  allowedPrincipals?: string[],
+  supervisorId?: string | null
 ): Promise<TeamLeaderScope | null> {
+  if (role === "SUPERVISOR" && supervisorId) return loadSupervisorScope(supervisorId);
   if (role === "TEAM_LEADER" && teamLeaderId) return loadTeamLeaderScope(teamLeaderId);
   if (role === "VIEWER" && allowedPrincipals && allowedPrincipals.length > 0) return loadViewerPrincipalScope(allowedPrincipals);
   return null;

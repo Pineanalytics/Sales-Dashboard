@@ -25,6 +25,11 @@ enum Role {
   ADMIN
   VIEWER
   TEAM_LEADER
+  // Sits above TEAM_LEADER: sees/edits every TeamLeaderAssignment row under the
+  // Team Leaders in their own Supervisor group (see TeamLeaderAssignment.supervisorId),
+  // same CRUD breadth ADMIN has on /admin/team-leaders, just scoped. Introduced for
+  // the Sales Supervisor tier — see lib/teamLeaderScope.ts's loadSupervisorScope.
+  SUPERVISOR
 }
 
 enum UserStatus {
@@ -41,6 +46,7 @@ model User {
   status       UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
   allowedPages String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
   teamLeaderId String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER
+  supervisorId String?    @unique // links a SUPERVISOR-role login to their Supervisor row; unused otherwise, mirrors teamLeaderId
   // Restricts a VIEWER-role login to specific principals (Cost Centres) across the whole
   // app — dataset, every Prisma-backed dashboard/report route, and Frost — the same
   // scoping mechanism a TEAM_LEADER already gets via teamLeaderId, just principal-only
@@ -113,6 +119,31 @@ model TeamLeader {
   createdAt DateTime @default(now())
 }
 
+// One row per Sales Supervisor — a tier above Team Leader (several Team Leaders
+// report to one Supervisor, e.g. Mars-Nairobi's 5 Team Leaders all under Lucy
+// Githinji). Mirrors TeamLeader exactly, including the find-or-create-by-name
+// upsert pattern in lib/rosterImport.ts. Optionally linked to a login via
+// User.supervisorId. Sourced from the Roster's "Sales Supervisor" column —
+// deliberately a separate, FK-based mechanism from the older, fuzzier
+// EmployeeMaster.supervisor name-matching in lib/teamLeaderScope.ts
+// (teamLeaderSupervisesName), which stays untouched.
+model Supervisor {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// One row per Manager — a tier above Supervisor (e.g. Angela Sitati oversees
+// Lucy Githinji's Mars-Nairobi group plus several other Supervisors/principals).
+// Reporting/ranking dimension only for now: no login role, no User.managerId.
+// A real model (not a free-text column) for the same name-drift-safety reason
+// TeamLeader/Supervisor are: it's a grouping/ranking key, not just display text.
+model Manager {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
 // The "fact table" driving Weekly Targets: which reps, selling which principals,
 // report up through which team leader. Admin-editable via /admin/team-leaders.
 // A rep can appear under multiple principals, and (matrix orgs) under different
@@ -152,6 +183,9 @@ model TeamLeaderAssignment {
   // the Roster from drifting from the authoritative HR/ops source between imports.
   region                String?
   subRegion             String?
+  // Free text, from the Roster's original "Supervisor" column — confirmed unused by
+  // any application logic (superseded below by supervisorId, the FK-based mechanism
+  // the new Sales Supervisor tier actually uses). Left as-is, not read anywhere.
   supervisor            String?
   workGroup             String?
   company               String?
@@ -162,6 +196,14 @@ model TeamLeaderAssignment {
   route                 String?
   location              String?
   sourceContributionPct Float? // the Roster's own un-normalized "Source Contribution %" basis
+  // Below: from the 2026-08 Roster refresh's "Sales Supervisor"/"Manager"/"Stock Point"
+  // columns (the first roster to carry them). String id-by-convention, same non-@relation
+  // pattern as teamLeaderId above — resolved by find-or-create-by-name on import
+  // (lib/rosterImport.ts), same as TeamLeader already works. Nullable: not every historical
+  // row has been through a Sales Supervisor-aware import yet.
+  supervisorId          String?
+  managerId             String?
+  stockPoint            String?
   updatedAt       DateTime @updatedAt
   createdAt       DateTime @default(now())
 
@@ -169,6 +211,8 @@ model TeamLeaderAssignment {
   @@index([teamLeaderId])
   @@index([principal])
   @@index([region])
+  @@index([supervisorId])
+  @@index([managerId])
 }
 
 model TeamLeaderAssignmentAuditLog {
@@ -177,6 +221,7 @@ model TeamLeaderAssignmentAuditLog {
   userEmail    String
   action       String // "CREATE" | "UPDATE" | "DEACTIVATE" | "REACTIVATE" | "DELETE"
   teamLeaderId String
+  supervisorId String? // denormalized snapshot at the time of the edit, for a Supervisor's own scoped audit view without a live join back to (possibly since-changed) TeamLeaderAssignment
   principal    String
   employeeCode String
   changes      Json

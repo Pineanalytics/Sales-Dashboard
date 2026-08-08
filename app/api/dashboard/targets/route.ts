@@ -31,17 +31,19 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(Date.UTC(Number(year), monthIndex, 1));
   const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 1));
 
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
   if (scope && principal && !scope.principals.includes(principal)) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
   const principalWhere = principal ? { principal } : scope ? { principal: { in: scope.principals } } : {};
 
-  // scope.teamLeaderId is null for a principal-restricted VIEWER (no team-leader
-  // identity of their own) — only narrow by it when it's actually set, otherwise
+  // scope.teamLeaderIds is [] for a principal-restricted VIEWER (no team-leader
+  // identity of their own) — only narrow by it when non-empty, otherwise
   // principalWhere alone is the whole restriction, giving them every Team
-  // Leader's Weekly/Daily targets for their allowed principals.
-  const teamLeaderWhere = scope?.teamLeaderId ? { teamLeaderId: scope.teamLeaderId } : {};
+  // Leader's Weekly/Daily targets for their allowed principals. Plural (not the
+  // singular teamLeaderId) so a SUPERVISOR session narrows to every Team Leader in
+  // their own group — a TEAM_LEADER session's teamLeaderIds is always just [their own id].
+  const teamLeaderWhere = scope && scope.teamLeaderIds.length > 0 ? { teamLeaderId: { in: scope.teamLeaderIds } } : {};
 
   const [weeklyTargets, dailyTargets] = await Promise.all([
     prisma.weeklyTarget.findMany({

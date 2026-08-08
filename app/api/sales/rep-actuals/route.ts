@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const year = req.nextUrl.searchParams.get("year")?.trim() || null;
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const where = {
       ...(year ? { year } : {}),
       ...(scope ? { employeeCode: { in: scope.employeeCodes }, principal: { in: scope.principals } } : {}),

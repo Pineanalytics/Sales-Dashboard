@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
 import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
+import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 import type { TeamLeaderAssignment } from "@prisma/client";
 
 async function requireAdmin() {
@@ -13,6 +14,26 @@ async function requireAdmin() {
     redirect("/");
   }
   return session.user;
+}
+
+/** A SUPERVISOR gets the same CRUD breadth ADMIN has on this page, restricted to
+ *  their own Sales Supervisor group (scope.teamLeaderIds) — every mutating action
+ *  below checks the target row's teamLeaderId against this list. scope is null for
+ *  an unrestricted ADMIN. Entity-level actions (creating/renaming/deleting a Team
+ *  Leader/Supervisor itself, not their rep assignments) stay requireAdmin()-only. */
+async function requireAdminOrSupervisor(): Promise<{ user: Awaited<ReturnType<typeof requireAdmin>>; scope: TeamLeaderScope | null }> {
+  const session = await auth();
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "SUPERVISOR")) {
+    redirect("/");
+  }
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+  return { user: session.user, scope };
+}
+
+function assertOwnsTeamLeader(scope: TeamLeaderScope | null, teamLeaderId: string, redirectSuffix = "") {
+  if (scope && !scope.teamLeaderIds.includes(teamLeaderId)) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("You can only edit your own Sales Supervisor group's reps.") + redirectSuffix);
+  }
 }
 
 function str(formData: FormData, name: string): string {
@@ -136,30 +157,46 @@ export async function deleteTeamLeaderAction(formData: FormData) {
 }
 
 /** Browser-based alternative to running scripts/target-management/import.ts locally —
- *  accepts a plain CSV export of the workbook's own Roster sheet (same 21 columns,
- *  single header row) and upserts it through the exact same lib/rosterImport.ts logic
- *  the API-key-gated upload route uses. Lets an admin refresh the whole Roster from a
- *  CSV without a local script run. */
+ *  accepts a plain CSV export of the Roster sheet (either format, see
+ *  lib/rosterImport.ts) and upserts it through the exact same shared logic the
+ *  API-key-gated upload route uses. Lets an admin refresh the whole Roster from a
+ *  CSV without a local script run. A SUPERVISOR can also use this, but only rows
+ *  whose CSV "Sales Supervisor" column matches their own name are kept — everything
+ *  else in the file is silently dropped rather than erroring the whole upload, since
+ *  a Supervisor's own roster export naturally also lists rows outside their group. */
 export async function uploadRosterCsvAction(formData: FormData) {
-  await requireAdmin();
+  const { user, scope } = await requireAdminOrSupervisor();
 
   const file = formData.get("file");
   if (!file || !(file instanceof File) || file.size === 0) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Attach a Roster CSV file to upload."));
   }
 
-  let rows;
+  let rows, format;
   try {
     const buffer = Buffer.from(await (file as File).arrayBuffer());
-    rows = parseRosterCsv(buffer);
+    ({ rows, format } = parseRosterCsv(buffer));
   } catch (err) {
     const message = err instanceof RosterParseError ? err.message : "Failed to read the uploaded CSV file.";
     redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
   }
 
+  if (user.role === "SUPERVISOR") {
+    const supervisor = scope?.supervisorId ? await prisma.supervisor.findUnique({ where: { id: scope.supervisorId }, select: { name: true } }) : null;
+    const ownName = supervisor?.name.trim().toLowerCase();
+    const filtered = rows.filter((r) => r.supervisorName?.trim().toLowerCase() === ownName);
+    if (filtered.length === 0) {
+      redirect(
+        "/admin/team-leaders?error=" +
+          encodeURIComponent('None of these rows have a "Sales Supervisor" column matching your own name — nothing to import.')
+      );
+    }
+    rows = filtered;
+  }
+
   let result;
   try {
-    result = await upsertRosterRows(rows);
+    result = await upsertRosterRows(rows, format);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save the Roster import.";
     redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
@@ -172,7 +209,7 @@ export async function uploadRosterCsvAction(formData: FormData) {
 }
 
 export async function createAssignmentAction(formData: FormData) {
-  const user = await requireAdmin();
+  const { user, scope } = await requireAdminOrSupervisor();
   const teamLeaderId = str(formData, "teamLeaderId");
   const employeeCode = str(formData, "employeeCode");
   let employeeName = str(formData, "employeeName");
@@ -191,6 +228,7 @@ export async function createAssignmentAction(formData: FormData) {
   if (!teamLeaderId || !employeeCode || !principal) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader, Employee Code, and Principal are required.") + carryForward);
   }
+  assertOwnsTeamLeader(scope, teamLeaderId, carryForward);
 
   const master = await prisma.employeeMaster.findUnique({
     where: { employeeCode },
@@ -246,7 +284,7 @@ export async function createAssignmentAction(formData: FormData) {
 }
 
 export async function updateAssignmentAction(formData: FormData) {
-  const user = await requireAdmin();
+  const { user, scope } = await requireAdminOrSupervisor();
   const id = str(formData, "assignmentId");
   const suffix = filterSuffix(formData);
 
@@ -254,6 +292,7 @@ export async function updateAssignmentAction(formData: FormData) {
   if (!existing) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
+  assertOwnsTeamLeader(scope, existing.teamLeaderId, suffix);
 
   const channel = str(formData, "channel") || null;
   const contributionPct = pct(formData, "contributionPct");
@@ -282,7 +321,7 @@ export async function updateAssignmentAction(formData: FormData) {
 // history and this row's own audit trail (matches Target_Management_System.xlsm's Active Y/N
 // Roster flag). deleteAssignmentAction below (hard delete) stays for genuine mistakes.
 export async function deactivateAssignmentAction(formData: FormData) {
-  const user = await requireAdmin();
+  const { user, scope } = await requireAdminOrSupervisor();
   const id = str(formData, "assignmentId");
   const suffix = filterSuffix(formData);
 
@@ -290,6 +329,7 @@ export async function deactivateAssignmentAction(formData: FormData) {
   if (!existing) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
+  assertOwnsTeamLeader(scope, existing.teamLeaderId, suffix);
 
   const nextActive = !existing.active;
   await prisma.teamLeaderAssignment.update({ where: { id }, data: { active: nextActive } });
@@ -311,7 +351,7 @@ export async function deactivateAssignmentAction(formData: FormData) {
 }
 
 export async function deleteAssignmentAction(formData: FormData) {
-  const user = await requireAdmin();
+  const { user, scope } = await requireAdminOrSupervisor();
   const id = str(formData, "assignmentId");
   const suffix = filterSuffix(formData);
 
@@ -319,6 +359,7 @@ export async function deleteAssignmentAction(formData: FormData) {
   if (!existing) {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Assignment not found.") + suffix);
   }
+  assertOwnsTeamLeader(scope, existing.teamLeaderId, suffix);
 
   await prisma.teamLeaderAssignment.delete({ where: { id } });
 

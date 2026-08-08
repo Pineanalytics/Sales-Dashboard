@@ -1,6 +1,6 @@
 import type { DefaultSession } from "next-auth";
 
-export type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER";
+export type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR";
 
 declare module "next-auth" {
   interface Session {
@@ -9,8 +9,10 @@ declare module "next-auth" {
       role: UserRole;
       allowedPages: string[];
       teamLeaderId: string | null;
+      /** SUPERVISOR-only — links to their Supervisor row, mirrors teamLeaderId. */
+      supervisorId: string | null;
       /** VIEWER-only principal restriction — see User.allowedPrincipals. Empty for
-       *  ADMIN/TEAM_LEADER and for an unrestricted VIEWER. */
+       *  ADMIN/TEAM_LEADER/SUPERVISOR and for an unrestricted VIEWER. */
       allowedPrincipals: string[];
     } & DefaultSession["user"];
   }
@@ -19,6 +21,7 @@ declare module "next-auth" {
     role: UserRole;
     allowedPages: string[];
     teamLeaderId: string | null;
+    supervisorId: string | null;
     allowedPrincipals: string[];
   }
 }
@@ -29,6 +32,7 @@ declare module "next-auth/jwt" {
     role: UserRole;
     allowedPages: string[];
     teamLeaderId: string | null;
+    supervisorId: string | null;
     allowedPrincipals: string[];
     /** Unix ms timestamp of the last DB re-check — see auth.ts's jwt() callback.
      *  Without this, role/allowedPages/status changes an admin makes never reach

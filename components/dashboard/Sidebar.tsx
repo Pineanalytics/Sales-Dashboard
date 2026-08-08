@@ -79,6 +79,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
 
   const isAdmin = user?.role === "ADMIN";
   const isTeamLeader = user?.role === "TEAM_LEADER";
+  const isSupervisor = user?.role === "SUPERVISOR";
   // Admins always see every report; a viewer only sees the pages their admin granted.
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
@@ -155,7 +156,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
           })}
         </nav>
 
-        {isAdmin || isTeamLeader ? (
+        {isAdmin || isTeamLeader || isSupervisor ? (
           <>
             <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Targets</div>
             <nav className="px-3 pt-2 flex flex-col gap-1">
@@ -193,6 +194,25 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
                 </span>
                 <span className={expanded ? "" : "md:hidden"}>Targets Overview</span>
               </Link>
+              {isAdmin || isSupervisor ? (
+                <Link
+                  href="/admin/team-leaders"
+                  title="Roster Management"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                    expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                  } ${
+                    pathname?.startsWith("/admin/team-leaders")
+                      ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                      : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                  }`}
+                >
+                  <span className={pathname?.startsWith("/admin/team-leaders") ? "text-white" : "text-secondary-blue"}>
+                    <PeopleTeam20Regular />
+                  </span>
+                  <span className={expanded ? "" : "md:hidden"}>Roster Management</span>
+                </Link>
+              ) : null}
             </nav>
           </>
         ) : null}

@@ -33,20 +33,33 @@ async function assertNotLastAdminDemotion(userId: string, currentUser: { id: str
   }
 }
 
-function readRole(formData: FormData): "ADMIN" | "VIEWER" | "TEAM_LEADER" {
+type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR";
+
+function readRole(formData: FormData): UserRole {
   const raw = formData.get("role");
-  if (raw === "ADMIN" || raw === "TEAM_LEADER") return raw;
+  if (raw === "ADMIN" || raw === "TEAM_LEADER" || raw === "SUPERVISOR") return raw;
   return "VIEWER";
 }
 
 // TEAM_LEADER logins need a linked TeamLeader row (User.teamLeaderId, unique) so
 // /weekly-targets can scope their reads/writes to just their own team. Any other
 // role clears the link, freeing that TeamLeader row up for someone else later.
-function readTeamLeaderId(formData: FormData, role: "ADMIN" | "VIEWER" | "TEAM_LEADER"): string | null {
+function readTeamLeaderId(formData: FormData, role: UserRole): string | null {
   if (role !== "TEAM_LEADER") return null;
   const id = String(formData.get("teamLeaderId") || "").trim();
   if (!id) {
     redirect("/admin/users?error=" + encodeURIComponent("Pick a Team Leader to link this login to."));
+  }
+  return id;
+}
+
+// SUPERVISOR logins need a linked Supervisor row (User.supervisorId, unique) —
+// mirrors readTeamLeaderId exactly. See lib/teamLeaderScope.ts's loadSupervisorScope.
+function readSupervisorId(formData: FormData, role: UserRole): string | null {
+  if (role !== "SUPERVISOR") return null;
+  const id = String(formData.get("supervisorId") || "").trim();
+  if (!id) {
+    redirect("/admin/users?error=" + encodeURIComponent("Pick a Sales Supervisor to link this login to."));
   }
   return id;
 }
@@ -59,6 +72,7 @@ export async function createUserAction(formData: FormData) {
   const password = String(formData.get("password") || "");
   const role = readRole(formData);
   const teamLeaderId = readTeamLeaderId(formData, role);
+  const supervisorId = readSupervisorId(formData, role);
 
   if (!email || !password || password.length < 8) {
     redirect("/admin/users?error=" + encodeURIComponent("Email is required and password must be at least 8 characters."));
@@ -68,7 +82,7 @@ export async function createUserAction(formData: FormData) {
 
   try {
     await prisma.user.create({
-      data: { email, name: name || null, passwordHash, role, teamLeaderId, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
+      data: { email, name: name || null, passwordHash, role, teamLeaderId, supervisorId, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
     });
   } catch (err: unknown) {
     const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
@@ -76,7 +90,9 @@ export async function createUserAction(formData: FormData) {
       code === "P2002"
         ? teamLeaderId
           ? "That Team Leader is already linked to another login."
-          : "A user with that email already exists."
+          : supervisorId
+            ? "That Sales Supervisor is already linked to another login."
+            : "A user with that email already exists."
         : "Failed to create the user.";
     redirect("/admin/users?error=" + encodeURIComponent(message));
   }
@@ -123,6 +139,7 @@ export async function updateUserRoleAction(formData: FormData) {
   const userId = String(formData.get("userId") || "");
   const role = readRole(formData);
   const teamLeaderId = readTeamLeaderId(formData, role);
+  const supervisorId = readSupervisorId(formData, role);
 
   if (role !== "ADMIN") {
     await assertNotLastAdminDemotion(userId, currentUser);
@@ -130,16 +147,16 @@ export async function updateUserRoleAction(formData: FormData) {
 
   let target;
   try {
-    target = await prisma.user.update({ where: { id: userId }, data: { role, teamLeaderId } });
+    target = await prisma.user.update({ where: { id: userId }, data: { role, teamLeaderId, supervisorId } });
   } catch (err: unknown) {
     const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
     redirect(
       "/admin/users?error=" +
-        encodeURIComponent(code === "P2002" ? "That Team Leader is already linked to another login." : "Failed to update the role.")
+        encodeURIComponent(code === "P2002" ? "That Team Leader or Sales Supervisor is already linked to another login." : "Failed to update the role.")
     );
   }
 
-  const roleLabel = role === "ADMIN" ? "an administrator" : role === "TEAM_LEADER" ? "a team leader" : "a viewer";
+  const roleLabel = role === "ADMIN" ? "an administrator" : role === "TEAM_LEADER" ? "a team leader" : role === "SUPERVISOR" ? "a sales supervisor" : "a viewer";
   redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${roleLabel}.`));
 }
 

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const filters: Order360Filters = { month, weekLabel: month ? weekLabel : null, dateFrom, dateTo, dayNames };
 
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const summary = await getOrder360Summary(new Date(), scope, filters);
     return NextResponse.json(summary);
   } catch (err) {

@@ -75,10 +75,11 @@ export async function runFrostChat(
   allowedPages: readonly string[],
   isAdmin: boolean,
   teamLeaderId: string | null,
-  allowedPrincipals: readonly string[] = []
+  allowedPrincipals: readonly string[] = [],
+  supervisorId: string | null = null
 ): Promise<FrostReply> {
   const client = new Anthropic();
-  const tools = await toolsForUser(allowedPages, isAdmin, teamLeaderId, allowedPrincipals);
+  const tools = await toolsForUser(allowedPages, isAdmin, teamLeaderId, allowedPrincipals, supervisorId);
 
   const finalMessage = await client.beta.messages.toolRunner({
     model: MODEL,

@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   const filters: JpAdherenceFilters = { principalKey, date, dayNames, roleFilter, employeeCode, teamLeader };
 
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const range = fromParam && toParam ? { start: fromParam, end: toParam } : monthWindow(monthParam.year, monthParam.monthIndex);
     const [summary, availableMonths, monthlyCoverage] = await Promise.all([
       getJpAdherenceSummary(range, scope, filters),

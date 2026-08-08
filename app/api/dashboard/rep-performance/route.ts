@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   if (!year) return NextResponse.json({ error: '"year" is required.' }, { status: 400 });
 
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const data = await getRepPerformanceData(year, scope);
     return NextResponse.json(data);
   } catch (err) {

@@ -37,6 +37,7 @@ export default async function AdminUsersPage({
   const pending = allUsers.filter((u) => u.status === "PENDING");
   const approved = allUsers.filter((u) => u.status === "APPROVED");
   const teamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
+  const supervisors = await prisma.supervisor.findMany({ orderBy: { name: "asc" } });
   const knownPrincipals = await getKnownPrincipals();
   const announcementTemplate = await prisma.emailTemplate.findUnique({ where: { key: ANNOUNCEMENT_TEMPLATE_KEY } });
   const announcementSubject = announcementTemplate?.subject ?? DEFAULT_ANNOUNCEMENT_SUBJECT;
@@ -56,6 +57,17 @@ export default async function AdminUsersPage({
     if (existing) existing.repCount += 1;
     else byPrincipal.push({ principal: a.principal, repCount: 1 });
     principalSummaryByTeamLeader.set(a.teamLeaderId, byPrincipal);
+  }
+  const teamLeaderIdsBySupervisor = new Map<string, Set<string>>();
+  const supervisorAssignments = await prisma.teamLeaderAssignment.findMany({
+    where: { active: true, supervisorId: { not: null } },
+    select: { supervisorId: true, teamLeaderId: true },
+  });
+  for (const a of supervisorAssignments) {
+    if (!a.supervisorId) continue;
+    const set = teamLeaderIdsBySupervisor.get(a.supervisorId) ?? new Set<string>();
+    set.add(a.teamLeaderId);
+    teamLeaderIdsBySupervisor.set(a.supervisorId, set);
   }
 
   return (
@@ -183,6 +195,7 @@ export default async function AdminUsersPage({
                 <option value="VIEWER">Viewer — read-only dashboard access</option>
                 <option value="ADMIN">Admin — can upload new snapshots</option>
                 <option value="TEAM_LEADER">Team Leader — enters their own Weekly Targets</option>
+                <option value="SUPERVISOR">Sales Supervisor — manages their whole Team Leader group's roster/targets</option>
               </select>
             </div>
             <div className="flex flex-col gap-2">
@@ -203,6 +216,24 @@ export default async function AdminUsersPage({
                 ))}
               </select>
             </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="supervisorId" className="text-[13px] font-medium text-muted-strong">
+                Sales Supervisor link (only used if Role is Sales Supervisor)
+              </label>
+              <select
+                id="supervisorId"
+                name="supervisorId"
+                defaultValue=""
+                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
+              >
+                <option value="">— none —</option>
+                {supervisors.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="sm:col-span-2">
               <button
                 type="submit"
@@ -215,6 +246,12 @@ export default async function AdminUsersPage({
           {teamLeaders.length === 0 ? (
             <p className="mt-2 text-xs text-muted">
               No Team Leaders exist yet — add them on the <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">Team Leaders</Link> page first.
+            </p>
+          ) : null}
+          {supervisors.length === 0 ? (
+            <p className="mt-1 text-xs text-muted">
+              No Sales Supervisors exist yet — they&apos;re created automatically the first time a Roster CSV with a
+              &quot;Sales Supervisor&quot; column is imported on <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">Team Leaders</Link>.
             </p>
           ) : null}
         </div>
@@ -318,6 +355,7 @@ export default async function AdminUsersPage({
                         <option value="VIEWER">Viewer</option>
                         <option value="ADMIN">Admin</option>
                         <option value="TEAM_LEADER">Team Leader</option>
+                        <option value="SUPERVISOR">Sales Supervisor</option>
                       </select>
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -331,6 +369,21 @@ export default async function AdminUsersPage({
                         {teamLeaders.map((tl) => (
                           <option key={tl.id} value={tl.id}>
                             {tl.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Supervisor link</span>
+                      <select
+                        name="supervisorId"
+                        defaultValue={u.supervisorId ?? ""}
+                        className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
+                      >
+                        <option value="">— none —</option>
+                        {supervisors.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
                           </option>
                         ))}
                       </select>
@@ -449,6 +502,33 @@ export default async function AdminUsersPage({
                         href={u.teamLeaderId ? `/admin/team-leaders?filterTeamLeader=${u.teamLeaderId}` : "/admin/team-leaders"}
                         className="text-xs font-medium text-primary-blue hover:underline"
                       >
+                        Manage assignments →
+                      </Link>
+                      <Link href="/weekly-targets" className="text-xs text-primary-blue hover:underline">
+                        Weekly Targets →
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+                {u.role === "SUPERVISOR" ? (
+                  <div className="rounded-xl bg-background-elevated px-4 py-3 flex flex-col gap-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Team Leaders in their group</span>
+                    {!u.supervisorId ? (
+                      <span className="text-xs text-muted">No Sales Supervisor linked yet — set one above to assign a group.</span>
+                    ) : (
+                      (() => {
+                        const teamLeaderIds = teamLeaderIdsBySupervisor.get(u.supervisorId) ?? new Set<string>();
+                        return teamLeaderIds.size === 0 ? (
+                          <span className="text-xs text-muted">No Team Leaders with active reps under this Supervisor yet.</span>
+                        ) : (
+                          <span className="text-xs text-muted-strong">
+                            {Array.from(teamLeaderIds).length} Team Leader(s) — full roster/target CRUD for their whole group.
+                          </span>
+                        );
+                      })()
+                    )}
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <Link href="/admin/team-leaders" className="text-xs font-medium text-primary-blue hover:underline">
                         Manage assignments →
                       </Link>
                       <Link href="/weekly-targets" className="text-xs text-primary-blue hover:underline">

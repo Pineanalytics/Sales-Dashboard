@@ -45,6 +45,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           role: user.role,
           allowedPages: user.allowedPages,
           teamLeaderId: user.teamLeaderId,
+          supervisorId: user.supervisorId,
           allowedPrincipals: user.allowedPrincipals,
         };
       },
@@ -63,6 +64,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = user.role;
         token.allowedPages = user.allowedPages;
         token.teamLeaderId = user.teamLeaderId;
+        token.supervisorId = user.supervisorId;
         token.allowedPrincipals = user.allowedPrincipals;
         token.lastRefresh = Date.now();
         return token;
@@ -82,6 +84,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       token.role = dbUser.role;
       token.allowedPages = dbUser.allowedPages;
       token.teamLeaderId = dbUser.teamLeaderId;
+      token.supervisorId = dbUser.supervisorId;
       token.allowedPrincipals = dbUser.allowedPrincipals;
       token.lastRefresh = Date.now();
       return token;
@@ -95,6 +98,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role = token.role as UserRole;
         session.user.allowedPages = token.allowedPages as string[];
         session.user.teamLeaderId = token.teamLeaderId as string | null;
+        session.user.supervisorId = (token.supervisorId as string | null | undefined) ?? null;
         session.user.allowedPrincipals = (token.allowedPrincipals as string[] | undefined) ?? [];
       }
       return session;

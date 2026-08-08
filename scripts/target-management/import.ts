@@ -56,6 +56,12 @@ interface RosterUploadRow {
   route: string | null;
   location: string | null;
   sourceContributionPct: number | null;
+  // V18-only fields — always null from this .xlsm path (still the V21 format), but
+  // the server's isRosterRow() guard requires the keys to be present. See
+  // lib/rosterImport.ts's header comment for the V21/V18 split.
+  stockPoint: string | null;
+  supervisorName: string | null;
+  managerName: string | null;
 }
 
 interface TargetUploadRow {
@@ -169,6 +175,9 @@ function parseRoster(workbook: XLSX.WorkBook): RosterUploadRow[] {
         route: nullableText(row.Route),
         location: nullableText(row.Location),
         sourceContributionPct: nullableNumber(row["Source Contribution %"]),
+        stockPoint: null,
+        supervisorName: null,
+        managerName: null,
       };
     });
 }
@@ -275,12 +284,12 @@ async function run() {
   const workbookPath = process.argv[2] || DEFAULT_WORKBOOK_PATH;
 
   if (isCsvPath(workbookPath)) {
-    const roster = parseRosterCsv(readFileSync(workbookPath));
-    console.log(`[target-management] Read ${roster.length} Roster rows from CSV ${workbookPath}.`);
+    const { rows: roster, format } = parseRosterCsv(readFileSync(workbookPath));
+    console.log(`[target-management] Read ${roster.length} Roster rows (format ${format}) from CSV ${workbookPath}.`);
     let rosterUploaded = 0;
     for (const batch of chunk(roster, BATCH_SIZE)) {
       if (batch.length === 0) continue;
-      const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch });
+      const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch, format });
       if (!result.ok) throw new Error(`Roster batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
       rosterUploaded += batch.length;
       console.log(`[target-management] Roster: ${rosterUploaded}/${roster.length} uploaded.`);

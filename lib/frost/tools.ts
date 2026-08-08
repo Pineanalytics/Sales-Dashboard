@@ -16,10 +16,10 @@ import {
   type PeriodSelection,
 } from "../timeIntelligence";
 import { getWeeksInMonth } from "../weeklyTargets";
-import { buildTlRanking } from "../tlRanking";
+import { buildTlRanking, buildSupervisorRanking, buildManagerRanking } from "../tlRanking";
 import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
-import { loadTeamLeaderScope, loadViewerPrincipalScope, type TeamLeaderScope } from "../teamLeaderScope";
+import { loadTeamLeaderScope, loadViewerPrincipalScope, loadSupervisorScope, type TeamLeaderScope } from "../teamLeaderScope";
 import { getJpAdherenceSummary } from "../jpAdherence";
 import { getOrder360Summary } from "../order360Summary";
 import { normalizePrincipalKey } from "../normalize";
@@ -212,6 +212,85 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
   });
 }
 
+/** Shared setup for the two ranking-rollup tools below — dataset revenue +
+ *  assignments/teamLeaders/weeklyTargets, same fetch makeTlRankingTool already
+ *  does, plus Supervisor/Manager reference lists. Returns null when there's no
+ *  dataset or no current-month data (callers turn that into the tool's error JSON). */
+async function loadRankingInputs(principal: string | undefined) {
+  const dataset = await getLatestSnapshot();
+  if (!dataset) return null;
+  const currentMonth = getCurrentMonthPeriod(dataset);
+  if (!currentMonth.month) return null;
+  const repRevenue = summarizeBrandCustomerByRep(dataset, currentMonth, principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, revenue: r.revenue }));
+
+  const [assignments, teamLeaders, supervisors, managers, weeklyTargets] = await Promise.all([
+    prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true } }),
+    prisma.teamLeader.findMany({ select: { id: true, name: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true } }),
+    prisma.manager.findMany({ select: { id: true, name: true } }),
+    prisma.weeklyTarget.findMany({ where: { year: currentMonth.year, monthLabel: currentMonth.month }, select: { teamLeaderId: true, targetValue: true } }),
+  ]);
+  const tlRanking = buildTlRanking(repRevenue, assignments, teamLeaders, weeklyTargets, principal ?? null);
+  return { assignments, supervisors, managers, tlRanking };
+}
+
+function makeSupervisorRankingTool(scope: TeamLeaderScope | null) {
+  return betaTool({
+    name: "get_supervisor_ranking",
+    description: scope
+      ? "Your own Sales Supervisor group's MTD Target vs MTD Revenue achievement, for the current calendar month (several Team Leaders can report to one Supervisor)."
+      : "MTD Target vs MTD Revenue achievement per Sales Supervisor, for the current calendar month, ranked from best to poorest — the primary Team Leader Ranking grouping (each Supervisor typically oversees several Team Leaders).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        principal: { type: "string", description: "Exact principal name from list_principals. Omit for the total across every principal you can see." },
+      },
+      additionalProperties: false,
+    },
+    run: async (args) => {
+      if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
+      const inputs = await loadRankingInputs(args.principal);
+      if (!inputs) return JSON.stringify({ error: "No dataset or no current-month data available." });
+
+      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.assignments, inputs.supervisors);
+      if (scope?.supervisorId) {
+        return JSON.stringify({ rankings: supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId), unassignedTeamLeaders: [] });
+      }
+      if (scope?.teamLeaderId) {
+        // A single Team Leader session has no supervisor grouping of its own —
+        // just their one row's context (which Supervisor they report to, if any).
+        const own = supervisorRanking.rankings.find((r) => r.teamLeaders.some((tl) => tl.teamLeaderId === scope.teamLeaderId));
+        return JSON.stringify({ rankings: own ? [own] : [], unassignedTeamLeaders: [] });
+      }
+      return JSON.stringify(supervisorRanking);
+    },
+  });
+}
+
+function makeManagerRankingTool(scope: TeamLeaderScope | null) {
+  return betaTool({
+    name: "get_manager_ranking",
+    description:
+      "MTD Target vs MTD Revenue achievement per Manager, for the current calendar month, ranked from best to poorest — one tier above Sales Supervisor (a Manager can span several Supervisors and even several principals). Reporting dimension only, admin/unrestricted view.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        principal: { type: "string", description: "Exact principal name from list_principals. Omit for the total across every principal you can see." },
+      },
+      additionalProperties: false,
+    },
+    run: async (args) => {
+      if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
+      const inputs = await loadRankingInputs(args.principal);
+      if (!inputs) return JSON.stringify({ error: "No dataset or no current-month data available." });
+
+      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.assignments, inputs.supervisors);
+      const scopedSupervisors = scope?.supervisorId ? supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId) : supervisorRanking.rankings;
+      return JSON.stringify(buildManagerRanking(scopedSupervisors, inputs.assignments, inputs.managers));
+    },
+  });
+}
+
 function makeWeeklyTargetTool(scope: TeamLeaderScope | null) {
   return betaTool({
     name: "get_weekly_target_performance",
@@ -243,7 +322,10 @@ function makeWeeklyTargetTool(scope: TeamLeaderScope | null) {
       const weeklyTargetWhere: Record<string, unknown> = { year: currentMonth.year, monthLabel: currentMonth.month };
       if (args.principal) weeklyTargetWhere.principal = args.principal;
       else if (scope) weeklyTargetWhere.principal = { in: scope.principals };
-      if (scope?.teamLeaderId) weeklyTargetWhere.teamLeaderId = scope.teamLeaderId;
+      // scope.teamLeaderIds (not the singular teamLeaderId) so a SUPERVISOR session
+      // narrows to every Team Leader in their own group, not just principal — a
+      // TEAM_LEADER session's teamLeaderIds is always exactly [their own id].
+      if (scope && scope.teamLeaderIds.length > 0) weeklyTargetWhere.teamLeaderId = { in: scope.teamLeaderIds };
 
       const [dailySales, weeklyTargets] = await Promise.all([
         prisma.dailySalesActual.findMany({ where: dailySalesWhere, select: { date: true, revenue: true } }),
@@ -295,7 +377,8 @@ function makeDailyProjectionTool(scope: TeamLeaderScope | null) {
       const dailyTargetWhere: Record<string, unknown> = { date: { gte: todayStart, lt: todayEnd } };
       if (args.principal) dailyTargetWhere.principal = args.principal;
       else if (scope) dailyTargetWhere.principal = { in: scope.principals };
-      if (scope?.teamLeaderId) dailyTargetWhere.teamLeaderId = scope.teamLeaderId;
+      // See makeWeeklyTargetTool's matching comment on scope.teamLeaderIds vs teamLeaderId.
+      if (scope && scope.teamLeaderIds.length > 0) dailyTargetWhere.teamLeaderId = { in: scope.teamLeaderIds };
 
       const dailySalesWhere: Record<string, unknown> = { date: { gte: todayStart, lt: todayEnd } };
       if (args.principal) dailySalesWhere.principal = args.principal;
@@ -552,6 +635,8 @@ const TOOL_REGISTRY: { create: (scope: TeamLeaderScope | null) => any; requiresP
   { create: makeCoverageByRepTool, requiresPage: "coverage" },
   { create: makePLSummaryTool, requiresPage: "profitability" },
   { create: makeTlRankingTool, requiresPage: "dashboard" },
+  { create: makeSupervisorRankingTool, requiresPage: "dashboard" },
+  { create: makeManagerRankingTool, requiresPage: "dashboard" },
   { create: makeWeeklyTargetTool, requiresPage: "dashboard" },
   { create: makeDailyProjectionTool, requiresPage: "dashboard" },
   { create: makeJpAdherenceTool, requiresPage: "jp-adherence" },
@@ -575,15 +660,18 @@ export async function toolsForUser(
   allowedPages: readonly string[],
   isAdmin: boolean,
   teamLeaderId: string | null,
-  allowedPrincipals: readonly string[] = []
+  allowedPrincipals: readonly string[] = [],
+  supervisorId: string | null = null
 ) {
   const scope = isAdmin
     ? null
-    : teamLeaderId
-      ? await loadTeamLeaderScope(teamLeaderId)
-      : allowedPrincipals.length > 0
-        ? await loadViewerPrincipalScope([...allowedPrincipals])
-        : null;
+    : supervisorId
+      ? await loadSupervisorScope(supervisorId)
+      : teamLeaderId
+        ? await loadTeamLeaderScope(teamLeaderId)
+        : allowedPrincipals.length > 0
+          ? await loadViewerPrincipalScope([...allowedPrincipals])
+          : null;
   return TOOL_REGISTRY.filter((entry) => (entry.requiresPage === "admin" ? isAdmin : isAdmin || allowedPages.includes(entry.requiresPage))).map((entry) =>
     entry.create(scope)
   );

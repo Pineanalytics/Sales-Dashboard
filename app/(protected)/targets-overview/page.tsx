@@ -46,7 +46,7 @@ export default async function TargetsOverviewPage({
   }>;
 }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
   const user = session.user;
@@ -65,7 +65,7 @@ export default async function TargetsOverviewPage({
     region: params.region || undefined,
   };
 
-  const scope = await resolveScopeForSession(user.role, user.teamLeaderId ?? null, user.allowedPrincipals);
+  const scope = await resolveScopeForSession(user.role, user.teamLeaderId ?? null, user.allowedPrincipals, user.supervisorId ?? null);
   const [{ targetRows, rosterRows, principals, teamLeaders, regions }, targetYears] = await Promise.all([
     getTargetsOverview(filters, scope),
     prisma.target.findMany({ select: { year: true }, distinct: ["year"] }),
@@ -430,7 +430,7 @@ export default async function TargetsOverviewPage({
               </thead>
               <tbody>
                 {rosterRows.map((r) => {
-                  const canEdit = isAdmin || r.teamLeaderId === user.teamLeaderId;
+                  const canEdit = isAdmin || (scope ? scope.teamLeaderIds.includes(r.teamLeaderId) : r.teamLeaderId === user.teamLeaderId);
                   if (editingAssignmentId === r.assignmentId) {
                     return (
                       <tr key={r.assignmentId}>

@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   const filters: TimestampFilters = { principalKey, month, date, employeeCode, region, teamLeader, roleFilter, chartGranularity };
 
   try {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const [summary, watermark] = await Promise.all([
       getTimestampSummary(new Date(), scope, filters),
       prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" }, select: { updatedAt: true } }),

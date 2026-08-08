@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { DailyProjectionTable, type DailyProjectionRow } from "@/components/weeklyTargets/DailyProjectionTable";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +13,14 @@ function dateKey(d: Date): string {
 
 export default async function DailyProjectionPage() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
-  const isAdmin = session.user.role === "ADMIN";
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
 
   const [dailyTargets, teamLeaders] = await Promise.all([
     prisma.dailyTarget.findMany({
-      where: isAdmin ? {} : { teamLeaderId: session.user.teamLeaderId ?? "" },
+      where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
       orderBy: [{ date: "asc" }, { employeeName: "asc" }],
     }),
     prisma.teamLeader.findMany(),

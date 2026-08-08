@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTlRanking } from "../lib/tlRanking";
+import { buildTlRanking, buildSupervisorRanking, buildManagerRanking, type TlRankingRow } from "../lib/tlRanking";
 
 const teamLeaders = [
   { id: "tl-josephat", name: "Josephat" },
@@ -111,5 +111,85 @@ describe("buildTlRanking", () => {
     );
     expect(result.unmatchedReps).toHaveLength(0);
     expect(result.rankings).toHaveLength(0);
+  });
+});
+
+function tlRow(teamLeaderId: string, teamLeaderName: string, mtdTarget: number, mtdRevenue: number): TlRankingRow {
+  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null };
+}
+
+const supervisors = [
+  { id: "sup-lucy", name: "Lucy Githinji" },
+  { id: "sup-eve", name: "Eve" },
+];
+const managers = [{ id: "mgr-angela", name: "Angela Sitati" }];
+
+describe("buildSupervisorRanking", () => {
+  it("groups several Team Leaders under one Supervisor and sums their target/revenue", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 90000), tlRow("tl-calvince", "Calvince Onditi", 50000, 60000)];
+    const assignments = [
+      { teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
+      { teamLeaderId: "tl-calvince", employeeName: "Rep B", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
+    ];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    expect(result.rankings).toHaveLength(1);
+    expect(result.rankings[0].supervisorId).toBe("sup-lucy");
+    expect(result.rankings[0].mtdTarget).toBe(150000);
+    expect(result.rankings[0].mtdRevenue).toBe(150000);
+    expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toEqual(["tl-calvince", "tl-shekila"]); // best (120%) before worst (90%)
+    expect(result.unassignedTeamLeaders).toHaveLength(0);
+  });
+
+  it("puts a Team Leader with no resolvable Supervisor into unassignedTeamLeaders", () => {
+    const tlRanking = [tlRow("tl-orphan", "Orphan TL", 10000, 5000)];
+    const result = buildSupervisorRanking(tlRanking, [], supervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(1);
+    expect(result.unassignedTeamLeaders[0].teamLeaderId).toBe("tl-orphan");
+  });
+
+  it("ranks Supervisors best-to-worst by achievedPct", () => {
+    const tlRanking = [tlRow("tl-a", "A", 100000, 50000), tlRow("tl-b", "B", 100000, 90000)];
+    const assignments = [
+      { teamLeaderId: "tl-a", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: "sup-lucy", managerId: null },
+      { teamLeaderId: "tl-b", employeeName: "Rep B", sapName: null, principal: "P", active: true, supervisorId: "sup-eve", managerId: null },
+    ];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    expect(result.rankings.map((r) => r.supervisorId)).toEqual(["sup-eve", "sup-lucy"]);
+  });
+
+  it("ignores inactive assignments when resolving a Team Leader's Supervisor", () => {
+    const tlRanking = [tlRow("tl-a", "A", 100000, 50000)];
+    const assignments = [{ teamLeaderId: "tl-a", employeeName: "Rep A", sapName: null, principal: "P", active: false, supervisorId: "sup-lucy", managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(1);
+  });
+});
+
+describe("buildManagerRanking", () => {
+  it("rolls several Supervisors up to one Manager, summing their target/revenue", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 120000), tlRow("tl-josephat", "Josephat", 50000, 40000)];
+    const assignments = [
+      { teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
+      { teamLeaderId: "tl-josephat", employeeName: "Rep B", sapName: null, principal: "Bic-Nairobi", active: true, supervisorId: "sup-eve", managerId: "mgr-angela" },
+    ];
+    const supervisorRanking = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    const result = buildManagerRanking(supervisorRanking.rankings, assignments, managers);
+    expect(result.rankings).toHaveLength(1);
+    expect(result.rankings[0].managerId).toBe("mgr-angela");
+    expect(result.rankings[0].mtdTarget).toBe(150000);
+    expect(result.rankings[0].mtdRevenue).toBe(160000);
+    expect(result.rankings[0].supervisors).toHaveLength(2);
+  });
+
+  it("puts a Supervisor with no resolvable Manager into unassignedSupervisors", () => {
+    const tlRanking = [tlRow("tl-a", "A", 100000, 50000)];
+    const assignments = [{ teamLeaderId: "tl-a", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: "sup-lucy", managerId: null }];
+    const supervisorRanking = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    const result = buildManagerRanking(supervisorRanking.rankings, assignments, managers);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedSupervisors).toHaveLength(1);
+    expect(result.unassignedSupervisors[0].supervisorId).toBe("sup-lucy");
   });
 });

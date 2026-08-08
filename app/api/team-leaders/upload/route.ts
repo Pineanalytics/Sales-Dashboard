@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { isRosterRow, upsertRosterRows, type RosterUploadRow } from "@/lib/rosterImport";
+import { isRosterRow, upsertRosterRows, type RosterUploadRow, type RosterFormat } from "@/lib/rosterImport";
 
 export const runtime = "nodejs";
 
@@ -39,9 +39,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more Roster rows are invalid." }, { status: 400 });
   }
   const validRows = rows as RosterUploadRow[];
+  const formatRaw = (body as { format?: unknown })?.format;
+  const format: RosterFormat = formatRaw === "V18" ? "V18" : "V21"; // defaults to V21 so scripts/target-management/import.ts's .xlsm path (which never sends this) keeps working unmodified
 
   try {
-    const result = await upsertRosterRows(validRows);
+    const result = await upsertRosterRows(validRows, format);
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     console.error("Failed to import Roster", err);

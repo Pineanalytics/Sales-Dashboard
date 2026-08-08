@@ -6,14 +6,21 @@ import { prisma } from "@/lib/db";
 import { invalidateDatasetCache } from "@/lib/datasetStore";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 import type { Target, TeamLeaderAssignment } from "@prisma/client";
 
 async function requireViewer() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
   return session.user;
+}
+
+async function requireViewerWithScope(): Promise<{ user: Awaited<ReturnType<typeof requireViewer>>; scope: TeamLeaderScope | null }> {
+  const user = await requireViewer();
+  const scope = await resolveScopeForSession(user.role, user.teamLeaderId, user.allowedPrincipals, user.supervisorId);
+  return { user, scope };
 }
 
 function str(formData: FormData, name: string): string {
@@ -146,7 +153,7 @@ export async function updateTargetValueAction(formData: FormData) {
  *  roster metadata," never another Team Leader's rep even on a shared
  *  principal. */
 export async function updateAssignmentMetadataAction(formData: FormData) {
-  const user = await requireViewer();
+  const { user, scope } = await requireViewerWithScope();
   const suffix = filterSuffix(formData);
   const id = str(formData, "assignmentId");
 
@@ -155,7 +162,7 @@ export async function updateAssignmentMetadataAction(formData: FormData) {
     redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("Assignment not found.") + suffix);
   }
 
-  if (user.role === "TEAM_LEADER" && existing.teamLeaderId !== user.teamLeaderId) {
+  if (scope && !scope.teamLeaderIds.includes(existing.teamLeaderId)) {
     redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("You can only edit your own reps.") + suffix);
   }
 

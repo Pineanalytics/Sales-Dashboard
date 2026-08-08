@@ -20,6 +20,8 @@ export interface AssignmentInput {
   sapName: string | null;
   principal: string;
   active: boolean;
+  supervisorId?: string | null;
+  managerId?: string | null;
 }
 
 export interface TeamLeaderInput {
@@ -120,14 +122,142 @@ export function buildTlRanking(
     };
   });
 
-  rankings.sort((a, b) => {
+  unmatchedReps.sort((a, b) => b.revenue - a.revenue);
+
+  return { rankings: sortByAchievement(rankings), unmatchedReps };
+}
+
+/** Best-to-worst: highest achievedPct first, unranked (null — no target) rows last
+ *  (tie-broken by raw revenue). Shared by every ranking level (Team Leader/
+ *  Supervisor/Manager) so "best performed to poorest" means the same thing at
+ *  every tier. */
+function sortByAchievement<T extends { achievedPct: number | null; mtdRevenue: number }>(rows: T[]): T[] {
+  return rows.slice().sort((a, b) => {
     if (a.achievedPct === null && b.achievedPct === null) return b.mtdRevenue - a.mtdRevenue;
     if (a.achievedPct === null) return 1;
     if (b.achievedPct === null) return -1;
     return b.achievedPct - a.achievedPct;
   });
+}
 
-  unmatchedReps.sort((a, b) => b.revenue - a.revenue);
+export interface HierarchyEntity {
+  id: string;
+  name: string;
+}
 
-  return { rankings, unmatchedReps };
+export interface SupervisorRankingRow {
+  supervisorId: string;
+  supervisorName: string;
+  mtdTarget: number;
+  mtdRevenue: number;
+  achievedPct: number | null;
+  teamLeaders: TlRankingRow[]; // drill-down, already sorted best-to-worst
+}
+
+export interface SupervisorRankingResult {
+  rankings: SupervisorRankingRow[]; // sorted by achievedPct desc
+  unassignedTeamLeaders: TlRankingRow[]; // Team Leaders with no resolvable Supervisor
+}
+
+/** Rolls Team-Leader-level ranking rows up to Sales Supervisor level — the primary
+ *  ranking grouping (several Team Leaders can share one Supervisor, e.g. Mars-
+ *  Nairobi's 5 Team Leaders all under Lucy Githinji). Team Leader detail nests
+ *  underneath each Supervisor row rather than disappearing, matching "team leaders
+ *  can then be tracked based on the teams and regions they head." A Team Leader's
+ *  Supervisor is resolved from their own active TeamLeaderAssignment rows (first
+ *  non-null supervisorId wins, same matrix-org tolerance resolveTeamLeaderId
+ *  already has for principal-specific assignments). */
+export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: AssignmentInput[], supervisors: HierarchyEntity[]): SupervisorRankingResult {
+  const activeAssignments = assignments.filter((a) => a.active);
+  const supervisorIdByTeamLeader = new Map<string, string>();
+  for (const a of activeAssignments) {
+    if (a.supervisorId && !supervisorIdByTeamLeader.has(a.teamLeaderId)) supervisorIdByTeamLeader.set(a.teamLeaderId, a.supervisorId);
+  }
+  const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.name]));
+
+  const bySupervisor = new Map<string, TlRankingRow[]>();
+  const unassignedTeamLeaders: TlRankingRow[] = [];
+  for (const tl of tlRanking) {
+    const supervisorId = supervisorIdByTeamLeader.get(tl.teamLeaderId);
+    if (!supervisorId) {
+      unassignedTeamLeaders.push(tl);
+      continue;
+    }
+    const list = bySupervisor.get(supervisorId) ?? [];
+    list.push(tl);
+    bySupervisor.set(supervisorId, list);
+  }
+
+  const rankings: SupervisorRankingRow[] = Array.from(bySupervisor.entries()).map(([supervisorId, teamLeaders]) => {
+    const mtdTarget = teamLeaders.reduce((s, tl) => s + tl.mtdTarget, 0);
+    const mtdRevenue = teamLeaders.reduce((s, tl) => s + tl.mtdRevenue, 0);
+    return {
+      supervisorId,
+      supervisorName: supervisorNameById.get(supervisorId) ?? "—",
+      mtdTarget,
+      mtdRevenue,
+      achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
+      teamLeaders: sortByAchievement(teamLeaders),
+    };
+  });
+
+  return { rankings: sortByAchievement(rankings), unassignedTeamLeaders: sortByAchievement(unassignedTeamLeaders) };
+}
+
+export interface ManagerRankingRow {
+  managerId: string;
+  managerName: string;
+  mtdTarget: number;
+  mtdRevenue: number;
+  achievedPct: number | null;
+  supervisors: SupervisorRankingRow[]; // drill-down, already sorted best-to-worst
+}
+
+export interface ManagerRankingResult {
+  rankings: ManagerRankingRow[]; // sorted by achievedPct desc
+  unassignedSupervisors: SupervisorRankingRow[]; // Supervisors with no resolvable Manager
+}
+
+/** Rolls Supervisor-level rows up to Manager level — one tier further up (a Manager
+ *  can span several Supervisors and even several principals, e.g. Angela Sitati
+ *  over Lucy Githinji's Mars-Nairobi group plus Suntory/Upfield/Tropikal/Weetabix).
+ *  Reporting/ranking dimension only — no Manager login. A Supervisor's Manager is
+ *  resolved via its own nested Team Leaders' assignment rows (first match), the
+ *  same "ask the leaf rows, not a separate lookup" approach buildSupervisorRanking
+ *  uses. */
+export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], assignments: AssignmentInput[], managers: HierarchyEntity[]): ManagerRankingResult {
+  const activeAssignments = assignments.filter((a) => a.active);
+  const managerIdByTeamLeader = new Map<string, string>();
+  for (const a of activeAssignments) {
+    if (a.managerId && !managerIdByTeamLeader.has(a.teamLeaderId)) managerIdByTeamLeader.set(a.teamLeaderId, a.managerId);
+  }
+  const managerNameById = new Map(managers.map((m) => [m.id, m.name]));
+
+  const byManager = new Map<string, SupervisorRankingRow[]>();
+  const unassignedSupervisors: SupervisorRankingRow[] = [];
+  for (const sup of supervisorRanking) {
+    const managerId = sup.teamLeaders.length > 0 ? managerIdByTeamLeader.get(sup.teamLeaders[0].teamLeaderId) : undefined;
+    if (!managerId) {
+      unassignedSupervisors.push(sup);
+      continue;
+    }
+    const list = byManager.get(managerId) ?? [];
+    list.push(sup);
+    byManager.set(managerId, list);
+  }
+
+  const rankings: ManagerRankingRow[] = Array.from(byManager.entries()).map(([managerId, supervisors]) => {
+    const mtdTarget = supervisors.reduce((s, sup) => s + sup.mtdTarget, 0);
+    const mtdRevenue = supervisors.reduce((s, sup) => s + sup.mtdRevenue, 0);
+    return {
+      managerId,
+      managerName: managerNameById.get(managerId) ?? "—",
+      mtdTarget,
+      mtdRevenue,
+      achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
+      supervisors: sortByAchievement(supervisors),
+    };
+  });
+
+  return { rankings: sortByAchievement(rankings), unassignedSupervisors: sortByAchievement(unassignedSupervisors) };
 }

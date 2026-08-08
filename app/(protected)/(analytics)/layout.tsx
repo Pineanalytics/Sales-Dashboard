@@ -17,7 +17,7 @@ export default async function AnalyticsLayout({ children }: { children: React.Re
 
   let scopedDataset = dataset;
   if (dataset && session?.user) {
-    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     if (scope) {
       const principalKeys = new Set(scope.principals.map(normalizePrincipalKey));
       scopedDataset = filterDatasetToPrincipals(dataset, principalKeys);

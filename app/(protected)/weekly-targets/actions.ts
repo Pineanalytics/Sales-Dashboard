@@ -4,32 +4,34 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
+import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 
 async function requireAdminOrTeamLeader() {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
-  return session.user;
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+  return { user: session.user, scope };
 }
 
-// A TEAM_LEADER can only ever touch their own rows — this is the one place in the
-// app where row ownership (not just page visibility) gates a write, so it's
-// checked directly against the row's teamLeaderId rather than relying on the UI
-// not rendering another team leader's grid.
-async function assertOwnsTeamLeader(user: { role: string; teamLeaderId: string | null }, teamLeaderId: string) {
-  if (user.role === "ADMIN") return;
-  if (user.teamLeaderId !== teamLeaderId) {
+// A TEAM_LEADER can only ever touch their own rows, a SUPERVISOR any Team Leader in
+// their own Sales Supervisor group — this is the one place in the app where row
+// ownership (not just page visibility) gates a write, so it's checked directly
+// against the row's teamLeaderId rather than relying on the UI not rendering
+// another team leader's grid.
+function assertOwnsTeamLeader(scope: TeamLeaderScope | null, teamLeaderId: string) {
+  if (scope && !scope.teamLeaderIds.includes(teamLeaderId)) {
     redirect("/weekly-targets?error=" + encodeURIComponent("You can only edit your own Weekly Targets."));
   }
 }
 
 export async function saveWeeklyTargetsAction(formData: FormData) {
-  const user = await requireAdminOrTeamLeader();
+  const { user, scope } = await requireAdminOrTeamLeader();
   const teamLeaderId = String(formData.get("teamLeaderId") || "");
   const year = String(formData.get("year") || "");
   const month = String(formData.get("month") || "");
-  await assertOwnsTeamLeader(user, teamLeaderId);
+  assertOwnsTeamLeader(scope, teamLeaderId);
 
   // Cells are named "cell__<weeklyTargetId>" so we don't have to re-derive the
   // (principal, weekStartDate) key from form field names — the row already exists

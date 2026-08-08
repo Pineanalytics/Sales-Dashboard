@@ -11,6 +11,7 @@ import {
   classifyMonthlyVariance,
 } from "@/lib/weeklyTargets";
 import { saveWeeklyTargetsAction } from "./actions";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const dynamic = "force-dynamic";
 
@@ -23,17 +24,18 @@ export default async function WeeklyTargetsPage({
   searchParams: Promise<{ error?: string; success?: string; year?: string; month?: string; teamLeader?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER")) {
+  if (!session?.user || (session.user.role !== "ADMIN" && session.user.role !== "TEAM_LEADER" && session.user.role !== "SUPERVISOR")) {
     redirect("/");
   }
   const isAdmin = session.user.role === "ADMIN";
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
 
-  if (!isAdmin && !session.user.teamLeaderId) {
+  if (!isAdmin && !session.user.teamLeaderId && !session.user.supervisorId) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-8">
         <p className="max-w-md text-center text-sm text-muted-strong">
-          Your login isn&apos;t linked to a Team Leader profile yet. Ask an administrator to link it from{" "}
-          <span className="font-medium text-primary-blue">Manage Users</span>.
+          Your login isn&apos;t linked to a Team Leader or Sales Supervisor profile yet. Ask an administrator to link
+          it from <span className="font-medium text-primary-blue">Manage Users</span>.
         </p>
       </div>
     );
@@ -46,7 +48,7 @@ export default async function WeeklyTargetsPage({
   const monthIndex = CANONICAL_MONTHS.indexOf(month);
 
   const allTeamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
-  const visibleTeamLeaders = isAdmin ? allTeamLeaders : allTeamLeaders.filter((tl) => tl.id === session.user.teamLeaderId);
+  const visibleTeamLeaders = scope ? allTeamLeaders.filter((tl) => scope.teamLeaderIds.includes(tl.id)) : allTeamLeaders;
 
   if (visibleTeamLeaders.length === 0) {
     return (
@@ -161,7 +163,7 @@ export default async function WeeklyTargetsPage({
           ))}
         </div>
 
-        {isAdmin && visibleTeamLeaders.length > 1 ? (
+        {visibleTeamLeaders.length > 1 ? (
           <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             <div className="p-6 pb-0">
               <h2 className="text-lg font-semibold text-primary-blue">Team Leader summary</h2>
@@ -207,7 +209,7 @@ export default async function WeeklyTargetsPage({
         ) : null}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex flex-wrap items-center gap-4">
-          {isAdmin ? (
+          {visibleTeamLeaders.length > 1 ? (
             <div className="flex items-center gap-2 text-[13px]">
               {visibleTeamLeaders.map((tl) => (
                 <Link

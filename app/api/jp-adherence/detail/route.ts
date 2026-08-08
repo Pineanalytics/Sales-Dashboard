@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date." }, { status: 400 });
   }
 
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals);
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
   if (scope && !scope.employeeCodes.includes(employeeCode)) {
     return NextResponse.json({ error: "That rep isn't on your team." }, { status: 403 });
   }
