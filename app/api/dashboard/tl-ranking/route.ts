@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { buildTlRanking, buildSupervisorRanking, buildManagerRanking, type RepRevenueInput, type SupervisorRankingResult, type ManagerRankingResult, type TlRankingRow, type UnmatchedRep } from "@/lib/tlRanking";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { getMtdTargetByTeamLeader } from "@/lib/mtdTarget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,20 +51,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
 
-  const [assignments, teamLeaders, supervisors, managers, weeklyTargets] = await Promise.all([
+  const [assignments, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
     prisma.teamLeaderAssignment.findMany({
       select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true },
     }),
     prisma.teamLeader.findMany({ select: { id: true, name: true } }),
     prisma.supervisor.findMany({ select: { id: true, name: true } }),
     prisma.manager.findMany({ select: { id: true, name: true } }),
-    prisma.weeklyTarget.findMany({
-      where: { year, monthLabel },
-      select: { teamLeaderId: true, targetValue: true },
-    }),
+    getMtdTargetByTeamLeader(year, monthLabel),
   ]);
 
-  const result = buildTlRanking(repRevenue, assignments, teamLeaders, weeklyTargets, principalFilter ?? null);
+  const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets, principalFilter ?? null);
 
   // TEAM_LEADER and a principal-scoped VIEWER keep today's flat shape — a single
   // Team Leader (or a flat multi-TL list with no meaningful supervisor grouping

@@ -31,7 +31,13 @@ export interface TeamLeaderInput {
   name: string;
 }
 
-export interface WeeklyTargetInput {
+/** Pre-aggregated MTD Target contribution per Team Leader — one row per Team
+ *  Leader, already summed by the caller. In practice this is sourced from
+ *  DailyTarget (elapsed days only), not a raw WeeklyTarget row — see
+ *  lib/mtdTarget.ts for why a straight WeeklyTarget sum overstates MTD. Kept as a
+ *  generic {teamLeaderId, targetValue} pair here so this function stays pure/
+ *  testable regardless of where the caller sourced it from. */
+export interface MtdTargetInput {
   teamLeaderId: string;
   targetValue: number;
 }
@@ -79,15 +85,16 @@ function resolveTeamLeaderId(salesEmployee: string, activeAssignments: Assignmen
 }
 
 /** Pure derivation: joins rep-level MTD revenue to Team Leaders (by sapName/employeeName),
- *  sums each Team Leader's target from their WeeklyTarget rows for the period's weeks, and
- *  ranks by achievement %. Reps whose name matches no active assignment are reported
- *  separately rather than silently dropped or silently misattributed — same pattern as
- *  the existing unassignedRevenueReps check on /weekly-targets/contribution. */
+ *  sums each Team Leader's MTD target (see MtdTargetInput — elapsed days only, not the
+ *  whole month), and ranks by achievement %. Reps whose name matches no active
+ *  assignment are reported separately rather than silently dropped or silently
+ *  misattributed — same pattern as the existing unassignedRevenueReps check on
+ *  /weekly-targets/contribution. */
 export function buildTlRanking(
   repRevenue: RepRevenueInput[],
   assignments: AssignmentInput[],
   teamLeaders: TeamLeaderInput[],
-  weeklyTargets: WeeklyTargetInput[],
+  mtdTargets: MtdTargetInput[],
   principalFilter: string | null
 ): TlRankingResult {
   const activeAssignments = assignments.filter((a) => a.active);
@@ -107,8 +114,8 @@ export function buildTlRanking(
   }
 
   const targetByTeamLeader = new Map<string, number>();
-  for (const wt of weeklyTargets) {
-    targetByTeamLeader.set(wt.teamLeaderId, (targetByTeamLeader.get(wt.teamLeaderId) ?? 0) + wt.targetValue);
+  for (const mt of mtdTargets) {
+    targetByTeamLeader.set(mt.teamLeaderId, (targetByTeamLeader.get(mt.teamLeaderId) ?? 0) + mt.targetValue);
   }
 
   const teamLeaderIds = new Set([...revenueByTeamLeader.keys(), ...targetByTeamLeader.keys()]);
