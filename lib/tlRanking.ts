@@ -1,3 +1,5 @@
+import { teamLeaderSupervisesName } from "./teamLeaderScope";
+
 // Team Leader Ranking — MTD Target vs MTD Revenue per Team Leader, for the
 // redesigned Executive Overview (/dashboard). No existing rollup did this: rep-level
 // revenue only exists in the Excel-sourced MonthlyBrandCustomerRow (a "salesEmployee"
@@ -178,7 +180,21 @@ export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: A
   const bySupervisor = new Map<string, TlRankingRow[]>();
   const unassignedTeamLeaders: TlRankingRow[] = [];
   for (const tl of tlRanking) {
-    const supervisorId = supervisorIdByTeamLeader.get(tl.teamLeaderId);
+    let supervisorId = supervisorIdByTeamLeader.get(tl.teamLeaderId);
+    if (!supervisorId) {
+      // Legacy fallback: a Team Leader row with no roster-linked Supervisor - e.g.
+      // an old monolithic "Lucy" team-leader identity carrying pre-restructuring
+      // WeeklyTarget history from before the account was split into named
+      // sub-team-leaders under Supervisor "Lucy Githinji" - still rolls up
+      // correctly when its own name matches a Supervisor's, via the exact same
+      // fuzzy rule lib/teamLeaderScope.ts's TEAM_LEADER scope expansion already
+      // uses for this "coarser old identity vs newer structured hierarchy"
+      // reconciliation. Only applied when exactly one Supervisor matches, so a
+      // genuinely ambiguous/unrelated stray name (e.g. "Christine", "BDM") stays
+      // correctly unassigned rather than guessed at.
+      const matches = supervisors.filter((s) => teamLeaderSupervisesName(tl.teamLeaderName, s.name));
+      if (matches.length === 1) supervisorId = matches[0].id;
+    }
     if (!supervisorId) {
       unassignedTeamLeaders.push(tl);
       continue;
@@ -236,7 +252,15 @@ export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], a
   const byManager = new Map<string, SupervisorRankingRow[]>();
   const unassignedSupervisors: SupervisorRankingRow[] = [];
   for (const sup of supervisorRanking) {
-    const managerId = sup.teamLeaders.length > 0 ? managerIdByTeamLeader.get(sup.teamLeaders[0].teamLeaderId) : undefined;
+    // Check every nested Team Leader, not just the first (sorted-by-achievement)
+    // one - a legacy fuzzy-merged Team Leader (see buildSupervisorRanking's own
+    // fallback) has no assignment row of its own and so no managerId, but a
+    // genuine roster-linked sibling under the same Supervisor usually does.
+    let managerId = sup.teamLeaders.map((tl) => managerIdByTeamLeader.get(tl.teamLeaderId)).find((id) => id != null);
+    if (!managerId) {
+      const matches = managers.filter((m) => teamLeaderSupervisesName(sup.supervisorName, m.name));
+      if (matches.length === 1) managerId = matches[0].id;
+    }
     if (!managerId) {
       unassignedSupervisors.push(sup);
       continue;

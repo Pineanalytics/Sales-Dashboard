@@ -165,6 +165,32 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings).toHaveLength(0);
     expect(result.unassignedTeamLeaders).toHaveLength(1);
   });
+
+  it("falls back to fuzzy name-matching a legacy Team Leader with no roster-linked Supervisor (e.g. old monolithic 'Lucy' vs 'Lucy Githinji')", () => {
+    const tlRanking = [tlRow("tl-legacy-lucy", "Lucy", 90000000, 16000000), tlRow("tl-shekila", "Shekila Hassan", 100000, 90000)];
+    const assignments = [{ teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    expect(result.unassignedTeamLeaders).toHaveLength(0);
+    expect(result.rankings).toHaveLength(1);
+    expect(result.rankings[0].supervisorId).toBe("sup-lucy");
+    expect(result.rankings[0].mtdTarget).toBe(90100000);
+    expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toContain("tl-legacy-lucy");
+  });
+
+  it("leaves a genuinely unrelated stray Team Leader name unassigned rather than guessing", () => {
+    const tlRanking = [tlRow("tl-christine", "Christine", 5000000, 0)];
+    const result = buildSupervisorRanking(tlRanking, [], supervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(1);
+  });
+
+  it("does not fuzzy-match when the name is ambiguous across more than one Supervisor", () => {
+    const ambiguousSupervisors = [{ id: "sup-e1", name: "Eve" }, { id: "sup-e2", name: "Eve Njoroge" }];
+    const tlRanking = [tlRow("tl-eve", "Eve", 1000, 500)];
+    const result = buildSupervisorRanking(tlRanking, [], ambiguousSupervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(1);
+  });
 });
 
 describe("buildManagerRanking", () => {
@@ -191,5 +217,25 @@ describe("buildManagerRanking", () => {
     expect(result.rankings).toHaveLength(0);
     expect(result.unassignedSupervisors).toHaveLength(1);
     expect(result.unassignedSupervisors[0].supervisorId).toBe("sup-lucy");
+  });
+
+  it("resolves Manager via any nested Team Leader, not just the first (sorted-by-achievement) one", () => {
+    // tl-legacy (fuzzy-merged, no assignment row) sorts first on achievedPct; only
+    // tl-shekila carries a real managerId - buildManagerRanking must still find it.
+    const tlRanking = [tlRow("tl-legacy", "Lucy", 100, 1000), tlRow("tl-shekila", "Shekila Hassan", 100000, 50000)];
+    const assignments = [{ teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" }];
+    const supervisorRanking = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    const result = buildManagerRanking(supervisorRanking.rankings, assignments, managers);
+    expect(result.rankings).toHaveLength(1);
+    expect(result.rankings[0].managerId).toBe("mgr-angela");
+  });
+
+  it("falls back to fuzzy name-matching a Supervisor with no roster-linked Manager", () => {
+    const tlRanking = [tlRow("tl-a", "A", 100000, 50000)];
+    const assignments = [{ teamLeaderId: "tl-a", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: "sup-eve", managerId: null }];
+    const supervisorRanking = buildSupervisorRanking(tlRanking, assignments, [{ id: "sup-eve", name: "Eve" }]);
+    const result = buildManagerRanking(supervisorRanking.rankings, assignments, [{ id: "mgr-eve-full", name: "Eve Wanjiru" }]);
+    expect(result.rankings).toHaveLength(1);
+    expect(result.rankings[0].managerId).toBe("mgr-eve-full");
   });
 });
