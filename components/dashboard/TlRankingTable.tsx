@@ -15,6 +15,7 @@ type TlRankingResponse =
 interface RankRowShape {
   key: string;
   name: string;
+  monthlyTarget: number;
   mtdTarget: number;
   mtdRevenue: number;
   achievedPct: number | null;
@@ -38,6 +39,7 @@ function RankRow({ row, depth, expandable, expanded, onToggle }: { row: RankRowS
           <span className={depth === 0 ? "font-semibold text-brand-navy" : ""}>{row.name}</span>
         </div>
       </Td>
+      <Td align="right">{formatCompact(row.monthlyTarget)}</Td>
       <Td align="right">{formatCompact(row.mtdTarget)}</Td>
       <Td align="right">{formatCompact(row.mtdRevenue)}</Td>
       <Td align="center">
@@ -114,6 +116,7 @@ export function TlRankingTable({
   }
 
   if (result.mode === "flat") {
+    const totalMonthlyTarget = result.rankings.reduce((s, r) => s + r.monthlyTarget, 0);
     const totalTarget = result.rankings.reduce((s, r) => s + r.mtdTarget, 0);
     const totalRevenue = result.rankings.reduce((s, r) => s + r.mtdRevenue, 0);
     const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
@@ -122,16 +125,24 @@ export function TlRankingTable({
         <TableWrap>
           <Thead>
             <Th>Team Leader</Th>
+            <Th align="right">Full Month Target</Th>
             <Th align="right">MTD Target</Th>
             <Th align="right">MTD Revenue</Th>
             <Th align="center">Achieved vs MTD</Th>
           </Thead>
           <tbody>
             {result.rankings.map((r) => (
-              <RankRow key={r.teamLeaderId} row={{ key: r.teamLeaderId, name: r.teamLeaderName, mtdTarget: r.mtdTarget, mtdRevenue: r.mtdRevenue, achievedPct: r.achievedPct }} depth={0} expandable={false} expanded={false} />
+              <RankRow
+                key={r.teamLeaderId}
+                row={{ key: r.teamLeaderId, name: r.teamLeaderName, monthlyTarget: r.monthlyTarget, mtdTarget: r.mtdTarget, mtdRevenue: r.mtdRevenue, achievedPct: r.achievedPct }}
+                depth={0}
+                expandable={false}
+                expanded={false}
+              />
             ))}
             <TotalRow>
               <Td>Total Sales</Td>
+              <Td align="right">{formatCompact(totalMonthlyTarget)}</Td>
               <Td align="right">{formatCompact(totalTarget)}</Td>
               <Td align="right">{formatCompact(totalRevenue)}</Td>
               <Td align="center">
@@ -148,6 +159,8 @@ export function TlRankingTable({
   const { managerRanking, supervisorRanking } = result;
   const isManagerLevel = level === "manager" && managerRanking.rankings.length > 0;
 
+  const totalMonthlyTarget =
+    supervisorRanking.rankings.reduce((s, r) => s + r.monthlyTarget, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.monthlyTarget, 0);
   const totalTarget = supervisorRanking.rankings.reduce((s, r) => s + r.mtdTarget, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdTarget, 0);
   const totalRevenue = supervisorRanking.rankings.reduce((s, r) => s + r.mtdRevenue, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdRevenue, 0);
   const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
@@ -175,6 +188,7 @@ export function TlRankingTable({
       <TableWrap>
         <Thead>
           <Th>{isManagerLevel ? "Manager" : "Sales Supervisor"}</Th>
+          <Th align="right">Full Month Target</Th>
           <Th align="right">MTD Target</Th>
           <Th align="right">MTD Revenue</Th>
           <Th align="center">Achieved vs MTD</Th>
@@ -186,7 +200,7 @@ export function TlRankingTable({
                 return (
                   <Fragment key={m.managerId}>
                     <RankRow
-                      row={{ key: m.managerId, name: m.managerName, mtdTarget: m.mtdTarget, mtdRevenue: m.mtdRevenue, achievedPct: m.achievedPct }}
+                      row={{ key: m.managerId, name: m.managerName, monthlyTarget: m.monthlyTarget, mtdTarget: m.mtdTarget, mtdRevenue: m.mtdRevenue, achievedPct: m.achievedPct }}
                       depth={0}
                       expandable
                       expanded={mExpanded}
@@ -199,7 +213,7 @@ export function TlRankingTable({
                           return (
                             <Fragment key={sKey}>
                               <RankRow
-                                row={{ key: sKey, name: s.supervisorName, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct }}
+                                row={{ key: sKey, name: s.supervisorName, monthlyTarget: s.monthlyTarget, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct }}
                                 depth={1}
                                 expandable
                                 expanded={sExpanded}
@@ -207,7 +221,13 @@ export function TlRankingTable({
                               />
                               {sExpanded
                                 ? s.teamLeaders.map((tl) => (
-                                    <RankRow key={`${sKey}|${tl.teamLeaderId}`} row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }} depth={2} expandable={false} expanded={false} />
+                                    <RankRow
+                                      key={`${sKey}|${tl.teamLeaderId}`}
+                                      row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }}
+                                      depth={2}
+                                      expandable={false}
+                                      expanded={false}
+                                    />
                                   ))
                                 : null}
                             </Fragment>
@@ -222,7 +242,7 @@ export function TlRankingTable({
                 return (
                   <Fragment key={s.supervisorId}>
                     <RankRow
-                      row={{ key: s.supervisorId, name: s.supervisorName, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct }}
+                      row={{ key: s.supervisorId, name: s.supervisorName, monthlyTarget: s.monthlyTarget, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct }}
                       depth={0}
                       expandable
                       expanded={sExpanded}
@@ -230,7 +250,13 @@ export function TlRankingTable({
                     />
                     {sExpanded
                       ? s.teamLeaders.map((tl) => (
-                          <RankRow key={`${s.supervisorId}|${tl.teamLeaderId}`} row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }} depth={1} expandable={false} expanded={false} />
+                          <RankRow
+                            key={`${s.supervisorId}|${tl.teamLeaderId}`}
+                            row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }}
+                            depth={1}
+                            expandable={false}
+                            expanded={false}
+                          />
                         ))
                       : null}
                   </Fragment>
@@ -238,11 +264,18 @@ export function TlRankingTable({
               })}
           {!isManagerLevel && supervisorRanking.unassignedTeamLeaders.length > 0
             ? supervisorRanking.unassignedTeamLeaders.map((tl) => (
-                <RankRow key={tl.teamLeaderId} row={{ key: tl.teamLeaderId, name: `${tl.teamLeaderName} (no Supervisor)`, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }} depth={0} expandable={false} expanded={false} />
+                <RankRow
+                  key={tl.teamLeaderId}
+                  row={{ key: tl.teamLeaderId, name: `${tl.teamLeaderName} (no Supervisor)`, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }}
+                  depth={0}
+                  expandable={false}
+                  expanded={false}
+                />
               ))
             : null}
           <TotalRow>
             <Td>Total Sales</Td>
+            <Td align="right">{formatCompact(totalMonthlyTarget)}</Td>
             <Td align="right">{formatCompact(totalTarget)}</Td>
             <Td align="right">{formatCompact(totalRevenue)}</Td>
             <Td align="center">

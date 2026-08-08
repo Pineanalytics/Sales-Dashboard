@@ -81,6 +81,18 @@ describe("buildTlRanking", () => {
     expect(result.rankings[0].achievedPct).toBeCloseTo(100.32, 1);
   });
 
+  it("carries the full-month target alongside the (elapsed-days) MTD target", () => {
+    const result = buildTlRanking(
+      [{ salesEmployee: "Angela Ngina", revenue: 20000000 }],
+      [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true }],
+      teamLeaders,
+      [{ teamLeaderId: "tl-josephat", targetValue: 20500000, monthlyTargetValue: 87400000 }],
+      null
+    );
+    expect(result.rankings[0].mtdTarget).toBe(20500000);
+    expect(result.rankings[0].monthlyTarget).toBe(87400000);
+  });
+
   it("sorts by achievedPct descending, unranked (no target) Team Leaders last", () => {
     const result = buildTlRanking(
       [
@@ -114,8 +126,8 @@ describe("buildTlRanking", () => {
   });
 });
 
-function tlRow(teamLeaderId: string, teamLeaderName: string, mtdTarget: number, mtdRevenue: number): TlRankingRow {
-  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null };
+function tlRow(teamLeaderId: string, teamLeaderName: string, mtdTarget: number, mtdRevenue: number, monthlyTarget: number = mtdTarget): TlRankingRow {
+  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, monthlyTarget, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null };
 }
 
 const supervisors = [
@@ -125,8 +137,8 @@ const supervisors = [
 const managers = [{ id: "mgr-angela", name: "Angela Sitati" }];
 
 describe("buildSupervisorRanking", () => {
-  it("groups several Team Leaders under one Supervisor and sums their target/revenue", () => {
-    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 90000), tlRow("tl-calvince", "Calvince Onditi", 50000, 60000)];
+  it("groups several Team Leaders under one Supervisor and sums their target/revenue, including the full-month target", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 90000, 400000), tlRow("tl-calvince", "Calvince Onditi", 50000, 60000, 200000)];
     const assignments = [
       { teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
       { teamLeaderId: "tl-calvince", employeeName: "Rep B", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
@@ -136,6 +148,7 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings[0].supervisorId).toBe("sup-lucy");
     expect(result.rankings[0].mtdTarget).toBe(150000);
     expect(result.rankings[0].mtdRevenue).toBe(150000);
+    expect(result.rankings[0].monthlyTarget).toBe(600000); // 400K + 200K - ties out to the overall month target
     expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toEqual(["tl-calvince", "tl-shekila"]); // best (120%) before worst (90%)
     expect(result.unassignedTeamLeaders).toHaveLength(0);
   });
@@ -215,8 +228,8 @@ describe("buildSupervisorRanking", () => {
 });
 
 describe("buildManagerRanking", () => {
-  it("rolls several Supervisors up to one Manager, summing their target/revenue", () => {
-    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 120000), tlRow("tl-josephat", "Josephat", 50000, 40000)];
+  it("rolls several Supervisors up to one Manager, summing their target/revenue/monthlyTarget", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 120000, 300000), tlRow("tl-josephat", "Josephat", 50000, 40000, 150000)];
     const assignments = [
       { teamLeaderId: "tl-shekila", employeeName: "Rep A", sapName: null, principal: "Mars-Nairobi", active: true, supervisorId: "sup-lucy", managerId: "mgr-angela" },
       { teamLeaderId: "tl-josephat", employeeName: "Rep B", sapName: null, principal: "Bic-Nairobi", active: true, supervisorId: "sup-eve", managerId: "mgr-angela" },
@@ -227,6 +240,7 @@ describe("buildManagerRanking", () => {
     expect(result.rankings[0].managerId).toBe("mgr-angela");
     expect(result.rankings[0].mtdTarget).toBe(150000);
     expect(result.rankings[0].mtdRevenue).toBe(160000);
+    expect(result.rankings[0].monthlyTarget).toBe(450000);
     expect(result.rankings[0].supervisors).toHaveLength(2);
   });
 

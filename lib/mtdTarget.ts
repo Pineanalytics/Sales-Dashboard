@@ -31,6 +31,11 @@ import { resolveRepSharePct } from "@/lib/repContribution";
 export interface MtdTargetRow {
   teamLeaderId: string;
   targetValue: number;
+  /** The same cascade's full-month figure, before the working-days proration -
+   *  every Team Leader's monthlyTargetValue sums up to exactly the principal
+   *  Target totals it was split from (contribution shares sum to 100%), so
+   *  Supervisor/Manager rollups of this tie out to the overall month target. */
+  monthlyTargetValue: number;
 }
 
 /** Mon-Fri, matching the work-week definition lib/repContribution.ts already
@@ -124,6 +129,7 @@ export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs, workingDay
   return Array.from(monthlyTargetByTeamLeader.entries()).map(([teamLeaderId, monthlyTarget]) => ({
     teamLeaderId,
     targetValue: monthlyTarget * prorateFactor,
+    monthlyTargetValue: monthlyTarget,
   }));
 }
 

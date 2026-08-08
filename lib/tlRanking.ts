@@ -32,14 +32,17 @@ export interface TeamLeaderInput {
 }
 
 /** Pre-aggregated MTD Target contribution per Team Leader — one row per Team
- *  Leader, already summed by the caller. In practice this is sourced from
- *  DailyTarget (elapsed days only), not a raw WeeklyTarget row — see
+ *  Leader, already summed by the caller. In practice this is sourced from the
+ *  Target x RepContribution cascade, prorated by elapsed working days — see
  *  lib/mtdTarget.ts for why a straight WeeklyTarget sum overstates MTD. Kept as a
- *  generic {teamLeaderId, targetValue} pair here so this function stays pure/
- *  testable regardless of where the caller sourced it from. */
+ *  generic pair here so this function stays pure/testable regardless of where the
+ *  caller sourced it from. monthlyTargetValue is optional (defaults to 0) purely
+ *  so existing test fixtures that only care about mtdTarget don't need updating —
+ *  the real caller (lib/mtdTarget.ts) always supplies it. */
 export interface MtdTargetInput {
   teamLeaderId: string;
   targetValue: number;
+  monthlyTargetValue?: number;
 }
 
 export interface TlRankingRow {
@@ -47,6 +50,10 @@ export interface TlRankingRow {
   teamLeaderName: string;
   mtdTarget: number;
   mtdRevenue: number;
+  /** Full-month target this Team Leader's mtdTarget was prorated down from —
+   *  summed at Supervisor/Manager level, ties out exactly to the overall month
+   *  target (see MtdTargetRow.monthlyTargetValue). */
+  monthlyTarget: number;
   achievedPct: number | null; // null when target is 0 (nothing to divide by)
 }
 
@@ -114,8 +121,10 @@ export function buildTlRanking(
   }
 
   const targetByTeamLeader = new Map<string, number>();
+  const monthlyTargetByTeamLeader = new Map<string, number>();
   for (const mt of mtdTargets) {
     targetByTeamLeader.set(mt.teamLeaderId, (targetByTeamLeader.get(mt.teamLeaderId) ?? 0) + mt.targetValue);
+    monthlyTargetByTeamLeader.set(mt.teamLeaderId, (monthlyTargetByTeamLeader.get(mt.teamLeaderId) ?? 0) + (mt.monthlyTargetValue ?? 0));
   }
 
   const teamLeaderIds = new Set([...revenueByTeamLeader.keys(), ...targetByTeamLeader.keys()]);
@@ -127,6 +136,7 @@ export function buildTlRanking(
       teamLeaderName: teamLeaderNameById.get(teamLeaderId) ?? "—",
       mtdTarget,
       mtdRevenue,
+      monthlyTarget: monthlyTargetByTeamLeader.get(teamLeaderId) ?? 0,
       achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
     };
   });
@@ -159,6 +169,7 @@ export interface SupervisorRankingRow {
   supervisorName: string;
   mtdTarget: number;
   mtdRevenue: number;
+  monthlyTarget: number; // sum of nested Team Leaders' monthlyTarget — see TlRankingRow
   achievedPct: number | null;
   teamLeaders: TlRankingRow[]; // drill-down, already sorted best-to-worst
 }
@@ -226,11 +237,13 @@ export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: A
   const rankings: SupervisorRankingRow[] = Array.from(bySupervisor.entries()).map(([supervisorId, teamLeaders]) => {
     const mtdTarget = teamLeaders.reduce((s, tl) => s + tl.mtdTarget, 0);
     const mtdRevenue = teamLeaders.reduce((s, tl) => s + tl.mtdRevenue, 0);
+    const monthlyTarget = teamLeaders.reduce((s, tl) => s + tl.monthlyTarget, 0);
     return {
       supervisorId,
       supervisorName: supervisorNameById.get(supervisorId) ?? "—",
       mtdTarget,
       mtdRevenue,
+      monthlyTarget,
       achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
       teamLeaders: sortByAchievement(teamLeaders),
     };
@@ -244,6 +257,7 @@ export interface ManagerRankingRow {
   managerName: string;
   mtdTarget: number;
   mtdRevenue: number;
+  monthlyTarget: number; // sum of nested Supervisors' monthlyTarget
   achievedPct: number | null;
   supervisors: SupervisorRankingRow[]; // drill-down, already sorted best-to-worst
 }
@@ -292,11 +306,13 @@ export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], a
   const rankings: ManagerRankingRow[] = Array.from(byManager.entries()).map(([managerId, supervisors]) => {
     const mtdTarget = supervisors.reduce((s, sup) => s + sup.mtdTarget, 0);
     const mtdRevenue = supervisors.reduce((s, sup) => s + sup.mtdRevenue, 0);
+    const monthlyTarget = supervisors.reduce((s, sup) => s + sup.monthlyTarget, 0);
     return {
       managerId,
       managerName: managerNameById.get(managerId) ?? "—",
       mtdTarget,
       mtdRevenue,
+      monthlyTarget,
       achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
       supervisors: sortByAchievement(supervisors),
     };
