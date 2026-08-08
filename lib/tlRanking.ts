@@ -172,7 +172,9 @@ export interface SupervisorRankingResult {
 export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: AssignmentInput[], supervisors: HierarchyEntity[]): SupervisorRankingResult {
   const activeAssignments = assignments.filter((a) => a.active);
   const supervisorIdByTeamLeader = new Map<string, string>();
+  const activeTeamLeaderIds = new Set<string>();
   for (const a of activeAssignments) {
+    activeTeamLeaderIds.add(a.teamLeaderId);
     if (a.supervisorId && !supervisorIdByTeamLeader.has(a.teamLeaderId)) supervisorIdByTeamLeader.set(a.teamLeaderId, a.supervisorId);
   }
   const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.name]));
@@ -196,7 +198,17 @@ export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: A
       if (matches.length === 1) supervisorId = matches[0].id;
     }
     if (!supervisorId) {
-      unassignedTeamLeaders.push(tl);
+      // A Team Leader identity with zero currently-active reps (confirmed live:
+      // "Christine," fully replaced by "Eve" on Suntory-Nairobi - her
+      // TeamLeaderAssignment rows are already correctly deactivated) is stale
+      // history, not a live team - drop it from the ranking (and its totals)
+      // entirely rather than surfacing it as "needs a Supervisor," which it
+      // doesn't, having no current team to assign one to. Its WeeklyTarget rows
+      // stay in the DB untouched either way (reject-deletes) - this only affects
+      // what the live ranking view surfaces. A Team Leader that DOES have an
+      // active team but genuinely lacks a Supervisor link is a real, actionable
+      // gap and still shows up below.
+      if (activeTeamLeaderIds.has(tl.teamLeaderId)) unassignedTeamLeaders.push(tl);
       continue;
     }
     const list = bySupervisor.get(supervisorId) ?? [];

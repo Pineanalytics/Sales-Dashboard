@@ -142,7 +142,9 @@ describe("buildSupervisorRanking", () => {
 
   it("puts a Team Leader with no resolvable Supervisor into unassignedTeamLeaders", () => {
     const tlRanking = [tlRow("tl-orphan", "Orphan TL", 10000, 5000)];
-    const result = buildSupervisorRanking(tlRanking, [], supervisors);
+    // Has a real, active team behind it - a genuine gap, not a stale identity.
+    const assignments = [{ teamLeaderId: "tl-orphan", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: null, managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
     expect(result.rankings).toHaveLength(0);
     expect(result.unassignedTeamLeaders).toHaveLength(1);
     expect(result.unassignedTeamLeaders[0].teamLeaderId).toBe("tl-orphan");
@@ -158,12 +160,12 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings.map((r) => r.supervisorId)).toEqual(["sup-eve", "sup-lucy"]);
   });
 
-  it("ignores inactive assignments when resolving a Team Leader's Supervisor", () => {
+  it("ignores inactive assignments when resolving a Team Leader's Supervisor, and drops the Team Leader entirely since it has no active team left (same as a fully-replaced legacy identity)", () => {
     const tlRanking = [tlRow("tl-a", "A", 100000, 50000)];
     const assignments = [{ teamLeaderId: "tl-a", employeeName: "Rep A", sapName: null, principal: "P", active: false, supervisorId: "sup-lucy", managerId: null }];
     const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
     expect(result.rankings).toHaveLength(0);
-    expect(result.unassignedTeamLeaders).toHaveLength(1);
+    expect(result.unassignedTeamLeaders).toHaveLength(0);
   });
 
   it("falls back to fuzzy name-matching a legacy Team Leader with no roster-linked Supervisor (e.g. old monolithic 'Lucy' vs 'Lucy Githinji')", () => {
@@ -177,9 +179,10 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toContain("tl-legacy-lucy");
   });
 
-  it("leaves a genuinely unrelated stray Team Leader name unassigned rather than guessing", () => {
+  it("leaves a genuinely unrelated stray Team Leader name unassigned rather than guessing, as long as it still has an active team behind it", () => {
     const tlRanking = [tlRow("tl-christine", "Christine", 5000000, 0)];
-    const result = buildSupervisorRanking(tlRanking, [], supervisors);
+    const assignments = [{ teamLeaderId: "tl-christine", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: null, managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
     expect(result.rankings).toHaveLength(0);
     expect(result.unassignedTeamLeaders).toHaveLength(1);
   });
@@ -187,7 +190,25 @@ describe("buildSupervisorRanking", () => {
   it("does not fuzzy-match when the name is ambiguous across more than one Supervisor", () => {
     const ambiguousSupervisors = [{ id: "sup-e1", name: "Eve" }, { id: "sup-e2", name: "Eve Njoroge" }];
     const tlRanking = [tlRow("tl-eve", "Eve", 1000, 500)];
-    const result = buildSupervisorRanking(tlRanking, [], ambiguousSupervisors);
+    const assignments = [{ teamLeaderId: "tl-eve", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: null, managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, ambiguousSupervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(1);
+  });
+
+  it("drops a Team Leader with zero active assignments and no fuzzy match entirely, rather than flagging it as needing a Supervisor (confirmed live: 'Christine,' fully replaced by 'Eve,' whose assignments are already deactivated)", () => {
+    const tlRanking = [tlRow("tl-christine", "Christine", 48700000, 0)];
+    // Christine's own assignments are all inactive (replaced by Eve) - no active row for her teamLeaderId at all.
+    const assignments = [{ teamLeaderId: "tl-christine", employeeName: "Rep A", sapName: null, principal: "Suntory-Nairobi", active: false, supervisorId: null, managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
+    expect(result.rankings).toHaveLength(0);
+    expect(result.unassignedTeamLeaders).toHaveLength(0); // dropped, not surfaced as unassigned
+  });
+
+  it("keeps a Team Leader with a real active team but no resolvable Supervisor in unassignedTeamLeaders (a genuine, actionable gap)", () => {
+    const tlRanking = [tlRow("tl-newbie", "Newly Added TL", 1000000, 500000)];
+    const assignments = [{ teamLeaderId: "tl-newbie", employeeName: "Rep A", sapName: null, principal: "P", active: true, supervisorId: null, managerId: null }];
+    const result = buildSupervisorRanking(tlRanking, assignments, supervisors);
     expect(result.rankings).toHaveLength(0);
     expect(result.unassignedTeamLeaders).toHaveLength(1);
   });
