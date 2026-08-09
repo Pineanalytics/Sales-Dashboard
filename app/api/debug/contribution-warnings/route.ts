@@ -41,5 +41,29 @@ export async function GET(req: NextRequest) {
       .map((a) => ({ employeeName: a.employeeName, teamLeaderName: teamLeaderNameById.get(a.teamLeaderId) ?? a.teamLeaderId, contributionPct: a.contributionPct })),
   }));
 
-  return NextResponse.json({ warningCount: warnings.length, warnings: detail });
+  // validateContributionTotals skips a principal ENTIRELY if even one active rep
+  // on it has contributionPct === null (falls back to computed share) - which
+  // hides an already-broken declared sum from the admin UI's warning banner if
+  // one rep just hasn't been declared yet. Cross-check every principal here,
+  // bypassing that skip, so nothing is silently missed.
+  const byPrincipal = new Map<string, typeof assignments>();
+  for (const a of assignments) {
+    const list = byPrincipal.get(a.principal) ?? [];
+    list.push(a);
+    byPrincipal.set(a.principal, list);
+  }
+  const rawSummary = Array.from(byPrincipal.entries()).map(([principal, reps]) => {
+    const declared = reps.filter((r) => r.contributionPct != null);
+    return {
+      principal,
+      totalActiveReps: reps.length,
+      declaredRepCount: declared.length,
+      nullRepCount: reps.length - declared.length,
+      declaredSumPct: declared.reduce((s, r) => s + (r.contributionPct ?? 0), 0) * 100,
+      distinctTeamLeaders: [...new Set(reps.map((r) => teamLeaderNameById.get(r.teamLeaderId) ?? r.teamLeaderId))],
+    };
+  });
+  const hiddenByNullSkip = rawSummary.filter((s) => s.nullRepCount > 0 && Math.abs(s.declaredSumPct - 100) > 1 && s.declaredRepCount > 0);
+
+  return NextResponse.json({ warningCount: warnings.length, warnings: detail, rawSummary, hiddenByNullSkip });
 }
