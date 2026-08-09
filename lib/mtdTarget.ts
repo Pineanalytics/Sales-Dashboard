@@ -89,41 +89,58 @@ export interface MtdTargetInputs {
 
 /** Splits each principal's monthly Target across its currently-active Primary
  *  reps by contribution share, rolls that up to Team Leader, then prorates by
- *  elapsed working days. Mirrors recomputeDailyTargets's own grouping exactly
- *  (group by teamLeaderId+principal from raw assignments, not
- *  RepContribution.teamLeaderId, which only records a rep's first-seen Team
- *  Leader and would silently drop a matrix-assigned rep's second team) -
- *  same reasoning DailyTarget's own composite-key comment already documents. */
+ *  elapsed working days.
+ *
+ *  Groups by PRINCIPAL first (not teamLeaderId+principal) and re-normalizes
+ *  every rep's resolved share so the group always sums to exactly 1.0 before
+ *  applying it to the principal Target - confirmed live: TeamLeaderAssignment
+ *  .contributionPct is "validated in the admin UI, not enforced at the DB
+ *  level" (see its own schema comment), and one Supervisor's declared %'s
+ *  across her 5 Team Leaders summed to 285%, not 100% (Lucy Githinji/Mars-
+ *  Nairobi: 92.7M principal target rolled up to a 264M Supervisor total).
+ *  Grouping by teamLeaderId+principal and trusting each rep's raw resolved
+ *  share independently - the previous approach - had no defense against that:
+ *  a badly-declared or duplicated (matrix-assigned) rep's share simply added
+ *  up to whatever it added up to, with nothing forcing the total back to the
+ *  principal's own number. Normalizing per principal is what actually
+ *  guarantees a Supervisor/Manager rollup ties out exactly to the overall
+ *  month target, which is the entire point of sourcing this cascade from
+ *  Target instead of WeeklyTarget in the first place - the rep-level split is
+ *  a means to attribute that total to a Team Leader, not a second source of
+ *  truth for the total itself. A rep active under more than one Team Leader
+ *  for the same principal (matrix org) appears once per assignment row here;
+ *  normalization still keeps the group's total at exactly 100% of the
+ *  principal target, it just gives that rep's combined total double relative
+ *  weight against reps who are only assigned once - no separate handling
+ *  needed. */
 export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs, workingDaysElapsed: number, workingDaysInMonth: number): MtdTargetRow[] {
   const { principalTargets, assignments, contributions } = inputs;
 
   const targetByPrincipal = new Map(principalTargets.map((t) => [t.principal, t.valueTarget ?? 0]));
   const shareByPrincipalRep = new Map(contributions.map((c) => [`${c.principal}|${c.employeeCode}`, c.sharePct]));
 
-  const repsByTeamLeaderPrincipal = new Map<string, { employeeCode: string; contributionPct: number | null }[]>();
+  const repsByPrincipal = new Map<string, { teamLeaderId: string; employeeCode: string; contributionPct: number | null }[]>();
   for (const a of assignments) {
-    const key = `${a.teamLeaderId}|${a.principal}`;
-    const list = repsByTeamLeaderPrincipal.get(key) ?? [];
-    list.push({ employeeCode: a.employeeCode, contributionPct: a.contributionPct });
-    repsByTeamLeaderPrincipal.set(key, list);
+    const list = repsByPrincipal.get(a.principal) ?? [];
+    list.push({ teamLeaderId: a.teamLeaderId, employeeCode: a.employeeCode, contributionPct: a.contributionPct });
+    repsByPrincipal.set(a.principal, list);
   }
 
   const prorateFactor = workingDaysInMonth > 0 ? workingDaysElapsed / workingDaysInMonth : 0;
   const monthlyTargetByTeamLeader = new Map<string, number>();
 
-  for (const [key, reps] of repsByTeamLeaderPrincipal) {
-    const separatorIndex = key.indexOf("|");
-    const teamLeaderId = key.slice(0, separatorIndex);
-    const principal = key.slice(separatorIndex + 1);
+  for (const [principal, reps] of repsByPrincipal) {
     const principalTarget = targetByPrincipal.get(principal) ?? 0;
     if (principalTarget === 0) continue;
 
-    let sum = monthlyTargetByTeamLeader.get(teamLeaderId) ?? 0;
-    for (const rep of reps) {
-      const sharePct = resolveRepSharePct(rep.contributionPct, shareByPrincipalRep.get(`${principal}|${rep.employeeCode}`), 1 / reps.length);
-      sum += principalTarget * sharePct;
-    }
-    monthlyTargetByTeamLeader.set(teamLeaderId, sum);
+    const rawShares = reps.map((rep) => resolveRepSharePct(rep.contributionPct, shareByPrincipalRep.get(`${principal}|${rep.employeeCode}`), 1 / reps.length));
+    const rawSum = rawShares.reduce((s, v) => s + v, 0);
+
+    reps.forEach((rep, i) => {
+      const normalizedShare = rawSum > 0 ? rawShares[i] / rawSum : 1 / reps.length;
+      const sum = monthlyTargetByTeamLeader.get(rep.teamLeaderId) ?? 0;
+      monthlyTargetByTeamLeader.set(rep.teamLeaderId, sum + principalTarget * normalizedShare);
+    });
   }
 
   return Array.from(monthlyTargetByTeamLeader.entries()).map(([teamLeaderId, monthlyTarget]) => ({
