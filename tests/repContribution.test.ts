@@ -46,8 +46,8 @@ describe("resolveRepSharePct", () => {
 describe("validateContributionTotals", () => {
   it("flags a Principal whose declared %s don't sum to ~100%", () => {
     const warnings = validateContributionTotals([
-      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Mars-Nairobi", active: true, contributionPct: 0.3 },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.3, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].principal).toBe("Mars-Nairobi");
@@ -56,27 +56,37 @@ describe("validateContributionTotals", () => {
 
   it("doesn't flag a Principal that sums to 100% within tolerance", () => {
     const warnings = validateContributionTotals([
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.6 },
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.4 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.6, salesRole: "PRIMARY" },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.4, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(0);
   });
 
-  it("skips a Principal still mid-setup (any active rep with no declared %)", () => {
+  it("skips a Principal still mid-setup (any active Primary rep with no declared %)", () => {
     const warnings = validateContributionTotals([
-      { principal: "Upfield-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Upfield-Nairobi", active: true, contributionPct: null },
+      { principal: "Upfield-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Upfield-Nairobi", active: true, contributionPct: null, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(0);
   });
 
   it("ignores inactive assignments", () => {
     const warnings = validateContributionTotals([
-      { principal: "Tropikal-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Tropikal-Nairobi", active: false, contributionPct: 0.9 },
+      { principal: "Tropikal-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Tropikal-Nairobi", active: false, contributionPct: 0.9, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(1); // 50% active-only total, not diluted by the inactive row
     expect(warnings[0].totalPct).toBeCloseTo(50);
+  });
+
+  it("ignores Secondary reps entirely, even when their declared %s alone would fail the check (confirmed live: Mars-Nairobi's 7 Primary reps summed to 99%, its 84 Secondary reps summed separately to 102% - combined, that read as a bogus 201%)", () => {
+    const warnings = validateContributionTotals([
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.9, salesRole: "SECONDARY" },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.9, salesRole: "SECONDARY" },
+    ]);
+    expect(warnings).toHaveLength(0); // Primary alone sums to exactly 100%
   });
 });
 

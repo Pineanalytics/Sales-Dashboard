@@ -279,11 +279,21 @@ export interface ContributionTotalWarning {
  *  entirely rather than nagged — declaring contribution % is meant to be gradual, one rep at a
  *  time, not all-or-nothing. Pure so the threshold is unit-testable independent of the DB. */
 export function validateContributionTotals(
-  assignments: { principal: string; active: boolean; contributionPct: number | null }[]
+  assignments: { principal: string; active: boolean; contributionPct: number | null; salesRole: string }[]
 ): ContributionTotalWarning[] {
+  // PRIMARY only - actual SAP sales/targets are a Primary concern (see this
+  // file's header note and recomputeRepContribution/recomputeDailyTargets's
+  // matching filter). Secondary reps exist to track resale of Primary-supplied
+  // stock and are never factored into target allocation, so their declared %
+  // (if any) is a separate concern that was never meant to reconcile against
+  // Primary's - summing both roles together produces a false "doesn't sum to
+  // 100%" warning even when each role is individually correct (confirmed live:
+  // Mars-Nairobi's 7 Primary reps summed to 99% - essentially exact - while its
+  // 84 Secondary reps summed to 102% on their own; combined, that read as a
+  // bogus 201%).
   const byPrincipal = new Map<string, { contributionPct: number | null }[]>();
   for (const a of assignments) {
-    if (!a.active) continue;
+    if (!a.active || a.salesRole !== "PRIMARY") continue;
     const list = byPrincipal.get(a.principal) ?? [];
     list.push({ contributionPct: a.contributionPct });
     byPrincipal.set(a.principal, list);

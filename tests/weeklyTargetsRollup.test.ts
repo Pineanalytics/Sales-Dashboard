@@ -190,8 +190,8 @@ describe("resolveRepSharePct", () => {
 describe("validateContributionTotals", () => {
   it("flags a principal whose fully-declared active reps don't sum to 100%", () => {
     const warnings = validateContributionTotals([
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.35 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.35, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].principal).toBe("Bic-Nairobi");
@@ -200,25 +200,25 @@ describe("validateContributionTotals", () => {
 
   it("does not flag a principal that sums to ~100% within tolerance", () => {
     const warnings = validateContributionTotals([
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.6 },
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.4 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.6, salesRole: "PRIMARY" },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.4, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(0);
   });
 
   it("skips a principal that's still mid-setup (any active rep still undeclared)", () => {
     const warnings = validateContributionTotals([
-      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Mars-Nairobi", active: true, contributionPct: null },
+      { principal: "Mars-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Mars-Nairobi", active: true, contributionPct: null, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(0);
   });
 
   it("ignores inactive reps entirely, even if they'd throw off the total", () => {
     const warnings = validateContributionTotals([
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5 },
-      { principal: "Bic-Nairobi", active: false, contributionPct: 0.9 },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Bic-Nairobi", active: true, contributionPct: 0.5, salesRole: "PRIMARY" },
+      { principal: "Bic-Nairobi", active: false, contributionPct: 0.9, salesRole: "PRIMARY" },
     ]);
     expect(warnings).toHaveLength(0);
   });
