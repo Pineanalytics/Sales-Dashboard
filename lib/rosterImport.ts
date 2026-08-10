@@ -82,6 +82,28 @@ function nullableInt(value: unknown): number | null {
   return n === null ? null : Math.round(n);
 }
 
+/** A genuine Excel/.xlsm workbook with a Percentage-formatted cell already
+ *  comes through XLSX.sheet_to_json as a plain fraction (0.41) - cell format
+ *  metadata survives the binary format, so nullableNumber alone is enough
+ *  there. A CSV has no such metadata: if the source spreadsheet's column was
+ *  ever formatted as Percentage before being saved to CSV, the cell's TEXT
+ *  content is the literal "41%" - nullableNumber("41%") is Number("41%") ->
+ *  NaN -> silently treated as "not declared," nulling out a rep's real
+ *  contribution (confirmed live: the 2026-08 Roster refresh had nearly every
+ *  "* Contribution %"/"Source Contribution %" value formatted this way,
+ *  wiping out contributionPct for ~90% of the roster on import). Strip a
+ *  trailing "%" and divide by 100 when present; a plain numeric string or
+ *  number (already a fraction, either format) passes through unchanged. */
+function nullablePercent(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const trimmed = text(value);
+  if (trimmed === "") return null;
+  const isPercentString = trimmed.endsWith("%");
+  const n = Number(isPercentString ? trimmed.slice(0, -1) : trimmed);
+  if (!Number.isFinite(n)) return null;
+  return isPercentString ? n / 100 : n;
+}
+
 function salesRoleValue(value: unknown, rowNumber: number): "PRIMARY" | "SECONDARY" {
   const normalized = text(value).toLowerCase();
   if (normalized === "primary" || normalized === "primary sales") return "PRIMARY";
@@ -126,7 +148,7 @@ export function parseRosterSourceRows(source: SourceRow[], rowNumberOffset: numb
         channel: nullableText(row.Channel),
         teamLeaderName: requiredText(row, "Team Leader", rowNumber),
         principal: requiredText(row, "Principal", rowNumber),
-        contributionPct: nullableNumber(row["* Contribution %"]),
+        contributionPct: nullablePercent(row["* Contribution %"]),
         salesRole: salesRoleValue(row["Sales Role"], rowNumber),
         absolutePrincipal: nullableText(row["Absolute Principal"]),
         workGroup: nullableText(row["Work Group"]),
@@ -158,7 +180,7 @@ export function parseRosterSourceRows(source: SourceRow[], rowNumberOffset: numb
         company: nullableText(row.Company),
         costCenterCount: nullableInt(row["Cost Center Count"]),
         location: nullableText(row.Location),
-        sourceContributionPct: nullableNumber(row["Source Contribution %"]),
+        sourceContributionPct: nullablePercent(row["Source Contribution %"]),
         supervisor: nullableText(row.Supervisor),
         stockPoint: null,
         supervisorName: null,

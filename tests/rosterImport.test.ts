@@ -93,6 +93,54 @@ describe("parseRosterSourceRows", () => {
     expect(row.stockPoint).toBeNull();
   });
 
+  it("parses a percent-suffixed Contribution % string (CSV export of a Percentage-formatted cell) as a fraction, not null", () => {
+    // A real .xlsm Percentage-formatted cell survives as a plain fraction (the
+    // v18Row fixture's 0.288438374 above) - but CSV has no cell-format
+    // metadata, so a spreadsheet that was ever formatted as Percentage saves
+    // its cells' literal displayed text ("41%") to CSV. Number("41%") is NaN,
+    // which nullableNumber alone would silently treat as "not declared."
+    const [row] = parseRosterSourceRows([{ ...v18Row, "* Contribution %": "41%" }], 2, "V18");
+    expect(row.contributionPct).toBeCloseTo(0.41);
+  });
+
+  it("parses a percent-suffixed 0% as 0, not null", () => {
+    const [row] = parseRosterSourceRows([{ ...v18Row, "* Contribution %": "0%" }], 2, "V18");
+    expect(row.contributionPct).toBe(0);
+  });
+
+  it("parses a plain numeric-string Contribution % (no % suffix) as-is, not divided by 100", () => {
+    const [row] = parseRosterSourceRows([{ ...v18Row, "* Contribution %": "0.41" }], 2, "V18");
+    expect(row.contributionPct).toBeCloseTo(0.41);
+  });
+
+  it("parses a percent-suffixed Source Contribution % string the same way", () => {
+    const v21Row = {
+      "Employee Code": "832",
+      "Employee (Sales Edge Name)": "Nickson Wanyonyi",
+      "SAP Name": "Nickson Wanyonyi",
+      Channel: "KA",
+      "Team Leader": "Josephat",
+      Principal: "Bic-Nairobi",
+      "* Contribution %": 0.41,
+      "Active (Y/N)": "Y",
+      "Sales Role": "Primary",
+      Company: null,
+      "Cost Center": "Bic",
+      "Absolute Principal": "Suntory-Nairobi",
+      "Work Group": "KAMs",
+      Region: "Nairobi",
+      "Sub Region": "Nairobi Metro",
+      Supervisor: null,
+      "Cost Center Count": null,
+      "Sales Point": "Key Accounts Rep",
+      Route: "Nairobi Metro",
+      Location: null,
+      "Source Contribution %": "35%",
+    };
+    const [row] = parseRosterSourceRows([v21Row], 4, "V21");
+    expect(row.sourceContributionPct).toBeCloseTo(0.35);
+  });
+
   it("throws RosterParseError on an unrecognized Sales Role", () => {
     expect(() => parseRosterSourceRows([{ ...v18Row, "Sales Role": "Tertiary" }], 2, "V18")).toThrow(RosterParseError);
   });
