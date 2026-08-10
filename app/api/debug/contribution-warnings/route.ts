@@ -65,5 +65,13 @@ export async function GET(req: NextRequest) {
   });
   const hiddenByNullSkip = rawSummary.filter((s) => s.nullRepCount > 0 && Math.abs(s.declaredSumPct - 100) > 1 && s.declaredRepCount > 0);
 
-  return NextResponse.json({ warningCount: warnings.length, warnings: detail, rawSummary, hiddenByNullSkip });
+  const allActive = assignments.map((a) => ({
+    employeeCode: a.employeeCode,
+    employeeName: a.employeeName,
+    principal: a.principal,
+    teamLeaderName: teamLeaderNameById.get(a.teamLeaderId) ?? a.teamLeaderId,
+    contributionPct: a.contributionPct,
+  }));
+
+  return NextResponse.json({ warningCount: warnings.length, warnings: detail, rawSummary, hiddenByNullSkip, allActive });
 }
