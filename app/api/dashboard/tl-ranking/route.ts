@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     getMtdTargetByTeamLeader(year, monthLabel),
   ]);
 
-  const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets, principalFilter ?? null);
+  const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets);
 
   // TEAM_LEADER and a principal-scoped VIEWER keep today's flat shape — a single
   // Team Leader (or a flat multi-TL list with no meaningful supervisor grouping

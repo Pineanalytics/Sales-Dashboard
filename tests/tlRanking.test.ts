@@ -9,11 +9,10 @@ const teamLeaders = [
 describe("buildTlRanking", () => {
   it("matches a rep by sapName over employeeName when both exist", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "J. Angela N.", revenue: 100000 }],
+      [{ salesEmployee: "J. Angela N.", principal: "Bic-Nairobi", revenue: 100000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: "J. Angela N.", principal: "Bic-Nairobi", active: true }],
       teamLeaders,
-      [{ teamLeaderId: "tl-josephat", targetValue: 50000 }],
-      null
+      [{ teamLeaderId: "tl-josephat", targetValue: 50000 }]
     );
     expect(result.rankings).toHaveLength(1);
     expect(result.rankings[0].teamLeaderId).toBe("tl-josephat");
@@ -23,11 +22,10 @@ describe("buildTlRanking", () => {
 
   it("falls back to employeeName when sapName isn't declared", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Angela Ngina", revenue: 50000 }],
+      [{ salesEmployee: "Angela Ngina", principal: "Bic-Nairobi", revenue: 50000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true }],
       teamLeaders,
-      [],
-      null
+      []
     );
     expect(result.rankings[0].mtdRevenue).toBe(50000);
     expect(result.unmatchedReps).toHaveLength(0);
@@ -35,11 +33,10 @@ describe("buildTlRanking", () => {
 
   it("surfaces revenue from a rep with no matching assignment as unmatched, not silently dropped or misattributed", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Ghost Rep", revenue: 20000 }],
+      [{ salesEmployee: "Ghost Rep", principal: "Bic-Nairobi", revenue: 20000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true }],
       teamLeaders,
-      [],
-      null
+      []
     );
     expect(result.rankings).toHaveLength(0);
     expect(result.unmatchedReps).toEqual([{ salesEmployee: "Ghost Rep", revenue: 20000 }]);
@@ -47,47 +44,63 @@ describe("buildTlRanking", () => {
 
   it("ignores inactive assignments entirely", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Angela Ngina", revenue: 50000 }],
+      [{ salesEmployee: "Angela Ngina", principal: "Bic-Nairobi", revenue: 50000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: false }],
       teamLeaders,
-      [],
-      null
+      []
     );
     expect(result.unmatchedReps).toHaveLength(1);
   });
 
-  it("prefers the assignment matching the selected Principal when a rep has multiple", () => {
+  it("resolves to the Team Leader whose assignment matches the revenue row's own principal, when a rep has multiple", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Angela Ngina", revenue: 30000 }],
+      [{ salesEmployee: "Angela Ngina", principal: "Upfield-Nairobi", revenue: 30000 }],
       [
         { teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true },
         { teamLeaderId: "tl-emmy", employeeName: "Angela Ngina", sapName: null, principal: "Upfield-Nairobi", active: true },
       ],
       teamLeaders,
-      [],
-      "Upfield-Nairobi"
+      []
     );
     expect(result.rankings[0].teamLeaderId).toBe("tl-emmy");
   });
 
+  it("attributes two different people who share a SAP name on different principals to their correct, separate Team Leaders (confirmed live: 'Eabl Udv town NYH RT' shared by one of Erick's reps on EABL-Nyahururu and one of Richard's on EABL-Nyeri)", () => {
+    const result = buildTlRanking(
+      [
+        { salesEmployee: "Eabl Udv town NYH RT", principal: "EABL-Nyahururu", revenue: 400000 },
+        { salesEmployee: "Eabl Udv town NYH RT", principal: "EABL-Nyeri", revenue: 900000 },
+      ],
+      [
+        { teamLeaderId: "tl-erick", employeeName: "ELIJAH MBURU-NDARAGWA", sapName: "Eabl Udv town NYH RT", principal: "EABL-Nyahururu", active: true },
+        { teamLeaderId: "tl-richard", employeeName: "JOHN MWANIKI-NYAHURURU TOWN", sapName: "Eabl Udv town NYH RT", principal: "EABL-Nyeri", active: true },
+      ],
+      teamLeaders,
+      []
+    );
+    const erick = result.rankings.find((r) => r.teamLeaderId === "tl-erick")!;
+    const richard = result.rankings.find((r) => r.teamLeaderId === "tl-richard")!;
+    expect(erick.mtdRevenue).toBe(400000);
+    expect(richard.mtdRevenue).toBe(900000);
+    expect(result.unmatchedReps).toHaveLength(0);
+  });
+
   it("computes achievedPct as revenue/target, null when target is 0", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Angela Ngina", revenue: 62700000 }],
+      [{ salesEmployee: "Angela Ngina", principal: "Bic-Nairobi", revenue: 62700000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true }],
       teamLeaders,
-      [{ teamLeaderId: "tl-josephat", targetValue: 62500000 }],
-      null
+      [{ teamLeaderId: "tl-josephat", targetValue: 62500000 }]
     );
     expect(result.rankings[0].achievedPct).toBeCloseTo(100.32, 1);
   });
 
   it("carries the full-month target alongside the (elapsed-days) MTD target", () => {
     const result = buildTlRanking(
-      [{ salesEmployee: "Angela Ngina", revenue: 20000000 }],
+      [{ salesEmployee: "Angela Ngina", principal: "Bic-Nairobi", revenue: 20000000 }],
       [{ teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true }],
       teamLeaders,
-      [{ teamLeaderId: "tl-josephat", targetValue: 20500000, monthlyTargetValue: 87400000 }],
-      null
+      [{ teamLeaderId: "tl-josephat", targetValue: 20500000, monthlyTargetValue: 87400000 }]
     );
     expect(result.rankings[0].mtdTarget).toBe(20500000);
     expect(result.rankings[0].monthlyTarget).toBe(87400000);
@@ -96,8 +109,8 @@ describe("buildTlRanking", () => {
   it("sorts by achievedPct descending, unranked (no target) Team Leaders last", () => {
     const result = buildTlRanking(
       [
-        { salesEmployee: "Angela Ngina", revenue: 41100000 },
-        { salesEmployee: "Emmy Rep", revenue: 62700000 },
+        { salesEmployee: "Angela Ngina", principal: "Bic-Nairobi", revenue: 41100000 },
+        { salesEmployee: "Emmy Rep", principal: "Bic-Nairobi", revenue: 62700000 },
       ],
       [
         { teamLeaderId: "tl-josephat", employeeName: "Angela Ngina", sapName: null, principal: "Bic-Nairobi", active: true },
@@ -107,20 +120,13 @@ describe("buildTlRanking", () => {
       [
         { teamLeaderId: "tl-josephat", targetValue: 51800000 }, // 79%
         { teamLeaderId: "tl-emmy", targetValue: 62500000 }, // 100%
-      ],
-      null
+      ]
     );
     expect(result.rankings.map((r) => r.teamLeaderId)).toEqual(["tl-emmy", "tl-josephat"]);
   });
 
   it("ignores zero-revenue reps rather than treating them as unmatched noise", () => {
-    const result = buildTlRanking(
-      [{ salesEmployee: "Ghost Rep", revenue: 0 }],
-      [],
-      teamLeaders,
-      [],
-      null
-    );
+    const result = buildTlRanking([{ salesEmployee: "Ghost Rep", principal: "Bic-Nairobi", revenue: 0 }], [], teamLeaders, []);
     expect(result.unmatchedReps).toHaveLength(0);
     expect(result.rankings).toHaveLength(0);
   });

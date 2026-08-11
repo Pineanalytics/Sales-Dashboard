@@ -13,6 +13,13 @@ import { teamLeaderSupervisesName } from "./teamLeaderScope";
 
 export interface RepRevenueInput {
   salesEmployee: string;
+  /** The principal this specific revenue was earned under. Required for correct
+   *  Team Leader attribution — a sapName/employeeName is only guaranteed unique
+   *  within one principal (e.g. two entirely different people can both be
+   *  recorded in SAP under a route/counter name like "Eabl van-Nyeri route" on
+   *  one principal and "Eabl Udv town NYH RT" on a different principal, one
+   *  per Team Leader) — see resolveTeamLeaderId. */
+  principal: string;
   revenue: number;
 }
 
@@ -71,12 +78,18 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
 
-/** Resolves a rep name (as it appears in SAP-sourced revenue rows) to a Team Leader,
- *  preferring an assignment for `principalKey`'s principal when one is selected (a rep
- *  can report to different Team Leaders for different principals) and otherwise falling
- *  back to the rep's first active assignment. Matches sapName first, then employeeName —
- *  see file header for why. */
-function resolveTeamLeaderId(salesEmployee: string, activeAssignments: AssignmentInput[], principalFilter: string | null): string | null {
+/** Resolves a rep name (as it appears in a SAP-sourced revenue row) to a Team
+ *  Leader, preferring an assignment for that row's OWN principal (a
+ *  sapName/employeeName is only guaranteed unique within one principal — two
+ *  entirely different people can share a route/counter-style SAP name on
+ *  different principals, one per Team Leader) and otherwise falling back to
+ *  the rep's first active assignment. Matches sapName first, then
+ *  employeeName — see file header for why. Confirmed live: "Eabl Udv town NYH
+ *  RT" was a real SAP name shared by one of Erick's reps on EABL-Nyahururu and
+ *  one of Richard's on EABL-Nyeri — resolving by name alone (no principal)
+ *  handed 100% of that shared name's revenue to whichever assignment happened
+ *  to come first, overstating one Team Leader and understating the other. */
+function resolveTeamLeaderId(salesEmployee: string, activeAssignments: AssignmentInput[], principal: string): string | null {
   const needle = normalizeName(salesEmployee);
 
   const bySapName = activeAssignments.filter((a) => a.sapName && normalizeName(a.sapName) === needle);
@@ -84,26 +97,18 @@ function resolveTeamLeaderId(salesEmployee: string, activeAssignments: Assignmen
   const candidates = bySapName.length > 0 ? bySapName : byEmployeeName;
   if (candidates.length === 0) return null;
 
-  if (principalFilter) {
-    const forPrincipal = candidates.find((a) => a.principal === principalFilter);
-    if (forPrincipal) return forPrincipal.teamLeaderId;
-  }
+  const forPrincipal = candidates.find((a) => a.principal === principal);
+  if (forPrincipal) return forPrincipal.teamLeaderId;
   return candidates[0].teamLeaderId;
 }
 
-/** Pure derivation: joins rep-level MTD revenue to Team Leaders (by sapName/employeeName),
- *  sums each Team Leader's MTD target (see MtdTargetInput — elapsed days only, not the
- *  whole month), and ranks by achievement %. Reps whose name matches no active
- *  assignment are reported separately rather than silently dropped or silently
- *  misattributed — same pattern as the existing unassignedRevenueReps check on
- *  /weekly-targets/contribution. */
-export function buildTlRanking(
-  repRevenue: RepRevenueInput[],
-  assignments: AssignmentInput[],
-  teamLeaders: TeamLeaderInput[],
-  mtdTargets: MtdTargetInput[],
-  principalFilter: string | null
-): TlRankingResult {
+/** Pure derivation: joins rep-level MTD revenue to Team Leaders (by sapName/employeeName,
+ *  scoped to each revenue row's own principal — see resolveTeamLeaderId), sums each Team
+ *  Leader's MTD target (see MtdTargetInput — elapsed days only, not the whole month), and
+ *  ranks by achievement %. Reps whose name matches no active assignment are reported
+ *  separately rather than silently dropped or silently misattributed — same pattern as
+ *  the existing unassignedRevenueReps check on /weekly-targets/contribution. */
+export function buildTlRanking(repRevenue: RepRevenueInput[], assignments: AssignmentInput[], teamLeaders: TeamLeaderInput[], mtdTargets: MtdTargetInput[]): TlRankingResult {
   const activeAssignments = assignments.filter((a) => a.active);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
 
@@ -112,7 +117,7 @@ export function buildTlRanking(
 
   for (const rep of repRevenue) {
     if (rep.revenue === 0) continue;
-    const teamLeaderId = resolveTeamLeaderId(rep.salesEmployee, activeAssignments, principalFilter);
+    const teamLeaderId = resolveTeamLeaderId(rep.salesEmployee, activeAssignments, rep.principal);
     if (!teamLeaderId) {
       unmatchedReps.push({ salesEmployee: rep.salesEmployee, revenue: rep.revenue });
       continue;

@@ -7,7 +7,7 @@ import {
   summarizeCoverageByRep,
   summarizePLForPeriod,
   summarizeSalesForPeriod,
-  summarizeBrandCustomerByRep,
+  summarizeBrandCustomerByRepAndPrincipal,
   getCurrentMonthPeriod,
   getPriorYearPeriod,
   getPreviousMonthPeriod,
@@ -186,7 +186,7 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
 
       const currentMonth = getCurrentMonthPeriod(dataset);
       if (!currentMonth.month) return JSON.stringify({ error: "No current-month data available." });
-      const repRevenue = summarizeBrandCustomerByRep(dataset, currentMonth, args.principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, revenue: r.revenue }));
+      const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, args.principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, principal: r.principal, revenue: r.revenue }));
 
       const [assignments, teamLeaders, mtdTargets] = await Promise.all([
         prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true } }),
@@ -194,7 +194,7 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
         getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
       ]);
 
-      const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets, args.principal ?? null);
+      const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets);
       if (!scope) return JSON.stringify(result);
 
       if (scope.teamLeaderId) {
@@ -222,7 +222,7 @@ async function loadRankingInputs(principal: string | undefined) {
   if (!dataset) return null;
   const currentMonth = getCurrentMonthPeriod(dataset);
   if (!currentMonth.month) return null;
-  const repRevenue = summarizeBrandCustomerByRep(dataset, currentMonth, principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, revenue: r.revenue }));
+  const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, principal: r.principal, revenue: r.revenue }));
 
   const [assignments, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
     prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true } }),
@@ -231,7 +231,7 @@ async function loadRankingInputs(principal: string | undefined) {
     prisma.manager.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
   ]);
-  const tlRanking = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets, principal ?? null);
+  const tlRanking = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets);
   return { assignments, supervisors, managers, tlRanking };
 }
 

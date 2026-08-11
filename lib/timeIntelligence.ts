@@ -485,6 +485,39 @@ export function summarizeBrandCustomerByRep(
   return Array.from(byRep.values()).map((rep) => ({ ...rep, grossMarginPct: marginFrom(rep.revenue, rep.grossProfit) }));
 }
 
+export interface RepPrincipalBrandCustomerSummary {
+  salesEmployee: string;
+  principal: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+  grossMarginPct: number | null;
+}
+
+/** Same as summarizeBrandCustomerByRep, but keeps each principal as its own row
+ *  instead of collapsing a rep's revenue across every principal they sold under.
+ *  Needed wherever a rep's name alone isn't a safe join key — a sapName/
+ *  employeeName is only guaranteed unique within one principal (see
+ *  lib/tlRanking.ts's resolveTeamLeaderId for the confirmed live case this
+ *  fixes: two different people sharing a route/counter-style SAP name on two
+ *  different principals). */
+export function summarizeBrandCustomerByRepAndPrincipal(dataset: Dataset, selection: PeriodSelection, principalKey: string | null): RepPrincipalBrandCustomerSummary[] {
+  const rows = filterBrandCustomer(dataset, selection, principalKey);
+  const byRepPrincipal = new Map<string, { salesEmployee: string; principal: string; volume: number; revenue: number; grossProfit: number }>();
+  for (const r of rows) {
+    const key = `${r.salesEmployee}|${r.principal}`;
+    const existing = byRepPrincipal.get(key);
+    if (existing) {
+      existing.volume += r.volume;
+      existing.revenue += r.revenue;
+      existing.grossProfit += r.grossProfit;
+    } else {
+      byRepPrincipal.set(key, { salesEmployee: r.salesEmployee, principal: r.principal, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+    }
+  }
+  return Array.from(byRepPrincipal.values()).map((rep) => ({ ...rep, grossMarginPct: marginFrom(rep.revenue, rep.grossProfit) }));
+}
+
 export interface PrincipalBrandCustomerSummary {
   principal: string;
   principalKey: string;

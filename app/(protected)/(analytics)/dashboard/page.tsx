@@ -18,7 +18,7 @@ import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { formatCompact } from "@/lib/format";
 import {
   summarizeSalesForPeriod,
-  summarizeBrandCustomerByRep,
+  summarizeBrandCustomerByRepAndPrincipal,
   getCurrentMonthPeriod,
   getPreviousMonthPeriod,
   getPriorYearPeriod,
@@ -58,8 +58,9 @@ export default function DashboardPage() {
   // whatever broader period the top selector happens to be on.
   const currentMonth = getCurrentMonthPeriod(dataset);
   const currentMonthIndex = currentMonth.month ? CANONICAL_MONTHS.indexOf(currentMonth.month) : new Date().getUTCMonth();
-  const repRevenue = summarizeBrandCustomerByRep(dataset, currentMonth, selectedPrincipalKey).map((r) => ({
+  const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, selectedPrincipalKey).map((r) => ({
     salesEmployee: r.salesEmployee,
+    principal: r.principal,
     revenue: r.revenue,
   }));
 
