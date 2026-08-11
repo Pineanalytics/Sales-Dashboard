@@ -107,8 +107,8 @@ export function TlRankingTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(principalRevenue), principalFilter, year, monthLabel]);
 
-  if (status === "loading") return <SectionCard title="TL Ranking">Loading…</SectionCard>;
-  if (status === "error" || !result) return <SectionCard title="TL Ranking">Couldn&apos;t load TL Ranking.</SectionCard>;
+  if (status === "loading") return <SectionCard title="Sales Supervisor Ranking">Loading…</SectionCard>;
+  if (status === "error" || !result) return <SectionCard title="Sales Supervisor Ranking">Couldn&apos;t load Sales Supervisor Ranking.</SectionCard>;
 
   function toggle(set: Set<string>, setSet: (s: Set<string>) => void, key: string) {
     const next = new Set(set);
@@ -123,7 +123,7 @@ export function TlRankingTable({
     const totalRevenue = result.rankings.reduce((s, r) => s + r.mtdRevenue, 0);
     const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
     return (
-      <SectionCard title="TL Ranking" accent="blue">
+      <SectionCard title="Team Leader Ranking" accent="blue">
         <TableWrap>
           <Thead>
             <Th>Team Leader</Th>
@@ -169,7 +169,7 @@ export function TlRankingTable({
 
   return (
     <SectionCard
-      title="TL Ranking"
+      title="Sales Supervisor Ranking"
       accent="blue"
       action={
         managerRanking.rankings.length > 0 ? (
