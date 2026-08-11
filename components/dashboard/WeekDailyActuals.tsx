@@ -30,6 +30,20 @@ function dayNameOf(dateKey: string): string {
   return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getUTCDay()];
 }
 
+/** "Aug 3 - Aug 9" — the real calendar range a "Week N" label covers, so it's
+ *  clear (and verifiable) which days are counted without having to know the
+ *  Monday-anchored week convention (a week belongs to whichever month
+ *  contains its Monday — see lib/weeklyTargets.ts). A month whose 1st isn't a
+ *  Monday has its first couple of days fall inside the PREVIOUS month's last
+ *  week instead of any of this month's own Week 1-N cards — by design, kept
+ *  consistent with how WeeklyTarget is entered admin-side — this range makes
+ *  that visible rather than silently unclear. */
+function formatWeekRange(weekStart: Date): string {
+  const weekEnd = new Date(weekStart.getTime() + 6 * 86400000);
+  const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return `${fmt(weekStart)} - ${fmt(weekEnd)}`;
+}
+
 /** Week 1-4 (or 5) + This Week + Daily Projection cards for the redesigned Executive
  *  Overview. Actuals are read straight from the already-loaded Excel Dataset's
  *  Brand&Customer Listing (MonthlyBrandCustomerRow.date carries a real per-day
@@ -126,7 +140,7 @@ export function WeekDailyActuals({
     const variance = actual - projection;
     const achievedPct = projection > 0 ? (actual / projection) * 100 : null;
     const isCurrentWeek = today >= weekStart && today <= weekEnd;
-    return { label: w.weekLabel, index: i + 1, projection, actual, variance, achievedPct, isCurrentWeek };
+    return { label: w.weekLabel, index: i + 1, range: formatWeekRange(weekStart), projection, actual, variance, achievedPct, isCurrentWeek };
   });
 
   const currentWeek = weekCards.find((w) => w.isCurrentWeek) ?? weekCards[weekCards.length - 1];
@@ -139,7 +153,7 @@ export function WeekDailyActuals({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <SectionCard title="This Week Projection" accent="navy">
+      <SectionCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} accent="navy">
         <div className="flex flex-col gap-1.5 text-sm">
           <Row label="Weeks Projection" value={formatCompact(currentWeek?.projection ?? 0)} />
           <Row label="Actuals" value={formatCompact(currentWeek?.actual ?? 0)} />
@@ -156,7 +170,11 @@ export function WeekDailyActuals({
       </SectionCard>
 
       {weekCards.map((w, i) => (
-        <SectionCard key={w.label} title={`Week ${w.index}${w.isCurrentWeek ? " (Current Week)" : ""}`} accent={w.isCurrentWeek ? "purple" : WEEK_ACCENTS[i % WEEK_ACCENTS.length]}>
+        <SectionCard
+          key={w.label}
+          title={`Week ${w.index} (${w.range})${w.isCurrentWeek ? " — Current Week" : ""}`}
+          accent={w.isCurrentWeek ? "purple" : WEEK_ACCENTS[i % WEEK_ACCENTS.length]}
+        >
           <div className="flex flex-col gap-1.5 text-sm">
             <Row label="Projection" value={formatCompact(w.projection)} />
             <Row label="Actual" value={formatCompact(w.actual)} />
