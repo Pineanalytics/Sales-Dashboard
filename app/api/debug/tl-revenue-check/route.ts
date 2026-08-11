@@ -100,9 +100,33 @@ export async function GET(req: NextRequest) {
     newMtdRevenue: newRevenueByTl.get(tl.id) ?? 0,
   }));
 
+  // Per-(principal, resolved Team Leader) breakdown under the NEW logic, for the
+  // 2 principals in question - shows exactly where each principal's real revenue
+  // rows are actually resolving to.
+  const focusPrincipals = ["EABL-Nyeri", "EABL-Nyahururu"];
+  const perPrincipalBreakdown: Record<string, { teamLeaderName: string; revenue: number; sampleNames: string[] }[]> = {};
+  for (const principal of focusPrincipals) {
+    const byTl = new Map<string, { revenue: number; names: Set<string> }>();
+    for (const r of bc) {
+      if (r.principal !== principal) continue;
+      const tlId = newResolve(r.salesEmployee, r.principal);
+      const key = tlId ?? "UNMATCHED";
+      const entry = byTl.get(key) ?? { revenue: 0, names: new Set<string>() };
+      entry.revenue += r.revenue;
+      entry.names.add(r.salesEmployee);
+      byTl.set(key, entry);
+    }
+    perPrincipalBreakdown[principal] = Array.from(byTl.entries()).map(([tlId, v]) => ({
+      teamLeaderName: tlId === "UNMATCHED" ? "UNMATCHED" : teamLeaderNameById.get(tlId) ?? tlId,
+      revenue: v.revenue,
+      sampleNames: Array.from(v.names).slice(0, 10),
+    }));
+  }
+
   return NextResponse.json({
     period,
     groundTruthByPrincipal: Object.fromEntries(groundTruthByPrincipal),
     summary,
+    perPrincipalBreakdown,
   });
 }
