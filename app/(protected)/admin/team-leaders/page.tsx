@@ -9,6 +9,8 @@ import {
   createTeamLeaderAction,
   renameTeamLeaderAction,
   deleteTeamLeaderAction,
+  updateTeamLeaderSupervisorAction,
+  updateSupervisorManagerAction,
   createAssignmentAction,
   updateAssignmentAction,
   deactivateAssignmentAction,
@@ -54,7 +56,7 @@ export default async function AdminTeamLeadersPage({
     filterEmployee,
   } = await searchParams;
 
-  const [teamLeaders, assignments, knownReps, knownPrincipals] = await Promise.all([
+  const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers] = await Promise.all([
     prisma.teamLeader.findMany({ where: scope ? { id: { in: scope.teamLeaderIds } } : {}, orderBy: { name: "asc" } }),
     prisma.teamLeaderAssignment.findMany({
       where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
@@ -62,6 +64,8 @@ export default async function AdminTeamLeadersPage({
     }),
     getKnownReps(),
     getKnownPrincipals(),
+    prisma.supervisor.findMany({ orderBy: { name: "asc" } }),
+    prisma.manager.findMany({ orderBy: { name: "asc" } }),
   ]);
 
   const renaming = rename ? teamLeaders.find((tl) => tl.id === rename) : undefined;
@@ -187,14 +191,29 @@ export default async function AdminTeamLeadersPage({
                   </Link>
                 </form>
               ) : (
-                <div key={tl.id} className="flex items-center justify-between rounded-xl bg-background-elevated px-4 py-2.5">
+                <div key={tl.id} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
                   <span className="text-sm font-medium text-foreground">
                     {tl.name}
                     <span className="ml-2 text-[13px] text-muted">
                       {(assignmentsByTeamLeader.get(tl.id) ?? []).length} assignment(s)
                     </span>
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <form action={updateTeamLeaderSupervisorAction} className="flex items-center gap-1.5">
+                      <input type="hidden" name="teamLeaderId" value={tl.id} />
+                      <span className="text-[13px] text-muted">Reports to</span>
+                      <select name="supervisorId" defaultValue={tl.supervisorId ?? ""} className={inputClass + " py-1 text-xs"}>
+                        <option value="">— none —</option>
+                        {supervisors.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                        Save
+                      </button>
+                    </form>
                     <Link
                       href={`/admin/team-leaders?rename=${tl.id}`}
                       className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
@@ -212,6 +231,40 @@ export default async function AdminTeamLeadersPage({
               )
             )}
             {teamLeaders.length === 0 ? <p className="text-sm text-muted">No Team Leaders yet — add one above.</p> : null}
+          </div>
+        </div>
+        ) : null}
+
+        {isAdmin ? (
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Sales Supervisors → Manager</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Who each Sales Supervisor reports to — the reporting line TL Ranking&apos;s Manager rollup uses
+            (Supervisor.managerId). Team Leaders/Supervisors themselves are still sourced from the Roster CSV
+            upload above; this is only the Manager link.
+          </p>
+          <div className="mt-4 flex flex-col gap-2">
+            {supervisors.map((s) => (
+              <form key={s.id} action={updateSupervisorManagerAction} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
+                <input type="hidden" name="supervisorId" value={s.id} />
+                <span className="text-sm font-medium text-foreground">{s.name}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13px] text-muted">Reports to</span>
+                  <select name="managerId" defaultValue={s.managerId ?? ""} className={inputClass + " py-1 text-xs"}>
+                    <option value="">— none —</option>
+                    {managers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                    Save
+                  </button>
+                </div>
+              </form>
+            ))}
+            {supervisors.length === 0 ? <p className="text-sm text-muted">No Sales Supervisors yet — added via the Roster CSV upload.</p> : null}
           </div>
         </div>
         ) : null}

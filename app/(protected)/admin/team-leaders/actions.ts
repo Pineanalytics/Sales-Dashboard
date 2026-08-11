@@ -156,6 +156,42 @@ export async function deleteTeamLeaderAction(formData: FormData) {
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Team Leader "${teamLeader.name}" and their assignments.`));
 }
 
+/** Sets which Supervisor a Team Leader reports to — TeamLeader.supervisorId, the
+ *  reporting line lib/tlRanking.ts's buildSupervisorRanking resolves the TL
+ *  Ranking Supervisor rollup from. Replaced resolving this from
+ *  TeamLeaderAssignment rows (rep-level, confirmed unreliable when a Team
+ *  Leader's own active rows disagreed on managerId/supervisorId). Empty value
+ *  clears it (surfaces as "needs a Supervisor" in TL Ranking, not guessed at). */
+export async function updateTeamLeaderSupervisorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "teamLeaderId");
+  const supervisorId = str(formData, "supervisorId") || null;
+
+  try {
+    await prisma.teamLeader.update({ where: { id }, data: { supervisorId } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Team Leader's Supervisor."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
+/** Sets which Manager a Supervisor reports to — Supervisor.managerId, same role
+ *  one tier up as TeamLeader.supervisorId above. */
+export async function updateSupervisorManagerAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const managerId = str(formData, "managerId") || null;
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { managerId } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Supervisor's Manager."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
 /** Browser-based alternative to running scripts/target-management/import.ts locally —
  *  accepts a plain CSV export of the Roster sheet (either format, see
  *  lib/rosterImport.ts) and upserts it through the exact same shared logic the
@@ -204,7 +240,9 @@ export async function uploadRosterCsvAction(formData: FormData) {
 
   redirect(
     "/admin/team-leaders?success=" +
-      encodeURIComponent(`Imported ${result.assignments} Roster row(s) across ${result.teamLeaders} Team Leader(s).`)
+      encodeURIComponent(
+        `Imported ${result.assignments} Roster row(s) across ${result.teamLeaders} Team Leader(s). ${result.reportingLineUpdates} reporting-line link(s) and ${result.principalOwnershipUpdates} Principal ownership link(s) refreshed.`
+      )
   );
 }
 

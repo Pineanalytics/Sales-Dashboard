@@ -191,10 +191,9 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
         .filter((r) => !args.principal || r.principalKey === args.principal || r.principal === args.principal)
         .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
-      const [assignments, principals, teamLeaders, mtdTargets] = await Promise.all([
-        prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true } }),
+      const [principals, teamLeaders, mtdTargets] = await Promise.all([
         prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
-        prisma.teamLeader.findMany({ select: { id: true, name: true } }),
+        prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
         getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
       ]);
 
@@ -218,10 +217,11 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
 }
 
 /** Shared setup for the two ranking-rollup tools below — dataset revenue +
- *  assignments/principals/teamLeaders/mtdTargets, same fetch makeTlRankingTool
- *  already does, plus Supervisor/Manager reference lists. Returns null when
- *  there's no dataset or no current-month data (callers turn that into the
- *  tool's error JSON). */
+ *  principals/teamLeaders/mtdTargets, same fetch makeTlRankingTool already
+ *  does, plus Supervisor/Manager reference lists (each carrying its own
+ *  reporting-line field for buildSupervisorRanking/buildManagerRanking).
+ *  Returns null when there's no dataset or no current-month data (callers
+ *  turn that into the tool's error JSON). */
 async function loadRankingInputs(principal: string | undefined) {
   const dataset = await getLatestSnapshot();
   if (!dataset) return null;
@@ -231,16 +231,15 @@ async function loadRankingInputs(principal: string | undefined) {
     .filter((r) => !principal || r.principalKey === principal || r.principal === principal)
     .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
-  const [assignments, principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
-    prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true } }),
+  const [principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
     prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
-    prisma.teamLeader.findMany({ select: { id: true, name: true } }),
-    prisma.supervisor.findMany({ select: { id: true, name: true } }),
+    prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true } }),
     prisma.manager.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
   ]);
   const tlRanking = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
-  return { assignments, supervisors, managers, tlRanking };
+  return { teamLeaders, supervisors, managers, tlRanking };
 }
 
 function makeSupervisorRankingTool(scope: TeamLeaderScope | null) {
@@ -261,7 +260,7 @@ function makeSupervisorRankingTool(scope: TeamLeaderScope | null) {
       const inputs = await loadRankingInputs(args.principal);
       if (!inputs) return JSON.stringify({ error: "No dataset or no current-month data available." });
 
-      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.assignments, inputs.supervisors);
+      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.teamLeaders, inputs.supervisors);
       if (scope?.supervisorId) {
         return JSON.stringify({ rankings: supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId), unassignedTeamLeaders: [] });
       }
@@ -293,9 +292,9 @@ function makeManagerRankingTool(scope: TeamLeaderScope | null) {
       const inputs = await loadRankingInputs(args.principal);
       if (!inputs) return JSON.stringify({ error: "No dataset or no current-month data available." });
 
-      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.assignments, inputs.supervisors);
+      const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.teamLeaders, inputs.supervisors);
       const scopedSupervisors = scope?.supervisorId ? supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId) : supervisorRanking.rankings;
-      return JSON.stringify(buildManagerRanking(scopedSupervisors, inputs.assignments, inputs.managers));
+      return JSON.stringify(buildManagerRanking(scopedSupervisors, inputs.supervisors, inputs.managers));
     },
   });
 }

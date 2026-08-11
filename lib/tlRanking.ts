@@ -38,16 +38,6 @@ export interface UnattributedPrincipal {
   revenue: number;
 }
 
-export interface AssignmentInput {
-  teamLeaderId: string;
-  employeeName: string;
-  sapName: string | null;
-  principal: string;
-  active: boolean;
-  supervisorId?: string | null;
-  managerId?: string | null;
-}
-
 export interface TeamLeaderInput {
   id: string;
   name: string;
@@ -172,24 +162,25 @@ export interface SupervisorRankingResult {
   unassignedTeamLeaders: TlRankingRow[]; // Team Leaders with no resolvable Supervisor
 }
 
+/** A Team Leader's own reporting line — TeamLeader.supervisorId, admin-editable
+ *  via app/(protected)/admin/team-leaders. Replaces resolving this from
+ *  TeamLeaderAssignment rows (rep-level, array-order-dependent when a Team
+ *  Leader's active rows disagreed — confirmed live for Erick, whose active
+ *  rows split across two different managerIds, and the "first row wins" lookup
+ *  picked arbitrarily). */
+export interface TeamLeaderHierarchyInput {
+  id: string;
+  name: string;
+  supervisorId: string | null;
+}
+
 /** Rolls Team-Leader-level ranking rows up to Sales Supervisor level — the primary
  *  ranking grouping (several Team Leaders can share one Supervisor, e.g. Mars-
  *  Nairobi's 5 Team Leaders all under Lucy Githinji). Team Leader detail nests
  *  underneath each Supervisor row rather than disappearing, matching "team leaders
- *  can then be tracked based on the teams and regions they head." A Team Leader's
- *  Supervisor is resolved from their own active TeamLeaderAssignment rows (first
- *  non-null supervisorId wins). This hierarchy lookup is unrelated to revenue
- *  attribution (see buildTlRanking above) and still reads TeamLeaderAssignment
- *  as before — only which principal's revenue counts for a Team Leader changed,
- *  not who they report to. */
-export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: AssignmentInput[], supervisors: HierarchyEntity[]): SupervisorRankingResult {
-  const activeAssignments = assignments.filter((a) => a.active);
-  const supervisorIdByTeamLeader = new Map<string, string>();
-  const activeTeamLeaderIds = new Set<string>();
-  for (const a of activeAssignments) {
-    activeTeamLeaderIds.add(a.teamLeaderId);
-    if (a.supervisorId && !supervisorIdByTeamLeader.has(a.teamLeaderId)) supervisorIdByTeamLeader.set(a.teamLeaderId, a.supervisorId);
-  }
+ *  can then be tracked based on the teams and regions they head." */
+export function buildSupervisorRanking(tlRanking: TlRankingRow[], teamLeaders: TeamLeaderHierarchyInput[], supervisors: HierarchyEntity[]): SupervisorRankingResult {
+  const supervisorIdByTeamLeader = new Map(teamLeaders.map((tl) => [tl.id, tl.supervisorId]));
   const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.name]));
 
   const bySupervisor = new Map<string, TlRankingRow[]>();
@@ -197,31 +188,28 @@ export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: A
   for (const tl of tlRanking) {
     let supervisorId = supervisorIdByTeamLeader.get(tl.teamLeaderId);
     if (!supervisorId) {
-      // Legacy fallback: a Team Leader row with no roster-linked Supervisor - e.g.
-      // an old monolithic "Lucy" team-leader identity carrying pre-restructuring
-      // WeeklyTarget history from before the account was split into named
-      // sub-team-leaders under Supervisor "Lucy Githinji" - still rolls up
-      // correctly when its own name matches a Supervisor's, via the exact same
-      // fuzzy rule lib/teamLeaderScope.ts's TEAM_LEADER scope expansion already
-      // uses for this "coarser old identity vs newer structured hierarchy"
-      // reconciliation. Only applied when exactly one Supervisor matches, so a
-      // genuinely ambiguous/unrelated stray name (e.g. "Christine", "BDM") stays
-      // correctly unassigned rather than guessed at.
+      // Legacy fallback: a Team Leader row with no TeamLeader.supervisorId set
+      // yet - e.g. an old monolithic "Lucy" team-leader identity carrying
+      // pre-restructuring WeeklyTarget history from before the account was
+      // split into named sub-team-leaders under Supervisor "Lucy Githinji" -
+      // still rolls up correctly when its own name matches a Supervisor's, via
+      // the exact same fuzzy rule lib/teamLeaderScope.ts's TEAM_LEADER scope
+      // expansion already uses for this "coarser old identity vs newer
+      // structured hierarchy" reconciliation. Only applied when exactly one
+      // Supervisor matches, so a genuinely ambiguous/unrelated stray name
+      // stays correctly unassigned rather than guessed at.
       const matches = supervisors.filter((s) => teamLeaderSupervisesName(tl.teamLeaderName, s.name));
       if (matches.length === 1) supervisorId = matches[0].id;
     }
     if (!supervisorId) {
-      // A Team Leader identity with zero currently-active reps (confirmed live:
-      // "Christine," fully replaced by "Eve" on Suntory-Nairobi - her
-      // TeamLeaderAssignment rows are already correctly deactivated) is stale
-      // history, not a live team - drop it from the ranking (and its totals)
-      // entirely rather than surfacing it as "needs a Supervisor," which it
-      // doesn't, having no current team to assign one to. Its WeeklyTarget rows
-      // stay in the DB untouched either way (reject-deletes) - this only affects
-      // what the live ranking view surfaces. A Team Leader that DOES have an
-      // active team but genuinely lacks a Supervisor link is a real, actionable
-      // gap and still shows up below.
-      if (activeTeamLeaderIds.has(tl.teamLeaderId)) unassignedTeamLeaders.push(tl);
+      // A real, currently-attributed-revenue Team Leader with no resolvable
+      // Supervisor is a genuine, actionable gap - surface it, never drop it.
+      // (Previously this dropped a Team Leader with zero active
+      // TeamLeaderAssignment rows entirely - confirmed wrong once revenue
+      // became principal-based: Christine had real revenue via principal
+      // ownership despite having no active reps left on her roster, and was
+      // being silently discarded from every rollup along with her ~10.6M.)
+      unassignedTeamLeaders.push(tl);
       continue;
     }
     const list = bySupervisor.get(supervisorId) ?? [];
@@ -262,29 +250,27 @@ export interface ManagerRankingResult {
   unassignedSupervisors: SupervisorRankingRow[]; // Supervisors with no resolvable Manager
 }
 
+/** A Supervisor's own reporting line — Supervisor.managerId, admin-editable via
+ *  app/(protected)/admin/team-leaders. Same reasoning as
+ *  TeamLeaderHierarchyInput above. */
+export interface SupervisorHierarchyInput {
+  id: string;
+  name: string;
+  managerId: string | null;
+}
+
 /** Rolls Supervisor-level rows up to Manager level — one tier further up (a Manager
  *  can span several Supervisors and even several principals, e.g. Angela Sitati
  *  over Lucy Githinji's Mars-Nairobi group plus Suntory/Upfield/Tropikal/Weetabix).
- *  Reporting/ranking dimension only — no Manager login. A Supervisor's Manager is
- *  resolved via its own nested Team Leaders' assignment rows (first match), the
- *  same "ask the leaf rows, not a separate lookup" approach buildSupervisorRanking
- *  uses. */
-export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], assignments: AssignmentInput[], managers: HierarchyEntity[]): ManagerRankingResult {
-  const activeAssignments = assignments.filter((a) => a.active);
-  const managerIdByTeamLeader = new Map<string, string>();
-  for (const a of activeAssignments) {
-    if (a.managerId && !managerIdByTeamLeader.has(a.teamLeaderId)) managerIdByTeamLeader.set(a.teamLeaderId, a.managerId);
-  }
+ *  Reporting/ranking dimension only — no Manager login. */
+export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], supervisorHierarchy: SupervisorHierarchyInput[], managers: HierarchyEntity[]): ManagerRankingResult {
+  const managerIdBySupervisor = new Map(supervisorHierarchy.map((s) => [s.id, s.managerId]));
   const managerNameById = new Map(managers.map((m) => [m.id, m.name]));
 
   const byManager = new Map<string, SupervisorRankingRow[]>();
   const unassignedSupervisors: SupervisorRankingRow[] = [];
   for (const sup of supervisorRanking) {
-    // Check every nested Team Leader, not just the first (sorted-by-achievement)
-    // one - a legacy fuzzy-merged Team Leader (see buildSupervisorRanking's own
-    // fallback) has no assignment row of its own and so no managerId, but a
-    // genuine roster-linked sibling under the same Supervisor usually does.
-    let managerId = sup.teamLeaders.map((tl) => managerIdByTeamLeader.get(tl.teamLeaderId)).find((id) => id != null);
+    let managerId = managerIdBySupervisor.get(sup.supervisorId);
     if (!managerId) {
       const matches = managers.filter((m) => teamLeaderSupervisesName(sup.supervisorName, m.name));
       if (matches.length === 1) managerId = matches[0].id;

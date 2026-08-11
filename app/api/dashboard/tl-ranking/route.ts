@@ -30,12 +30,15 @@ type TlRankingResponse =
  *  this replaced rep-name matching), summing their WeeklyTarget for the given month,
  *  then rolling that up to Sales Supervisor (primary ranking level) and Manager
  *  (further rollup) — see lib/tlRanking.ts's buildSupervisorRanking/
- *  buildManagerRanking, which still resolve the reporting hierarchy from
- *  TeamLeaderAssignment (unrelated to revenue attribution, unchanged). An unscoped
- *  (ADMIN/unrestricted VIEWER) session gets the full nested hierarchy; a TEAM_LEADER
- *  or principal-scoped VIEWER keeps the original flat single-TL-level shape (no
- *  supervisor grouping is meaningful for a single-TL view); a SUPERVISOR session gets
- *  the hierarchy narrowed to just their own Supervisor row. */
+ *  buildManagerRanking, which resolve the reporting hierarchy from
+ *  TeamLeader.supervisorId / Supervisor.managerId directly (an HR fact about the
+ *  Team Leader/Supervisor themselves, not derived from rep-level
+ *  TeamLeaderAssignment rows — that was confirmed unreliable, same class of bug
+ *  rep-name revenue matching had). An unscoped (ADMIN/unrestricted VIEWER) session
+ *  gets the full nested hierarchy; a TEAM_LEADER or principal-scoped VIEWER keeps
+ *  the original flat single-TL-level shape (no supervisor grouping is meaningful
+ *  for a single-TL view); a SUPERVISOR session gets the hierarchy narrowed to just
+ *  their own Supervisor row. */
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
@@ -64,13 +67,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
 
-  const [assignments, principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
-    prisma.teamLeaderAssignment.findMany({
-      select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true },
-    }),
+  const [principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
     prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
-    prisma.teamLeader.findMany({ select: { id: true, name: true } }),
-    prisma.supervisor.findMany({ select: { id: true, name: true } }),
+    prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true } }),
     prisma.manager.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(year, monthLabel),
   ]);
@@ -97,13 +97,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ mode: "flat", rankings, unattributedPrincipals: [] } satisfies TlRankingResponse);
   }
 
-  const supervisorRanking = buildSupervisorRanking(result.rankings, assignments, supervisors);
-  const managerRanking = buildManagerRanking(supervisorRanking.rankings, assignments, managers);
+  const supervisorRanking = buildSupervisorRanking(result.rankings, teamLeaders, supervisors);
+  const managerRanking = buildManagerRanking(supervisorRanking.rankings, supervisors, managers);
 
   if (scope?.supervisorId) {
     const rankings = supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId);
     const narrowedSupervisorRanking: SupervisorRankingResult = { rankings, unassignedTeamLeaders: [] };
-    const narrowedManagerRanking = buildManagerRanking(rankings, assignments, managers);
+    const narrowedManagerRanking = buildManagerRanking(rankings, supervisors, managers);
     return NextResponse.json(
       { mode: "hierarchy", managerRanking: narrowedManagerRanking, supervisorRanking: narrowedSupervisorRanking, unattributedPrincipals: [] } satisfies TlRankingResponse
     );

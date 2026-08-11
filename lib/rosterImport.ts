@@ -304,12 +304,58 @@ async function upsertAssignmentsChunk(rows: AssignmentRowWithIds[], format: Rost
   `;
 }
 
+/** A real Employee Code differs from the row's own Employee Name; a known
+ *  placeholder-import artifact repeats the name in both fields (an
+ *  unresolved SAP rep auto-created with its own name standing in for a real
+ *  code). Confirmed live: Erick's own roster rows split exactly on this line,
+ *  disagreeing about his Manager — weightedMajority below weights these rows
+ *  double rather than discarding uncoded rows outright, in case a Team
+ *  Leader/Principal has no coded rows at all yet. */
+function isRealEmployeeCode(row: RosterUploadRow): boolean {
+  return row.employeeCode.trim() !== row.employeeName.trim();
+}
+
+/** Weighted-majority vote of pick(row) per keyOf(row), skipping rows where
+ *  pick(row) is null/blank — see isRealEmployeeCode for the weighting. Used
+ *  to derive a single representative value (e.g. "which Manager does this
+ *  Team Leader report to") from a batch of per-rep roster rows that don't
+ *  always agree. */
+function weightedMajority(rows: RosterUploadRow[], keyOf: (row: RosterUploadRow) => string, pick: (row: RosterUploadRow) => string | null): Map<string, string> {
+  const votesByKey = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const value = pick(row)?.trim();
+    const key = keyOf(row).trim();
+    if (!value || !key) continue;
+    const votes = votesByKey.get(key) ?? new Map<string, number>();
+    const weight = isRealEmployeeCode(row) ? 2 : 1;
+    votes.set(value, (votes.get(value) ?? 0) + weight);
+    votesByKey.set(key, votes);
+  }
+  const winners = new Map<string, string>();
+  for (const [key, votes] of votesByKey) {
+    const [bestValue] = Array.from(votes.entries()).sort((a, b) => b[1] - a[1])[0];
+    winners.set(key, bestValue);
+  }
+  return winners;
+}
+
 /** Upserts TeamLeader/Supervisor/Manager (find-or-create by name) then
  *  TeamLeaderAssignment rows on (teamLeaderId, employeeCode, principal) — the same
  *  unique key the admin UI's createAssignmentAction already uses. A row missing from
  *  a new export is left untouched (no auto-deactivation) — matches the project's
  *  reject-deletes convention. Recomputes Contribution-by-Rep/Daily Projection inline
- *  so the import is reflected immediately rather than waiting for the next sync. */
+ *  so the import is reflected immediately rather than waiting for the next sync.
+ *
+ *  Also refreshes TeamLeader.supervisorId / Supervisor.managerId (V18 only —
+ *  V21 has no Sales Supervisor/Manager columns) and Principal.teamLeaderId
+ *  (both formats) from this same import, via weightedMajority above. These are
+ *  HR facts about the Team Leader/Supervisor/Principal, not about any one rep
+ *  row — lib/tlRanking.ts's buildSupervisorRanking/buildManagerRanking used to
+ *  read the reporting line from TeamLeaderAssignment rows directly and picked
+ *  arbitrarily whenever a Team Leader's own rows disagreed (confirmed live for
+ *  Erick). Never creates a new Principal row from a roster row (which lacks
+ *  location/status/mainPrincipal) — only updates one that already exists via
+ *  app/(protected)/admin/principals. */
 export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFormat = "V21") {
   const teamLeaderNames = Array.from(new Set(rows.map((r) => r.teamLeaderName.trim())));
   const existingTls = await prisma.teamLeader.findMany({ where: { name: { in: teamLeaderNames } }, select: { id: true, name: true } });
@@ -348,7 +394,56 @@ export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFo
     await upsertAssignmentsChunk(withIds.slice(i, i + CHUNK_SIZE), format);
   }
 
+  let reportingLineUpdates = 0;
+  if (format === "V18") {
+    const tlToSupervisorName = weightedMajority(rows, (r) => r.teamLeaderName, (r) => r.supervisorName);
+    for (const [tlName, supervisorName] of tlToSupervisorName) {
+      const teamLeaderId = teamLeaderByName.get(tlName);
+      const supervisorId = supervisorByName.get(supervisorName);
+      if (teamLeaderId && supervisorId) {
+        await prisma.teamLeader.update({ where: { id: teamLeaderId }, data: { supervisorId } });
+        reportingLineUpdates++;
+      }
+    }
+
+    const supervisorToManagerName = weightedMajority(rows.filter((r) => r.supervisorName), (r) => r.supervisorName!, (r) => r.managerName);
+    for (const [supName, managerName] of supervisorToManagerName) {
+      const supervisorId = supervisorByName.get(supName);
+      const managerId = managerByName.get(managerName);
+      if (supervisorId && managerId) {
+        await prisma.supervisor.update({ where: { id: supervisorId }, data: { managerId } });
+        reportingLineUpdates++;
+      }
+    }
+  }
+
+  const principalToTeamLeaderName = weightedMajority(rows, (r) => r.principal, (r) => r.teamLeaderName);
+  const existingPrincipals = await prisma.principal.findMany({
+    where: { principal: { in: Array.from(principalToTeamLeaderName.keys()) } },
+    select: { principal: true, teamLeaderId: true },
+  });
+  const principalByName = new Map(existingPrincipals.map((p) => [p.principal, p]));
+  let principalOwnershipUpdates = 0;
+  for (const [principalName, tlName] of principalToTeamLeaderName) {
+    const existing = principalByName.get(principalName);
+    if (!existing) continue; // not an admin-managed Principal yet — leave for /admin/principals
+    const teamLeaderId = teamLeaderByName.get(tlName);
+    if (teamLeaderId && teamLeaderId !== existing.teamLeaderId) {
+      await prisma.principal.update({ where: { principal: principalName }, data: { teamLeaderId } });
+      principalOwnershipUpdates++;
+    }
+  }
+
   const contribution = await recomputeRepContribution();
   const daily = await recomputeDailyTargets();
-  return { teamLeaders: teamLeaderNames.length, supervisors: supervisorNames.length, managers: managerNames.length, assignments: rows.length, contribution, daily };
+  return {
+    teamLeaders: teamLeaderNames.length,
+    supervisors: supervisorNames.length,
+    managers: managerNames.length,
+    assignments: rows.length,
+    reportingLineUpdates,
+    principalOwnershipUpdates,
+    contribution,
+    daily,
+  };
 }

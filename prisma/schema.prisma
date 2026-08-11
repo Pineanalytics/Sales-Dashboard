@@ -113,10 +113,19 @@ model TargetAuditLog {
 
 // Team Leader roster — one row per team leader, optionally linked to a login
 // (User.teamLeaderId) once they have one. Admin-editable via /admin/team-leaders.
+// supervisorId is the reporting line used by TL Ranking's Manager/Supervisor
+// rollup (lib/tlRanking.ts's buildSupervisorRanking) — an HR fact about the
+// Team Leader, not about any one principal they happen to head, so it lives
+// here rather than being duplicated (and risking disagreement) across every
+// Principal row. Replaced resolving this from TeamLeaderAssignment rows
+// (rep-level, array-order-dependent, confirmed unreliable — see
+// buildSupervisorRanking's own comment). Admin-editable via
+// app/(protected)/admin/team-leaders.
 model TeamLeader {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  name         String   @unique
+  supervisorId String?
+  createdAt    DateTime @default(now())
 }
 
 // One row per Sales Supervisor — a tier above Team Leader (several Team Leaders
@@ -127,9 +136,12 @@ model TeamLeader {
 // deliberately a separate, FK-based mechanism from the older, fuzzier
 // EmployeeMaster.supervisor name-matching in lib/teamLeaderScope.ts
 // (teamLeaderSupervisesName), which stays untouched.
+// managerId is this Supervisor's own reporting line up to Manager — same
+// reasoning as TeamLeader.supervisorId above.
 model Supervisor {
   id        String   @id @default(cuid())
   name      String   @unique
+  managerId String?
   createdAt DateTime @default(now())
 }
 
