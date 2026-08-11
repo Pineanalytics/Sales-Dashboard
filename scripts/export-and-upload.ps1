@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Refreshes the source Power Query dashboard, exports the 5 sheets the Sales
+    Refreshes the source Power Query dashboard, exports the 4 sheets the Sales
     Performance Dashboard app parses into a fresh "Sales update.xlsx", and uploads
     it automatically. Replaces the manual refresh/copy/save/browser-upload routine.
 
@@ -8,13 +8,15 @@
     1. Opens a separate, invisible Excel instance (does not touch any interactive
        session you may already have the source workbook open in) and refreshes all
        Power Query connections and pivot tables.
-    2. Copies the used range of 5 source sheets as values into a new workbook,
+    2. Copies the used range of 4 source sheets as values into a new workbook,
        renamed to the exact sheet names the app's parser expects. Brand&Customer
        Listing is the exception: it's still transaction-line grain in the source
        pivot (~100k rows), so this script collapses it here to one row per
-       Year+Month+Principal+Sales Employee+Customer (summing Volume/Revenue/GP)
-       before writing it out - otherwise the exported file is unnecessarily large
-       to transmit and store.
+       Date+Principal+Sales Employee+Customer (summing Volume/Revenue/GP) before
+       writing it out - otherwise the exported file is unnecessarily large to
+       transmit and store. "Weekly Sales" is no longer exported at all - the app
+       now derives weekly/daily sales measures directly from Brand&Customer
+       Listing's real per-day Date column.
     3. Saves that workbook to -OutputPath.
     4. POSTs it to <AppUrl>/api/upload with the x-upload-api-key header.
 
@@ -48,12 +50,17 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Sheet in the source workbook -> sheet name the app's parser requires.
+# "Weekly Sales" -> "Weekly Projection" is retired: it was a single current-week
+# snapshot per principal with no history, and the app now derives weekly/daily
+# revenue directly from Brand&Customer Listing's real per-day Date column instead
+# (see lib/timeIntelligence.ts's summarizeBrandCustomerForCurrentWeek). Not
+# touching the source workbook's own "Weekly Sales" tab - just no longer
+# exporting/uploading it.
 $SheetMap = [ordered]@{
     "Stock Listing"             = "Stock Balances"
     "Calls & Productivity"      = "Calls & Productivity"
     "Brand&Customer Listing"    = "Brand&Customer Listing"
     "All Month Sales Vs Target" = "All Month Sales Vs Target"
-    "Weekly Sales"              = "Weekly Projection"
 }
 
 $xlPasteValuesAndNumberFormats = 12
@@ -89,10 +96,22 @@ function ConvertTo-SafeDouble {
     try { return [double]$Value } catch { return 0.0 }
 }
 
-# Collapses the Brand&Customer sheet to one row per Year+Month+Principal+Sales
+# Collapses the Brand&Customer sheet to one row per Date+Principal+Sales
 # Employee+Customer (summing Volume/Revenue/GP), mirroring the same grouping the
 # app's parser does server-side. Reads the whole UsedRange via .Value2 (one COM
 # call) rather than cell-by-cell, since the source is ~100k rows.
+#
+# Date (not Year+Month Name) is the key's day component: the source pivot's Date
+# column carries a real per-day date for the current month (the app derives
+# weekly/daily sales measures from it - see lib/timeIntelligence.ts's
+# summarizeBrandCustomerForCurrentWeek); historical months still only ever have
+# their 1st-of-month placeholder, so this collapses exactly as before for them.
+# .Value2 returns a raw OLE Automation date serial (a plain number) for a genuine
+# date cell, not a formatted string - written straight through to the output row,
+# since the app's parser reads that same raw serial directly (see
+# lib/parseWorkbook.ts's parseExcelDate - deliberately not XLSX's own cellDates
+# conversion, which was confirmed to introduce a few hours of floating-point
+# drift near a day boundary).
 function Export-BrandCustomerAggregated {
     param($SrcSheet, $DestWb, [string]$TargetName)
 
@@ -102,10 +121,10 @@ function Export-BrandCustomerAggregated {
 
     $headerRowIdx = -1
     for ($r = 1; $r -le [Math]::Min($rowCount, 10); $r++) {
-        if ("$($data[$r,1])".Trim() -eq "Year") { $headerRowIdx = $r; break }
+        if ("$($data[$r,1])".Trim() -eq "Date") { $headerRowIdx = $r; break }
     }
     if ($headerRowIdx -lt 0) {
-        throw "Could not find a header row starting with 'Year' in $($SrcSheet.Name)."
+        throw "Could not find a header row starting with 'Date' in $($SrcSheet.Name)."
     }
 
     $headerIndex = @{}
@@ -113,7 +132,7 @@ function Export-BrandCustomerAggregated {
         $h = "$($data[$headerRowIdx, $c])".Trim()
         if ($h) { $headerIndex[$h] = $c }
     }
-    foreach ($req in @("Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")) {
+    foreach ($req in @("Date", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")) {
         if (-not $headerIndex.ContainsKey($req)) {
             throw "Sheet '$($SrcSheet.Name)' is missing expected column '$req'."
         }
@@ -121,15 +140,15 @@ function Export-BrandCustomerAggregated {
 
     $agg = [ordered]@{}
     for ($r = $headerRowIdx + 1; $r -le $rowCount; $r++) {
-        $year = "$($data[$r, $headerIndex['Year']])".Trim()
+        $date = $data[$r, $headerIndex['Date']]
         $month = "$($data[$r, $headerIndex['Month Name']])".Trim()
         $customer = "$($data[$r, $headerIndex['Customer Name']])".Trim()
-        if (-not $year -or -not $month -or -not $customer) { continue }
+        if ($null -eq $date -or -not $month -or -not $customer) { continue }
         if ($customer.ToLower().Contains("total")) { continue }
 
         $principal = "$($data[$r, $headerIndex['Principal']])".Trim()
         $rep = "$($data[$r, $headerIndex['Sales Employee']])".Trim()
-        $key = "$year|$month|$principal|$rep|$customer"
+        $key = "$date|$principal|$rep|$customer"
 
         $volume = ConvertTo-SafeDouble $data[$r, $headerIndex['Volume']]
         $revenue = ConvertTo-SafeDouble $data[$r, $headerIndex['Revenue']]
@@ -142,13 +161,13 @@ function Export-BrandCustomerAggregated {
             $row.GP += $gp
         } else {
             $agg[$key] = [PSCustomObject]@{
-                Year = $year; Month = $month; Principal = $principal; Rep = $rep; Customer = $customer
+                Date = $date; Month = $month; Principal = $principal; Rep = $rep; Customer = $customer
                 Volume = $volume; Revenue = $revenue; GP = $gp
             }
         }
     }
 
-    $header = @("Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")
+    $header = @("Date", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP")
     $rows = @($agg.Values)
     $out = New-Object 'object[,]' ($rows.Count + 1), $header.Count
     for ($c = 0; $c -lt $header.Count; $c++) { $out[0, $c] = $header[$c] }
@@ -157,7 +176,7 @@ function Export-BrandCustomerAggregated {
         # PowerShell's multidim-array indexer parses `$i + 1, 0` ambiguously with
         # the comma operator - compute the row index into its own variable first.
         $ri = $i + 1
-        $out[$ri, 0] = $row.Year
+        $out[$ri, 0] = $row.Date
         $out[$ri, 1] = $row.Month
         $out[$ri, 2] = $row.Principal
         $out[$ri, 3] = $row.Rep
@@ -169,6 +188,12 @@ function Export-BrandCustomerAggregated {
 
     $newSheet = $DestWb.Worksheets.Add()
     $newSheet.Name = $TargetName
+    # The written serial has no cell format yet (a raw object[,] write carries no
+    # formatting) - set it explicitly so the exported file's Date column reads as
+    # an actual date for anyone opening it, not a bare 5-digit number. Purely for
+    # human readability - the app's parser reads the underlying serial directly
+    # regardless of display format.
+    $newSheet.Columns.Item(1).NumberFormat = "mm-dd-yy"
     $endCell = $newSheet.Cells($rows.Count + 1, $header.Count)
     $newSheet.Range($newSheet.Cells(1, 1), $endCell).Value2 = $out
 

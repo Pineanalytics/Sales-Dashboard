@@ -37,26 +37,43 @@ const monthlyCoverageRows: unknown[][] = [
   ["June", "Primary Sales", "Total", "", 290, 253, 0.8724],
 ];
 
-// Two transaction-line rows share the same Year+Month+Principal+Rep+Customer
-// (Cash Customer / Jane Doe / EABL-Nyeri, June 2026) but different Item Name —
+// Excel serial dates (matches what a real export's Date column carries, whether
+// read via .Value2 in export-and-upload.ps1 or via XLSX raw:true in
+// parseWorkbook.ts) — 46174 = 2026-06-01, 46175 = 2026-06-02, verified against a
+// real export's own confirmed serial (46023 = 2026-01-01).
+const JUNE_1_2026 = 46174;
+const JUNE_2_2026 = 46175;
+
+// Two transaction-line rows share the same Date+Principal+Rep+Customer
+// (Cash Customer / Jane Doe / EABL-Nyeri, June 1 2026) but different Item Name —
 // the parser must collapse these into one row, summing Volume/Revenue/GP and
 // deriving GP Margin % from the summed totals (never from a per-line percentage,
 // and never left at the source pivot's grain — see parseMonthlyBrandCustomer).
 const brandCustomerRows: unknown[][] = [
   ["MONTHLY CUSTOMER,BRAND & REP PERFORMANCE"],
-  ["Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Item Name", "Volume", "Revenue", "GP", "GP Margin %"],
-  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Lager 500ml", 60, 30000, 4800, 0.16],
-  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Stout 330ml", 40, 20000, 3200, 0.16],
-  ["2026", "June", "EABL-Nyahururu", "John Smith", "Golden Marketing", "", 60, 30000, 4500, 0.15],
-  ["2026", "June", "Upfield-Nairobi", "Jane Doe", "Cash Customer", "", 40, 20000, 2000, 0.1],
+  ["Date", "Month Name", "Principal", "Sales Employee", "Customer Name", "Item Name", "Volume", "Revenue", "GP", "GP Margin %"],
+  [JUNE_1_2026, "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Lager 500ml", 60, 30000, 4800, 0.16],
+  [JUNE_1_2026, "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", "EABL Stout 330ml", 40, 20000, 3200, 0.16],
+  [JUNE_1_2026, "June", "EABL-Nyahururu", "John Smith", "Golden Marketing", "", 60, 30000, 4500, 0.15],
+  [JUNE_1_2026, "June", "Upfield-Nairobi", "Jane Doe", "Cash Customer", "", 40, 20000, 2000, 0.1],
 ];
 
 // Matches the same rows without the optional Item Name/GP Margin % columns —
 // confirms neither column is required for the sheet to parse.
 const brandCustomerRowsNoOptionalCols: unknown[][] = [
   ["MONTHLY CUSTOMER,BRAND & REP PERFORMANCE"],
-  ["Year", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP"],
-  ["2026", "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", 100, 50000, 8000],
+  ["Date", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP"],
+  [JUNE_1_2026, "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", 100, 50000, 8000],
+];
+
+// Same rep/principal/customer as the first two brandCustomerRows above, but on
+// a DIFFERENT day (June 2, not June 1) — must stay a separate row, not collapse
+// into June 1's, proving day-level (not just month-level) collapse.
+const brandCustomerRowsMultiDay: unknown[][] = [
+  ["MONTHLY CUSTOMER,BRAND & REP PERFORMANCE"],
+  ["Date", "Month Name", "Principal", "Sales Employee", "Customer Name", "Volume", "Revenue", "GP"],
+  [JUNE_1_2026, "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", 60, 30000, 4800],
+  [JUNE_2_2026, "June", "EABL-Nyeri", "Jane Doe", "Cash Customer", 25, 12000, 1800],
 ];
 
 const stockRows: unknown[][] = [
@@ -67,15 +84,6 @@ const stockRows: unknown[][] = [
   ["Upfield-Nairobi", "Upfield Margarine 500g", 0, 0, 0, 500, 5, 0, ""],
   ["Weetabix-Meru", "Weetabix Original 500g", 8, 800, 900, null, null, null, ""],
   ["Total Balances", "", 70, 700, 7000, 4500, 45, 0, ""],
-];
-
-const weeklyProjectionRows: unknown[][] = [
-  ["WEEKLY PROJECTION"],
-  ["Principal", "Weekly Revenue", "Weekly Projection", "Weekly RR", "Week Variance", "Achieved Projection"],
-  ["EABL-Nyeri", 12000, 10000, 11000, 2000, 1.2],
-  ["EABL-Nyahururu", 9000, 10000, 9500, -1000, null],
-  ["Upfield-Nairobi", 3000, 5000, 4000, -2000, 0.6],
-  ["Total", 24000, 25000, 24500, -1000, 0.96],
 ];
 
 export interface FixtureOptions {
@@ -91,7 +99,6 @@ export function buildFixtureWorkbook(options: FixtureOptions = {}): ArrayBuffer 
     ["Calls & Productivity", monthlyCoverageRows],
     ["Brand&Customer Listing", brandCustomerRows],
     ["Stock Balances", stockRows],
-    ["Weekly Projection", weeklyProjectionRows],
     ["Raw Data", [["unused"]]],
   ];
   for (const [name, defaultRows] of sheets) {
@@ -104,4 +111,4 @@ export function buildFixtureWorkbook(options: FixtureOptions = {}): ArrayBuffer 
   return out;
 }
 
-export { monthlySalesRows, brandCustomerRowsNoOptionalCols };
+export { monthlySalesRows, brandCustomerRowsNoOptionalCols, brandCustomerRowsMultiDay };

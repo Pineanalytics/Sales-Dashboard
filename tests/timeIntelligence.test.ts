@@ -14,6 +14,7 @@ import {
   summarizeBrandCustomerByCustomer,
   summarizeBrandCustomerByRep,
   summarizeBrandCustomerByPrincipal,
+  summarizeBrandCustomerForCurrentWeek,
   summarizePLForPeriod,
   summarizePLByPrincipal,
   summarizePLByAccount,
@@ -54,6 +55,7 @@ function coverageRow(overrides: Partial<MonthlyCoverageRow>): MonthlyCoverageRow
 
 function brandCustomerRow(overrides: Partial<MonthlyBrandCustomerRow>): MonthlyBrandCustomerRow {
   return {
+    date: "2026-01-01",
     year: "2026",
     month: "January",
     monthIndex: 0,
@@ -90,7 +92,6 @@ function buildDataset(overrides: Partial<Dataset>): Dataset {
     monthlyCoverage: [],
     monthlyBrandCustomer: [],
     monthlyPL: [],
-    weeklyProjection: [],
     stockTotal: {
       volume: 0, pcs: 0, value: 0, rrWeekValue: 0, rrWeekVolume: 0, daysStock: 0,
       itemCount: 0, outOfStockCount: 0, runningOutCount: 0, okCount: 0, noDataCount: 0, action: "",
@@ -397,6 +398,58 @@ describe("brand & customer summaries", () => {
     const nyahururu = byPrincipal.find((p) => p.principal === "EABL-Nyahururu")!;
     expect(nyeri.revenue).toBe(50000);
     expect(nyahururu.revenue).toBe(30000);
+  });
+});
+
+describe("summarizeBrandCustomerForCurrentWeek", () => {
+  // August 2026's 1st is a Saturday, so its Mondays are Aug 3/10/17/24/31
+  // ("Aug Week 1".."Aug Week 5") — verified against lib/mtdTarget.ts's own
+  // working-day tests, same calendar.
+  it("sums revenue/volume/grossProfit for rows within the Monday-Sunday week containing 'today', excluding other weeks", () => {
+    const dataset = buildDataset({
+      monthlyBrandCustomer: [
+        brandCustomerRow({ date: "2026-08-03", revenue: 100, volume: 10, grossProfit: 20 }), // Monday of Aug Week 1
+        brandCustomerRow({ date: "2026-08-05", revenue: 200, volume: 20, grossProfit: 40 }), // same week
+        brandCustomerRow({ date: "2026-08-10", revenue: 999, volume: 99, grossProfit: 99 }), // Aug Week 2 - excluded
+      ],
+    });
+    const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-08-05T00:00:00Z"));
+    expect(result.revenue).toBe(300);
+    expect(result.volume).toBe(30);
+    expect(result.grossProfit).toBe(60);
+    expect(result.weekLabel).toBe("Aug Week 1");
+  });
+
+  it("filters by principal when a principalKey is given", () => {
+    const dataset = buildDataset({
+      monthlyBrandCustomer: [
+        brandCustomerRow({ date: "2026-08-03", principal: "EABL-Nyeri", revenue: 100 }),
+        brandCustomerRow({ date: "2026-08-03", principal: "Bic-Nairobi", revenue: 500 }),
+      ],
+    });
+    const result = summarizeBrandCustomerForCurrentWeek(dataset, "EABL-Nyeri", new Date("2026-08-05T00:00:00Z"));
+    expect(result.revenue).toBe(100);
+  });
+
+  it("resolves the correct week label even when the week's Monday falls in the previous month", () => {
+    // July 1 2026 is a Wednesday - the Monday of its week (June 29) belongs to
+    // June, whose own Mondays (1/8/15/22/29) make June 29 "Jun Week 5", not any
+    // July week.
+    const dataset = buildDataset({
+      monthlyBrandCustomer: [brandCustomerRow({ date: "2026-06-29", revenue: 700 })],
+    });
+    const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-07-01T00:00:00Z"));
+    expect(result.weekLabel).toBe("Jun Week 5");
+    expect(result.revenue).toBe(700);
+  });
+
+  it("returns zeroed totals for a week with no matching rows (e.g. a historical month's 1st-of-month-only placeholder data)", () => {
+    const dataset = buildDataset({
+      monthlyBrandCustomer: [brandCustomerRow({ date: "2026-08-01", revenue: 999999 })], // Aug 1 is a Saturday, outside the Aug 3-9 week
+    });
+    const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-08-05T00:00:00Z"));
+    expect(result.revenue).toBe(0);
+    expect(result.weekLabel).toBe("Aug Week 1");
   });
 });
 

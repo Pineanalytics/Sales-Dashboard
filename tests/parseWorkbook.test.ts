@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseWorkbook, weightedCoverDays, stockStatus, WorkbookParseError } from "@/lib/parseWorkbook";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import { buildFixtureWorkbook, monthlySalesRows, brandCustomerRowsNoOptionalCols } from "./fixtures/buildWorkbook";
+import { buildFixtureWorkbook, monthlySalesRows, brandCustomerRowsNoOptionalCols, brandCustomerRowsMultiDay } from "./fixtures/buildWorkbook";
 
 describe("normalizePrincipalKey", () => {
   it("lowercases, strips punctuation and takes the segment before the first dash", () => {
@@ -107,10 +107,10 @@ describe("parseWorkbook — monthly coverage (rep-level)", () => {
 });
 
 describe("parseWorkbook — monthly brand & customer", () => {
-  it("collapses transaction-line rows to one row per Year+Month+Principal+Rep+Customer, summing Volume/Revenue/GP", () => {
+  it("collapses transaction-line rows to one row per Date+Principal+Rep+Customer, summing Volume/Revenue/GP", () => {
     const dataset = parseWorkbook(buildFixtureWorkbook());
     // 4 raw rows in the fixture collapse to 3: the two EABL-Nyeri/Jane Doe/Cash
-    // Customer lines (different Item Name) merge into one.
+    // Customer lines (different Item Name, same day) merge into one.
     expect(dataset.monthlyBrandCustomer).toHaveLength(3);
     const row = dataset.monthlyBrandCustomer.find((r) => r.customerName === "Cash Customer" && r.principal === "EABL-Nyeri")!;
     expect(row.volume).toBe(100);
@@ -119,6 +119,11 @@ describe("parseWorkbook — monthly brand & customer", () => {
     // Derived from the summed totals (8000/50000*100), never from the per-line GP Margin % column.
     expect(row.grossMarginPct).toBe(16);
     expect(row.principalKey).toBe("eabl");
+    // year/month/monthIndex derived from Date, not a separate Month Name column.
+    expect(row.date).toBe("2026-06-01");
+    expect(row.year).toBe("2026");
+    expect(row.month).toBe("June");
+    expect(row.monthIndex).toBe(5);
   });
 
   it("does not require an Item Name or GP Margin % column — derives margin from revenue/GP when absent", () => {
@@ -130,9 +135,24 @@ describe("parseWorkbook — monthly brand & customer", () => {
     const row = dataset.monthlyBrandCustomer[0];
     expect(row.grossMarginPct).toBe(16); // derived: 8000/50000*100
   });
+
+  it("keeps rows on different days as separate rows, even for the same Principal+Rep+Customer — day-level, not just month-level, collapse", () => {
+    const buffer = buildFixtureWorkbook({
+      sheetOverrides: { "Brand&Customer Listing": brandCustomerRowsMultiDay },
+    });
+    const dataset = parseWorkbook(buffer);
+    expect(dataset.monthlyBrandCustomer).toHaveLength(2);
+    const june1 = dataset.monthlyBrandCustomer.find((r) => r.date === "2026-06-01")!;
+    const june2 = dataset.monthlyBrandCustomer.find((r) => r.date === "2026-06-02")!;
+    expect(june1.revenue).toBe(30000);
+    expect(june2.revenue).toBe(12000);
+    // Both still roll up to the same month for existing month-grain consumers.
+    expect(june1.month).toBe("June");
+    expect(june2.month).toBe("June");
+  });
 });
 
-describe("parseWorkbook — stock and weekly (unchanged sheets)", () => {
+describe("parseWorkbook — stock (unchanged sheet)", () => {
   const dataset = parseWorkbook(buildFixtureWorkbook());
 
   it("recomputes aggregate stock days/status rather than trusting per-row values", () => {
@@ -151,14 +171,6 @@ describe("parseWorkbook — stock and weekly (unchanged sheets)", () => {
     expect(weetabixItems[0].openingValue).toBe(900);
     expect(weetabixItems[0].action).toContain("No Sales Data");
     expect(dataset.stockTotal.noDataCount).toBeGreaterThanOrEqual(1);
-  });
-
-  it("skips the Weekly Projection total row and fills in achieved % when blank", () => {
-    expect(dataset.weeklyProjection).toHaveLength(3);
-    const nyahururu = dataset.weeklyProjection.find((r) => r.principal === "EABL-Nyahururu")!;
-    expect(nyahururu.achievedProjectionPct).toBe(90); // 9000/10000*100, computed since the cell was blank
-    const nyeri = dataset.weeklyProjection.find((r) => r.principal === "EABL-Nyeri")!;
-    expect(nyeri.achievedProjectionPct).toBe(120); // 1.2 * 100 from the sheet
   });
 });
 

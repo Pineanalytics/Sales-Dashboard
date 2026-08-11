@@ -14,7 +14,7 @@ import { formatCompact, formatNumber, achievementTier, tierBarColor } from "@/li
 import { principalsByRevenueDesc, summarizeTargets } from "@/lib/selectors";
 import { generatePortfolioInsights, generatePrincipalInsights } from "@/lib/insights";
 import { summarizeSalesForPeriod, resolvePeriodMonths, getPreviousMonthPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
-import { weeklyRowsFor, aggregateWeekly } from "@/lib/trends";
+import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import {
   CHART_GRID_COLOR,
   CHART_AXIS_COLOR,
@@ -44,9 +44,6 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
   const h1Summary = summarizeSalesForPeriod(dataset, { kind: "H1", year: period.year }, selectedPrincipalKey);
   const h2Summary = summarizeSalesForPeriod(dataset, { kind: "H2", year: period.year }, selectedPrincipalKey);
   const ytdSummary = summarizeSalesForPeriod(dataset, { kind: "YTD", year: period.year, month: period.month }, selectedPrincipalKey);
-
-  const weeklyRows = weeklyRowsFor(dataset, selectedPrincipalKey);
-  const weekly = aggregateWeekly(weeklyRows);
 
   // Genuine month-over-month comparison for the Revenue KPI's delta pill — deliberately
   // anchored to a single calendar month regardless of what effectivePeriod itself spans
@@ -173,7 +170,7 @@ export function OverviewView({ dataset, selectedPrincipalKey, period }: ViewProp
             value={<AnimatedValue value={ytdSummary.revenue} format={formatCompact} />}
           />
         ) : null}
-        <KpiCard accent="growth" label="Weekly Revenue" value={<AnimatedValue value={weekly.weeklyRevenue} format={formatCompact} />} />
+        <WeeklyRevenueKpi dataset={dataset} principalKey={selectedPrincipalKey} />
       </KpiGrid>
 
       <ChartGrid>

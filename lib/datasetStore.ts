@@ -237,7 +237,6 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyCoverage = dataset.monthlyCoverage.filter((r) => principalKeys.has(r.principalKey));
   const monthlyBrandCustomer = dataset.monthlyBrandCustomer.filter((r) => principalKeys.has(r.principalKey));
   const monthlyPL = dataset.monthlyPL.filter((r) => principalKeys.has(r.principalKey));
-  const weeklyProjection = dataset.weeklyProjection.filter((r) => principalKeys.has(normalizePrincipalKey(r.principal)));
   const stockItems = dataset.stockItems.filter((i) => principalKeys.has(i.key));
 
   let totalVolume = 0, totalPcs = 0, totalValue = 0, totalRRValue = 0, totalRRVolume = 0;
@@ -270,7 +269,7 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
     action: stockStatus(totalDays, totalValue, totalRRValue),
   };
 
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, weeklyProjection, stockItems, stockTotal };
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, stockTotal };
 }
 
 async function loadLatestSnapshot(): Promise<Dataset | null> {

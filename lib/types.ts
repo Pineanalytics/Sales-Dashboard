@@ -37,6 +37,10 @@ export interface MonthlyCoverageRow {
 }
 
 export interface MonthlyBrandCustomerRow {
+  /** ISO "YYYY-MM-DD", UTC — real per-day resolution for the current month (the
+   *  source pivot's Date column), a 1st-of-month placeholder for older months
+   *  that predate it. See lib/parseWorkbook.ts's parseMonthlyBrandCustomer. */
+  date: string;
   year: string;
   month: string;
   monthIndex: number;
@@ -66,15 +70,6 @@ export interface MonthlyPLRow {
   accountName: string;
   lineType: PLLineType;
   amount: number;
-}
-
-export interface WeeklyProjectionRow {
-  principal: string;
-  weeklyRevenue: number;
-  weeklyProjection: number;
-  weeklyRR: number;
-  weekVariance: number;
-  achievedProjectionPct: number;
 }
 
 export interface StockItem {
@@ -115,7 +110,6 @@ export interface Dataset {
   monthlyCoverage: MonthlyCoverageRow[];
   monthlyBrandCustomer: MonthlyBrandCustomerRow[];
   monthlyPL: MonthlyPLRow[];
-  weeklyProjection: WeeklyProjectionRow[];
   stockTotal: StockTotal;
   stockItems: StockItem[];
   reportMeta: ReportMeta;

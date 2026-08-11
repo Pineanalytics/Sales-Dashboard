@@ -13,16 +13,12 @@ function baseDataset(): Dataset {
       { year: "2026", month: "July", monthIndex: 6, salesRole: "Primary Sales", employeeName: "Rep B", principal: "EFL-Nairobi", principalKey: "efl", coverage: 5, productiveCalls: 4, productivityPct: 80 },
     ],
     monthlyBrandCustomer: [
-      { year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", salesEmployee: "Rep A", customerName: "Shop 1", volume: 10, revenue: 100, grossProfit: 40, grossMarginPct: 40 },
-      { year: "2026", month: "July", monthIndex: 6, principal: "EFL-Nairobi", principalKey: "efl", salesEmployee: "Rep B", customerName: "Shop 2", volume: 20, revenue: 200, grossProfit: 80, grossMarginPct: 40 },
+      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", salesEmployee: "Rep A", customerName: "Shop 1", volume: 10, revenue: 100, grossProfit: 40, grossMarginPct: 40 },
+      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "EFL-Nairobi", principalKey: "efl", salesEmployee: "Rep B", customerName: "Shop 2", volume: 20, revenue: 200, grossProfit: 80, grossMarginPct: 40 },
     ],
     monthlyPL: [
       { year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", accountCode: "4000", accountName: "Sales", lineType: "REVENUE", amount: 100 },
       { year: "2026", month: "July", monthIndex: 6, principal: "EFL-Nairobi", principalKey: "efl", accountCode: "4000", accountName: "Sales", lineType: "REVENUE", amount: 200 },
-    ],
-    weeklyProjection: [
-      { principal: "Bic-Nairobi", weeklyRevenue: 25, weeklyProjection: 30, weeklyRR: 25, weekVariance: -5, achievedProjectionPct: 83 },
-      { principal: "EFL-Nairobi", weeklyRevenue: 50, weeklyProjection: 55, weeklyRR: 50, weekVariance: -5, achievedProjectionPct: 91 },
     ],
     stockTotal: {
       volume: 999,
@@ -56,7 +52,6 @@ describe("filterDatasetToPrincipals", () => {
     expect(result.monthlyCoverage[0].principal).toBe("Bic-Nairobi");
     expect(result.monthlyBrandCustomer).toHaveLength(1);
     expect(result.monthlyPL).toHaveLength(1);
-    expect(result.weeklyProjection).toHaveLength(1);
     expect(result.stockItems).toHaveLength(1);
     expect(result.stockItems[0].item).toBe("Item A");
   });

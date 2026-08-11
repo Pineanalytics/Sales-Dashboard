@@ -48,7 +48,6 @@ function wrapBridgeAsDataset(bridge: BridgeOutput): Dataset {
     monthlyCoverage: [],
     monthlyBrandCustomer: [],
     monthlyPL: [],
-    weeklyProjection: [],
     stockTotal: {
       volume: 0, pcs: 0, value: 0, rrWeekValue: 0, rrWeekVolume: 0, daysStock: 0,
       itemCount: 0, outOfStockCount: 0, runningOutCount: 0, okCount: 0, noDataCount: 0, action: "",

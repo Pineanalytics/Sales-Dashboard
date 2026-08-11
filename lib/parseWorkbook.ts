@@ -22,7 +22,6 @@ const SHEET_NAMES = {
   coverage: "Calls & Productivity",
   brandCustomer: "Brand&Customer Listing",
   stock: "Stock Balances",
-  weeklyProjection: "Weekly Projection",
 } as const;
 
 const CANONICAL_MONTHS = [
@@ -64,6 +63,34 @@ function toPercent1(v: unknown): number | null {
 function str(v: unknown): string {
   if (isBlank(v)) return "";
   return String(v).trim();
+}
+
+/** Excel serial date -> UTC-midnight Date, exact epoch math (25569 = days between
+ *  the Excel epoch, 1899-12-30, and the Unix epoch, 1970-01-01 - the same constant
+ *  every Excel-serial converter uses, including the 1900 leap-year bug it bakes in).
+ *  Deliberately NOT XLSX.read's own `cellDates: true` conversion - confirmed
+ *  empirically against a real export that it introduces ~3 hours of drift via
+ *  floating-point imprecision in the serial-to-Date conversion, which would
+ *  silently misdate rows near a day boundary (e.g. reading a stored "2026-01-01"
+ *  as "2025-12-31T20:59:44Z"). Reading the raw numeric serial and converting it
+ *  ourselves sidesteps that entirely. */
+function parseExcelDate(v: unknown): Date | null {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const days = Math.round(v);
+    return new Date((days - 25569) * 86400 * 1000);
+  }
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
+  }
+  if (typeof v === "string" && v.trim()) {
+    const parsed = new Date(v.trim());
+    if (!Number.isNaN(parsed.getTime())) return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  }
+  return null;
+}
+
+function dateKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
 function sheetToAOA(wb: XLSX.WorkBook, sheetName: string): unknown[][] {
@@ -259,8 +286,7 @@ function parseMonthlyCoverage(wb: XLSX.WorkBook): MonthlyCoverageRow[] {
 // ---------------------------------------------------------------------------
 
 const BRAND_CUSTOMER_COLUMNS = [
-  "Year",
-  "Month Name",
+  "Date",
   "Principal",
   "Sales Employee",
   "Customer Name",
@@ -270,6 +296,7 @@ const BRAND_CUSTOMER_COLUMNS = [
 ] as const;
 
 interface BrandCustomerAgg {
+  date: string;
   year: string;
   month: string;
   monthIndex: number;
@@ -284,23 +311,31 @@ interface BrandCustomerAgg {
 
 /**
  * Parses the Brand&Customer sheet and collapses it to one row per
- * Year+Month+Principal+Sales Employee+Customer, regardless of the grain the
- * source pivot actually exports at. The pivot is meant to be pre-aggregated to
- * that grain, but a live export was still ~101k transaction-line rows (one per
- * Item Name) — serialized, that makes the whole Dataset far too large to be
- * useful (slow to transmit, and past Next.js's own data-cache item-size limit).
- * Aggregating here makes correctness
- * independent of how the user's pivot happens to be configured: a no-op if
- * it's already at the target grain, a collapse if it isn't. "Item Name" is
- * never read, and "GP Margin %" is always derived from the aggregated
- * revenue/GP rather than trusted from a per-line column, since summing
- * already-averaged percentages across collapsed rows would be wrong.
+ * Date+Principal+Sales Employee+Customer, regardless of the grain the source
+ * pivot actually exports at. The pivot is meant to be pre-aggregated to that
+ * grain, but a live export was still ~101k transaction-line rows (one per Item
+ * Name) — serialized, that makes the whole Dataset far too large to be useful
+ * (slow to transmit, and past Next.js's own data-cache item-size limit).
+ * Aggregating here makes correctness independent of how the user's pivot
+ * happens to be configured: a no-op if it's already at the target grain, a
+ * collapse if it isn't. "Item Name" is never read, and "GP Margin %" is always
+ * derived from the aggregated revenue/GP rather than trusted from a per-line
+ * column, since summing already-averaged percentages across collapsed rows
+ * would be wrong.
+ *
+ * Date (not Year+Month Name) is the collapse key's day component — the source
+ * pivot's Date column carries a real per-day date for the current month
+ * (historical months still only ever have their 1st-of-month placeholder, no
+ * regression there), so this is what actually gives weekly/daily rollups real
+ * resolution for the month that matters. year/month/monthIndex are derived
+ * from Date, not read from a separate Month Name column, so there's only ever
+ * one source of truth for what month a row belongs to.
  */
 function parseMonthlyBrandCustomer(wb: XLSX.WorkBook): MonthlyBrandCustomerRow[] {
   const sheetName = SHEET_NAMES.brandCustomer;
   const aoa = sheetToAOA(wb, sheetName);
 
-  const headerRowIdx = findHeaderRowIndex(aoa, "Year", sheetName);
+  const headerRowIdx = findHeaderRowIndex(aoa, "Date", sheetName);
   const headerRow = aoa[headerRowIdx];
   const headerIndex = buildHeaderIndex(headerRow);
   const colIdx: Record<(typeof BRAND_CUSTOMER_COLUMNS)[number], number> = {} as never;
@@ -312,23 +347,24 @@ function parseMonthlyBrandCustomer(wb: XLSX.WorkBook): MonthlyBrandCustomerRow[]
   const byKey = new Map<string, BrandCustomerAgg>();
 
   for (const row of dataRows) {
-    const year = str(row[colIdx["Year"]]);
-    const month = str(row[colIdx["Month Name"]]);
+    const date = parseExcelDate(row[colIdx["Date"]]);
     const customerName = str(row[colIdx["Customer Name"]]);
-    if (!year || !month || !customerName) continue;
+    if (!date || !customerName) continue;
     if (customerName.toLowerCase().includes("total")) continue;
 
+    const dk = dateKey(date);
     const principal = str(row[colIdx["Principal"]]);
     const principalKey = normalizePrincipalKey(principal);
     const salesEmployee = str(row[colIdx["Sales Employee"]]);
-    const key = `${year}|${month}|${principalKey}|${salesEmployee}|${customerName}`;
+    const key = `${dk}|${principalKey}|${salesEmployee}|${customerName}`;
 
     let agg = byKey.get(key);
     if (!agg) {
       agg = {
-        year,
-        month,
-        monthIndex: CANONICAL_MONTHS.indexOf(month),
+        date: dk,
+        year: String(date.getUTCFullYear()),
+        month: CANONICAL_MONTHS[date.getUTCMonth()],
+        monthIndex: date.getUTCMonth(),
         principal,
         principalKey,
         salesEmployee,
@@ -479,60 +515,6 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; total: StockTotal 
 }
 
 // ---------------------------------------------------------------------------
-// Weekly Projection
-// ---------------------------------------------------------------------------
-
-const WEEKLY_COLUMNS = [
-  "Principal",
-  "Weekly Revenue",
-  "Weekly Projection",
-  "Weekly RR",
-  "Week Variance",
-  "Achieved Projection",
-] as const;
-
-function parseWeeklyProjection(wb: XLSX.WorkBook): import("./types").WeeklyProjectionRow[] {
-  const sheetName = SHEET_NAMES.weeklyProjection;
-  const aoa = sheetToAOA(wb, sheetName);
-
-  const headerRowIdx = findHeaderRowIndex(aoa, "Principal", sheetName);
-  const headerRow = aoa[headerRowIdx];
-  const headerIndex = buildHeaderIndex(headerRow);
-  const colIdx: Record<(typeof WEEKLY_COLUMNS)[number], number> = {} as never;
-  for (const col of WEEKLY_COLUMNS) {
-    colIdx[col] = requireCol(headerIndex, col, sheetName);
-  }
-
-  const dataRows = aoa.slice(headerRowIdx + 1);
-  const rows: import("./types").WeeklyProjectionRow[] = [];
-
-  for (const row of dataRows) {
-    const principal = str(row[colIdx["Principal"]]);
-    if (!principal || principal.toLowerCase().includes("total")) continue;
-
-    const weeklyRevenue = toNumber(row[colIdx["Weekly Revenue"]]);
-    const weeklyProjection = toNumber(row[colIdx["Weekly Projection"]]);
-    const rawAchieved = row[colIdx["Achieved Projection"]];
-    const achievedProjectionPct = isBlank(rawAchieved)
-      ? weeklyProjection !== 0
-        ? round1((weeklyRevenue / weeklyProjection) * 100)
-        : 0
-      : round1(toNumber(rawAchieved) * 100);
-
-    rows.push({
-      principal,
-      weeklyRevenue,
-      weeklyProjection,
-      weeklyRR: toNumber(row[colIdx["Weekly RR"]]),
-      weekVariance: toNumber(row[colIdx["Week Variance"]]),
-      achievedProjectionPct,
-    });
-  }
-
-  return rows;
-}
-
-// ---------------------------------------------------------------------------
 // Top level assembly
 // ---------------------------------------------------------------------------
 
@@ -543,7 +525,6 @@ export function parseWorkbook(buffer: ArrayBuffer, uploadedAt?: string): Dataset
   const monthlyCoverageRaw = parseMonthlyCoverage(wb);
   const monthlyBrandCustomer = parseMonthlyBrandCustomer(wb);
   const { items: stockItems, total: stockTotal } = parseStock(wb);
-  const weeklyProjection = parseWeeklyProjection(wb);
 
   // Calls & Productivity has no Year column; assume it covers a single year and
   // derive it from the latest year present in the sheet that does have one.
@@ -560,7 +541,6 @@ export function parseWorkbook(buffer: ArrayBuffer, uploadedAt?: string): Dataset
     // P&L has no Excel-upload path — always empty here; lib/datasetStore.ts
     // overlays it from the PLEntry table at read time (same pattern as targets).
     monthlyPL: [],
-    weeklyProjection,
     stockTotal,
     stockItems,
     reportMeta,

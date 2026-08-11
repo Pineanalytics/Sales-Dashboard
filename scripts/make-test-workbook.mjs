@@ -62,23 +62,12 @@ const trendedRevenueRows = [
   ["2026", "Total", 120000, 125000, 130000, 135000, 140000, 145000, null, null, null, null, null, null],
 ];
 
-const weeklyProjectionRows = [
-  ["WEEKLY PROJECTION"],
-  ["Principal", "Weekly Revenue", "Weekly Projection", "Weekly RR", "Week Variance", "Achieved Projection"],
-  ["EABL-Nyeri", 12000, 10000, 11000, 2000, 1.2],
-  ["EABL-Nyahururu", 9000, 10000, 9500, -1000, null],
-  ["Upfield-Nairobi", 3000, 5000, 4000, -2000, 0.6],
-  ["Weetabix-Meru", 4500, 5000, 4800, -500, null],
-  ["Total", 28500, 30000, 29300, -1500, 0.95],
-];
-
 const wb = XLSX.utils.book_new();
 const sheets = [
   ["Sales Vs Target", salesVsTargetRows],
   ["Coverage & Productivity", coverageRows],
   ["Stock Balances", stockRows],
   ["Trended Revenue", trendedRevenueRows],
-  ["Weekly Projection", weeklyProjectionRows],
   ["Raw Data", [["unused"]]],
 ];
 for (const [name, rows] of sheets) {

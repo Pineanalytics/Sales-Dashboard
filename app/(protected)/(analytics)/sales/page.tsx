@@ -12,7 +12,7 @@ import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { formatCompact } from "@/lib/format";
 import { principalsByRevenueDesc } from "@/lib/selectors";
 import { CANONICAL_MONTHS, getAvailableMonths, summarizeSalesForPeriod } from "@/lib/timeIntelligence";
-import { weeklyRowsFor, aggregateWeekly } from "@/lib/trends";
+import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
 function month3(month: string): string {
@@ -26,8 +26,6 @@ export default function SalesPage() {
   if (!dataset) return null;
 
   const currentSummary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
-  const weeklyRows = weeklyRowsFor(dataset, selectedPrincipalKey);
-  const weekly = aggregateWeekly(weeklyRows);
   const principals = principalsByRevenueDesc(dataset, period);
 
   const monthsThisYear = getAvailableMonths(dataset, period.year);
@@ -58,7 +56,7 @@ export default function SalesPage() {
           }
         />
         <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
-        <KpiCard accent="growth" label="Weekly Revenue" value={<AnimatedValue value={weekly.weeklyRevenue} format={formatCompact} />} />
+        <WeeklyRevenueKpi dataset={dataset} principalKey={selectedPrincipalKey} />
       </KpiGrid>
 
       <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />

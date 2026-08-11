@@ -12,6 +12,7 @@
 // matching, so selecting either location still shows the same combined figures.
 import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyPLRow } from "./types";
 import { normalizePrincipalKey } from "./normalize";
+import { getWeeksInMonth } from "./weeklyTargets";
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -519,6 +520,60 @@ export function summarizeBrandCustomerByPrincipal(
     }
   }
   return Array.from(byPrincipal.values()).map((p) => ({ ...p, grossMarginPct: marginFrom(p.revenue, p.grossProfit) }));
+}
+
+/** Monday of the calendar week containing `date`, UTC midnight — matches the
+ *  Monday-anchored week convention lib/weeklyTargets.ts already uses for
+ *  WeeklyTarget. Computed directly from `date` rather than searched out of a
+ *  single month's week list, since the week containing today can have its
+ *  Monday in the *previous* month (e.g. the 1st of the month is a Wednesday). */
+function mondayOf(date: Date): Date {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay(); // 0=Sun..6=Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  return new Date(d.getTime() + diff * 86400000);
+}
+
+export interface BrandCustomerWeekSummary {
+  weekStartDate: Date;
+  /** "<Mon> Week <n>" — matches WeeklyTarget.weekLabel's own numbering exactly
+   *  (via getWeeksInMonth, resolved against whichever month this week's Monday
+   *  actually falls in), so this can be joined against a WeeklyTarget fetch for
+   *  the same week without a separate lookup. Empty if getWeeksInMonth somehow
+   *  didn't generate this exact Monday (shouldn't happen — defensive only). */
+  weekLabel: string;
+  revenue: number;
+  volume: number;
+  grossProfit: number;
+}
+
+/** Sums dataset.monthlyBrandCustomer's real per-day rows (MonthlyBrandCustomerRow
+ *  .date) that fall within the current calendar week (Monday-Sunday), for the
+ *  Weekly Revenue KPI now that the Weekly Projection sheet is retired. Only
+ *  meaningful for the current month — the only one the source pivot gives real
+ *  per-day dates for as of a given upload. A historical month's rows are all
+ *  dated the 1st, so a week that isn't the 1st's naturally sums to 0 here,
+ *  which is correct: there's no way to recover a historical month's true
+ *  within-month weekly split without real day-level source data. */
+export function summarizeBrandCustomerForCurrentWeek(dataset: Dataset, principalKey: string | null, today: Date = new Date()): BrandCustomerWeekSummary {
+  const monday = mondayOf(today);
+  const weekEnd = new Date(monday.getTime() + 6 * 86400000);
+  const weeksInMondaysMonth = getWeeksInMonth(monday.getUTCFullYear(), monday.getUTCMonth());
+  const matched = weeksInMondaysMonth.find((w) => w.weekStartDate.getTime() === monday.getTime());
+
+  let revenue = 0;
+  let volume = 0;
+  let grossProfit = 0;
+  for (const r of dataset.monthlyBrandCustomer) {
+    if (principalKey && r.principal !== principalKey) continue;
+    const d = new Date(`${r.date}T00:00:00Z`).getTime();
+    if (d >= monday.getTime() && d <= weekEnd.getTime()) {
+      revenue += r.revenue;
+      volume += r.volume;
+      grossProfit += r.grossProfit;
+    }
+  }
+  return { weekStartDate: monday, weekLabel: matched?.weekLabel ?? "", revenue, volume, grossProfit };
 }
 
 // ---------------------------------------------------------------------------
