@@ -497,10 +497,12 @@ export interface RepPrincipalBrandCustomerSummary {
 /** Same as summarizeBrandCustomerByRep, but keeps each principal as its own row
  *  instead of collapsing a rep's revenue across every principal they sold under.
  *  Needed wherever a rep's name alone isn't a safe join key — a sapName/
- *  employeeName is only guaranteed unique within one principal (see
- *  lib/tlRanking.ts's resolveTeamLeaderId for the confirmed live case this
- *  fixes: two different people sharing a route/counter-style SAP name on two
- *  different principals). */
+ *  employeeName is only guaranteed unique within one principal (confirmed live:
+ *  two different people sharing a route/counter-style SAP name on two different
+ *  principals). Not used by TL Ranking (lib/tlRanking.ts) — that attributes by
+ *  principal ownership now, not rep name, precisely to avoid this class of
+ *  problem entirely; still used by rep-level views that genuinely need a rep
+ *  dimension. */
 export function summarizeBrandCustomerByRepAndPrincipal(dataset: Dataset, selection: PeriodSelection, principalKey: string | null): RepPrincipalBrandCustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
   const byRepPrincipal = new Map<string, { salesEmployee: string; principal: string; volume: number; revenue: number; grossProfit: number }>();

@@ -256,6 +256,30 @@ model Warehouse {
   createdAt     DateTime @default(now())
 }
 
+// Admin-editable reference data, replacing the formerly-static
+// scripts/db-bridge/reference/principals.json — the Warehouse->Location +
+// Product->Principal resolution used throughout scripts/db-bridge (see
+// applyFixups/YTD_RAW_FIXUPS in transform/buildMonthlySales.ts and its
+// siblings) AND, via teamLeaderId, which Team Leader "heads" a principal for
+// TL Ranking's revenue attribution (lib/tlRanking.ts) — replacing rep-name
+// matching, which broke down whenever SAP's own rep bookkeeping didn't match
+// the org roster (the Erick/Richard EABL-Nyeri/Nyahururu case). teamLeaderId
+// is id-by-convention, same non-@relation pattern as
+// TeamLeaderAssignment.teamLeaderId/supervisorId/managerId.
+model Principal {
+  id            String   @id @default(cuid())
+  principal     String   @unique
+  mainPrincipal String
+  location      String
+  locationCode  String?
+  status        String   @default("Active") // "Active" | "Past"
+  teamLeaderId  String? // null for "Past"/unowned principals
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([teamLeaderId])
+}
+
 // Admin-editable reference data (rarely changes). Not currently consumed by
 // scripts/db-bridge's transforms or any dashboard view — kept for completeness
 // alongside Product/Warehouse.

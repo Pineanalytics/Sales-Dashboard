@@ -6,11 +6,11 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { AchievementBadge } from "@/components/ui/Badge";
 import { formatCompact } from "@/lib/format";
-import type { RepRevenueInput, TlRankingRow, SupervisorRankingResult, ManagerRankingResult, UnmatchedRep } from "@/lib/tlRanking";
+import type { PrincipalRevenueInput, TlRankingRow, SupervisorRankingResult, ManagerRankingResult, UnattributedPrincipal } from "@/lib/tlRanking";
 
 type TlRankingResponse =
-  | { mode: "flat"; rankings: TlRankingRow[]; unmatchedReps: UnmatchedRep[] }
-  | { mode: "hierarchy"; managerRanking: ManagerRankingResult; supervisorRanking: SupervisorRankingResult; unmatchedReps: UnmatchedRep[] };
+  | { mode: "flat"; rankings: TlRankingRow[]; unattributedPrincipals: UnattributedPrincipal[] }
+  | { mode: "hierarchy"; managerRanking: ManagerRankingResult; supervisorRanking: SupervisorRankingResult; unattributedPrincipals: UnattributedPrincipal[] };
 
 interface RankRowShape {
   key: string;
@@ -55,17 +55,19 @@ function RankRow({ row, depth, expandable, expanded, onToggle }: { row: RankRowS
  *  underneath each Supervisor row rather than as the primary grouping. A Manager
  *  tab rolls up one tier further. A scoped session (Team Leader, principal-scoped
  *  Viewer) gets the original flat Team-Leader-only view instead — no supervisor
- *  grouping is meaningful for a single-TL view. The heavy Excel-derived
- *  rep-revenue aggregation (summarizeBrandCustomerByRep) already ran client-side
+ *  grouping is meaningful for a single-TL view. Revenue is attributed by which
+ *  principal a Team Leader heads (Principal.teamLeaderId), not by rep — see
+ *  lib/tlRanking.ts's buildTlRanking. The principal-level MTD revenue
+ *  (dataset.monthlySales, via summarizeSalesByPrincipal) is computed client-side
  *  against the Zustand-held dataset (see the caller); this component only calls
  *  the Prisma-only half via /api/dashboard/tl-ranking. */
 export function TlRankingTable({
-  repRevenue,
+  principalRevenue,
   principalFilter,
   year,
   monthLabel,
 }: {
-  repRevenue: RepRevenueInput[];
+  principalRevenue: PrincipalRevenueInput[];
   principalFilter: string | null;
   year: string;
   monthLabel: string;
@@ -84,7 +86,7 @@ export function TlRankingTable({
         const res = await fetch("/api/dashboard/tl-ranking", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repRevenue, principalFilter, year, monthLabel }),
+          body: JSON.stringify({ principalRevenue, principalFilter, year, monthLabel }),
           cache: "no-store",
         });
         const body = await res.json();
@@ -100,10 +102,10 @@ export function TlRankingTable({
     return () => {
       cancelled = true;
     };
-    // repRevenue is recomputed fresh each render from the dataset — stringify so the
-    // effect only re-fires when its actual contents change, not on every render.
+    // principalRevenue is recomputed fresh each render from the dataset — stringify so
+    // the effect only re-fires when its actual contents change, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(repRevenue), principalFilter, year, monthLabel]);
+  }, [JSON.stringify(principalRevenue), principalFilter, year, monthLabel]);
 
   if (status === "loading") return <SectionCard title="TL Ranking">Loading…</SectionCard>;
   if (status === "error" || !result) return <SectionCard title="TL Ranking">Couldn&apos;t load TL Ranking.</SectionCard>;
@@ -151,7 +153,7 @@ export function TlRankingTable({
             </TotalRow>
           </tbody>
         </TableWrap>
-        <UnmatchedNote unmatchedReps={result.unmatchedReps} />
+        <UnattributedNote unattributedPrincipals={result.unattributedPrincipals} />
       </SectionCard>
     );
   }
@@ -284,19 +286,19 @@ export function TlRankingTable({
           </TotalRow>
         </tbody>
       </TableWrap>
-      <UnmatchedNote unmatchedReps={result.unmatchedReps} />
+      <UnattributedNote unattributedPrincipals={result.unattributedPrincipals} />
     </SectionCard>
   );
 }
 
-function UnmatchedNote({ unmatchedReps }: { unmatchedReps: UnmatchedRep[] }) {
-  if (unmatchedReps.length === 0) return null;
+function UnattributedNote({ unattributedPrincipals }: { unattributedPrincipals: UnattributedPrincipal[] }) {
+  if (unattributedPrincipals.length === 0) return null;
   return (
     <p className="mt-3 text-[13px] text-accent-amber">
-      {unmatchedReps.length} rep(s) with revenue don&apos;t match any Team Leader roster entry (by SAP Name or Employee Name) — largest:{" "}
-      {unmatchedReps
+      {unattributedPrincipals.length} principal(s) with revenue have no active Team Leader owner (see Admin → Principals) — largest:{" "}
+      {unattributedPrincipals
         .slice(0, 3)
-        .map((u) => `${u.salesEmployee} (${formatCompact(u.revenue)})`)
+        .map((u) => `${u.principal} (${formatCompact(u.revenue)})`)
         .join(", ")}
       .
     </p>

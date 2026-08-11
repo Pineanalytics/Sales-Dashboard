@@ -11,10 +11,9 @@ import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchYtdRaw } from "./queries/ytdRaw";
 import { fetchStockBalance } from "./queries/stockBalance";
 import { fetchRepList } from "./queries/repList";
-import { loadProducts, loadWarehouses } from "./reference/loadFromDb";
+import { loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildStock } from "./transform/buildStock";
-import principalsData from "./reference/principals.json";
 
 async function main() {
   const config = loadConfigFromEnv();
@@ -22,7 +21,7 @@ async function main() {
   const asOfDate = new Date();
   console.log(`[db-bridge] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
 
-  const [{ ytdRows, stockRows, repList }, products, warehousesData] = await Promise.all([
+  const [{ ytdRows, stockRows, repList }, products, warehousesData, principalsData] = await Promise.all([
     withConnection(config, async (pool) => {
       const [ytdRows, stockRows, repList] = await Promise.all([
         fetchYtdRaw(pool, asOfDate),
@@ -33,6 +32,7 @@ async function main() {
     }),
     loadProducts(),
     loadWarehouses(),
+    loadPrincipals(),
   ]);
   console.log(`[db-bridge] Fetched ${ytdRows.length} YTD_Raw rows, ${stockRows.length} Stock_Balance rows, ${repList.length} reps.`);
   console.log(`[db-bridge] Loaded ${products.length} product rows and ${warehousesData.length} warehouse rows from Postgres.`);

@@ -20,7 +20,7 @@ import {
   resolveNoSalesColumns,
 } from "../active-outlets/query";
 import { buildRepCalls, collapseToPurchaseEvents } from "../active-outlets/transform";
-import principalsData from "../reference/principals.json";
+import { loadPrincipals } from "../reference/loadFromDb";
 import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -127,6 +127,7 @@ async function main() {
     console.log("[timestamps] NOTE: pine.nosales columns could not be auto-detected - unproductive calls are not included this run.");
   }
 
+  const principalsData = await loadPrincipals();
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
   const callRows = buildRepCalls(events, noSaleVisits, outlets, users);
   console.log(`[timestamps] Collapsed to ${events.length} purchase events and built ${callRows.length} call rows.`);

@@ -1,24 +1,39 @@
 import { teamLeaderSupervisesName } from "./teamLeaderScope";
 
 // Team Leader Ranking — MTD Target vs MTD Revenue per Team Leader, for the
-// redesigned Executive Overview (/dashboard). No existing rollup did this: rep-level
-// revenue only exists in the Excel-sourced MonthlyBrandCustomerRow (a "salesEmployee"
-// name string, via summarizeBrandCustomerByRep in lib/timeIntelligence.ts) and has to
-// be joined to TeamLeaderAssignment by name — the exact Pine/SAP name-mismatch problem
-// this project has hit before. TeamLeaderAssignment.sapName (ported from
-// Target_Management_System.xlsm's Roster "SAP Name" column) is the intended fix: it's
-// the rep's name as SAP — and therefore MonthlyBrandCustomerRow.salesEmployee — actually
-// spells it, so it's tried first, falling back to employeeName (the Pine-side "Sales
-// Edge Name") for any assignment that hasn't had it declared yet.
+// redesigned Executive Overview (/dashboard). Revenue is attributed by which
+// PRINCIPAL a Team Leader heads (Principal.teamLeaderId — admin-editable, see
+// app/(protected)/admin/principals), not by matching individual reps' SAP
+// names to a roster. Rep-name attribution used to break down exactly where
+// SAP's own bookkeeping didn't match the org roster — confirmed live: "Eabl
+// Udv town NYH RT" was a real SAP name shared by one of Erick's reps on
+// EABL-Nyahururu and one of Richard's on EABL-Nyeri, so rep-name matching
+// mis-split revenue between them. Principal-level attribution sidesteps this
+// entirely — a principal's whole MTD revenue counts for whoever heads it,
+// regardless of which SAP rep name shows up on any given invoice. This also
+// means one Team Leader who heads several principals (e.g. Josephat: Bic-
+// Nairobi, Unilever-Nairobi, Ukl-Intl-Nairobi) correctly gets all of them
+// summed, without needing a rep on their roster for each one.
+//
+// TeamLeaderAssignment (the rep roster) is untouched by this file — it still
+// drives RepContribution/WeeklyTarget/DailyTarget and the reporting hierarchy
+// (supervisorId/managerId) below, none of which is a revenue-attribution
+// concern.
 
-export interface RepRevenueInput {
-  salesEmployee: string;
-  /** The principal this specific revenue was earned under. Required for correct
-   *  Team Leader attribution — a sapName/employeeName is only guaranteed unique
-   *  within one principal (e.g. two entirely different people can both be
-   *  recorded in SAP under a route/counter name like "Eabl van-Nyeri route" on
-   *  one principal and "Eabl Udv town NYH RT" on a different principal, one
-   *  per Team Leader) — see resolveTeamLeaderId. */
+export interface PrincipalRevenueInput {
+  principal: string;
+  revenue: number;
+}
+
+/** Which Team Leader heads a principal — sourced from the admin-editable
+ *  Principal table (Principal.teamLeaderId), filtered to Active by the
+ *  caller. teamLeaderId is null for a "Past"/unowned principal. */
+export interface PrincipalOwnershipInput {
+  principal: string;
+  teamLeaderId: string | null;
+}
+
+export interface UnattributedPrincipal {
   principal: string;
   revenue: number;
 }
@@ -64,65 +79,38 @@ export interface TlRankingRow {
   achievedPct: number | null; // null when target is 0 (nothing to divide by)
 }
 
-export interface UnmatchedRep {
-  salesEmployee: string;
-  revenue: number;
-}
-
 export interface TlRankingResult {
   rankings: TlRankingRow[]; // sorted by achievedPct desc, unranked (null pct) last
-  unmatchedReps: UnmatchedRep[]; // revenue that couldn't be attributed to any Team Leader
+  unattributedPrincipals: UnattributedPrincipal[]; // revenue whose principal has no active owner
 }
 
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/** Resolves a rep name (as it appears in a SAP-sourced revenue row) to a Team
- *  Leader, preferring an assignment for that row's OWN principal (a
- *  sapName/employeeName is only guaranteed unique within one principal — two
- *  entirely different people can share a route/counter-style SAP name on
- *  different principals, one per Team Leader) and otherwise falling back to
- *  the rep's first active assignment. Matches sapName first, then
- *  employeeName — see file header for why. Confirmed live: "Eabl Udv town NYH
- *  RT" was a real SAP name shared by one of Erick's reps on EABL-Nyahururu and
- *  one of Richard's on EABL-Nyeri — resolving by name alone (no principal)
- *  handed 100% of that shared name's revenue to whichever assignment happened
- *  to come first, overstating one Team Leader and understating the other. */
-function resolveTeamLeaderId(salesEmployee: string, activeAssignments: AssignmentInput[], principal: string): string | null {
-  const needle = normalizeName(salesEmployee);
-
-  const bySapName = activeAssignments.filter((a) => a.sapName && normalizeName(a.sapName) === needle);
-  const byEmployeeName = activeAssignments.filter((a) => normalizeName(a.employeeName) === needle);
-  const candidates = bySapName.length > 0 ? bySapName : byEmployeeName;
-  if (candidates.length === 0) return null;
-
-  const forPrincipal = candidates.find((a) => a.principal === principal);
-  if (forPrincipal) return forPrincipal.teamLeaderId;
-  return candidates[0].teamLeaderId;
-}
-
-/** Pure derivation: joins rep-level MTD revenue to Team Leaders (by sapName/employeeName,
- *  scoped to each revenue row's own principal — see resolveTeamLeaderId), sums each Team
- *  Leader's MTD target (see MtdTargetInput — elapsed days only, not the whole month), and
- *  ranks by achievement %. Reps whose name matches no active assignment are reported
- *  separately rather than silently dropped or silently misattributed — same pattern as
- *  the existing unassignedRevenueReps check on /weekly-targets/contribution. */
-export function buildTlRanking(repRevenue: RepRevenueInput[], assignments: AssignmentInput[], teamLeaders: TeamLeaderInput[], mtdTargets: MtdTargetInput[]): TlRankingResult {
-  const activeAssignments = assignments.filter((a) => a.active);
+/** Pure derivation: attributes each principal's MTD revenue wholesale to whichever
+ *  Team Leader heads it (principalOwnership, filtered to Active by the caller — see
+ *  the Principal.teamLeaderId comment above), sums each Team Leader's MTD target (see
+ *  MtdTargetInput — elapsed days only, not the whole month), and ranks by achievement
+ *  %. A principal with revenue but no active owner is reported separately rather than
+ *  silently dropped or silently misattributed — same pattern as the existing
+ *  unassignedRevenueReps check on /weekly-targets/contribution. */
+export function buildTlRanking(
+  principalRevenue: PrincipalRevenueInput[],
+  principalOwnership: PrincipalOwnershipInput[],
+  teamLeaders: TeamLeaderInput[],
+  mtdTargets: MtdTargetInput[]
+): TlRankingResult {
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
+  const teamLeaderIdByPrincipal = new Map(principalOwnership.map((p) => [p.principal, p.teamLeaderId]));
 
   const revenueByTeamLeader = new Map<string, number>();
-  const unmatchedReps: UnmatchedRep[] = [];
+  const unattributedPrincipals: UnattributedPrincipal[] = [];
 
-  for (const rep of repRevenue) {
-    if (rep.revenue === 0) continue;
-    const teamLeaderId = resolveTeamLeaderId(rep.salesEmployee, activeAssignments, rep.principal);
+  for (const row of principalRevenue) {
+    if (row.revenue === 0) continue;
+    const teamLeaderId = teamLeaderIdByPrincipal.get(row.principal);
     if (!teamLeaderId) {
-      unmatchedReps.push({ salesEmployee: rep.salesEmployee, revenue: rep.revenue });
+      unattributedPrincipals.push({ principal: row.principal, revenue: row.revenue });
       continue;
     }
-    revenueByTeamLeader.set(teamLeaderId, (revenueByTeamLeader.get(teamLeaderId) ?? 0) + rep.revenue);
+    revenueByTeamLeader.set(teamLeaderId, (revenueByTeamLeader.get(teamLeaderId) ?? 0) + row.revenue);
   }
 
   const targetByTeamLeader = new Map<string, number>();
@@ -146,9 +134,9 @@ export function buildTlRanking(repRevenue: RepRevenueInput[], assignments: Assig
     };
   });
 
-  unmatchedReps.sort((a, b) => b.revenue - a.revenue);
+  unattributedPrincipals.sort((a, b) => b.revenue - a.revenue);
 
-  return { rankings: sortByAchievement(rankings), unmatchedReps };
+  return { rankings: sortByAchievement(rankings), unattributedPrincipals };
 }
 
 /** Best-to-worst: highest achievedPct first, unranked (null — no target) rows last
@@ -190,8 +178,10 @@ export interface SupervisorRankingResult {
  *  underneath each Supervisor row rather than disappearing, matching "team leaders
  *  can then be tracked based on the teams and regions they head." A Team Leader's
  *  Supervisor is resolved from their own active TeamLeaderAssignment rows (first
- *  non-null supervisorId wins, same matrix-org tolerance resolveTeamLeaderId
- *  already has for principal-specific assignments). */
+ *  non-null supervisorId wins). This hierarchy lookup is unrelated to revenue
+ *  attribution (see buildTlRanking above) and still reads TeamLeaderAssignment
+ *  as before — only which principal's revenue counts for a Team Leader changed,
+ *  not who they report to. */
 export function buildSupervisorRanking(tlRanking: TlRankingRow[], assignments: AssignmentInput[], supervisors: HierarchyEntity[]): SupervisorRankingResult {
   const activeAssignments = assignments.filter((a) => a.active);
   const supervisorIdByTeamLeader = new Map<string, string>();

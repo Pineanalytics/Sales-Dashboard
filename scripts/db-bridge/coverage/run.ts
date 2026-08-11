@@ -11,7 +11,7 @@ import { loadCoverageConfigFromEnv, withCoverageConnection } from "./mysql";
 import { fetchPrincipalCostCentreFact } from "./query";
 import { buildCoverage } from "./transform";
 import { findDormantReps } from "./dormantReps";
-import principalsData from "../reference/principals.json";
+import { loadPrincipals } from "../reference/loadFromDb";
 
 async function main() {
   const config = loadCoverageConfigFromEnv();
@@ -25,6 +25,7 @@ async function main() {
   const rawRows = await withCoverageConnection(config, (conn) => fetchPrincipalCostCentreFact(conn, startDate, endDate));
   console.log(`[coverage-bridge] Fetched ${rawRows.length} fact rows.`);
 
+  const principalsData = await loadPrincipals();
   const { rows: monthlyCoverage, unmatchedCostCentres } = buildCoverage(rawRows, principalsData);
   console.log(`[coverage-bridge] Built ${monthlyCoverage.length} monthly-coverage rows.`);
   if (unmatchedCostCentres.length > 0) {

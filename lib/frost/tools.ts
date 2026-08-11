@@ -7,7 +7,6 @@ import {
   summarizeCoverageByRep,
   summarizePLForPeriod,
   summarizeSalesForPeriod,
-  summarizeBrandCustomerByRepAndPrincipal,
   getCurrentMonthPeriod,
   getPriorYearPeriod,
   getPreviousMonthPeriod,
@@ -186,52 +185,61 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
 
       const currentMonth = getCurrentMonthPeriod(dataset);
       if (!currentMonth.month) return JSON.stringify({ error: "No current-month data available." });
-      const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, args.principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, principal: r.principal, revenue: r.revenue }));
+      // Revenue is attributed by which principal a Team Leader heads
+      // (Principal.teamLeaderId), not by rep — see lib/tlRanking.ts's buildTlRanking.
+      const principalRevenue = Array.from(summarizeSalesByPrincipal(dataset, currentMonth).values())
+        .filter((r) => !args.principal || r.principalKey === args.principal || r.principal === args.principal)
+        .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
-      const [assignments, teamLeaders, mtdTargets] = await Promise.all([
+      const [assignments, principals, teamLeaders, mtdTargets] = await Promise.all([
         prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true } }),
+        prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
         prisma.teamLeader.findMany({ select: { id: true, name: true } }),
         getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
       ]);
 
-      const result = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets);
+      const result = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
       if (!scope) return JSON.stringify(result);
 
       if (scope.teamLeaderId) {
         const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
-        return JSON.stringify({ rankings, unmatchedReps: [] });
+        return JSON.stringify({ rankings, unattributedPrincipals: [] });
       }
-      // Principal-restricted VIEWER: every Team Leader with an active assignment
-      // under an allowed principal — see the matching comment in the /api/dashboard/
-      // tl-ranking route for why mtdTarget/mtdRevenue stay un-narrowed by principal.
+      // Principal-restricted VIEWER: every Team Leader who owns an allowed
+      // principal — see the matching comment in the /api/dashboard/tl-ranking
+      // route for why mtdTarget/mtdRevenue stay un-narrowed by principal.
       const allowedTeamLeaderIds = new Set(
-        assignments.filter((a) => a.active && scope.principals.includes(a.principal)).map((a) => a.teamLeaderId)
+        principals.filter((p) => p.teamLeaderId && scope.principals.includes(p.principal)).map((p) => p.teamLeaderId!)
       );
       const rankings = result.rankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
-      return JSON.stringify({ rankings, unmatchedReps: [] });
+      return JSON.stringify({ rankings, unattributedPrincipals: [] });
     },
   });
 }
 
 /** Shared setup for the two ranking-rollup tools below — dataset revenue +
- *  assignments/teamLeaders/mtdTargets, same fetch makeTlRankingTool already
- *  does, plus Supervisor/Manager reference lists. Returns null when there's no
- *  dataset or no current-month data (callers turn that into the tool's error JSON). */
+ *  assignments/principals/teamLeaders/mtdTargets, same fetch makeTlRankingTool
+ *  already does, plus Supervisor/Manager reference lists. Returns null when
+ *  there's no dataset or no current-month data (callers turn that into the
+ *  tool's error JSON). */
 async function loadRankingInputs(principal: string | undefined) {
   const dataset = await getLatestSnapshot();
   if (!dataset) return null;
   const currentMonth = getCurrentMonthPeriod(dataset);
   if (!currentMonth.month) return null;
-  const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, principal ?? null).map((r) => ({ salesEmployee: r.salesEmployee, principal: r.principal, revenue: r.revenue }));
+  const principalRevenue = Array.from(summarizeSalesByPrincipal(dataset, currentMonth).values())
+    .filter((r) => !principal || r.principalKey === principal || r.principal === principal)
+    .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
-  const [assignments, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
+  const [assignments, principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
     prisma.teamLeaderAssignment.findMany({ select: { teamLeaderId: true, employeeName: true, sapName: true, principal: true, active: true, supervisorId: true, managerId: true } }),
+    prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
     prisma.teamLeader.findMany({ select: { id: true, name: true } }),
     prisma.supervisor.findMany({ select: { id: true, name: true } }),
     prisma.manager.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
   ]);
-  const tlRanking = buildTlRanking(repRevenue, assignments, teamLeaders, mtdTargets);
+  const tlRanking = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
   return { assignments, supervisors, managers, tlRanking };
 }
 

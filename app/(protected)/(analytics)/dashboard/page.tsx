@@ -17,7 +17,7 @@ import { formatCompact } from "@/lib/format";
 import {
   summarizeSalesForPeriod,
   summarizeCoverageForPeriod,
-  summarizeBrandCustomerByRepAndPrincipal,
+  summarizeSalesByPrincipal,
   getCurrentMonthPeriod,
   getPreviousMonthPeriod,
   getPriorYearPeriod,
@@ -51,11 +51,11 @@ export default function DashboardPage() {
   // whatever broader period the top selector happens to be on.
   const currentMonth = getCurrentMonthPeriod(dataset);
   const currentMonthIndex = currentMonth.month ? CANONICAL_MONTHS.indexOf(currentMonth.month) : new Date().getUTCMonth();
-  const repRevenue = summarizeBrandCustomerByRepAndPrincipal(dataset, currentMonth, selectedPrincipalKey).map((r) => ({
-    salesEmployee: r.salesEmployee,
-    principal: r.principal,
-    revenue: r.revenue,
-  }));
+  // TL Ranking now attributes revenue by which principal a Team Leader heads
+  // (Principal.teamLeaderId), not by rep — see lib/tlRanking.ts's buildTlRanking.
+  const principalRevenue = Array.from(summarizeSalesByPrincipal(dataset, currentMonth).values())
+    .filter((r) => !selectedPrincipalKey || r.principalKey === selectedPrincipalKey)
+    .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
   const h1Summary = summarizeSalesForPeriod(dataset, { kind: "H1", year: period.year }, selectedPrincipalKey);
   const h2Summary = summarizeSalesForPeriod(dataset, { kind: "H2", year: period.year }, selectedPrincipalKey);
@@ -147,7 +147,7 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
             <TlRankingTable
-              repRevenue={repRevenue}
+              principalRevenue={principalRevenue}
               principalFilter={selectedPrincipalKey}
               year={currentMonth.year}
               monthLabel={currentMonth.month ?? ""}

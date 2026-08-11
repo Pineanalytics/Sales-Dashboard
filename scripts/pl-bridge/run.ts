@@ -8,7 +8,7 @@ process.loadEnvFile();
 import { loadConfigFromEnv, withConnection } from "../db-bridge/sql";
 import { fetchPLByCostCentre } from "./query";
 import { buildPL } from "./transform";
-import principalsData from "../db-bridge/reference/principals.json";
+import { loadPrincipals } from "../db-bridge/reference/loadFromDb";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
@@ -28,6 +28,7 @@ async function main() {
   const rawRows = await withConnection(config, (pool) => fetchPLByCostCentre(pool, startDate, endDate));
   console.log(`[pl-bridge] Fetched ${rawRows.length} journal-entry lines.`);
 
+  const principalsData = await loadPrincipals();
   const { rows, unmatchedCostCentres } = buildPL(rawRows, principalsData);
   console.log(`[pl-bridge] Aggregated to ${rows.length} monthly P&L rows.`);
   if (unmatchedCostCentres.length > 0) {

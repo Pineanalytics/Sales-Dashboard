@@ -36,7 +36,7 @@ process.loadEnvFile();
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchYtdRaw, type YtdRawRow } from "./queries/ytdRaw";
 import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
-import { loadEmployeeMaster, loadProducts, loadWarehouses } from "./reference/loadFromDb";
+import { loadEmployeeMaster, loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildDailySales } from "./transform/buildDailySales";
 import {
@@ -46,7 +46,6 @@ import {
   buildMonthlyRepSales,
   dailyRowsToMonthlyInput,
 } from "./transform/buildRepSales";
-import principalsData from "./reference/principals.json";
 
 const isBackfill = process.argv.includes("--backfill");
 
@@ -78,11 +77,12 @@ async function main() {
 
   const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate, isBackfill);
 
-  const [dailyRawRows, products, warehousesData, employees] = await Promise.all([
+  const [dailyRawRows, products, warehousesData, employees, principalsData] = await Promise.all([
     withConnection(config, (pool) => fetchDailySalesRaw(pool, dailyStart, dailyEnd)),
     loadProducts(),
     loadWarehouses(),
     loadEmployeeMaster(),
+    loadPrincipals(),
   ]);
 
   // Only the backfill path runs the heavier full-year (x2 years) YTD_Raw scan —

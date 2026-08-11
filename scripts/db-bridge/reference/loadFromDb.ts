@@ -1,10 +1,12 @@
-// Loads Products/Warehouses/Key Account Reps from Postgres (admin-editable via
-// app/(protected)/admin/{products,warehouses,key-account-reps}) instead of the
-// earlier network-share Excel read / static JSON snapshots. Principals stays a
-// static checked-in snapshot (scripts/db-bridge/reference/principals.json) — not
-// migrated, since it wasn't requested for inline editing.
+// Loads Products/Warehouses/Key Account Reps/Principals from Postgres
+// (admin-editable via app/(protected)/admin/{products,warehouses,
+// key-account-reps,principals}) instead of the earlier network-share Excel
+// read / static JSON snapshots. Principals was the last holdout (a static
+// scripts/db-bridge/reference/principals.json snapshot) until TL Ranking
+// started needing its teamLeader field live (lib/tlRanking.ts) rather than
+// just for internal SQL-bridge principal resolution — see loadPrincipals.
 import { prisma } from "@/lib/db";
-import type { WarehouseRow } from "../transform/buildMonthlySales";
+import type { PrincipalRow, WarehouseRow } from "../transform/buildMonthlySales";
 
 export interface ProductRow {
   itemNo: string;
@@ -47,6 +49,29 @@ export async function loadWarehouses(): Promise<WarehouseRow[]> {
     warehouseName: r.warehouseName,
     location: r.location,
     locationCode: r.locationCode,
+  }));
+}
+
+/** Replaces the old static principals.json import. teamLeaderId is the id-by-
+ *  convention FK (same non-@relation pattern as TeamLeaderAssignment's own
+ *  teamLeaderId/supervisorId/managerId) — teamLeader here is just the resolved
+ *  display name for consumers that only ever wanted a label; it's carried
+ *  through unused by any current scripts/db-bridge transform (confirmed) but
+ *  kept for shape compatibility with the old principals.json rows. */
+export async function loadPrincipals(): Promise<PrincipalRow[]> {
+  const [rows, teamLeaders] = await Promise.all([
+    prisma.principal.findMany(),
+    prisma.teamLeader.findMany({ select: { id: true, name: true } }),
+  ]);
+  const nameById = new Map(teamLeaders.map((t) => [t.id, t.name]));
+  return rows.map((r) => ({
+    key: r.id,
+    principal: r.principal,
+    mainPrincipal: r.mainPrincipal,
+    location: r.location,
+    locationCode: r.locationCode ?? "",
+    status: r.status,
+    teamLeader: r.teamLeaderId ? nameById.get(r.teamLeaderId) ?? "" : "",
   }));
 }
 

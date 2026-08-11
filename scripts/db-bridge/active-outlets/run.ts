@@ -15,7 +15,7 @@ process.loadEnvFile();
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "../coverage/mysql";
 import { fetchFactLines, fetchOutlets, fetchProducts, fetchUsers } from "./query";
 import { buildActiveOutletEvents, buildActiveOutletsMonthly, collapseToPurchaseEvents, type ActiveOutletEventRow } from "./transform";
-import principalsData from "../reference/principals.json";
+import { loadPrincipals } from "../reference/loadFromDb";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "active-outlets";
@@ -135,6 +135,7 @@ async function main() {
 
   console.log(`[active-outlets] Dimensions: ${outlets.length} outlets, ${users.length} users, ${products.length} products.`);
   console.log(`[active-outlets] Fetched ${factLines.length} sale/order lines.`);
+  const principalsData = await loadPrincipals();
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
   const distinctOutletsTouched = new Set(events.map((e) => e.customerId)).size;
   console.log(`[active-outlets] Collapsed to ${events.length} purchase events; ${distinctOutletsTouched} distinct outlets touched this run.`);
