@@ -153,6 +153,7 @@ export default function DashboardPage() {
               </div>
 
               <WeekDailyActuals
+                dataset={dataset}
                 year={currentMonth.year}
                 monthLabel={currentMonth.month ?? ""}
                 monthIndex={currentMonthIndex}

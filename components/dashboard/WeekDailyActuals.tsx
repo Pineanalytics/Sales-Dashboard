@@ -4,14 +4,7 @@ import { useEffect, useState } from "react";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { formatCompact } from "@/lib/format";
 import { getWeeksInMonth, type WeekInfo } from "@/lib/weeklyTargets";
-
-interface DailySalesRow {
-  date: string;
-  principal: string;
-  revenue: number;
-  cogs: number;
-  grossProfit: number;
-}
+import type { Dataset } from "@/lib/types";
 
 interface WeeklyTargetRow {
   weekLabel: string;
@@ -38,17 +31,25 @@ function dayNameOf(dateKey: string): string {
 }
 
 /** Week 1-4 (or 5) + This Week + Daily Projection cards for the redesigned Executive
- *  Overview — the one section on the page backed by DailySalesActual/DailyTarget
- *  (day-grain) rather than the Excel-sourced Dataset (month-grain), so it fetches its
- *  own data client-side (same pattern as AiInsightsCard.tsx) instead of reading the
- *  Zustand-held dataset. */
+ *  Overview. Actuals are read straight from the already-loaded Excel Dataset's
+ *  Brand&Customer Listing (MonthlyBrandCustomerRow.date carries a real per-day
+ *  date for the current month — see lib/parseWorkbook.ts), the same reliable,
+ *  Task-Scheduler-fed pipeline WeeklyRevenueKpi.tsx uses. Previously sourced from
+ *  DailySalesActual, a separate table fed only by a manually-triggered script
+ *  (scripts/db-bridge/sales-sync.ts — "not wired into Task Scheduler," per its
+ *  own header comment) that wasn't reliably kept current, which is why this card
+ *  was showing all-zero actuals in production. Targets (WeeklyTarget/DailyTarget)
+ *  are still DB-backed and still need their own fetch, since the Dataset doesn't
+ *  carry them. */
 export function WeekDailyActuals({
+  dataset,
   year,
   monthLabel,
   monthIndex,
   principal,
   selectedDayNames,
 }: {
+  dataset: Dataset;
   year: string;
   monthLabel: string;
   monthIndex: number;
@@ -56,7 +57,6 @@ export function WeekDailyActuals({
   selectedDayNames: Set<string>;
 }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
-  const [dailySales, setDailySales] = useState<DailySalesRow[]>([]);
   const [weeklyTargets, setWeeklyTargets] = useState<WeeklyTargetRow[]>([]);
   const [dailyTargets, setDailyTargets] = useState<DailyTargetRow[]>([]);
 
@@ -65,24 +65,12 @@ export function WeekDailyActuals({
     setStatus("loading");
     (async () => {
       try {
-        const monthStart = new Date(Date.UTC(Number(year), monthIndex, 1));
-        const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 0));
-        const today = new Date();
-        // Never ask for future dates beyond today — DailySalesActual only ever has
-        // history up to "now".
-        const effectiveEnd = monthEnd < today ? monthEnd : today;
-
-        const dailySalesUrl = `/api/dashboard/daily-sales?from=${toDateKey(monthStart)}&to=${toDateKey(effectiveEnd)}${principal ? `&principal=${encodeURIComponent(principal)}` : ""}`;
         const targetsUrl = `/api/dashboard/targets?year=${year}&monthLabel=${encodeURIComponent(monthLabel)}${principal ? `&principal=${encodeURIComponent(principal)}` : ""}`;
-
-        const [salesRes, targetsRes] = await Promise.all([fetch(dailySalesUrl, { cache: "no-store" }), fetch(targetsUrl, { cache: "no-store" })]);
-        const salesBody = await salesRes.json();
+        const targetsRes = await fetch(targetsUrl, { cache: "no-store" });
         const targetsBody = await targetsRes.json();
-        if (!salesRes.ok) throw new Error(salesBody.error || "Failed to load daily sales.");
         if (!targetsRes.ok) throw new Error(targetsBody.error || "Failed to load targets.");
 
         if (!cancelled) {
-          setDailySales(salesBody.rows ?? []);
           setWeeklyTargets(targetsBody.weeklyTargets ?? []);
           setDailyTargets(targetsBody.dailyTargets ?? []);
           setStatus("idle");
@@ -94,18 +82,24 @@ export function WeekDailyActuals({
     return () => {
       cancelled = true;
     };
-  }, [year, monthLabel, monthIndex, principal]);
+  }, [year, monthLabel, principal]);
 
   if (status === "loading") {
     return <SectionCard title="Week & Daily Projection">Loading…</SectionCard>;
   }
   if (status === "error") {
-    return <SectionCard title="Week & Daily Projection">Couldn&apos;t load day-grain actuals — the underlying feed may not have synced yet.</SectionCard>;
+    return <SectionCard title="Week & Daily Projection">Couldn&apos;t load targets — the underlying feed may not have synced yet.</SectionCard>;
   }
+
+  // Same raw-Principal-string match Brand&Customer Listing always uses (location-
+  // granular, not brand-normalized — see lib/timeIntelligence.ts's filterBrandCustomer).
+  const monthBrandCustomer = dataset.monthlyBrandCustomer.filter(
+    (r) => r.year === year && r.monthIndex === monthIndex && (!principal || r.principal === principal)
+  );
 
   // Only count days whose weekday is in the Day Name filter — the one place on the
   // page that filter actually changes anything (see DayNameFilter.tsx).
-  const filteredSales = dailySales.filter((r) => selectedDayNames.has(dayNameOf(r.date)));
+  const filteredSales = monthBrandCustomer.filter((r) => selectedDayNames.has(dayNameOf(r.date)));
   const filteredDailyTargets = dailyTargets.filter((r) => selectedDayNames.has(dayNameOf(toDateKey(new Date(r.date)))));
 
   const revenueByDate = new Map<string, number>();
