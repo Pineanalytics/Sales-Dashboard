@@ -5,7 +5,7 @@ A production-grade Next.js dashboard for a Kenya-based distributor to track prin
 ## Tech stack
 
 - **Next.js 16** (App Router, TypeScript)
-- **NextAuth (Auth.js) v5** — credentials login, JWT sessions, `ADMIN`/`VIEWER` roles
+- **NextAuth (Auth.js) v5** — credentials login, JWT sessions, `ADMIN`/`VIEWER`/`TEAM_LEADER`/`SUPERVISOR` roles
 - **Tailwind CSS v4** for the light Fluent-inspired theme, using CSS variables (`app/globals.css`) as design tokens
 - **Recharts** for line/bar/doughnut/composed charts
 - **SheetJS (`xlsx`)** for parsing the uploaded workbook, shared between client preview and server persistence
@@ -70,10 +70,12 @@ npm run lint
 
 ## Authentication & roles
 
-- **Admin** — can upload new data, manage the Target/Product/Warehouse/Key-Account-Rep reference tables, and manage user accounts (`/admin/users`): approve or reject registration requests, change a user's role, control exactly which of the 9 report pages a viewer can see, and reset any user's password directly.
+- **Admin** — can upload new data, manage the Target/Product/Warehouse/Key-Account-Rep reference tables, and manage user accounts (`/admin/users`): approve or reject registration requests, change a user's role, control access to the 15 analytics pages, and reset any user's password directly.
 - **Viewer** — read-only access, scoped to whichever report pages an admin has granted them (`User.allowedPages`, see `lib/pageAccess.ts`). The sidebar only shows links to pages they're allowed to see, and navigating to a disallowed URL directly shows an access-restricted message instead of the report.
+- **Team Leader** — sees their own assigned team and can enter or review its weekly targets.
+- **Supervisor** — sees the Team Leaders in their assigned group and can manage that group's roster and targets.
 
-Anyone can request an account at `/register` — restricted server-side to `@pinefrost.co.ke` email addresses. New registrations start with `status: PENDING` and cannot sign in (`/login` shows "awaiting admin approval") until an admin approves them from `/admin/users`, at which point they default to seeing all 9 pages. Rejecting a request deletes it outright — there's no "rejected" limbo state. Admin-created accounts (via the "Add a new user" form on the same page) are pre-approved and skip this flow entirely.
+Anyone can request an account at `/register` — restricted server-side to `@pinefrost.co.ke` email addresses. New registrations start with `status: PENDING` and cannot sign in (`/login` shows "awaiting admin approval") until an admin approves them from `/admin/users`, at which point they default to all 15 analytics pages. Rejecting a request deletes it outright — there's no "rejected" limbo state. Admin-created accounts (via the "Add a new user" form on the same page) are pre-approved and skip this flow entirely.
 
 Auth is enforced at the page/route level rather than in Proxy/Middleware (deliberately host-portable — this avoided an incompatibility when the project briefly targeted Cloudflare Workers, and there's no reason to reintroduce it now). `app/(protected)/layout.tsx` requires a signed-in session for every page under it; each API route (`/api/upload`, `/api/dataset`, `/api/snapshots`, `/api/pl/upload`, `/api/sales/upload`) checks the session itself, and admin-only routes/pages additionally require the `ADMIN` role server-side, not just hidden in the UI.
 
@@ -123,7 +125,8 @@ app/                 Next.js routes
     page.tsx         redirect("/dashboard") stub
     (analytics)/     layout.tsx: SSR dataset fetch + AnalyticsShell (Sidebar/Header/GlobalFilterBar)
       dashboard/ sales/ time-intelligence/ coverage/ reps/ customers/
-      profitability/ stock/ reports/        The 9 report pages
+      profitability/ stock/ active-outlets/ timestamps/ jp-adherence/
+      order-360/ reports/ frost/ insights/  The 15 analytics pages
     admin/           Admin-only pages: users, targets, products, warehouses, key-account-reps
   api/auth/          NextAuth route handler
   api/upload|pl/upload|sales/upload|dataset|snapshots/   Data API routes (each checks its own session)
@@ -139,7 +142,7 @@ lib/
   timeIntelligence.ts   Period resolution (MTD/QTD/YTD/H1/H2/Q1-Q4) + monthly-row aggregation + YoY/MoM helpers
   format.ts          Number/percent formatting, tier/badge/KPI-accent color helpers
   selectors.ts, trends.ts, stock.ts, insights.ts, search.ts   View-level derived-data helpers (period-aware)
-  pageAccess.ts      The 9 report-page keys + pathname→key lookup, shared by Sidebar and AnalyticsShell for visibility gating
+  pageAccess.ts      The 15 analytics-page keys + pathname→key lookup, shared by Sidebar and AnalyticsShell for visibility gating
   store.ts           Zustand store (dataset, selected principal key, selected period, sidebar open/collapsed state)
   db.ts, datasetStore.ts   Prisma client + snapshot persistence (overlaySales/overlayTargets/overlayPL merge DB-sourced rows onto the Excel-sourced snapshot at read time)
 auth.ts, types/next-auth.d.ts   Auth.js setup + session typing (no Proxy/Middleware — see Authentication & roles above)
