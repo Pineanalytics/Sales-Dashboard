@@ -19,7 +19,7 @@ import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
 import { loadEmployeeMaster, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildDailySales } from "./transform/buildDailySales";
-import { buildDailyRepSales, buildMonthlyRepSales } from "./transform/buildRepSales";
+import { buildDailyCustomerSales, buildDailyRepSales, buildMonthlyCustomerSales, buildMonthlyRepSales } from "./transform/buildRepSales";
 import principalsData from "./reference/principals.json";
 
 // Trailing window for the day-grain feed (Executive Overview's Week 1-4/Daily
@@ -63,8 +63,10 @@ async function main() {
   const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
   const monthlyRepSales = buildMonthlyRepSales(ytdRows, products, warehousesData, principalsData, employees);
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
+  const monthlyCustomerSales = buildMonthlyCustomerSales(ytdRows, products, warehousesData, principalsData);
+  const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
   console.log(
-    `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, and ${dailyRepSales.length} rep-day rows.`
+    `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, and ${dailyCustomerSales.length} customer-day rows.`
   );
 
   const rows = monthlySales.map((r) => ({
@@ -126,6 +128,18 @@ async function main() {
   console.log(
     `[sales-sync] Rep-level upload succeeded. Saved ${repBody.monthlyRows} monthly and ${repBody.dailyRows} daily rows; ${repBody.unmatchedMonthlyRows} monthly rows remain unmatched to Employee Roaster.`
   );
+
+  console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
+  const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    body: JSON.stringify({ monthlyRows: monthlyCustomerSales, dailyRows: dailyCustomerSales }),
+  });
+  const brandCustomerBody = await brandCustomerResponse.json();
+  if (!brandCustomerResponse.ok) {
+    throw new Error(`Brand&Customer upload rejected (HTTP ${brandCustomerResponse.status}): ${JSON.stringify(brandCustomerBody)}`);
+  }
+  console.log(`[sales-sync] Brand&Customer upload succeeded. Saved ${brandCustomerBody.monthlyRows} monthly and ${brandCustomerBody.dailyRows} daily rows.`);
 
   // RepContribution/DailyTarget now use SAP sales actuals, so refresh them in
   // the same transaction cycle rather than waiting for the next JPA sync.

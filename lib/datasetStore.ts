@@ -5,7 +5,7 @@ import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { getMonthlyCoverageRollup } from "./jpAdherence";
-import type { Dataset, DatasetSnapshotSummary, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
+import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
 // which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
@@ -170,6 +170,116 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
   return { ...dataset, monthlyCoverage: merged };
 }
 
+/** Merges scripts/db-bridge-sourced Brand&Customer rows (SAP SQL Server, via
+ *  app/api/sales/upload-brand-customer) onto dataset.monthlyBrandCustomer,
+ *  replacing the Excel-sourced "Brand&Customer Listing" sheet for the current
+ *  calendar year — same MERGE-not-replace pattern as overlaySales (ytdRaw only
+ *  covers the current year, so prior-year Excel rows must survive untouched).
+ *  Matches lib/parseWorkbook.ts's own convention: completed months of the
+ *  current year come from BrandCustomerActual's monthly aggregate (a 1st-of-
+ *  month placeholder date, same as historical Excel rows), while the CURRENT
+ *  month comes from DailyBrandCustomerActual's real per-day rows instead —
+ *  never both, to avoid double-counting the same month at two granularities.
+ *  Keyed to match parseMonthlyBrandCustomer's own aggregation key exactly:
+ *  date|principalKey|salesEmployee|customerName. */
+async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
+  const now = new Date();
+  const currentYear = String(now.getUTCFullYear());
+  const currentMonthIndex = now.getUTCMonth();
+  const currentMonthStart = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, "0")}-01`;
+
+  const [monthlyRecords, dailyRecords] = await Promise.all([
+    prisma.brandCustomerActual.findMany(),
+    prisma.dailyBrandCustomerActual.findMany(),
+  ]);
+  if (monthlyRecords.length === 0 && dailyRecords.length === 0) return dataset;
+
+  interface DbRow {
+    date: string;
+    year: string;
+    month: string;
+    monthIndex: number;
+    principal: string;
+    salesEmployee: string;
+    customerName: string;
+    volume: number;
+    revenue: number;
+    grossProfit: number;
+  }
+  const byKey = new Map<string, DbRow>();
+
+  for (const r of monthlyRecords) {
+    if (r.year === currentYear && r.monthIndex === currentMonthIndex) continue; // current month comes from the daily table instead
+    const date = `${r.year}-${String(r.monthIndex + 1).padStart(2, "0")}-01`;
+    const key = `${date}|${normalizePrincipalKey(r.principal)}|${r.sapName}|${r.customerName}`;
+    byKey.set(key, {
+      date,
+      year: r.year,
+      month: r.month,
+      monthIndex: r.monthIndex,
+      principal: r.principal,
+      salesEmployee: r.sapName,
+      customerName: r.customerName,
+      volume: r.volume,
+      revenue: r.revenue,
+      grossProfit: r.grossProfit,
+    });
+  }
+
+  for (const r of dailyRecords) {
+    const dateKey = r.date.toISOString().slice(0, 10);
+    if (dateKey < currentMonthStart) continue; // pre-current-month days are already covered by the monthly aggregate above
+    const key = `${dateKey}|${normalizePrincipalKey(r.principal)}|${r.sapName}|${r.customerName}`;
+    byKey.set(key, {
+      date: dateKey,
+      year: String(r.date.getUTCFullYear()),
+      month: CANONICAL_MONTHS[r.date.getUTCMonth()],
+      monthIndex: r.date.getUTCMonth(),
+      principal: r.principal,
+      salesEmployee: r.sapName,
+      customerName: r.customerName,
+      volume: r.volume,
+      revenue: r.revenue,
+      grossProfit: r.grossProfit,
+    });
+  }
+
+  const matchedKeys = new Set<string>();
+  const merged: MonthlyBrandCustomerRow[] = dataset.monthlyBrandCustomer.map((row) => {
+    const key = `${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`;
+    const db = byKey.get(key);
+    if (!db) return row;
+    matchedKeys.add(key);
+    return {
+      ...row,
+      volume: db.volume,
+      revenue: db.revenue,
+      grossProfit: db.grossProfit,
+      grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,
+    };
+  });
+
+  for (const [key, db] of byKey) {
+    if (matchedKeys.has(key)) continue;
+    merged.push({
+      date: db.date,
+      year: db.year,
+      month: db.month,
+      monthIndex: db.monthIndex,
+      principal: db.principal,
+      principalKey: normalizePrincipalKey(db.principal),
+      salesEmployee: db.salesEmployee,
+      customerName: db.customerName,
+      volume: db.volume,
+      revenue: db.revenue,
+      grossProfit: db.grossProfit,
+      grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,
+    });
+  }
+
+  return { ...dataset, monthlyBrandCustomer: merged };
+}
+
 /** Overlays admin-uploaded Target rows onto monthlySales[].target, keyed by
  *  (year, month, principal). A DB row only wins when it exists AND has a
  *  non-null valueTarget — a Target row that only captured e.g. Volume Target
@@ -213,12 +323,18 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
   const withSales = await overlaySales(dataset);
-  const [withTargets, withPL, withCoverage] = await Promise.all([
+  const [withTargets, withPL, withCoverage, withBrandCustomer] = await Promise.all([
     overlayTargets(withSales),
     overlayPL(dataset),
     overlayCoverage(dataset),
+    overlayBrandCustomer(dataset),
   ]);
-  return { ...withTargets, monthlyPL: withPL.monthlyPL, monthlyCoverage: withCoverage.monthlyCoverage };
+  return {
+    ...withTargets,
+    monthlyPL: withPL.monthlyPL,
+    monthlyCoverage: withCoverage.monthlyCoverage,
+    monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,
+  };
 }
 
 /** Restricts a Dataset to a set of principals (a TEAM_LEADER session's own

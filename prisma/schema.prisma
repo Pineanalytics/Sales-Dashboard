@@ -419,6 +419,52 @@ model DailySalesRepActual {
   @@index([employeeCode, date])
 }
 
+// Customer-grain SAP sales actuals, pushed live by scripts/db-bridge/sales-sync.ts
+// (queries/ytdRaw.ts + transform/buildRepSales.ts's buildMonthlyCustomerSales) via
+// app/api/sales/upload-brand-customer. Overlaid onto Dataset.monthlyBrandCustomer at
+// read time by lib/datasetStore.ts's overlayBrandCustomer, replacing the Excel-sourced
+// "Brand&Customer Listing" sheet for the current calendar year — same merge pattern as
+// SalesRecord/overlaySales above. sapName is the raw SAP salesperson name (not resolved
+// against the Employee Roaster) since MonthlyBrandCustomerRow.salesEmployee is itself
+// documented as a SAP-side name, resolved to Team Leader later via
+// TeamLeaderAssignment.sapName (see lib/tlRanking.ts).
+model BrandCustomerActual {
+  id           String   @id @default(cuid())
+  year         String
+  month        String
+  monthIndex   Int
+  principal    String
+  sapName      String
+  customerName String
+  volume       Float
+  revenue      Float
+  grossProfit  Float
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([year, month, principal, sapName, customerName])
+  @@index([principal, year, month])
+}
+
+// Day-grain companion to BrandCustomerActual, built from queries/dailySalesRaw.ts
+// + buildDailyCustomerSales — gives dataset.monthlyBrandCustomer real per-day dates
+// for the current month, same role DailySalesRepActual plays for rep-grain data.
+model DailyBrandCustomerActual {
+  id           String   @id @default(cuid())
+  date         DateTime @db.Date
+  principal    String
+  sapName      String
+  customerName String
+  volume       Float
+  revenue      Float
+  grossProfit  Float
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([date, principal, sapName, customerName])
+  @@index([principal, date])
+}
+
 // P&L journal-entry lines from SAP (OJDT/JDT1 by Cost Centre/Account), pushed
 // live by scripts/pl-bridge (not shadow-only, unlike scripts/db-bridge) via
 // app/api/pl/upload. Aggregated to Year+Month+Principal+AccountCode+LineType

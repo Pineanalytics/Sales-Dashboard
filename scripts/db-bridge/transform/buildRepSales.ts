@@ -1,6 +1,9 @@
 // Rep-grain companion to the existing principal-level SAP sales transforms.
 // It follows the same Product -> Principal and Warehouse -> Location mapping,
 // then resolves SAP salesperson names through the Employee Roaster master.
+// Also holds the customer-grain siblings (buildMonthlyCustomerSales/
+// buildDailyCustomerSales, near the bottom) that feed the Brand&Customer
+// Listing replacement — same helpers, no Employee Roaster lookup needed there.
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import type { DailySalesRawRow } from "../queries/dailySalesRaw";
 import type { YtdRawRow } from "../queries/ytdRaw";
@@ -150,6 +153,107 @@ export function buildDailyRepSales(
     existing.volume += row.qtySold;
     existing.revenue += row.salesAmount;
     existing.cogs += row.cogs;
+    existing.grossProfit += row.grossMargin;
+    byKey.set(key, existing);
+  }
+  return Array.from(byKey.values());
+}
+
+// Customer-grain siblings of buildMonthlyRepSales/buildDailyRepSales — feed the
+// Brand&Customer Listing replacement (dataset.monthlyBrandCustomer) instead of
+// the rep-level SalesRepActual/DailySalesRepActual pipeline above. Same Product
+// -> Principal / Warehouse -> Location resolution, but no Employee Roaster
+// lookup: MonthlyBrandCustomerRow.salesEmployee is documented as a raw SAP-side
+// name (resolved to Team Leader later via TeamLeaderAssignment.sapName — see
+// lib/tlRanking.ts), so the SAP rep name is stored as-is.
+
+export interface MonthlyCustomerSalesRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  principal: string;
+  sapName: string;
+  customerName: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+}
+
+export interface DailyCustomerSalesRow {
+  date: string;
+  principal: string;
+  sapName: string;
+  customerName: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+}
+
+export function buildMonthlyCustomerSales(
+  rows: YtdRawRow[],
+  products: ProductRow[],
+  warehouses: WarehouseRow[],
+  principals: PrincipalRow[]
+): MonthlyCustomerSalesRow[] {
+  const { productByItemNo, warehouseByCode, activePrincipalByKey } = masterMaps(products, warehouses, principals);
+  const byKey = new Map<string, MonthlyCustomerSalesRow>();
+
+  for (const row of rows) {
+    if (row.period !== "YTD") continue;
+    const product = productByItemNo.get(row.itemCode);
+    if (!product?.principal) continue;
+    const location = row.whsCode ? warehouseByCode.get(row.whsCode)?.location ?? "Nairobi" : "Nairobi";
+    const principal = activePrincipalByKey.get(applyFixups(`${product.principal}-${location}`));
+    if (!principal) continue;
+
+    const key = `${row.year}|${row.monthNo}|${principal.principal}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
+    const existing = byKey.get(key) ?? {
+      year: String(row.year),
+      month: CANONICAL_MONTHS[row.monthNo - 1],
+      monthIndex: row.monthNo - 1,
+      principal: principal.principal,
+      sapName: row.sapName,
+      customerName: row.customerName,
+      volume: 0,
+      revenue: 0,
+      grossProfit: 0,
+    };
+    existing.volume += row.qtySold;
+    existing.revenue += row.salesAmount;
+    existing.grossProfit += row.grossMargin;
+    byKey.set(key, existing);
+  }
+  return Array.from(byKey.values());
+}
+
+export function buildDailyCustomerSales(
+  rows: DailySalesRawRow[],
+  products: ProductRow[],
+  warehouses: WarehouseRow[],
+  principals: PrincipalRow[]
+): DailyCustomerSalesRow[] {
+  const { productByItemNo, warehouseByCode, activePrincipalByKey } = masterMaps(products, warehouses, principals);
+  const byKey = new Map<string, DailyCustomerSalesRow>();
+
+  for (const row of rows) {
+    const product = productByItemNo.get(row.itemCode);
+    if (!product?.principal) continue;
+    const location = row.whsCode ? warehouseByCode.get(row.whsCode)?.location ?? "Nairobi" : "Nairobi";
+    const principal = activePrincipalByKey.get(applyFixups(`${product.principal}-${location}`));
+    if (!principal) continue;
+
+    const key = `${row.date}|${principal.principal}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
+    const existing = byKey.get(key) ?? {
+      date: row.date,
+      principal: principal.principal,
+      sapName: row.sapName,
+      customerName: row.customerName,
+      volume: 0,
+      revenue: 0,
+      grossProfit: 0,
+    };
+    existing.volume += row.qtySold;
+    existing.revenue += row.salesAmount;
     existing.grossProfit += row.grossMargin;
     byKey.set(key, existing);
   }
