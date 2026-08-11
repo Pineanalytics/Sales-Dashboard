@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useDashboardStore } from "@/lib/store";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
+import { CoverageRoleToggle } from "@/components/overview/CoverageRoleToggle";
 import { WeekDailyActuals } from "@/components/dashboard/WeekDailyActuals";
 import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
@@ -23,6 +24,7 @@ import {
   CANONICAL_MONTHS,
   type PeriodSalesSummary,
   type PeriodSelection,
+  type RoleCategory,
 } from "@/lib/timeIntelligence";
 
 function Row({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
@@ -40,6 +42,7 @@ export default function DashboardPage() {
   const period = useDashboardStore((s) => s.selectedPeriod);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const [tab, setTab] = useState<DashboardView>("mtd");
+  const [coverageRole, setCoverageRole] = useState<Extract<RoleCategory, "primary" | "secondary">>("primary");
 
   if (!dataset) return null;
 
@@ -77,7 +80,7 @@ export default function DashboardPage() {
   const splySummary = summarizeSalesForPeriod(dataset, getPriorYearPeriod(ytdPeriod), selectedPrincipalKey);
   const yoyGrowth = ytdSummary.revenue - splySummary.revenue;
   const yoyPct = splySummary.revenue > 0 ? (yoyGrowth / splySummary.revenue) * 100 : null;
-  const ytdCoverage = summarizeCoverageForPeriod(dataset, ytdPeriod, selectedPrincipalKey);
+  const ytdCoverage = summarizeCoverageForPeriod(dataset, ytdPeriod, selectedPrincipalKey, coverageRole);
   const q1Summary = summarizeSalesForPeriod(dataset, { kind: "Q1", year: period.year }, selectedPrincipalKey);
   const q2Summary = summarizeSalesForPeriod(dataset, { kind: "Q2", year: period.year }, selectedPrincipalKey);
   const q3Summary = summarizeSalesForPeriod(dataset, { kind: "Q3", year: period.year }, selectedPrincipalKey);
@@ -149,7 +152,7 @@ export default function DashboardPage() {
               year={currentMonth.year}
               monthLabel={currentMonth.month ?? ""}
             />
-            <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={currentMonth} />
+            <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={currentMonth} role={coverageRole} onRoleChange={setCoverageRole} />
           </div>
         </div>
       ) : (
@@ -189,7 +192,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <CoverageScoreCard coverage={ytdCoverage} />
+            <CoverageScoreCard coverage={ytdCoverage} role={coverageRole} onRoleChange={setCoverageRole} />
             <QuarterAchievementCard title="Q1 Sales vs Mission" summary={q1Summary} accent="amber" />
             <QuarterAchievementCard title="Q2 Sales vs Mission" summary={q2Summary} accent="purple" />
             <SectionCard title="Profitability" accent="navy">
@@ -213,9 +216,17 @@ export default function DashboardPage() {
   );
 }
 
-function CoverageScoreCard({ coverage }: { coverage: ReturnType<typeof summarizeCoverageForPeriod> }) {
+function CoverageScoreCard({
+  coverage,
+  role,
+  onRoleChange,
+}: {
+  coverage: ReturnType<typeof summarizeCoverageForPeriod>;
+  role: Extract<RoleCategory, "primary" | "secondary">;
+  onRoleChange: (role: Extract<RoleCategory, "primary" | "secondary">) => void;
+}) {
   return (
-    <SectionCard title="Effective Coverage" accent="green">
+    <SectionCard title="Effective Coverage" accent="green" action={<CoverageRoleToggle value={role} onChange={onRoleChange} />}>
       <div className="flex items-center gap-4">
         <AchievementGauge pct={coverage.productivityPct} size={76} />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm">

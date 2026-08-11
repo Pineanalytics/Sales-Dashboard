@@ -325,6 +325,21 @@ describe("coverage summaries", () => {
     expect(jane.productiveCalls).toBe(125);
   });
 
+  it("keeps Primary and Secondary coverage/productivity summaries separate", () => {
+    const roleSplit = buildDataset({
+      monthlyCoverage: [
+        coverageRow({ employeeName: "Primary Rep", salesRole: "Primary Sales", coverage: 100, productiveCalls: 75 }),
+        coverageRow({ employeeName: "Secondary Rep", salesRole: "Secondary Sales", coverage: 40, productiveCalls: 36 }),
+      ],
+    });
+    const selection = { kind: "MTD" as const, year: "2026", month: "January" };
+
+    expect(summarizeCoverageForPeriod(roleSplit, selection, null, "primary")).toMatchObject({ coverage: 100, productiveCalls: 75, productivityPct: 75 });
+    expect(summarizeCoverageForPeriod(roleSplit, selection, null, "secondary")).toMatchObject({ coverage: 40, productiveCalls: 36, productivityPct: 90 });
+    expect(summarizeCoverageByRep(roleSplit, selection, null, "primary").map((r) => r.employeeName)).toEqual(["Primary Rep"]);
+    expect(summarizeCoverageByRep(roleSplit, selection, null, "secondary").map((r) => r.employeeName)).toEqual(["Secondary Rep"]);
+  });
+
   it("summarizeCoverageByRep filters by an already-normalized brand key", () => {
     const byRep = summarizeCoverageByRep(dataset, { kind: "MTD", year: "2026", month: "June" }, "eabl");
     expect(byRep).toHaveLength(2); // Jane Doe (EABL-Nyeri) + John Smith (EABL-Nyahururu)
