@@ -6,8 +6,8 @@
 // app's actual Year+Month+Location+Principal grain (summing away the SQL-side
 // Classification/TeamLeader/IsFreeSale dimensions).
 //
-// Only the "YTD" period branch of YtdRawRow is used — "LYTD" rows exist for a
-// possible future year-over-year comparison feature, unused by this parity check.
+// Both the "YTD" (current year) and "LYTD" (prior year) branches of YtdRawRow
+// are processed — see the loop below for why.
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { MonthlySalesRow } from "@/lib/types";
@@ -75,8 +75,12 @@ export function buildMonthlySales(
   const byKey = new Map<string, Agg>();
 
   for (const row of ytdRows) {
-    if (row.period !== "YTD") continue;
-
+    // Both "YTD" (current year) and "LYTD" (prior year) rows are processed here —
+    // each row's own year/monthNo already fully identifies its period, so period
+    // itself was never load-bearing for grouping, only previously used to filter
+    // LYTD out. Including it lets this function double as the historical-backfill
+    // path (see sales-sync.ts's --backfill flag) with zero query changes, since
+    // ytdRaw.ts's YTD+LYTD branches together already span 2 full calendar years.
     const product = productByItemNo.get(row.itemCode);
     if (!product || !product.principal) continue;
 

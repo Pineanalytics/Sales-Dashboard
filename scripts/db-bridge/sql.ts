@@ -44,8 +44,11 @@ export async function withConnection<T>(
     user: config.user,
     password: config.password,
     // mssql's default requestTimeout (15s) is too short for YTD_Raw/Stock_Balance's
-    // full-year multi-branch UNION queries against production SAP data.
-    requestTimeout: 5 * 60 * 1000,
+    // full-year multi-branch UNION queries against production SAP data. Bumped from
+    // 5 to 10 minutes once YTD_Raw started covering 2 full calendar years (YTD +
+    // LYTD, used together for the historical backfill — see sales-sync.ts's
+    // --backfill flag) at the heavier Item x Warehouse x Customer x Rep grain.
+    requestTimeout: 10 * 60 * 1000,
     connectionTimeout: 30 * 1000,
     options: {
       encrypt: config.encrypt,

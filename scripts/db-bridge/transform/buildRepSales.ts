@@ -4,6 +4,8 @@
 // Also holds the customer-grain siblings (buildMonthlyCustomerSales/
 // buildDailyCustomerSales, near the bottom) that feed the Brand&Customer
 // Listing replacement — same helpers, no Employee Roaster lookup needed there.
+// And dailyRowsToMonthlyInput, an adapter used by sales-sync.ts's routine
+// (non-backfill) refresh path — see that function's own comment.
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import type { DailySalesRawRow } from "../queries/dailySalesRaw";
 import type { YtdRawRow } from "../queries/ytdRaw";
@@ -87,8 +89,9 @@ export function buildMonthlyRepSales(
   const resolveRep = resolveRepBySapName(employees);
   const byKey = new Map<string, MonthlyRepSalesRow>();
 
+  // Both "YTD" and "LYTD" rows are processed — see buildMonthlySales.ts's
+  // matching comment for why period itself was never load-bearing here.
   for (const row of rows) {
-    if (row.period !== "YTD") continue;
     const product = productByItemNo.get(row.itemCode);
     if (!product?.principal) continue;
     const location = row.whsCode ? warehouseByCode.get(row.whsCode)?.location ?? "Nairobi" : "Nairobi";
@@ -198,8 +201,9 @@ export function buildMonthlyCustomerSales(
   const { productByItemNo, warehouseByCode, activePrincipalByKey } = masterMaps(products, warehouses, principals);
   const byKey = new Map<string, MonthlyCustomerSalesRow>();
 
+  // Both "YTD" and "LYTD" rows are processed — see buildMonthlySales.ts's
+  // matching comment for why period itself was never load-bearing here.
   for (const row of rows) {
-    if (row.period !== "YTD") continue;
     const product = productByItemNo.get(row.itemCode);
     if (!product?.principal) continue;
     const location = row.whsCode ? warehouseByCode.get(row.whsCode)?.location ?? "Nairobi" : "Nairobi";
@@ -258,4 +262,38 @@ export function buildDailyCustomerSales(
     byKey.set(key, existing);
   }
   return Array.from(byKey.values());
+}
+
+/** Adapts day-grain rows (from fetchDailySalesRaw) into the shape
+ *  buildMonthlySales/buildMonthlyRepSales/buildMonthlyCustomerSales already
+ *  expect, so sales-sync.ts's routine (non-backfill) refresh — which only
+ *  fetches the current month's day-grain rows, not a fresh full-year YTD_Raw
+ *  scan — can reuse those exact, already-proven monthly aggregation functions
+ *  instead of a parallel implementation. The only new logic is this field
+ *  mapping. grossProfit is set to 0: confirmed unused by all three downstream
+ *  functions, which sum grossMargin instead (see buildMonthlySales.ts's
+ *  comment on why). period is fixed at "YTD" for typing only — none of the
+ *  three functions filter on it anymore (see their own comments). */
+export function dailyRowsToMonthlyInput(rows: DailySalesRawRow[]): YtdRawRow[] {
+  return rows.map((row) => {
+    const parsed = new Date(`${row.date}T00:00:00Z`);
+    const monthNo = parsed.getUTCMonth() + 1;
+    return {
+      period: "YTD",
+      year: parsed.getUTCFullYear(),
+      monthNo,
+      month: CANONICAL_MONTHS[monthNo - 1],
+      itemCode: row.itemCode,
+      whsCode: row.whsCode,
+      sapName: row.sapName,
+      customerName: row.customerName,
+      isFreeSale: row.isFreeSale,
+      qtySold: row.qtySold,
+      salesAmount: row.salesAmount,
+      grossProfit: 0,
+      grossSales: row.grossSales,
+      cogs: row.cogs,
+      grossMargin: row.grossMargin,
+    };
+  });
 }

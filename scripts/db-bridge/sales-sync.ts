@@ -1,10 +1,30 @@
 // Entry point for the live Sales sync. Unlike run.ts (read-only, local output
-// only), this script pushes to production: fetches YTD_Raw from SAP, transforms
-// it exactly like the shadow bridge does (reusing the same queries/transform
-// code, now verified against live Revenue/COGS/GrossProfit within tolerance —
-// see the Gross Profit fix in transform/buildMonthlySales.ts), and POSTs to
-// /api/sales/upload (same UPLOAD_API_KEY auth as pl-bridge). Manual trigger for
-// now — not wired into Task Scheduler. Run with: npm run sales:sync
+// only), this script pushes to production: fetches sales data from SAP,
+// transforms it exactly like the shadow bridge does (reusing the same
+// queries/transform code, now verified against live Revenue/COGS/GrossProfit
+// within tolerance — see the Gross Profit fix in transform/buildMonthlySales.ts),
+// and POSTs to the app's /api/sales/* upload routes (same UPLOAD_API_KEY auth
+// as pl-bridge). Wired into Task Scheduler as SalesDashboard-SalesSync, every
+// 30 minutes, via scripts/sales-sync.ps1 (which opens the Postgres SSH tunnel
+// this script's Prisma-backed reference-data reads need). Run directly with:
+// npm run sales:sync -- --backfill (or without the flag for a routine run).
+//
+// Two modes:
+//   --backfill  Full historical fetch (YTD_Raw's own YTD+LYTD branches, i.e.
+//               the current year plus the immediately prior year — today that's
+//               2025+2026, matching the "backfill from January 2025" decision)
+//               plus the full current year of daily-grain rows. Run this once
+//               manually; NOT part of the routine 30-minute cadence.
+//   (default)   Routine refresh. Skips the full-year YTD_Raw scan entirely —
+//               only fetches the CURRENT MONTH's day-grain rows, then derives
+//               the monthly-grain rollup from those same rows via
+//               dailyRowsToMonthlyInput (reusing the exact monthly aggregation
+//               functions the backfill path uses). This is what keeps routine
+//               runs cheap: every 30 minutes, only the current month's row in
+//               SalesRecord/SalesRepActual/BrandCustomerActual gets touched —
+//               older months, already correct from the last backfill, are left
+//               alone. Trade-off: a rare backdated edit to an already-closed
+//               month won't be picked up until the next --backfill re-run.
 //
 // Stock is deliberately NOT synced by this script — buildStock.ts doesn't
 // compute rrWeekValue/rrWeekVolume/daysCover/action (needs SAP_Raw's weekly
@@ -14,23 +34,31 @@
 process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "./sql";
-import { fetchYtdRaw } from "./queries/ytdRaw";
+import { fetchYtdRaw, type YtdRawRow } from "./queries/ytdRaw";
 import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
 import { loadEmployeeMaster, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildDailySales } from "./transform/buildDailySales";
-import { buildDailyCustomerSales, buildDailyRepSales, buildMonthlyCustomerSales, buildMonthlyRepSales } from "./transform/buildRepSales";
+import {
+  buildDailyCustomerSales,
+  buildDailyRepSales,
+  buildMonthlyCustomerSales,
+  buildMonthlyRepSales,
+  dailyRowsToMonthlyInput,
+} from "./transform/buildRepSales";
 import principalsData from "./reference/principals.json";
 
-// Trailing window for the day-grain feed (Executive Overview's Week 1-4/Daily
-// Projection cards) — start of last month through today. Bounded deliberately:
-// unlike YTD_Raw's whole-year fetch, this table accumulates one row per
-// Principal x Day (not x Month), so it only ever needs enough history to cover
-// "this week" even on the 1st of a new month, plus last month for reference.
-function dailyWindow(asOfDate: Date): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth() - 1, 1));
-  const end = asOfDate;
-  return { start, end };
+const isBackfill = process.argv.includes("--backfill");
+
+// Daily-grain fetch window. Backfill: Jan 1 of the CURRENT year through today
+// (the "widen to the full current year" decision — daily grain is not backfilled
+// all the way to 2025; that's YTD_Raw's own YTD+LYTD job, monthly/customer grain
+// only). Routine refresh: just the current month.
+function dailyWindow(asOfDate: Date, backfill: boolean): { start: Date; end: Date } {
+  const start = backfill
+    ? new Date(Date.UTC(asOfDate.getUTCFullYear(), 0, 1))
+    : new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), 1));
+  return { start, end: asOfDate };
 }
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -44,26 +72,38 @@ async function main() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
   const asOfDate = new Date();
-  console.log(`[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
+  console.log(
+    `[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)}, mode: ${isBackfill ? "BACKFILL" : "routine"})...`
+  );
 
-  const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate);
+  const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate, isBackfill);
 
-  const [ytdRows, dailyRawRows, products, warehousesData, employees] = await Promise.all([
-    withConnection(config, (pool) => fetchYtdRaw(pool, asOfDate)),
+  const [dailyRawRows, products, warehousesData, employees] = await Promise.all([
     withConnection(config, (pool) => fetchDailySalesRaw(pool, dailyStart, dailyEnd)),
     loadProducts(),
     loadWarehouses(),
     loadEmployeeMaster(),
   ]);
+
+  // Only the backfill path runs the heavier full-year (x2 years) YTD_Raw scan —
+  // sequential after the above, not parallel, since backfill is a rare, manually
+  // -triggered operation, not the hot routine path worth optimizing further.
+  const ytdRows: YtdRawRow[] = isBackfill ? await withConnection(config, (pool) => fetchYtdRaw(pool, asOfDate)) : [];
+
   console.log(
-    `[sales-sync] Fetched ${ytdRows.length} YTD_Raw rows and ${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows, ${warehousesData.length} warehouse rows, and ${employees.length} Employee Roaster rows from Postgres.`
+    `[sales-sync] Fetched ${isBackfill ? `${ytdRows.length} YTD_Raw rows (current + prior year) and ` : ""}${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows, ${warehousesData.length} warehouse rows, and ${employees.length} Employee Roaster rows from Postgres.`
   );
 
-  const monthlySales = buildMonthlySales(ytdRows, products, warehousesData, principalsData);
+  // Routine refreshes derive the monthly-grain rollup from the current-month
+  // day-grain rows already fetched above (dailyRowsToMonthlyInput), instead of
+  // re-running YTD_Raw — see this file's header comment for why.
+  const monthlyInputRows: YtdRawRow[] = isBackfill ? ytdRows : dailyRowsToMonthlyInput(dailyRawRows);
+
+  const monthlySales = buildMonthlySales(monthlyInputRows, products, warehousesData, principalsData);
   const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
-  const monthlyRepSales = buildMonthlyRepSales(ytdRows, products, warehousesData, principalsData, employees);
+  const monthlyRepSales = buildMonthlyRepSales(monthlyInputRows, products, warehousesData, principalsData, employees);
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
-  const monthlyCustomerSales = buildMonthlyCustomerSales(ytdRows, products, warehousesData, principalsData);
+  const monthlyCustomerSales = buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
   const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
   console.log(
     `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, and ${dailyCustomerSales.length} customer-day rows.`

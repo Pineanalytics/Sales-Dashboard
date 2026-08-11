@@ -11,8 +11,9 @@
     directly rather than `npm run sales:sync` - npm/npx fail to resolve the
     project's node_modules when invoked non-interactively from a path
     containing "&" (this project's own folder name), a known quirk on this
-    machine. Scheduled offset from the Excel job (06:00/17:00) so the two
-    don't hit PINEFROSTSERVER at the same moment.
+    machine. Scheduled every 30 minutes (SalesDashboard-SalesSync), routine
+    mode only - the -Backfill switch is for manual, one-off historical runs,
+    never the scheduled task.
 
     sales-sync.ts also reads Product/Warehouse reference data from Postgres
     via Prisma (scripts/db-bridge/reference/loadFromDb.ts) - since the
@@ -31,7 +32,12 @@ param(
     [string]$ProjectPath = "D:\Reports & Extractions\Sales Dashboard",
     [string]$SshKey = "$HOME/.ssh/pinefrost_hostinger",
     [string]$SshTarget = "root@187.77.80.216",
-    [int]$LocalPgPort = 5433
+    [int]$LocalPgPort = 5433,
+    # Full historical fetch (current + prior calendar year for monthly/customer
+    # grain, full current year for daily grain) instead of the routine current-
+    # month-only refresh — see sales-sync.ts's own header comment. Run this once
+    # manually; the scheduled task always runs without it.
+    [switch]$Backfill
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,7 +84,11 @@ try {
     $env:DATABASE_URL = "postgresql://$($creds['POSTGRES_USER']):$($creds['POSTGRES_PASSWORD'])@localhost:${LocalPgPort}/$($creds['POSTGRES_DB'])"
     $env:DIRECT_URL = $env:DATABASE_URL
 
-    & node --import tsx "scripts\db-bridge\sales-sync.ts"
+    if ($Backfill) {
+        & node --import tsx "scripts\db-bridge\sales-sync.ts" --backfill
+    } else {
+        & node --import tsx "scripts\db-bridge\sales-sync.ts"
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "sales-sync.ts exited with code $LASTEXITCODE"
     }
