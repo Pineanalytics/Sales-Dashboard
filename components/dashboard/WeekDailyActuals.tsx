@@ -152,7 +152,7 @@ export function WeekDailyActuals({
   const WEEK_ACCENTS = ["green", "amber", "purple", "blue"] as const;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <SectionCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} accent="navy">
         <div className="flex flex-col gap-1.5 text-sm">
           <Row label="Weeks Projection" value={formatCompact(currentWeek?.projection ?? 0)} />

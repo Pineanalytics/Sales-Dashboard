@@ -21,7 +21,7 @@ export function PrincipalMarginsBars({ dataset, period }: { dataset: Dataset; pe
 
   return (
     <SectionCard title="Principal Margins" accent="blue">
-      <div className="flex flex-col gap-2">
+      <div className="flex max-h-[290px] flex-col gap-2 overflow-y-auto pr-1">
         {byPrincipal.map((p) => {
           const pct = p.grossMarginPct ?? 0;
           const tier = achievementTier(pct >= 15 ? 100 : pct >= 8 ? 70 : 40);

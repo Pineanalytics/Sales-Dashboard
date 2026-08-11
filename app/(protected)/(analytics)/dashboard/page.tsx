@@ -2,31 +2,28 @@
 
 import { useState } from "react";
 import { useDashboardStore } from "@/lib/store";
-import { OverviewView } from "@/components/views/OverviewView";
-import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
-import { TopPerformers } from "@/components/overview/TopPerformers";
 import { WeekDailyActuals } from "@/components/dashboard/WeekDailyActuals";
 import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
 import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars";
 import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
-import { DashboardPrincipalRail } from "@/components/dashboard/DashboardPrincipalRail";
+import { DashboardControls, type DashboardView } from "@/components/dashboard/DashboardControls";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { formatCompact } from "@/lib/format";
 import {
   summarizeSalesForPeriod,
+  summarizeCoverageForPeriod,
   summarizeBrandCustomerByRepAndPrincipal,
   getCurrentMonthPeriod,
   getPreviousMonthPeriod,
   getPriorYearPeriod,
   CANONICAL_MONTHS,
+  type PeriodSalesSummary,
   type PeriodSelection,
 } from "@/lib/timeIntelligence";
-
-type Tab = "mtd" | "ytd";
 
 function Row({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
   return (
@@ -41,17 +38,10 @@ export default function DashboardPage() {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const period = useDashboardStore((s) => s.selectedPeriod);
-  const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
-  const [tab, setTab] = useState<Tab>("mtd");
+  const [tab, setTab] = useState<DashboardView>("mtd");
 
   if (!dataset) return null;
-
-  // Matches OverviewView's own internal "YTD until touched" fallback, so the
-  // existing sections below stay consistent with what OverviewView is already showing.
-  const effectivePeriod: PeriodSelection = hasUserSelectedPeriod
-    ? period
-    : { kind: "YTD", year: period.year, month: period.month };
 
   // Week 1-4/Daily/TL Ranking are always anchored to the real current calendar month
   // (matching the reference dashboard's "MTD Sales Overview" concept), independent of
@@ -87,40 +77,20 @@ export default function DashboardPage() {
   const splySummary = summarizeSalesForPeriod(dataset, getPriorYearPeriod(ytdPeriod), selectedPrincipalKey);
   const yoyGrowth = ytdSummary.revenue - splySummary.revenue;
   const yoyPct = splySummary.revenue > 0 ? (yoyGrowth / splySummary.revenue) * 100 : null;
+  const ytdCoverage = summarizeCoverageForPeriod(dataset, ytdPeriod, selectedPrincipalKey);
+  const q1Summary = summarizeSalesForPeriod(dataset, { kind: "Q1", year: period.year }, selectedPrincipalKey);
+  const q2Summary = summarizeSalesForPeriod(dataset, { kind: "Q2", year: period.year }, selectedPrincipalKey);
+  const q3Summary = summarizeSalesForPeriod(dataset, { kind: "Q3", year: period.year }, selectedPrincipalKey);
+  const q4Summary = summarizeSalesForPeriod(dataset, { kind: "Q4", year: period.year }, selectedPrincipalKey);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 md:gap-5">
       <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} />
+      <DashboardControls view={tab} onViewChange={setTab} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
-        <aside className="flex flex-col gap-5 lg:sticky lg:top-4 lg:self-start">
-          <div className="flex flex-col gap-1.5">
-            {(
-              [
-                { key: "mtd", label: "MTD Sales Overview" },
-                { key: "ytd", label: "YTD Summary" },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`rounded-lg px-3 py-2 text-left text-[12px] font-semibold transition-colors duration-200 ${
-                  tab === t.key ? "bg-brand-orange text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <DashboardPrincipalRail />
-          {tab === "mtd" ? <DayNameFilter /> : null}
-        </aside>
-
-        <div className="flex flex-col gap-6">
-          {tab === "mtd" ? (
-            <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {tab === "mtd" ? (
+        <div className="flex flex-col gap-4 md:gap-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <SectionCard title="This Month Actuals" accent="green">
                   <div className="flex flex-col gap-1.5 text-sm">
                     <Row label="Total MTD Revenue" value={formatCompact(mtdSummary.revenue)} />
@@ -151,31 +121,40 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </SectionCard>
-              </div>
+          </div>
 
-              <WeekDailyActuals
-                dataset={dataset}
-                year={currentMonth.year}
-                monthLabel={currentMonth.month ?? ""}
-                monthIndex={currentMonthIndex}
-                principal={selectedPrincipalKey}
-                selectedDayNames={selectedDayNames}
-              />
+          <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(10,31,82,0.05)]">
+            <summary className="cursor-pointer text-xs font-semibold text-muted-strong marker:text-primary-blue">
+              Daily breakdown options
+              <span className="ml-2 font-normal text-muted">Filter the weekly and daily projection cards by weekday.</span>
+            </summary>
+            <div className="mt-3 max-w-md">
+              <DayNameFilter />
+            </div>
+          </details>
 
-              <TlRankingTable
-                repRevenue={repRevenue}
-                principalFilter={selectedPrincipalKey}
-                year={currentMonth.year}
-                monthLabel={currentMonth.month ?? ""}
-              />
+          <WeekDailyActuals
+            dataset={dataset}
+            year={currentMonth.year}
+            monthLabel={currentMonth.month ?? ""}
+            monthIndex={currentMonthIndex}
+            principal={selectedPrincipalKey}
+            selectedDayNames={selectedDayNames}
+          />
 
-              <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={currentMonth} />
-
-              <OverviewView dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+            <TlRankingTable
+              repRevenue={repRevenue}
+              principalFilter={selectedPrincipalKey}
+              year={currentMonth.year}
+              monthLabel={currentMonth.month ?? ""}
+            />
+            <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={currentMonth} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 md:gap-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <SectionCard title="Total YTD Revenue" accent="green">
                   <div className="flex flex-col gap-1.5">
                     <span className="text-2xl font-bold tabular-nums text-foreground">{formatCompact(ytdSummary.revenue)}</span>
@@ -207,45 +186,59 @@ export default function DashboardPage() {
                     <AchievementGauge pct={ytdSummary.achievementPct} size={84} />
                   </div>
                 </SectionCard>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <CoverageScoreCard coverage={ytdCoverage} />
+            <QuarterAchievementCard title="Q1 Sales vs Mission" summary={q1Summary} accent="amber" />
+            <QuarterAchievementCard title="Q2 Sales vs Mission" summary={q2Summary} accent="purple" />
+            <SectionCard title="Profitability" accent="navy">
+              <div className="flex flex-col gap-1.5 text-sm">
+                <Row label="Gross Sales" value={formatCompact(ytdSummary.revenue)} />
+                <Row label="Cost of Goods" value={formatCompact(ytdSummary.cogs)} />
+                <Row label="Gross Profit" value={formatCompact(ytdSummary.grossProfit)} />
+                <Row label="Margin" value={ytdSummary.grossMarginPct !== null ? `${ytdSummary.grossMarginPct.toFixed(0)}%` : "N/A"} />
               </div>
+            </SectionCard>
+          </div>
 
-              <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
-              <CoverageSnapshot dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <PrincipalMarginsBars dataset={dataset} period={ytdPeriod} />
+            <MissionProgressBars title="H1 Mission & Actual" leftLabel="Q1 Revenue" left={q1Summary} rightLabel="Q2 Revenue" right={q2Summary} />
+            <MissionProgressBars title="H2 Mission & Actual" leftLabel="Q3 Revenue" left={q3Summary} rightLabel="Q4 Revenue" right={q4Summary} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <MissionProgressBars
-                  title="H1 Mission & Actual"
-                  leftLabel="Q1 Revenue"
-                  left={summarizeSalesForPeriod(dataset, { kind: "Q1", year: period.year }, selectedPrincipalKey)}
-                  rightLabel="Q2 Revenue"
-                  right={summarizeSalesForPeriod(dataset, { kind: "Q2", year: period.year }, selectedPrincipalKey)}
-                />
-                <MissionProgressBars
-                  title="H2 Mission & Actual"
-                  leftLabel="Q3 Revenue"
-                  left={summarizeSalesForPeriod(dataset, { kind: "Q3", year: period.year }, selectedPrincipalKey)}
-                  rightLabel="Q4 Revenue"
-                  right={summarizeSalesForPeriod(dataset, { kind: "Q4", year: period.year }, selectedPrincipalKey)}
-                />
-              </div>
-
-              <SectionCard title="H1 vs H2" accent="blue">
-                <div className="flex gap-6 text-sm">
-                  <span>
-                    H1: <b className="text-foreground">{formatCompact(h1Summary.revenue)}</b>
-                  </span>
-                  <span>
-                    H2: <b className="text-foreground">{formatCompact(h2Summary.revenue)}</b>
-                  </span>
-                </div>
-              </SectionCard>
-
-              <PrincipalMarginsBars dataset={dataset} period={effectivePeriod} />
-              <TopPerformers dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={effectivePeriod} />
-            </>
-          )}
+function CoverageScoreCard({ coverage }: { coverage: ReturnType<typeof summarizeCoverageForPeriod> }) {
+  return (
+    <SectionCard title="Effective Coverage" accent="green">
+      <div className="flex items-center gap-4">
+        <AchievementGauge pct={coverage.productivityPct} size={76} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm">
+          <Row label="Coverage" value={coverage.coverage.toLocaleString()} />
+          <Row label="Productive calls" value={coverage.productiveCalls.toLocaleString()} />
+          <Row label="Productivity" value={`${coverage.productivityPct.toFixed(0)}%`} negative={coverage.productivityPct < 100} />
         </div>
       </div>
-    </div>
+    </SectionCard>
+  );
+}
+
+function QuarterAchievementCard({ title, summary, accent }: { title: string; summary: PeriodSalesSummary; accent: "amber" | "purple" }) {
+  return (
+    <SectionCard title={title} accent={accent}>
+      <div className="flex items-center gap-4">
+        <AchievementGauge pct={summary.achievementPct} size={76} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm">
+          <Row label="Revenue" value={formatCompact(summary.revenue)} />
+          <Row label="Mission" value={summary.target !== null ? formatCompact(summary.target) : "N/A"} />
+          <Row label="Achieved" value={summary.achievementPct !== null ? `${summary.achievementPct.toFixed(0)}%` : "N/A"} negative={summary.achievementPct !== null && summary.achievementPct < 100} />
+        </div>
+      </div>
+    </SectionCard>
   );
 }
