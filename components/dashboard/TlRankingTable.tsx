@@ -77,6 +77,7 @@ export function TlRankingTable({
   const [level, setLevel] = useState<"supervisor" | "manager">("supervisor");
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [expandedManagers, setExpandedManagers] = useState<Set<string>>(new Set());
+  const [unassignedSupervisorsExpanded, setUnassignedSupervisorsExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +167,16 @@ export function TlRankingTable({
   const totalTarget = supervisorRanking.rankings.reduce((s, r) => s + r.mtdTarget, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdTarget, 0);
   const totalRevenue = supervisorRanking.rankings.reduce((s, r) => s + r.mtdRevenue, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdRevenue, 0);
   const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
+  const unassignedSupervisorSummary = supervisorRanking.unassignedTeamLeaders.reduce(
+    (summary, teamLeader) => ({
+      monthlyTarget: summary.monthlyTarget + teamLeader.monthlyTarget,
+      mtdTarget: summary.mtdTarget + teamLeader.mtdTarget,
+      mtdRevenue: summary.mtdRevenue + teamLeader.mtdRevenue,
+    }),
+    { monthlyTarget: 0, mtdTarget: 0, mtdRevenue: 0 }
+  );
+  const unassignedSupervisorPct =
+    unassignedSupervisorSummary.mtdTarget > 0 ? (unassignedSupervisorSummary.mtdRevenue / unassignedSupervisorSummary.mtdTarget) * 100 : null;
 
   return (
     <SectionCard
@@ -265,15 +276,35 @@ export function TlRankingTable({
                 );
               })}
           {!isManagerLevel && supervisorRanking.unassignedTeamLeaders.length > 0
-            ? supervisorRanking.unassignedTeamLeaders.map((tl) => (
-                <RankRow
-                  key={tl.teamLeaderId}
-                  row={{ key: tl.teamLeaderId, name: `${tl.teamLeaderName} (no Supervisor)`, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }}
-                  depth={0}
-                  expandable={false}
-                  expanded={false}
-                />
-              ))
+            ? (
+                <Fragment>
+                  <RankRow
+                    row={{
+                      key: "unassigned-supervisor",
+                      name: "Needs Sales Supervisor assignment",
+                      monthlyTarget: unassignedSupervisorSummary.monthlyTarget,
+                      mtdTarget: unassignedSupervisorSummary.mtdTarget,
+                      mtdRevenue: unassignedSupervisorSummary.mtdRevenue,
+                      achievedPct: unassignedSupervisorPct,
+                    }}
+                    depth={0}
+                    expandable
+                    expanded={unassignedSupervisorsExpanded}
+                    onToggle={() => setUnassignedSupervisorsExpanded((expanded) => !expanded)}
+                  />
+                  {unassignedSupervisorsExpanded
+                    ? supervisorRanking.unassignedTeamLeaders.map((tl) => (
+                        <RankRow
+                          key={tl.teamLeaderId}
+                          row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct }}
+                          depth={1}
+                          expandable={false}
+                          expanded={false}
+                        />
+                      ))
+                    : null}
+                </Fragment>
+              )
             : null}
           <TotalRow>
             <Td>Total Sales</Td>
