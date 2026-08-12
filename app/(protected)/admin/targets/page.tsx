@@ -176,7 +176,7 @@ export default async function AdminTargetsPage({
               <input name="coverageTarget" type="number" step="any" className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Productivity Target</label>
+              <label className={labelClass}>Productive Calls Target</label>
               <input name="productivityTarget" type="number" step="any" className={inputClass} />
             </div>
             <div className="sm:col-span-4">
@@ -218,7 +218,7 @@ export default async function AdminTargetsPage({
                   <th className="px-6 py-3 text-right font-medium">Value Target</th>
                   <th className="px-6 py-3 text-right font-medium">Volume Target</th>
                   <th className="px-6 py-3 text-right font-medium">Coverage Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Productivity Target</th>
+                  <th className="px-6 py-3 text-right font-medium">Productive Calls Target</th>
                   <th className="px-6 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -256,7 +256,7 @@ export default async function AdminTargetsPage({
                             <input name="coverageTarget" type="number" step="any" defaultValue={t.coverageTarget ?? ""} className={inputClass} />
                           </div>
                           <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Productivity Target</label>
+                            <label className={labelClass}>Productive Calls Target</label>
                             <input name="productivityTarget" type="number" step="any" defaultValue={t.productivityTarget ?? ""} className={inputClass} />
                           </div>
                           <div className="flex gap-2 sm:col-span-4">

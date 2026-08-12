@@ -37,8 +37,9 @@ export interface MonthlyCoverageRow {
 }
 
 /** Principal-month operational targets, sourced from Target.coverageTarget and
- * Target.productivityTarget. A zero is intentionally absent here: it means
- * "not configured", never a genuine operating target. */
+ * Target.productivityTarget. Both targets are outlet/call figures, never
+ * percentages. A zero is intentionally absent here: it means "not configured",
+ * never a genuine operating target. */
 export interface MonthlyCoverageTargetRow {
   year: string;
   month: string;

@@ -8,7 +8,7 @@ import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
-import { formatNumber, formatPercent, productivityTier, tierBarColor } from "@/lib/format";
+import { formatNumber, formatPercent, productivityTier, strikeRateTier, tierBarColor } from "@/lib/format";
 import {
   CANONICAL_MONTHS,
   getAvailableMonths,
@@ -34,7 +34,9 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
   const targetSummary = summarizeCoverageTargetsForPeriod(dataset, period, selectedPrincipalKey);
   const targetsApply = selectedRole === "primary";
   const coverageAchievementPct = targetsApply && targetSummary.coverageTarget ? Math.round((currentSummary.coverage / targetSummary.coverageTarget) * 1000) / 10 : null;
-  const productivityVariancePct = targetsApply && targetSummary.productivityTarget !== null ? Math.round((currentSummary.productivityPct - targetSummary.productivityTarget) * 10) / 10 : null;
+  const productivityAchievementPct = targetsApply && targetSummary.productivityTarget
+    ? Math.round((currentSummary.productiveCalls / targetSummary.productivityTarget) * 1000) / 10
+    : null;
   const reps = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, selectedRole).sort((a, b) => b.coverage - a.coverage);
 
   const monthsThisYear = getAvailableMonths(dataset, period.year);
@@ -45,15 +47,15 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       month,
       coverage: s.coverage,
       productive: s.productiveCalls,
-      productivityPct: s.productivityPct,
+      strikeRatePct: s.productivityPct,
       coverageTarget: targetsApply ? targets.coverageTarget : null,
       productivityTarget: targetsApply ? targets.productivityTarget : null,
     };
   });
 
   const avgCoverage = monthlyTrend.length ? Math.round(monthlyTrend.reduce((s, r) => s + r.coverage, 0) / monthlyTrend.length) : 0;
-  const avgProductivity = monthlyTrend.length
-    ? Math.round((monthlyTrend.reduce((s, r) => s + r.productivityPct, 0) / monthlyTrend.length) * 10) / 10
+  const avgStrikeRate = monthlyTrend.length
+    ? Math.round((monthlyTrend.reduce((s, r) => s + r.strikeRatePct, 0) / monthlyTrend.length) * 10) / 10
     : 0;
 
   const months = resolvePeriodMonths(period);
@@ -107,14 +109,18 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       const targets = summarizeCoverageTargetsForPeriod(dataset, period, p.principalKey);
       const coverage = n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.coverage, 0) / n) : 0;
       const productiveCalls = n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.productiveCalls, 0) / n) : 0;
-      const productivityPct = coverage > 0 ? Math.round((productiveCalls / coverage) * 1000) / 10 : 0;
+      const strikeRatePct = coverage > 0 ? Math.round((productiveCalls / coverage) * 1000) / 10 : 0;
+      const coverageAchievementPct = targets.coverageTarget ? Math.round((coverage / targets.coverageTarget) * 1000) / 10 : null;
+      const productivityAchievementPct = targets.productivityTarget ? Math.round((productiveCalls / targets.productivityTarget) * 1000) / 10 : null;
       return {
         name: p.name,
         coverage,
         productiveCalls,
-        productivityPct,
+        strikeRatePct,
         coverageTarget: targets.coverageTarget,
         productivityTarget: targets.productivityTarget,
+        coverageAchievementPct,
+        productivityAchievementPct,
       };
     })
     .sort((a, b) => b.coverage - a.coverage);
@@ -127,15 +133,15 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       ? reps.slice(0, TOP_N_REPS).map((r) => ({ name: r.employeeName, value: r.productivityPct, fill: tierBarColor[productivityTier(r.productivityPct)] }))
       : principalBars.map((p) => ({
           name: p.name,
-          value: p.coverage > 0 ? Math.round((p.productiveCalls / p.coverage) * 1000) / 10 : 0,
-          fill: tierBarColor[productivityTier(p.coverage > 0 ? (p.productiveCalls / p.coverage) * 100 : 0)],
+          value: p.strikeRatePct,
+          fill: tierBarColor[strikeRateTier(p.strikeRatePct)],
         }));
 
   const chartTitle = selectedRep
-    ? `${selectedRep} — Productivity by Principal`
+    ? `${selectedRep} — Strike Rate by Principal`
     : selectedPrincipalKey
-      ? `Productivity % by Rep (top ${Math.min(TOP_N_REPS, reps.length)})`
-      : "Productivity % by Principal";
+      ? `Strike Rate by Rep (top ${Math.min(TOP_N_REPS, reps.length)})`
+      : "Strike Rate by Principal";
 
   const principalTargetComparison = principalBars.filter((row) => row.coverageTarget !== null || row.productivityTarget !== null);
 
@@ -167,18 +173,18 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
 
       <KpiGrid>
         <KpiCard accent="coverage" label={`${period.kind} Coverage (${roleLabel})`} value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} />
-        <KpiCard accent="coverage" label={`${period.kind} Productive (${roleLabel})`} value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} />
+        <KpiCard accent="coverage" label={`${period.kind} Unique Productive (${roleLabel})`} value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} />
         <KpiCard
           accent="coverage"
-          label={`${period.kind} Productivity (${roleLabel})`}
+          label={`${period.kind} Strike Rate (${roleLabel})`}
           value={<AnimatedValue value={currentSummary.productivityPct} format={formatPercent} />}
         />
         <KpiCard accent="coverage" label={`${period.year} Monthly Avg Coverage`} value={<AnimatedValue value={avgCoverage} format={formatNumber} />} />
-        <KpiCard accent="coverage" label={`${period.year} Monthly Avg Productivity`} value={<AnimatedValue value={avgProductivity} format={formatPercent} />} />
+        <KpiCard accent="coverage" label={`${period.year} Monthly Avg Strike Rate`} value={<AnimatedValue value={avgStrikeRate} format={formatPercent} />} />
         {targetsApply ? <KpiCard accent="mission" label="Coverage Target" value={targetSummary.coverageTarget === null ? "Not set" : <AnimatedValue value={targetSummary.coverageTarget} format={formatNumber} />} size={targetSummary.coverageTarget === null ? "md" : "lg"} sublabel={targetSummary.monthsTargeted ? `${targetSummary.monthsTargeted} month(s) targeted` : undefined} /> : null}
-        {targetsApply ? <KpiCard accent="mission" label="Coverage Achievement" value={coverageAchievementPct === null ? "—" : <AnimatedValue value={coverageAchievementPct} format={formatPercent} />} size={coverageAchievementPct === null ? "md" : "lg"} delta={coverageAchievementPct === null ? undefined : { value: coverageAchievementPct - 100, caption: "vs target" }} /> : null}
-        {targetsApply ? <KpiCard accent="mission" label="Productivity Target" value={targetSummary.productivityTarget === null ? "Not set" : <AnimatedValue value={targetSummary.productivityTarget} format={formatPercent} />} size={targetSummary.productivityTarget === null ? "md" : "lg"} /> : null}
-        {targetsApply ? <KpiCard accent="mission" label="Productivity Variance" value={productivityVariancePct === null ? "—" : `${productivityVariancePct > 0 ? "+" : ""}${productivityVariancePct.toFixed(1)} pp`} size="md" delta={productivityVariancePct === null ? undefined : { value: productivityVariancePct, caption: "vs target", format: (value) => `${value > 0 ? "+" : ""}${value.toFixed(1)} pp` }} /> : null}
+        {targetsApply ? <KpiCard accent="mission" label="Coverage vs Target" value={coverageAchievementPct === null ? "—" : <AnimatedValue value={coverageAchievementPct} format={formatPercent} />} size={coverageAchievementPct === null ? "md" : "lg"} delta={coverageAchievementPct === null ? undefined : { value: coverageAchievementPct - 100, caption: "vs target" }} /> : null}
+        {targetsApply ? <KpiCard accent="mission" label="Productive Target" value={targetSummary.productivityTarget === null ? "Not set" : <AnimatedValue value={targetSummary.productivityTarget} format={formatNumber} />} size={targetSummary.productivityTarget === null ? "md" : "lg"} /> : null}
+        {targetsApply ? <KpiCard accent="mission" label="Productivity vs Target" value={productivityAchievementPct === null ? "—" : <AnimatedValue value={productivityAchievementPct} format={formatPercent} />} size={productivityAchievementPct === null ? "md" : "lg"} delta={productivityAchievementPct === null ? undefined : { value: productivityAchievementPct - 100, caption: "vs target" }} /> : null}
       </KpiGrid>
 
       <ChartGrid>
@@ -228,16 +234,16 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
 
       {targetsApply && !selectedRep ? (
         <ChartGrid>
-          <SectionCard title="Productivity vs Target by Principal">
+          <SectionCard title="Unique Productive vs Target by Principal">
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={principalTargetComparison} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} interval={0} angle={-35} textAnchor="end" height={60} />
-                <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} unit="%" />
-                <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => `${Number(v).toFixed(1)}%`} />
+                <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
+                <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="productivityPct" name="Actual" fill="var(--primary-blue)" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="productivityTarget" name="Target" fill="var(--accent-green)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="productiveCalls" name="Unique Productive" fill="var(--primary-blue)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="productivityTarget" name="Productive Target" fill="var(--accent-green)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </SectionCard>
@@ -261,13 +267,11 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
         <SectionCard title="Principal Target Comparison" action={<span className="text-xs text-muted">Primary Sales only · zero targets are excluded</span>}>
           <TableWrap>
             <Thead>
-              <Th>Principal</Th><Th align="right">Coverage</Th><Th align="right">Target</Th><Th align="center">Achievement</Th><Th align="center">Productivity</Th><Th align="center">Target</Th><Th align="center">Variance</Th>
+              <Th>Principal</Th><Th align="right">Coverage</Th><Th align="right">Target</Th><Th align="center">Coverage %</Th><Th align="right">Unique Productive</Th><Th align="right">Target</Th><Th align="center">Productivity %</Th><Th align="center">Strike Rate</Th>
             </Thead>
             <tbody>
               {principalTargetComparison.map((row) => {
-                const coverageAchievement = row.coverageTarget ? (row.coverage / row.coverageTarget) * 100 : null;
-                const productivityVariance = row.productivityTarget === null ? null : row.productivityPct - row.productivityTarget;
-                return <tr key={row.name}><Td>{row.name}</Td><Td align="right">{formatNumber(row.coverage)}</Td><Td align="right">{row.coverageTarget === null ? "—" : formatNumber(row.coverageTarget)}</Td><Td align="center"><Badge tier={coverageAchievement === null ? "neutral" : coverageAchievement >= 100 ? "good" : coverageAchievement >= 80 ? "warn" : "bad"}>{coverageAchievement === null ? "—" : `${coverageAchievement.toFixed(1)}%`}</Badge></Td><Td align="center"><Badge tier={productivityTier(row.productivityPct)}>{row.productivityPct.toFixed(1)}%</Badge></Td><Td align="center">{row.productivityTarget === null ? "—" : `${row.productivityTarget.toFixed(1)}%`}</Td><Td align="center"><Badge tier={productivityVariance === null ? "neutral" : productivityVariance >= 0 ? "good" : "bad"}>{productivityVariance === null ? "—" : `${productivityVariance > 0 ? "+" : ""}${productivityVariance.toFixed(1)} pp`}</Badge></Td></tr>;
+                return <tr key={row.name}><Td>{row.name}</Td><Td align="right">{formatNumber(row.coverage)}</Td><Td align="right">{row.coverageTarget === null ? "—" : formatNumber(row.coverageTarget)}</Td><Td align="center"><Badge tier={row.coverageAchievementPct === null ? "neutral" : row.coverageAchievementPct >= 100 ? "good" : row.coverageAchievementPct >= 80 ? "warn" : "bad"}>{row.coverageAchievementPct === null ? "—" : `${row.coverageAchievementPct.toFixed(1)}%`}</Badge></Td><Td align="right">{formatNumber(row.productiveCalls)}</Td><Td align="right">{row.productivityTarget === null ? "—" : formatNumber(row.productivityTarget)}</Td><Td align="center"><Badge tier={row.productivityAchievementPct === null ? "neutral" : row.productivityAchievementPct >= 100 ? "good" : row.productivityAchievementPct >= 80 ? "warn" : "bad"}>{row.productivityAchievementPct === null ? "—" : `${row.productivityAchievementPct.toFixed(1)}%`}</Badge></Td><Td align="center"><Badge tier={strikeRateTier(row.strikeRatePct)}>{row.strikeRatePct.toFixed(1)}%</Badge></Td></tr>;
               })}
             </tbody>
           </TableWrap>

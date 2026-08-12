@@ -366,7 +366,7 @@ describe("coverage summaries", () => {
     expect(byRep.find((r) => r.employeeName === "John Smith")?.coverage).toBe(60);
   });
 
-  it("rolls same-brand targets together and ignores zero or blank target entries", () => {
+  it("rolls same-brand count targets together and ignores zero or blank target entries", () => {
     const targetDataset = buildDataset({
       monthlyCoverageTargets: [
         coverageTargetRow({ year: "2026", month: "June", monthIndex: 5, principal: "EABL-Nyeri", principalKey: "eabl", coverageTarget: 100, productivityTarget: 80 }),
@@ -377,8 +377,8 @@ describe("coverage summaries", () => {
     });
 
     const summary = summarizeCoverageTargetsForPeriod(targetDataset, { kind: "YTD", year: "2026", month: "July" }, "EABL-Nyeri");
-    // June: 160 coverage at 83.8% weighted productivity. July: 200 coverage at 75%.
-    expect(summary).toEqual({ coverageTarget: 180, productivityTarget: 78.9, monthsTargeted: 2 });
+    // June: 160 coverage and 170 productive-call target. July: 200 coverage and 75 productive calls.
+    expect(summary).toEqual({ coverageTarget: 180, productivityTarget: 123, monthsTargeted: 2 });
   });
 
   describe("multi-month periods average, not sum, since coverage counts unique outlets", () => {

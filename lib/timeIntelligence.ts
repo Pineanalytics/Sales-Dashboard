@@ -334,11 +334,10 @@ export interface PeriodCoverageTargetSummary {
   monthsTargeted: number;
 }
 
-/** Primary Sales is the only target-bearing operating scope. Coverage targets
- * are outlet counts, so period values are average monthly targets. Productivity
- * targets are weighted by those monthly coverage targets instead of naively
- * averaging percentages. Coverage is sourced at normalized-brand level, so a
- * selected location rolls up the same-brand target rows too. */
+/** Primary Sales is the only target-bearing operating scope. Both Coverage and
+ * Productivity targets are counts, so period values are average monthly targets.
+ * Coverage is sourced at normalized-brand level, so a selected location rolls
+ * up the same-brand target rows too. */
 export function summarizeCoverageTargetsForPeriod(
   dataset: Dataset,
   selection: PeriodSelection,
@@ -363,27 +362,25 @@ export function summarizeCoverageTargetsForPeriod(
 
   const monthlyTargets = Array.from(byMonth.values())
     .map((monthRows) => {
-      const coverageTarget = monthRows.reduce((sum, row) => sum + (row.coverageTarget ?? 0), 0);
-      if (coverageTarget <= 0) return null;
-      const productivityWeight = monthRows.reduce(
-        (sum, row) => sum + (row.coverageTarget ?? 0) * (row.productivityTarget ?? 0),
-        0
-      );
-      const productivityCoverage = monthRows.reduce((sum, row) => sum + (row.productivityTarget ? row.coverageTarget ?? 0 : 0), 0);
+      const coverageValues = monthRows.map((row) => row.coverageTarget).filter((target): target is number => target !== null);
+      const productivityValues = monthRows.map((row) => row.productivityTarget).filter((target): target is number => target !== null);
       return {
-        coverageTarget,
-        productivityTarget: productivityCoverage > 0 ? round1(productivityWeight / productivityCoverage) : null,
+        coverageTarget: coverageValues.length > 0 ? coverageValues.reduce((sum, target) => sum + target, 0) : null,
+        productivityTarget: productivityValues.length > 0 ? productivityValues.reduce((sum, target) => sum + target, 0) : null,
       };
     })
-    .filter((row): row is { coverageTarget: number; productivityTarget: number | null } => row !== null);
+    .filter((row) => row.coverageTarget !== null || row.productivityTarget !== null);
 
   if (monthlyTargets.length === 0) return { coverageTarget: null, productivityTarget: null, monthsTargeted: 0 };
-  const coverageTarget = Math.round(monthlyTargets.reduce((sum, row) => sum + row.coverageTarget, 0) / monthlyTargets.length);
-  const productivityNumerator = monthlyTargets.reduce((sum, row) => sum + row.coverageTarget * (row.productivityTarget ?? 0), 0);
-  const productivityDenominator = monthlyTargets.reduce((sum, row) => sum + (row.productivityTarget ? row.coverageTarget : 0), 0);
+  const coverageTargetValues = monthlyTargets.map((row) => row.coverageTarget).filter((target): target is number => target !== null);
+  const productivityTargetValues = monthlyTargets.map((row) => row.productivityTarget).filter((target): target is number => target !== null);
   return {
-    coverageTarget,
-    productivityTarget: productivityDenominator > 0 ? round1(productivityNumerator / productivityDenominator) : null,
+    coverageTarget: coverageTargetValues.length > 0
+      ? Math.round(coverageTargetValues.reduce((sum, target) => sum + target, 0) / coverageTargetValues.length)
+      : null,
+    productivityTarget: productivityTargetValues.length > 0
+      ? Math.round(productivityTargetValues.reduce((sum, target) => sum + target, 0) / productivityTargetValues.length)
+      : null,
     monthsTargeted: monthlyTargets.length,
   };
 }

@@ -253,7 +253,7 @@ export default async function TargetsOverviewPage({
                   <th className="px-6 py-3 text-right font-medium">Value Target</th>
                   <th className="px-6 py-3 text-right font-medium">Volume Target</th>
                   <th className="px-6 py-3 text-right font-medium">Coverage Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Productivity Target</th>
+                  <th className="px-6 py-3 text-right font-medium">Productive Calls Target</th>
                   <th className="px-6 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -289,7 +289,7 @@ export default async function TargetsOverviewPage({
                               <input name="coverageTarget" type="number" step="0.01" defaultValue={t.coverageTarget ?? ""} className={inputClass} />
                             </div>
                             <div className="flex flex-col gap-1">
-                              <label className={labelClass}>Productivity Target</label>
+                              <label className={labelClass}>Productive Calls Target</label>
                               <input name="productivityTarget" type="number" step="0.01" defaultValue={t.productivityTarget ?? ""} className={inputClass} />
                             </div>
                             <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
