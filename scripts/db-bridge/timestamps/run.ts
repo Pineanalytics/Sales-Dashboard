@@ -143,7 +143,17 @@ async function main() {
     console.log("[timestamps] NOTE: pine.nosales columns could not be auto-detected - unproductive calls are not included this run.");
   }
 
-  const principalsData = await loadPrincipals();
+  // The timestamp bridge normally runs on the Pine-connected workstation,
+  // where the production dashboard database is intentionally not reachable
+  // directly. Cost-centre enrichment is useful but not needed to build rep
+  // visits or calculate cases, so do not let that optional lookup block the
+  // live sync/backfill.
+  let principalsData: Awaited<ReturnType<typeof loadPrincipals>> = [];
+  try {
+    principalsData = await loadPrincipals();
+  } catch (error) {
+    console.warn("[timestamps] Could not load principal enrichment; continuing without cost-centre labels.", (error as Error).message);
+  }
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
   const callRows = buildRepCalls(events, noSaleVisits, outlets, users);
   console.log(`[timestamps] Collapsed to ${events.length} purchase events and built ${callRows.length} call rows.`);
