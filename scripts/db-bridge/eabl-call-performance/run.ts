@@ -34,7 +34,7 @@ async function main() {
   const pool = await new sql.ConnectionPool({ server: required("EABL_CALL_SQL_SERVER"), port: Number(process.env.EABL_CALL_SQL_PORT ?? 1433), database: required("EABL_CALL_SQL_DATABASE"), user: required("EABL_CALL_SQL_USER"), password: required("EABL_CALL_SQL_PASSWORD"), connectionTimeout: 30_000, requestTimeout: 10 * 60_000, options: { encrypt: (process.env.EABL_CALL_SQL_ENCRYPT ?? "false") === "true", trustServerCertificate: (process.env.EABL_CALL_SQL_TRUST_SERVER_CERT ?? "true") === "true" } }).connect();
   try {
     const result = await pool.request().input("start", sql.DateTime2, start).input("end", sql.DateTime2, end).query<SourceCall>(`
-      SELECT CONVERT(varchar(64), HASHBYTES('SHA2_256', CONCAT(CONVERT(varchar(33), c.CallDate, 126), '|', d.Salesman, '|', c.CustomerName, '|', CONVERT(varchar(33), c.TimeIn, 126), '|', CONVERT(varchar(33), c.TimeOut, 126), '|', c.NetSales, '|', c.CashSales, '|', c.CreditSales)), 2) AS sourceCallKey,
+      SELECT CONCAT('eabl:', CONVERT(varchar(100), c.Id)) AS sourceCallKey,
         c.CallDate AS callDate, d.Salesman AS salesman, d.Agent AS agent, c.CustomerName AS customerName, c.CustType AS customerType, c.Segment AS segment,
         c.TimeIn AS timeIn, c.TimeOut AS timeOut, DATEDIFF(minute, c.TimeIn, c.TimeOut) AS durationMinutes,
         MIN(c.TimeIn) OVER (PARTITION BY c.SalesmanDayId) AS firstCallOfDay, MAX(c.TimeOut) OVER (PARTITION BY c.SalesmanDayId) AS lastCallOfDay,
