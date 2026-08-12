@@ -28,6 +28,9 @@ export interface TimestampRoleStats {
   outletsCovered: number;
   avgIntervalMins: number | null;
   sales: number;
+  qty: number;
+  /** Null if a productive call is missing product UOM data. */
+  cases: number | null;
 }
 
 export interface TimestampRepDaySummary {
@@ -45,6 +48,8 @@ export interface TimestampRepDaySummary {
   outletsCovered: number;
   avgIntervalMins: number | null;
   sales: number;
+  qty: number;
+  cases: number | null;
 }
 
 export interface TimestampChartRow {
@@ -74,6 +79,40 @@ export interface TimestampSummaryData {
   summaries: TimestampRepDaySummary[];
   chartRows: TimestampChartRow[];
   unmappedEmployees: UnmappedTimestampEmployee[];
+}
+
+export interface TimestampOutletVisit {
+  date: string;
+  callTime: Date;
+  callSequence: number;
+  outletName: string;
+  channel: string;
+  territory: string;
+  callOutcome: "Sale" | "No Sale";
+  documents: number;
+  sales: number;
+  qty: number;
+  cases: number | null;
+  intervalMins: number | null;
+  noSaleReason: string | null;
+}
+
+export interface TimestampRepTrend {
+  label: string;
+  calls: number;
+  productiveCalls: number;
+  outletsCovered: number;
+  sales: number;
+  qty: number;
+  cases: number | null;
+}
+
+export interface TimestampRepDetailData {
+  rep: { employeeCode: string; salesRep: string; region: string; salesRole: string } | null;
+  overall: TimestampRoleStats;
+  dailyTrend: TimestampRepTrend[];
+  weeklyTrend: TimestampRepTrend[];
+  visits: TimestampOutletVisit[];
 }
 
 /** Selectable Team Leader value for a rep whose EmployeeMaster.teamLeader is
@@ -269,7 +308,7 @@ function chartBucket(granularity: TimestampChartGranularity): Prisma.Sql {
 }
 
 function emptyStats(): TimestampRoleStats {
-  return { totalCalls: 0, productiveCalls: 0, strikeRate: 0, outletsCovered: 0, avgIntervalMins: null, sales: 0 };
+  return { totalCalls: 0, productiveCalls: 0, strikeRate: 0, outletsCovered: 0, avgIntervalMins: null, sales: 0, qty: 0, cases: 0 };
 }
 
 /** Compact aggregate payload for the interactive Timestamps dashboard. Raw
@@ -327,7 +366,13 @@ export async function getTimestampSummary(
         ROUND((COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1)::double precision AS "strikeRatePct",
         COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
-        COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
+        COALESCE(SUM(${salesExpression}), 0)::double precision AS sales,
+        COALESCE(SUM(r.qty), 0)::double precision AS qty,
+        CASE
+          WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') = 0 THEN 0::double precision
+          WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale' AND r.cases IS NULL) > 0 THEN NULL
+          ELSE COALESCE(SUM(r.cases) FILTER (WHERE r."callOutcome" = 'Sale'), 0)::double precision
+        END AS cases
       ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY r.date, r."employeeCode", ${salesRole}
       ORDER BY date, "salesRep", "salesRole"
@@ -340,7 +385,13 @@ export async function getTimestampSummary(
         COALESCE(ROUND((COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1)::double precision, 0) AS "strikeRate",
         COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
         ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
-        COALESCE(SUM(${salesExpression}), 0)::double precision AS sales
+        COALESCE(SUM(${salesExpression}), 0)::double precision AS sales,
+        COALESCE(SUM(r.qty), 0)::double precision AS qty,
+        CASE
+          WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') = 0 THEN 0::double precision
+          WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale' AND r.cases IS NULL) > 0 THEN NULL
+          ELSE COALESCE(SUM(r.cases) FILTER (WHERE r."callOutcome" = 'Sale'), 0)::double precision
+        END AS cases
       ${from} ${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}
       GROUP BY GROUPING SETS ((${salesRole}), ())
     `),
@@ -379,4 +430,103 @@ export async function getTimestampSummary(
     chartRows,
     unmappedEmployees: unmappedRows,
   };
+}
+
+/** Detailed, ordered visit journey for one selected sales rep. It intentionally
+ * stays behind a separate endpoint so the summary dashboard remains compact;
+ * opening a rep is the explicit signal that outlet-level customer detail is
+ * useful. */
+export async function getTimestampRepDetail(
+  now: Date,
+  scope: TeamLeaderScope | null,
+  filters: TimestampFilters
+): Promise<TimestampRepDetailData> {
+  if (!filters.employeeCode) return { rep: null, overall: emptyStats(), dailyTrend: [], weeklyTrend: [], visits: [] };
+
+  const monthRange = resolveMonthWindow(now, filters.month);
+  const { from, baseWhere, salesRole } = sourceQuery(monthRange, scope, filters.principalKey);
+  const dateClause = selectedDateClause(filters);
+  const repClause = selectedRepClause(filters);
+  const regionClause = selectedRegionClause(filters);
+  const teamLeaderClause = selectedTeamLeaderClause(filters);
+  const roleClause = selectedRoleClause(filters, salesRole);
+  const filtersSql = Prisma.sql`${baseWhere} ${dateClause} ${repClause} ${regionClause} ${teamLeaderClause} ${roleClause}`;
+  const casesExpression = Prisma.sql`
+    CASE
+      WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') = 0 THEN 0::double precision
+      WHEN COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale' AND r.cases IS NULL) > 0 THEN NULL
+      ELSE COALESCE(SUM(r.cases) FILTER (WHERE r."callOutcome" = 'Sale'), 0)::double precision
+    END
+  `;
+
+  type DetailMetricRow = TimestampRoleStats;
+  interface DetailRepRow { employeeCode: string; salesRep: string; region: string; salesRole: string }
+  interface DetailTrendRow extends TimestampRepTrend {}
+  interface DetailVisitRow extends TimestampOutletVisit {}
+
+  const [repRows, metricRows, dailyTrend, weeklyTrend, visits] = await Promise.all([
+    prisma.$queryRaw<DetailRepRow[]>(Prisma.sql`
+      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", MAX(r.region) AS region, MAX(${salesRole}) AS "salesRole"
+      ${from} ${filtersSql}
+      GROUP BY r."employeeCode"
+    `),
+    prisma.$queryRaw<DetailMetricRow[]>(Prisma.sql`
+      SELECT
+        COUNT(*)::integer AS "totalCalls",
+        COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale')::integer AS "productiveCalls",
+        COALESCE(ROUND((COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale') * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1)::double precision, 0) AS "strikeRate",
+        COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
+        ROUND(AVG(r."intervalMins")::numeric, 1)::double precision AS "avgIntervalMins",
+        COALESCE(SUM(r.sales), 0)::double precision AS sales,
+        COALESCE(SUM(r.qty), 0)::double precision AS qty,
+        ${casesExpression} AS cases
+      ${from} ${filtersSql}
+    `),
+    prisma.$queryRaw<DetailTrendRow[]>(Prisma.sql`
+      SELECT
+        to_char(r.date, 'YYYY-MM-DD') AS label,
+        COUNT(*)::integer AS calls,
+        COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale')::integer AS "productiveCalls",
+        COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
+        COALESCE(SUM(r.sales), 0)::double precision AS sales,
+        COALESCE(SUM(r.qty), 0)::double precision AS qty,
+        ${casesExpression} AS cases
+      ${from} ${filtersSql}
+      GROUP BY r.date
+      ORDER BY r.date
+    `),
+    prisma.$queryRaw<DetailTrendRow[]>(Prisma.sql`
+      SELECT
+        CONCAT('Week ', CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer) AS label,
+        COUNT(*)::integer AS calls,
+        COUNT(*) FILTER (WHERE r."callOutcome" = 'Sale')::integer AS "productiveCalls",
+        COUNT(DISTINCT r."outletId")::integer AS "outletsCovered",
+        COALESCE(SUM(r.sales), 0)::double precision AS sales,
+        COALESCE(SUM(r.qty), 0)::double precision AS qty,
+        ${casesExpression} AS cases
+      ${from} ${filtersSql}
+      GROUP BY CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer
+      ORDER BY CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer
+    `),
+    prisma.$queryRaw<DetailVisitRow[]>(Prisma.sql`
+      SELECT
+        to_char(r.date, 'YYYY-MM-DD') AS date,
+        r."callTime" AS "callTime",
+        r."callSequence" AS "callSequence",
+        r."outletName" AS "outletName",
+        r.channel,
+        r.territory,
+        r."callOutcome" AS "callOutcome",
+        r.documents,
+        r.sales,
+        r.qty,
+        r.cases,
+        r."intervalMins" AS "intervalMins",
+        r."noSaleReason" AS "noSaleReason"
+      ${from} ${filtersSql}
+      ORDER BY r.date, r."callTime", r."callSequence"
+    `),
+  ]);
+
+  return { rep: repRows[0] ?? null, overall: metricRows[0] ?? emptyStats(), dailyTrend, weeklyTrend, visits };
 }

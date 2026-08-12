@@ -40,6 +40,7 @@ interface RepCallUploadRow {
   documents: number;
   sales: number;
   qty: number;
+  cases: number | null;
   firstCallOfDay: string;
   lastCallOfDay: string;
   hoursInDay: number;
@@ -85,6 +86,7 @@ function isValidRow(row: unknown): row is RepCallUploadRow {
     typeof r.documents === "number" &&
     typeof r.sales === "number" &&
     typeof r.qty === "number" &&
+    (r.cases === null || typeof r.cases === "number") &&
     typeof r.firstCallOfDay === "string" &&
     typeof r.lastCallOfDay === "string" &&
     typeof r.hoursInDay === "number" &&
@@ -96,11 +98,11 @@ function isValidRow(row: unknown): row is RepCallUploadRow {
 async function insertChunk(tx: Prisma.TransactionClient, rows: RepCallUploadRow[]) {
   const values = rows.map(
     (r) =>
-      Prisma.sql`(${randomUUID()}, ${new Date(r.date)}, ${r.employeeCode}, ${r.salesRep}, ${r.employeeGroup}, ${r.salesRole}, ${r.region}, ${r.callSequence}, ${new Date(r.callTime)}, ${r.callOutcome}, ${r.noSaleReason}, ${r.outletId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.costCentresBought}, ${r.intervalMins}, ${r.documents}, ${r.sales}, ${r.qty}, ${new Date(r.firstCallOfDay)}, ${new Date(r.lastCallOfDay)}, ${r.hoursInDay}, ${r.callsInDay}, ${r.productiveInDay}, now())`
+      Prisma.sql`(${randomUUID()}, ${new Date(r.date)}, ${r.employeeCode}, ${r.salesRep}, ${r.employeeGroup}, ${r.salesRole}, ${r.region}, ${r.callSequence}, ${new Date(r.callTime)}, ${r.callOutcome}, ${r.noSaleReason}, ${r.outletId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.costCentresBought}, ${r.intervalMins}, ${r.documents}, ${r.sales}, ${r.qty}, ${r.cases}, ${new Date(r.firstCallOfDay)}, ${new Date(r.lastCallOfDay)}, ${r.hoursInDay}, ${r.callsInDay}, ${r.productiveInDay}, now())`
   );
 
   await tx.$executeRaw`
-    INSERT INTO "RepCall" (id, date, "employeeCode", "salesRep", "employeeGroup", "salesRole", region, "callSequence", "callTime", "callOutcome", "noSaleReason", "outletId", "outletName", channel, "subChannel", territory, "costCentresBought", "intervalMins", documents, sales, qty, "firstCallOfDay", "lastCallOfDay", "hoursInDay", "callsInDay", "productiveInDay", "createdAt")
+    INSERT INTO "RepCall" (id, date, "employeeCode", "salesRep", "employeeGroup", "salesRole", region, "callSequence", "callTime", "callOutcome", "noSaleReason", "outletId", "outletName", channel, "subChannel", territory, "costCentresBought", "intervalMins", documents, sales, qty, cases, "firstCallOfDay", "lastCallOfDay", "hoursInDay", "callsInDay", "productiveInDay", "createdAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT (date, "employeeCode", "outletId") DO NOTHING
   `;

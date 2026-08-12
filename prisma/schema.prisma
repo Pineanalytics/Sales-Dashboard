@@ -670,6 +670,10 @@ model RepCall {
   documents         Int
   sales             Float
   qty               Float
+  // Quantity expressed in cases (pieces ÷ source product UOM). Null means at
+  // least one product line in this outlet visit had no usable UOM, so reporting
+  // must show it as unavailable rather than understate the visit.
+  cases             Float?
   firstCallOfDay    DateTime
   lastCallOfDay     DateTime
   hoursInDay        Float

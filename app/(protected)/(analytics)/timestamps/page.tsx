@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
@@ -32,6 +32,8 @@ interface RoleStats {
   outletsCovered: number;
   avgIntervalMins: number | null;
   sales: number;
+  qty: number;
+  cases: number | null;
 }
 
 interface RepDaySummary {
@@ -49,6 +51,8 @@ interface RepDaySummary {
   outletsCovered: number;
   avgIntervalMins: number | null;
   sales: number;
+  qty: number;
+  cases: number | null;
 }
 
 interface ChartRow {
@@ -72,6 +76,8 @@ interface RepProductivityRow {
   outletsCovered: number;
   productiveDays: number;
   sales: number;
+  qty: number;
+  cases: number | null;
 }
 
 interface UnmappedEmployee {
@@ -94,7 +100,42 @@ interface TimestampSummaryResponse {
   syncUpdatedAt: string | null;
 }
 
+interface RepDetailTrend {
+  label: string;
+  calls: number;
+  productiveCalls: number;
+  outletsCovered: number;
+  sales: number;
+  qty: number;
+  cases: number | null;
+}
+
+interface RepOutletVisit {
+  date: string;
+  callTime: string;
+  callSequence: number;
+  outletName: string;
+  channel: string;
+  territory: string;
+  callOutcome: "Sale" | "No Sale";
+  documents: number;
+  sales: number;
+  qty: number;
+  cases: number | null;
+  intervalMins: number | null;
+  noSaleReason: string | null;
+}
+
+interface RepDetailResponse {
+  rep: { employeeCode: string; salesRep: string; region: string; salesRole: string } | null;
+  overall: RoleStats;
+  dailyTrend: RepDetailTrend[];
+  weeklyTrend: RepDetailTrend[];
+  visits: RepOutletVisit[];
+}
+
 type TimeManagementFilter = "all" | "attention" | "thumbs-up";
+type TimestampSlide = "overview" | "reps" | "time";
 
 const SUMMARY_PAGE_SIZE = 50;
 
@@ -108,6 +149,11 @@ function formatDateLabel(dateStr: string): string {
 
 function formatMonthLabel(dateStr: string): string {
   return new Date(`${dateStr}T12:00:00.000Z`).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", month: "long", year: "numeric" });
+}
+
+function formatCases(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 1 })} cs`;
 }
 
 function hourLabel(hour: number): string {
@@ -214,7 +260,7 @@ function chartBuckets(rows: ChartRow[], granularity: "Hourly" | "Daily" | "Weekl
  *  Strike Rate/Outlets/Sales figures the day-grain table below already shows,
  *  rather than only appearing as a single aggregate number. */
 function buildRepProductivitySummary(summaries: RepDaySummary[]): RepProductivityRow[] {
-  const byRep = new Map<string, RepProductivityRow & { productiveDates: Set<string> }>();
+  const byRep = new Map<string, Omit<RepProductivityRow, "cases"> & { cases: number; casesKnown: boolean; productiveDates: Set<string> }>();
   for (const row of summaries) {
     const existing = byRep.get(row.employeeCode) ?? {
       employeeCode: row.employeeCode,
@@ -227,18 +273,25 @@ function buildRepProductivitySummary(summaries: RepDaySummary[]): RepProductivit
       outletsCovered: 0,
       productiveDays: 0,
       sales: 0,
+      qty: 0,
+      cases: 0,
+      casesKnown: true,
       productiveDates: new Set<string>(),
     };
     existing.callsMade += row.callsMade;
     existing.productiveCalls += row.productiveCalls;
     existing.outletsCovered += row.outletsCovered;
     existing.sales += row.sales;
+    existing.qty += row.qty;
+    if (row.cases === null) existing.casesKnown = false;
+    else existing.cases += row.cases;
     if (row.productiveCalls > 0) existing.productiveDates.add(row.date);
     byRep.set(row.employeeCode, existing);
   }
   return Array.from(byRep.values())
-    .map(({ productiveDates, ...rest }) => ({
+    .map(({ productiveDates, casesKnown, ...rest }) => ({
       ...rest,
+      cases: casesKnown ? rest.cases : null,
       strikeRatePct: rest.callsMade > 0 ? Math.round((rest.productiveCalls / rest.callsMade) * 1000) / 10 : 0,
       productiveDays: productiveDates.size,
     }))
@@ -269,6 +322,9 @@ function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageR
     intervalSum: number;
     intervalCount: number;
     sales: number;
+    qty: number;
+    cases: number;
+    casesKnown: boolean;
     days: number;
   }
   const byRep = new Map<string, Accumulator>();
@@ -287,6 +343,9 @@ function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageR
       intervalSum: 0,
       intervalCount: 0,
       sales: 0,
+      qty: 0,
+      cases: 0,
+      casesKnown: true,
       days: 0,
     };
     const firstMinutes = nairobiMinutesAfterMidnight(row.firstCall);
@@ -302,6 +361,9 @@ function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageR
       acc.intervalCount += 1;
     }
     acc.sales += row.sales;
+    acc.qty += row.qty;
+    if (row.cases === null) acc.casesKnown = false;
+    else acc.cases += row.cases;
     acc.days += 1;
     byRep.set(row.employeeCode, acc);
   }
@@ -324,6 +386,8 @@ function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageR
       outletsCovered: acc.outletsCovered,
       avgIntervalMins: acc.intervalCount > 0 ? Math.round((acc.intervalSum / acc.intervalCount) * 10) / 10 : null,
       sales: acc.sales,
+      qty: acc.qty,
+      cases: acc.casesKnown ? acc.cases : null,
       daysWorked: acc.days,
     };
   });
@@ -353,8 +417,88 @@ function SalesRoleSnapshot({ title, stats, tone, productiveDays }: { title: stri
         <CompactMetric label="Outlets" value={formatNumber(stats.outletsCovered)} />
         <CompactMetric label="Avg interval" value={stats.avgIntervalMins !== null ? `${stats.avgIntervalMins.toFixed(0)}m` : "--"} />
         <CompactMetric label="Sales" value={formatCompact(stats.sales)} />
+        <CompactMetric label="Qty (pieces)" value={formatNumber(stats.qty)} />
+        <CompactMetric label="Qty (cases)" value={formatCases(stats.cases)} />
         <CompactMetric label="Productive days" value={formatNumber(productiveDays)} />
       </div>
+    </div>
+  );
+}
+
+function RepJourneyPanel({ detail, status, onClose }: { detail: RepDetailResponse | null; status: "loading" | "idle" | "error"; onClose: () => void }) {
+  const rep = detail?.rep;
+  const visits = detail?.visits ?? [];
+  const firstVisit = visits[0];
+  const lastVisit = visits[visits.length - 1];
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-brand-navy/35 p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Sales rep visit details">
+      <button className="absolute inset-0 cursor-default" aria-label="Close sales rep details" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl">
+        <div className="flex items-start justify-between border-b border-border bg-surface px-5 py-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-primary-blue">Sales rep journey</p>
+            <h2 className="mt-1 text-xl font-bold text-brand-navy">{rep?.salesRep ?? "Loading rep detail…"}</h2>
+            {rep ? <p className="mt-1 text-xs text-muted">{rep.region} · {rep.salesRole} · {visits.length} outlet visit(s) from {firstVisit ? formatDateLabel(firstVisit.date) : "—"} to {lastVisit ? formatDateLabel(lastVisit.date) : "—"}</p> : null}
+          </div>
+          <button onClick={onClose} className="rounded-full border border-border bg-background-elevated p-2 text-muted-strong hover:bg-surface-active hover:text-foreground" aria-label="Close sales rep details"><Dismiss12Regular /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {status === "loading" ? <p className="py-16 text-center text-sm text-muted">Loading outlet visits and call performance…</p> : null}
+          {status === "error" || !detail || !rep ? <p className="py-16 text-center text-sm text-red-600">Couldn&apos;t load this rep&apos;s visit detail.</p> : null}
+          {status === "idle" && detail && rep ? (
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+                <CompactMetric label="Calls" value={formatNumber(detail.overall.totalCalls)} />
+                <CompactMetric label="Productive" value={formatNumber(detail.overall.productiveCalls)} />
+                <CompactMetric label="Strike rate" value={formatPercent(detail.overall.strikeRate)} valueClass={strikeRateTextClass(detail.overall.strikeRate)} />
+                <CompactMetric label="Outlets" value={formatNumber(detail.overall.outletsCovered)} />
+                <CompactMetric label="Avg interval" value={detail.overall.avgIntervalMins !== null ? `${detail.overall.avgIntervalMins.toFixed(0)}m` : "—"} />
+                <CompactMetric label="Sales" value={formatCompact(detail.overall.sales)} />
+                <CompactMetric label="Pieces" value={formatNumber(detail.overall.qty)} />
+                <CompactMetric label="Cases" value={formatCases(detail.overall.cases)} />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <SectionCard title="Daily call trend" action={<span className="text-xs text-muted">Calls & productive visits</span>}>
+                  <ResponsiveContainer width="100%" height={210}>
+                    <LineChart data={detail.dailyTrend.map((row) => ({ ...row, name: formatDateLabel(row.label) }))} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} />
+                      <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} width={28} />
+                      <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line type="monotone" dataKey="calls" name="Calls" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="productiveCalls" name="Productive" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </SectionCard>
+                <SectionCard title="Weekly performance" action={<span className="text-xs text-muted">Sales, pieces & cases</span>}>
+                  <TableWrap>
+                    <Thead><Th>Week</Th><Th align="right">Calls</Th><Th align="right">Outlets</Th><Th align="right">Sales</Th><Th align="right">Pieces</Th><Th align="right">Cases</Th></Thead>
+                    <tbody>
+                      {detail.weeklyTrend.map((row) => <tr key={row.label}><Td>{row.label}</Td><Td align="right">{formatNumber(row.calls)}</Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{formatCompact(row.sales)}</Td><Td align="right">{formatNumber(row.qty)}</Td><Td align="right">{formatCases(row.cases)}</Td></tr>)}
+                    </tbody>
+                  </TableWrap>
+                </SectionCard>
+              </div>
+
+              <SectionCard title="Outlet visit timeline" action={<span className="text-xs text-muted">Earliest → latest · click a rep name from the dashboard to refresh</span>}>
+                <TableWrap>
+                  <Thead><Th>Date</Th><Th>Time</Th><Th align="right">#</Th><Th>Customer / outlet</Th><Th>Channel · territory</Th><Th>Outcome</Th><Th align="right">Transactions</Th><Th align="right">Sales</Th><Th align="right">Pieces</Th><Th align="right">Cases</Th><Th align="right">Since prior</Th></Thead>
+                  <tbody>
+                    {visits.map((visit) => (
+                      <tr key={`${visit.date}|${visit.callSequence}|${visit.outletName}`}>
+                        <Td>{formatDateLabel(visit.date)}</Td><Td>{formatTime12h(visit.callTime)}</Td><Td align="right">{visit.callSequence}</Td><Td><span className="font-semibold text-brand-navy">{visit.outletName}</span>{visit.noSaleReason ? <span className="block text-[11px] text-muted">{visit.noSaleReason}</span> : null}</Td><Td>{visit.channel} · {visit.territory}</Td><Td><span className={visit.callOutcome === "Sale" ? "font-semibold text-emerald-700" : "text-muted-strong"}>{visit.callOutcome}</span></Td><Td align="right">{formatNumber(visit.documents)}</Td><Td align="right">{formatCompact(visit.sales)}</Td><Td align="right">{formatNumber(visit.qty)}</Td><Td align="right">{formatCases(visit.cases)}</Td><Td align="right">{visit.intervalMins !== null ? `${visit.intervalMins.toFixed(0)}m` : "—"}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              </SectionCard>
+            </div>
+          ) : null}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -373,6 +517,10 @@ export default function TimestampsPage() {
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
   const [timeManagementFilter, setTimeManagementFilter] = useState<TimeManagementFilter>("all");
+  const [activeSlide, setActiveSlide] = useState<TimestampSlide>("overview");
+  const [drilldownRep, setDrilldownRep] = useState<string | null>(null);
+  const [repDetailStatus, setRepDetailStatus] = useState<"loading" | "idle" | "error">("idle");
+  const [repDetail, setRepDetail] = useState<RepDetailResponse | null>(null);
   const [summaryLimit, setSummaryLimit] = useState(SUMMARY_PAGE_SIZE);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const lastSeenSyncRef = useRef<string | null>(null);
@@ -428,6 +576,35 @@ export default function TimestampsPage() {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (!drilldownRep) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ rep: drilldownRep, role: roleFilter, granularity: chartGranularity });
+    if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
+    if (selectedMonth) params.set("month", selectedMonth);
+    if (selectedDate) params.set("date", selectedDate);
+    if (selectedRegion) params.set("region", selectedRegion);
+    if (selectedTeamLeader) params.set("teamLeader", selectedTeamLeader);
+    setRepDetailStatus("loading");
+    setRepDetail(null);
+    void fetch(`/api/timestamps/rep-detail?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      .then(async (res) => {
+        const body = (await res.json()) as RepDetailResponse & { error?: string };
+        if (!res.ok) throw new Error(body.error || "Failed to load rep detail.");
+        if (!controller.signal.aborted) {
+          setRepDetail(body);
+          setRepDetailStatus("idle");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          console.error("Failed to load rep detail", error);
+          setRepDetailStatus("error");
+        }
+      });
+    return () => controller.abort();
+  }, [drilldownRep, selectedPrincipalKey, selectedMonth, selectedDate, selectedRegion, selectedTeamLeader, roleFilter, chartGranularity]);
 
   if (status === "loading") return <FullPageSpinner label="Loading Timestamps..." />;
   if (status === "error" || !summary) {
@@ -560,10 +737,30 @@ export default function TimestampsPage() {
         </div>
       </SectionCard>
 
+      <nav aria-label="Timestamps dashboard views" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {([
+          ["overview", "Overview", "Call volume, sales and case quantity"],
+          ["reps", "Rep performance", "Productive days and outlet drill-down"],
+          ["time", "Time management", "Start, finish and in-day productivity"],
+        ] as const).map(([slide, label, description]) => (
+          <button
+            key={slide}
+            type="button"
+            onClick={() => setActiveSlide(slide)}
+            aria-pressed={activeSlide === slide}
+            className={`rounded-xl border px-4 py-3 text-left transition-all ${activeSlide === slide ? "border-primary-blue bg-primary-blue text-white shadow-cyan-glow" : "border-border bg-surface text-brand-navy hover:border-secondary-blue hover:bg-accent-blue-soft"}`}
+          >
+            <span className="block text-sm font-bold">{label}</span>
+            <span className={`mt-0.5 block text-xs ${activeSlide === slide ? "text-white/80" : "text-muted"}`}>{description}</span>
+          </button>
+        ))}
+      </nav>
+
       {!hasData ? (
         <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="No call activity recorded for this period" description="Pick a different month above, or check back shortly — the current month refreshes automatically from the direct-SQL sync every five minutes." />
       ) : (
       <>
+      {activeSlide === "overview" ? <>
       <SectionCard
         title="Calls by Time (Primary vs Secondary)"
         action={
@@ -601,8 +798,12 @@ export default function TimestampsPage() {
           {roleFilter !== "Secondary Sales" ? <SalesRoleSnapshot title="Primary Sales" stats={summary.primaryStats} tone="primary" productiveDays={primaryProductiveDays} /> : null}
           {roleFilter !== "Primary Sales" ? <SalesRoleSnapshot title="Secondary Sales" stats={summary.secondaryStats} tone="secondary" productiveDays={secondaryProductiveDays} /> : null}
         </div>
+        <p className="mt-3 text-xs text-muted">Cases use the source product UOM (pieces ÷ units per case). A dash means one or more sold products in that selection have not yet supplied a valid UOM.</p>
       </SectionCard>
 
+      </> : null}
+
+      {activeSlide === "reps" ? <>
       <SectionCard title="Productive Days by Rep" action={<span className="text-xs text-muted">Top {topProductiveDaysReps.length} of {repProductivitySummary.length} reps · vs. Calls Made &amp; Strike Rate</span>}>
         <ResponsiveContainer width="100%" height={Math.max(180, topProductiveDaysReps.length * 26)}>
           <BarChart data={topProductiveDaysReps.map((r) => ({ name: r.salesRep, value: r.productiveDays }))} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
@@ -629,11 +830,13 @@ export default function TimestampsPage() {
             <Th align="right">Outlets Covered</Th>
             <Th align="right">Productive Days</Th>
             <Th align="right">Sales</Th>
+            <Th align="right">Pieces</Th>
+            <Th align="right">Cases</Th>
           </Thead>
           <tbody>
             {repProductivitySummary.map((row) => (
               <tr key={row.employeeCode}>
-                <Td>{row.salesRep}</Td>
+                <Td><button onClick={() => setDrilldownRep(row.employeeCode)} className="font-semibold text-primary-blue hover:underline">{row.salesRep}</button></Td>
                 <Td>{row.region}</Td>
                 <Td>{row.salesRole}</Td>
                 <Td align="right">{formatNumber(row.callsMade)}</Td>
@@ -642,12 +845,17 @@ export default function TimestampsPage() {
                 <Td align="right">{formatNumber(row.outletsCovered)}</Td>
                 <Td align="right"><span className="font-semibold text-brand-navy">{formatNumber(row.productiveDays)}</span></Td>
                 <Td align="right">{formatCompact(row.sales)}</Td>
+                <Td align="right">{formatNumber(row.qty)}</Td>
+                <Td align="right">{formatCases(row.cases)}</Td>
               </tr>
             ))}
           </tbody>
         </TableWrap>
       </SectionCard>
 
+      </> : null}
+
+      {activeSlide === "time" ? <>
       <SectionCard
         title={isMonthlyAverage ? "Rep Monthly Average" : "Rep Daily Summary"}
         action={
@@ -715,7 +923,7 @@ export default function TimestampsPage() {
         <TableWrap>
           <Thead>
             <Th>Sales Rep</Th><Th>{isMonthlyAverage ? "Avg First Call" : "First Call"}</Th><Th>Start Status</Th><Th>{isMonthlyAverage ? "Avg Last Call" : "Last Call"}</Th><Th>Closing Remark</Th>
-            <Th align="right">Hours in Day</Th><Th align="right">Calls Made</Th><Th align="right">Productive</Th><Th align="center">Strike Rate</Th><Th align="right">Outlets Covered</Th><Th align="right">Avg Interval (mins)</Th><Th align="right">Sales</Th>
+            <Th align="right">Hours in Day</Th><Th align="right">Calls Made</Th><Th align="right">Productive</Th><Th align="center">Strike Rate</Th><Th align="right">Outlets Covered</Th><Th align="right">Avg Interval (mins)</Th><Th align="right">Sales</Th><Th align="right">Pieces</Th><Th align="right">Cases</Th>
             {isMonthlyAverage ? <Th align="right">Days Worked</Th> : null}
           </Thead>
           <tbody>
@@ -724,20 +932,20 @@ export default function TimestampsPage() {
               const closeStatus = isMonthlyAverage ? closingStatusForMinutes(nairobiMinutesAfterMidnight(row.lastCall)) : closingStatus(row.date, row.lastCall);
               return (
                 <tr key={`${row.date}|${row.employeeCode}|${row.salesRole}`}>
-                  <Td>{row.salesRep}</Td>
+                  <Td><button onClick={() => setDrilldownRep(row.employeeCode)} className="font-semibold text-primary-blue hover:underline">{row.salesRep}</button></Td>
                   <Td><span className={`inline-flex items-center gap-1 font-semibold ${timeStatusClass(startStatus)}`}>{startStatus === "late" ? <Warning20Regular /> : startStatus === "on-time" ? <ThumbLike20Regular /> : null}{formatTime12h(row.firstCall)}</span></Td>
                   <Td><span className={`text-xs font-semibold ${timeStatusClass(startStatus)}`}>{timeStatusLabel(startStatus)}</span></Td>
                   <Td><span className={`font-semibold ${closingStatusClass(closeStatus)}`}>{formatTime12h(row.lastCall)}</span></Td>
                   <Td><span className={`inline-flex items-center gap-1 text-xs font-semibold ${closingStatusClass(closeStatus)}`}>{closeStatus === "closed-early" ? <Warning20Regular /> : closeStatus === "closed-on-time" ? <ThumbLike20Regular /> : null}{closingStatusLabel(closeStatus)}</span></Td>
                   <Td align="right">{row.hoursInDay.toFixed(1)}</Td><Td align="right">{formatNumber(row.callsMade)}</Td><Td align="right">{formatNumber(row.productiveCalls)}</Td>
-                  <Td align="center"><StrikeRateBadge strikeRate={row.strikeRatePct} /></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td>
+                  <Td align="center"><StrikeRateBadge strikeRate={row.strikeRatePct} /></Td><Td align="right">{formatNumber(row.outletsCovered)}</Td><Td align="right">{row.avgIntervalMins !== null ? row.avgIntervalMins.toFixed(0) : "--"}</Td><Td align="right">{formatCompact(row.sales)}</Td><Td align="right">{formatNumber(row.qty)}</Td><Td align="right">{formatCases(row.cases)}</Td>
                   {isMonthlyAverage ? <Td align="right">{formatNumber((row as RepMonthlyAverageRow).daysWorked)}</Td> : null}
                 </tr>
               );
             })}
             <TotalRow>
               <Td>Total</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td>--</Td><Td align="right">--</Td>
-              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><StrikeRateBadge strikeRate={summary.overall.strikeRate} /></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td>
+              <Td align="right">{formatNumber(summary.overall.totalCalls)}</Td><Td align="right">{formatNumber(summary.overall.productiveCalls)}</Td><Td align="center"><StrikeRateBadge strikeRate={summary.overall.strikeRate} /></Td><Td align="right">{formatNumber(summary.overall.outletsCovered)}</Td><Td align="right">--</Td><Td align="right">{formatCompact(summary.overall.sales)}</Td><Td align="right">{formatNumber(summary.overall.qty)}</Td><Td align="right">{formatCases(summary.overall.cases)}</Td>
               {isMonthlyAverage ? <Td align="right">--</Td> : null}
             </TotalRow>
           </tbody>
@@ -750,8 +958,10 @@ export default function TimestampsPage() {
           </div>
         ) : null}
       </SectionCard>
+      </> : null}
       </>
       )}
+      {drilldownRep ? <RepJourneyPanel detail={repDetail} status={repDetailStatus} onClose={() => { setDrilldownRep(null); setRepDetail(null); }} /> : null}
     </div>
   );
 }

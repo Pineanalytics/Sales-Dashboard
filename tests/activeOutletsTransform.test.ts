@@ -86,7 +86,7 @@ function user(overrides: Partial<UserRow>): UserRow {
   return { id: "1", employee: "Jane Doe", userGroup: "DSR", region: "Nairobi", ...overrides };
 }
 function product(overrides: Partial<ProductRow>): ProductRow {
-  return { id: "1", sapCode: "BIC12345", ...overrides };
+  return { id: "1", sapCode: "BIC12345", unitsPerCase: null, ...overrides };
 }
 function factLine(overrides: Partial<FactLineRow>): FactLineRow {
   return {
@@ -116,6 +116,21 @@ describe("collapseToPurchaseEvents", () => {
     expect(events).toHaveLength(1);
     expect(events[0].revenue).toBe(10 * 5 + 4 * 2.5);
     expect(events[0].qty).toBe(14);
+  });
+
+  it("converts pieces to cases from each product UOM and preserves unavailable conversion", () => {
+    const productsWithUom = [product({ id: "1", unitsPerCase: 12 }), product({ id: "2", sapCode: "BIC54321", unitsPerCase: 24 })];
+    const { events } = collapseToPurchaseEvents(
+      [factLine({ itemId: "1", qty: 24 }), factLine({ itemId: "2", qty: 12 })],
+      outlets,
+      users,
+      productsWithUom,
+      PRINCIPALS
+    );
+    expect(events[0].cases).toBe(2.5);
+
+    const unknownUom = collapseToPurchaseEvents([factLine({ itemId: "1", qty: 24 })], outlets, users, products, PRINCIPALS);
+    expect(unknownUom.events[0].cases).toBeNull();
   });
 
   it("keeps two different documents as two separate purchase events", () => {

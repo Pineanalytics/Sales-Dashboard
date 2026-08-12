@@ -129,6 +129,7 @@ export interface PurchaseEvent {
   salesRole: "Primary Sales" | "Secondary Sales";
   revenue: number;
   qty: number;
+  cases: number | null;
 }
 
 function monthKey(date: Date): string {
@@ -160,7 +161,7 @@ export function collapseToPurchaseEvents(
 ): CollapseResult {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
-  const skuByItemId = new Map(products.map((p) => [p.id, p.sapCode]));
+  const productByItemId = new Map(products.map((p) => [p.id, p]));
 
   interface LineEvent {
     key: string;
@@ -173,6 +174,7 @@ export function collapseToPurchaseEvents(
     costCentre: string | null;
     revenue: number;
     qty: number;
+    cases: number | null;
   }
   const lineEvents: LineEvent[] = [];
   let unmatchedSkuCount = 0;
@@ -183,7 +185,8 @@ export function collapseToPurchaseEvents(
     if (!outlet || !user) continue;
     if (!(line.qty > 0 && line.unitPrice > 0)) continue;
 
-    const sapCode = skuByItemId.get(line.itemId);
+    const product = productByItemId.get(line.itemId);
+    const sapCode = product?.sapCode;
     const costCentreRow = sapCode ? resolveCostCentre(sapCode, principals) : null;
     if (!costCentreRow) unmatchedSkuCount++;
 
@@ -198,6 +201,7 @@ export function collapseToPurchaseEvents(
       costCentre: costCentreRow ? costCentreRow.principal : null,
       revenue: Math.round(line.qty * line.unitPrice * 100) / 100,
       qty: line.qty,
+      cases: product?.unitsPerCase ? line.qty / product.unitsPerCase : null,
     });
   }
 
@@ -229,6 +233,7 @@ export function collapseToPurchaseEvents(
       salesRole,
       revenue: group.reduce((s, g) => s + g.revenue, 0),
       qty: group.reduce((s, g) => s + g.qty, 0),
+      cases: group.every((g) => g.cases !== null) ? group.reduce((s, g) => s + (g.cases ?? 0), 0) : null,
     });
   }
 
@@ -402,6 +407,7 @@ export interface RepCallRow {
   documents: number;
   sales: number;
   qty: number;
+  cases: number | null;
   firstCallOfDay: Date;
   lastCallOfDay: Date;
   hoursInDay: number;
@@ -428,6 +434,8 @@ export function buildRepCalls(
     documents: Set<string>;
     sales: number;
     qty: number;
+    cases: number;
+    hasUnknownCases: boolean;
     costCentres: Set<string>;
     noSaleReason: string | null;
   }
@@ -452,6 +460,8 @@ export function buildRepCalls(
         documents: new Set(),
         sales: 0,
         qty: 0,
+        cases: 0,
+        hasUnknownCases: false,
         costCentres: new Set(),
         noSaleReason: null,
       };
@@ -461,6 +471,8 @@ export function buildRepCalls(
     agg.documents.add(e.eventKey);
     agg.sales += e.revenue;
     agg.qty += e.qty;
+    if (e.cases === null) agg.hasUnknownCases = true;
+    else agg.cases += e.cases;
     if (e.costCentre !== null) agg.costCentres.add(e.costCentre);
   }
 
@@ -479,6 +491,8 @@ export function buildRepCalls(
         documents: new Set(),
         sales: 0,
         qty: 0,
+        cases: 0,
+        hasUnknownCases: false,
         costCentres: new Set(),
         noSaleReason: v.noSaleReason,
       };
@@ -543,6 +557,7 @@ export function buildRepCalls(
         documents,
         sales: Math.round(w.agg.sales * 100) / 100,
         qty: w.agg.qty,
+        cases: outcome === "Sale" && !w.agg.hasUnknownCases ? Math.round(w.agg.cases * 100) / 100 : outcome === "No Sale" ? 0 : null,
         firstCallOfDay,
         lastCallOfDay,
         hoursInDay,

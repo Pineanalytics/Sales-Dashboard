@@ -27,6 +27,7 @@ export interface UserRow {
 export interface ProductRow {
   id: string;
   sapCode: string;
+  unitsPerCase: number | null;
 }
 
 export interface FactLineRow {
@@ -79,7 +80,7 @@ const SQL_USERS = `
 `;
 
 const SQL_PRODUCTS = `
-  SELECT p_id, p_skucode
+  SELECT p_id, p_skucode, p_unitper
   FROM pine.products
   WHERE p_skucode IS NOT NULL
     AND TRIM(p_skucode) <> ''
@@ -204,8 +205,8 @@ export async function fetchUsersByIds(conn: Connection, ids: Iterable<string>): 
 }
 
 export async function fetchProducts(conn: Connection): Promise<ProductRow[]> {
-  const [rows] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string })[]>(SQL_PRODUCTS);
-  return rows.map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase() }));
+  const [rows] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string; p_unitper: number | null })[]>(SQL_PRODUCTS);
+  return rows.map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase(), unitsPerCase: r.p_unitper && Number(r.p_unitper) > 0 ? Number(r.p_unitper) : null }));
 }
 
 /** Fetch only product rows referenced by the sale/order lines in a compact
@@ -216,14 +217,14 @@ export async function fetchProductsByIds(conn: Connection, ids: Iterable<string>
 
   const rows = await Promise.all(
     idBatches(requested).map(async (batch) => {
-      const [result] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string })[]>(
+      const [result] = await conn.query<(RowDataPacket & { p_id: number; p_skucode: string; p_unitper: number | null })[]>(
         `${SQL_PRODUCTS} AND p_id IN (?)`,
         [batch]
       );
       return result;
     })
   );
-  return rows.flat().map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase() }));
+  return rows.flat().map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase(), unitsPerCase: r.p_unitper && Number(r.p_unitper) > 0 ? Number(r.p_unitper) : null }));
 }
 
 async function fetchLines(conn: Connection, sql: string, isOrder: boolean, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
