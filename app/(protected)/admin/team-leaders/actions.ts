@@ -241,7 +241,7 @@ export async function uploadRosterCsvAction(formData: FormData) {
   redirect(
     "/admin/team-leaders?success=" +
       encodeURIComponent(
-        `Imported ${result.assignments} Roster row(s) across ${result.teamLeaders} Team Leader(s). ${result.reportingLineUpdates} reporting-line link(s) and ${result.principalOwnershipUpdates} Principal ownership link(s) refreshed.`
+        `Imported ${result.assignments} Roster row(s) across ${result.teamLeaders} Team Leader(s). ${result.reportingLineUpdates} reporting-line link(s), ${result.principalOwnershipUpdates} Principal ownership link(s), and ${result.employeeMasterUpserts} Employee Master row(s) refreshed.`
       )
   );
 }

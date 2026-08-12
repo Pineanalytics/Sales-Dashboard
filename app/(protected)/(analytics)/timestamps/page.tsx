@@ -74,6 +74,12 @@ interface RepProductivityRow {
   sales: number;
 }
 
+interface UnmappedEmployee {
+  employeeCode: string;
+  salesRep: string;
+  callsThisMonth: number;
+}
+
 interface TimestampSummaryResponse {
   availableDates: string[];
   availableReps: { employeeCode: string; salesRep: string }[];
@@ -84,6 +90,7 @@ interface TimestampSummaryResponse {
   overall: RoleStats;
   summaries: RepDaySummary[];
   chartRows: ChartRow[];
+  unmappedEmployees: UnmappedEmployee[];
   syncUpdatedAt: string | null;
 }
 
@@ -150,6 +157,29 @@ function StrikeRateBadge({ strikeRate }: { strikeRate: number }) {
       ? "border-amber-200 bg-amber-50 text-amber-700"
       : "border-red-200 bg-red-50 text-red-700";
   return <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[11px] font-semibold ${className}`}>{strikeRate.toFixed(1)}%</span>;
+}
+
+/** A rep with real calls this month but no Employee Roaster row at all —
+ *  a genuinely new employee not yet onboarded into either roster source
+ *  (F:\Raw Reports\Employee Roaster.xlsx or Employee roaster.csv). Surfaced
+ *  here so whoever maintains the roster has a direct worklist instead of a
+ *  gap only discoverable by SQL — see lib/timestampSummary.ts's
+ *  UnmappedTimestampEmployee. This month's window only, independent of the
+ *  page's own date/region/rep/role filters above — a standing note, not
+ *  something that disappears the moment you filter to a single day. */
+function UnmappedEmployeesNote({ unmappedEmployees }: { unmappedEmployees: UnmappedEmployee[] }) {
+  if (unmappedEmployees.length === 0) return null;
+  return (
+    <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      <Warning20Regular className="mr-1 inline-block h-3.5 w-3.5 align-text-bottom" />
+      {unmappedEmployees.length} employee(s) with real Timestamps activity this month aren&apos;t in the roster yet (shown as &quot;General&quot;) — largest:{" "}
+      {unmappedEmployees
+        .slice(0, 5)
+        .map((u) => `${u.salesRep} (${u.employeeCode}, ${u.callsThisMonth} calls)`)
+        .join(", ")}
+      .
+    </p>
+  );
 }
 
 function chartBuckets(rows: ChartRow[], granularity: "Hourly" | "Daily" | "Weekly") {
@@ -681,6 +711,7 @@ export default function TimestampsPage() {
           </button>
           <span className="ml-auto text-xs text-muted">Start: green at 9:30 AM or earlier · red after 9:30 AM</span>
         </div>
+        <UnmappedEmployeesNote unmappedEmployees={summary.unmappedEmployees} />
         <TableWrap>
           <Thead>
             <Th>Sales Rep</Th><Th>{isMonthlyAverage ? "Avg First Call" : "First Call"}</Th><Th>Start Status</Th><Th>{isMonthlyAverage ? "Avg Last Call" : "Last Call"}</Th><Th>Closing Remark</Th>

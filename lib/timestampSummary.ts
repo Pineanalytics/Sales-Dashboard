@@ -13,7 +13,9 @@ export interface TimestampFilters {
   date: Date | null;
   employeeCode: string | null;
   region: string | null;
-  /** Employee Roaster's EmployeeMaster.teamLeader free-text value. */
+  /** Employee Roaster's EmployeeMaster.teamLeader free-text value, or the
+   *  literal "General" sentinel for a rep with no EmployeeMaster row (or a
+   *  blank teamLeader on one that exists) — see selectedTeamLeaderClause. */
   teamLeader: string | null;
   roleFilter: TimestampRoleFilter;
   chartGranularity: TimestampChartGranularity;
@@ -51,6 +53,16 @@ export interface TimestampChartRow {
   calls: number;
 }
 
+/** A rep with real Timestamps activity but no EmployeeMaster row at all
+ *  (confirmed live: employee 1192, 63 real calls this month, zero roster row
+ *  anywhere) — not silently dropped, surfaced here so whoever maintains the
+ *  roster has a direct worklist instead of a gap only discoverable by SQL. */
+export interface UnmappedTimestampEmployee {
+  employeeCode: string;
+  salesRep: string;
+  callsThisMonth: number;
+}
+
 export interface TimestampSummaryData {
   availableDates: string[];
   availableReps: { employeeCode: string; salesRep: string }[];
@@ -61,7 +73,14 @@ export interface TimestampSummaryData {
   overall: TimestampRoleStats;
   summaries: TimestampRepDaySummary[];
   chartRows: TimestampChartRow[];
+  unmappedEmployees: UnmappedTimestampEmployee[];
 }
+
+/** Selectable Team Leader value for a rep whose EmployeeMaster.teamLeader is
+ *  blank or who has no EmployeeMaster row at all — keeps them reachable via
+ *  the Team Leader filter instead of being a permanent dead end (a NULL
+ *  column value can never equal a specific selected name). */
+const GENERAL_TEAM_LEADER = "General";
 
 type SummaryRow = TimestampRepDaySummary;
 interface RepRow { employeeCode: string; salesRep: string }
@@ -69,6 +88,7 @@ interface DateRow { date: string }
 interface RegionRow { region: string }
 interface TeamLeaderRow { teamLeader: string }
 interface MetricRow extends TimestampRoleStats { salesRole: string | null }
+interface UnmappedRow { employeeCode: string; salesRep: string; callsThisMonth: number }
 type ChartRow = TimestampChartRow;
 
 const EMPTY_SQL = Prisma.sql``;
@@ -109,40 +129,64 @@ function absolutePrincipalMatchClause(principalKey: string, absolutePrincipal: P
   `;
 }
 
+/** Scope restriction shared by every query below, factored out so the
+ * unmapped-employees worklist (getTimestampSummary) can reuse it without
+ * going through sourceQuery's principal branching. */
+function scopeClause(scope: TeamLeaderScope | null): Prisma.Sql {
+  return scope
+    ? scope.employeeCodes.length > 0
+      ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`
+      : Prisma.sql`AND false`
+    : EMPTY_SQL;
+}
+
 /** Produces a direct source relation and predicates for the dashboard's
  * aggregate queries. This deliberately avoids a wide MATERIALIZED CTE: on
  * the VPS, repeatedly reading that temporary relation was markedly slower
- * than independent grouped scans of the indexed RepCall table. */
+ * than independent grouped scans of the indexed RepCall table.
+ *
+ * Always LEFT JOINs EmployeeMaster — a rep with no EmployeeMaster row (a
+ * genuinely new employee not yet in either roster source; confirmed live:
+ * employee 1192, 63 real calls this month including productive ones, zero
+ * roster row anywhere) must stay visible, not be silently dropped along with
+ * every one of their calls, sale or no-sale, productive or not. Their sales
+ * role/active status fall back to the call's own stored value / true; their
+ * Team Leader falls back to the GENERAL_TEAM_LEADER bucket (see
+ * selectedTeamLeaderClause) rather than requiring a roster match to appear
+ * at all. Was an INNER JOIN + required `em.active` when a principal was
+ * selected — the common case, since Timestamps shares the same global
+ * principal selector used everywhere else in the app — which is exactly
+ * what made an unmapped rep's whole day disappear. */
 function sourceQuery(
   monthRange: { start: Date; end: Date },
   scope: TeamLeaderScope | null,
   principalKey: string | null
 ): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
   const { start, end } = monthRange;
-  const teamClause = scope
-    ? scope.employeeCodes.length > 0
-      ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`
-      : Prisma.sql`AND false`
-    : EMPTY_SQL;
+  const teamClause = scopeClause(scope);
+  const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`;
+  const salesRole = Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`;
 
   if (!principalKey) {
     return {
-      // Keep an unmatched historical Pine rep visible, but use the Employee
-      // Roaster's active flag and sales role whenever a master row exists.
-      from: Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`,
+      from,
       baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) ${teamClause}`,
-      salesRole: Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`,
+      salesRole,
     };
   }
 
-  // Principal-scoped Timestamps always use the roster's absolute principal.
-  // This includes every call in a matching rep-day (not only sales calls),
-  // which keeps first/last-call time and coverage meaningful.
+  // Principal-scoped Timestamps always use the roster's absolute principal
+  // (a rep's complete day belongs to one absolute principal, not reassigned
+  // per call's sale cost-centre). A rep with no roster row — hence no
+  // absolute principal to read at all — correctly falls out of any one
+  // specific-principal filter (genuinely unknown, not guessable), but stays
+  // visible in the unfiltered view above and in the General Team Leader
+  // bucket below.
   const absolutePrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`);
   return {
-    from: Prisma.sql`FROM "RepCall" r INNER JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND em.active AND ${absolutePrincipalMatch} ${teamClause}`,
-    salesRole: Prisma.sql`em."salesRole"`,
+    from,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND ${absolutePrincipalMatch} ${teamClause}`,
+    salesRole,
   };
 }
 
@@ -159,7 +203,13 @@ function selectedRegionClause(filters: TimestampFilters): Prisma.Sql {
 }
 
 function selectedTeamLeaderClause(filters: TimestampFilters): Prisma.Sql {
-  return filters.teamLeader ? Prisma.sql`AND em."teamLeader" = ${filters.teamLeader}` : EMPTY_SQL;
+  if (!filters.teamLeader) return EMPTY_SQL;
+  // A NULL/blank em."teamLeader" can never equal a specific selected name —
+  // GENERAL_TEAM_LEADER is the one value that must match that gap directly.
+  if (filters.teamLeader === GENERAL_TEAM_LEADER) {
+    return Prisma.sql`AND NULLIF(BTRIM(em."teamLeader"), '') IS NULL`;
+  }
+  return Prisma.sql`AND em."teamLeader" = ${filters.teamLeader}`;
 }
 
 /**
@@ -230,7 +280,8 @@ export async function getTimestampSummary(
   scope: TeamLeaderScope | null,
   filters: TimestampFilters
 ): Promise<TimestampSummaryData> {
-  const { from, baseWhere, salesRole } = sourceQuery(resolveMonthWindow(now, filters.month), scope, filters.principalKey);
+  const monthRange = resolveMonthWindow(now, filters.month);
+  const { from, baseWhere, salesRole } = sourceQuery(monthRange, scope, filters.principalKey);
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
@@ -239,7 +290,7 @@ export async function getTimestampSummary(
   const salesExpression = Prisma.sql`r.sales`;
   const bucket = chartBucket(filters.chartGranularity);
 
-  const [dateRows, regionRows, teamLeaderRows, repRows, summaryRows, metricRows, chartRows] = await Promise.all([
+  const [dateRows, regionRows, teamLeaderRows, repRows, summaryRows, metricRows, chartRows, unmappedRows] = await Promise.all([
     prisma.$queryRaw<DateRow[]>(Prisma.sql`
       SELECT DISTINCT to_char(r.date, 'YYYY-MM-DD') AS date
       ${from} ${baseWhere}
@@ -251,9 +302,8 @@ export async function getTimestampSummary(
       ORDER BY region
     `),
     prisma.$queryRaw<TeamLeaderRow[]>(Prisma.sql`
-      SELECT DISTINCT em."teamLeader" AS "teamLeader"
+      SELECT DISTINCT COALESCE(NULLIF(BTRIM(em."teamLeader"), ''), ${GENERAL_TEAM_LEADER}) AS "teamLeader"
       ${from} ${baseWhere} ${dateClause} ${roleClause}
-      AND em."teamLeader" IS NOT NULL
       ORDER BY "teamLeader"
     `),
     prisma.$queryRaw<RepRow[]>(Prisma.sql`
@@ -300,6 +350,18 @@ export async function getTimestampSummary(
       GROUP BY 1, 2
       ORDER BY bucket, "salesRole"
     `),
+    // Standing worklist, independent of the UI's ad-hoc filters (date/region/
+    // teamLeader/rep/role) — this month's window + the session's own scope
+    // only, so it doesn't disappear the moment someone filters to a single
+    // date. See UnmappedTimestampEmployee's own comment for why this exists.
+    prisma.$queryRaw<UnmappedRow[]>(Prisma.sql`
+      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", COUNT(*)::integer AS "callsThisMonth"
+      FROM "RepCall" r
+      LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+      WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND em.id IS NULL ${scopeClause(scope)}
+      GROUP BY r."employeeCode"
+      ORDER BY "callsThisMonth" DESC
+    `),
   ]);
 
   const primaryStats = metricRows.find((row) => row.salesRole === "Primary Sales") ?? emptyStats();
@@ -315,5 +377,6 @@ export async function getTimestampSummary(
     overall,
     summaries: summaryRows,
     chartRows,
+    unmappedEmployees: unmappedRows,
   };
 }

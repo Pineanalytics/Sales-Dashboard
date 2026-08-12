@@ -434,6 +434,70 @@ export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFo
     }
   }
 
+  // Also refresh EmployeeMaster from this same CSV import (V18 only — it's the
+  // only format carrying every column EmployeeMaster needs: Absolute
+  // Principal, Sales Role, Team Leader name, etc.). Closes the drift between
+  // this roster path and the separate .xlsx-fed EmployeeMaster path
+  // (scripts/employee-master/import.ts) — an employee onboarded through
+  // either file now ends up correctly resolvable for Timestamps
+  // (lib/timestampSummary.ts, which reads EmployeeMaster directly and, until
+  // now, only that path). Skips a row with no Absolute Principal —
+  // EmployeeMaster.absolutePrincipal is required, and guessing one would be
+  // worse than leaving the gap for an admin to fill via
+  // /admin/employee-master.
+  let employeeMasterUpserts = 0;
+  if (format === "V18") {
+    const byEmployeeCode = new Map<string, RosterUploadRow>();
+    for (const row of rows) {
+      if (!byEmployeeCode.has(row.employeeCode)) byEmployeeCode.set(row.employeeCode, row);
+    }
+    for (const row of byEmployeeCode.values()) {
+      const absolutePrincipal = row.absolutePrincipal?.trim();
+      if (!absolutePrincipal) continue;
+      await prisma.employeeMaster.upsert({
+        where: { employeeCode: row.employeeCode },
+        create: {
+          employeeCode: row.employeeCode,
+          company: row.company,
+          pineName: row.employeeName,
+          sapName: row.sapName || row.employeeName,
+          absolutePrincipal,
+          salesRole: row.salesRole === "PRIMARY" ? "Primary Sales" : "Secondary Sales",
+          workGroup: row.workGroup,
+          region: row.region,
+          subRegion: row.subRegion,
+          teamLeader: row.teamLeaderName || null,
+          supervisor: row.supervisorName,
+          active: true,
+          costCenterCount: row.costCenterCount,
+          salesPoint: row.salesPoint,
+          route: row.route,
+          location: row.location,
+        },
+        update: {
+          pineName: row.employeeName,
+          sapName: row.sapName || row.employeeName,
+          absolutePrincipal,
+          salesRole: row.salesRole === "PRIMARY" ? "Primary Sales" : "Secondary Sales",
+          workGroup: row.workGroup,
+          region: row.region,
+          subRegion: row.subRegion,
+          teamLeader: row.teamLeaderName || null,
+          supervisor: row.supervisorName,
+          costCenterCount: row.costCenterCount,
+          salesPoint: row.salesPoint,
+          route: row.route,
+          location: row.location,
+          // active intentionally left alone on update — V18 carries no
+          // Active/Inactive column at all (see the RosterFormat header
+          // comment), so re-importing must never undo an admin's manual
+          // deactivation via /admin/employee-master's own toggle.
+        },
+      });
+      employeeMasterUpserts++;
+    }
+  }
+
   const contribution = await recomputeRepContribution();
   const daily = await recomputeDailyTargets();
   return {
@@ -443,6 +507,7 @@ export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFo
     assignments: rows.length,
     reportingLineUpdates,
     principalOwnershipUpdates,
+    employeeMasterUpserts,
     contribution,
     daily,
   };
