@@ -10,7 +10,7 @@
 // sheets, so they intentionally stay rolled up by normalized brand key — their
 // summarize functions below normalize an incoming raw principal string before
 // matching, so selecting either location still shows the same combined figures.
-import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyPLRow } from "./types";
+import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow } from "./types";
 import { normalizePrincipalKey } from "./normalize";
 import { getWeeksInMonth } from "./weeklyTargets";
 
@@ -326,6 +326,66 @@ export function summarizeCoverageForPeriod(
     (r) => (!brandKey || r.principalKey === brandKey) && (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
   return summarizeCoverageRows(rows, months);
+}
+
+export interface PeriodCoverageTargetSummary {
+  coverageTarget: number | null;
+  productivityTarget: number | null;
+  monthsTargeted: number;
+}
+
+/** Primary Sales is the only target-bearing operating scope. Coverage targets
+ * are outlet counts, so period values are average monthly targets. Productivity
+ * targets are weighted by those monthly coverage targets instead of naively
+ * averaging percentages. Coverage is sourced at normalized-brand level, so a
+ * selected location rolls up the same-brand target rows too. */
+export function summarizeCoverageTargetsForPeriod(
+  dataset: Dataset,
+  selection: PeriodSelection,
+  principal: string | null
+): PeriodCoverageTargetSummary {
+  const rows = dataset.monthlyCoverageTargets ?? [];
+  const months = resolvePeriodMonths(selection);
+  const keys = periodKeySet(months);
+  const brandKey = principal ? normalizePrincipalKey(principal) : null;
+  const matched = rows.filter(
+    (row) =>
+      keys.has(rowKey(row.year, row.monthIndex)) &&
+      (!brandKey || row.principalKey === brandKey)
+  );
+  const byMonth = new Map<string, MonthlyCoverageTargetRow[]>();
+  for (const row of matched) {
+    const key = rowKey(row.year, row.monthIndex);
+    const existing = byMonth.get(key);
+    if (existing) existing.push(row);
+    else byMonth.set(key, [row]);
+  }
+
+  const monthlyTargets = Array.from(byMonth.values())
+    .map((monthRows) => {
+      const coverageTarget = monthRows.reduce((sum, row) => sum + (row.coverageTarget ?? 0), 0);
+      if (coverageTarget <= 0) return null;
+      const productivityWeight = monthRows.reduce(
+        (sum, row) => sum + (row.coverageTarget ?? 0) * (row.productivityTarget ?? 0),
+        0
+      );
+      const productivityCoverage = monthRows.reduce((sum, row) => sum + (row.productivityTarget ? row.coverageTarget ?? 0 : 0), 0);
+      return {
+        coverageTarget,
+        productivityTarget: productivityCoverage > 0 ? round1(productivityWeight / productivityCoverage) : null,
+      };
+    })
+    .filter((row): row is { coverageTarget: number; productivityTarget: number | null } => row !== null);
+
+  if (monthlyTargets.length === 0) return { coverageTarget: null, productivityTarget: null, monthsTargeted: 0 };
+  const coverageTarget = Math.round(monthlyTargets.reduce((sum, row) => sum + row.coverageTarget, 0) / monthlyTargets.length);
+  const productivityNumerator = monthlyTargets.reduce((sum, row) => sum + row.coverageTarget * (row.productivityTarget ?? 0), 0);
+  const productivityDenominator = monthlyTargets.reduce((sum, row) => sum + (row.productivityTarget ? row.coverageTarget : 0), 0);
+  return {
+    coverageTarget,
+    productivityTarget: productivityDenominator > 0 ? round1(productivityNumerator / productivityDenominator) : null,
+    monthsTargeted: monthlyTargets.length,
+  };
 }
 
 export interface RepCoverageSummary {

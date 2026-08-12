@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyBrandCustomerRow, MonthlyPLRow } from "@/lib/types";
+import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyBrandCustomerRow, MonthlyPLRow } from "@/lib/types";
 import {
   resolvePeriodMonths,
   getAvailableYears,
@@ -10,6 +10,7 @@ import {
   summarizeSalesForPeriod,
   summarizeSalesByPrincipal,
   summarizeCoverageForPeriod,
+  summarizeCoverageTargetsForPeriod,
   summarizeCoverageByRep,
   summarizeBrandCustomerByCustomer,
   summarizeBrandCustomerByRep,
@@ -49,6 +50,19 @@ function coverageRow(overrides: Partial<MonthlyCoverageRow>): MonthlyCoverageRow
     coverage: 0,
     productiveCalls: 0,
     productivityPct: 0,
+    ...overrides,
+  };
+}
+
+function coverageTargetRow(overrides: Partial<MonthlyCoverageTargetRow>): MonthlyCoverageTargetRow {
+  return {
+    year: "2026",
+    month: "January",
+    monthIndex: 0,
+    principal: "EABL-Nyeri",
+    principalKey: "eabl",
+    coverageTarget: null,
+    productivityTarget: null,
     ...overrides,
   };
 }
@@ -350,6 +364,21 @@ describe("coverage summaries", () => {
     const byRep = summarizeCoverageByRep(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
     expect(byRep).toHaveLength(2); // still both Jane Doe and John Smith, same as the "eabl" brand key
     expect(byRep.find((r) => r.employeeName === "John Smith")?.coverage).toBe(60);
+  });
+
+  it("rolls same-brand targets together and ignores zero or blank target entries", () => {
+    const targetDataset = buildDataset({
+      monthlyCoverageTargets: [
+        coverageTargetRow({ year: "2026", month: "June", monthIndex: 5, principal: "EABL-Nyeri", principalKey: "eabl", coverageTarget: 100, productivityTarget: 80 }),
+        coverageTargetRow({ year: "2026", month: "June", monthIndex: 5, principal: "EABL-Nyahururu", principalKey: "eabl", coverageTarget: 60, productivityTarget: 90 }),
+        coverageTargetRow({ year: "2026", month: "July", monthIndex: 6, principal: "EABL-Nyeri", principalKey: "eabl", coverageTarget: 200, productivityTarget: 75 }),
+        coverageTargetRow({ year: "2026", month: "July", monthIndex: 6, principal: "EABL-Nyahururu", principalKey: "eabl", coverageTarget: null, productivityTarget: 0 }),
+      ],
+    });
+
+    const summary = summarizeCoverageTargetsForPeriod(targetDataset, { kind: "YTD", year: "2026", month: "July" }, "EABL-Nyeri");
+    // June: 160 coverage at 83.8% weighted productivity. July: 200 coverage at 75%.
+    expect(summary).toEqual({ coverageTarget: 180, productivityTarget: 78.9, monthsTargeted: 2 });
   });
 
   describe("multi-month periods average, not sum, since coverage counts unique outlets", () => {

@@ -5,7 +5,7 @@ import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { getMonthlyCoverageRollup } from "./jpAdherence";
-import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
+import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
 // which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
@@ -291,8 +291,19 @@ async function overlayTargets(dataset: Dataset): Promise<Dataset> {
 
   const byKey = new Map(targets.map((t) => [`${t.year}|${t.month}|${t.principal}`, t.valueTarget]));
 
+  const monthlyCoverageTargets: MonthlyCoverageTargetRow[] = targets.map((target) => ({
+    year: target.year,
+    month: target.month,
+    monthIndex: target.monthIndex,
+    principal: target.principal,
+    principalKey: normalizePrincipalKey(target.principal),
+    coverageTarget: target.coverageTarget && target.coverageTarget > 0 ? target.coverageTarget : null,
+    productivityTarget: target.productivityTarget && target.productivityTarget > 0 ? target.productivityTarget : null,
+  }));
+
   return {
     ...dataset,
+    monthlyCoverageTargets,
     monthlySales: dataset.monthlySales.map((row) => {
       const dbTarget = byKey.get(`${row.year}|${row.month}|${row.principal}`);
       return dbTarget !== undefined && dbTarget !== null ? { ...row, target: dbTarget } : row;

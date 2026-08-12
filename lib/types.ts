@@ -36,6 +36,19 @@ export interface MonthlyCoverageRow {
   productivityPct: number;
 }
 
+/** Principal-month operational targets, sourced from Target.coverageTarget and
+ * Target.productivityTarget. A zero is intentionally absent here: it means
+ * "not configured", never a genuine operating target. */
+export interface MonthlyCoverageTargetRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  principal: string;
+  principalKey: string;
+  coverageTarget: number | null;
+  productivityTarget: number | null;
+}
+
 export interface MonthlyBrandCustomerRow {
   /** ISO "YYYY-MM-DD", UTC — real per-day resolution for the current month (the
    *  source pivot's Date column), a 1st-of-month placeholder for older months
@@ -108,6 +121,7 @@ export interface ReportMeta {
 export interface Dataset {
   monthlySales: MonthlySalesRow[];
   monthlyCoverage: MonthlyCoverageRow[];
+  monthlyCoverageTargets?: MonthlyCoverageTargetRow[];
   monthlyBrandCustomer: MonthlyBrandCustomerRow[];
   monthlyPL: MonthlyPLRow[];
   stockTotal: StockTotal;
