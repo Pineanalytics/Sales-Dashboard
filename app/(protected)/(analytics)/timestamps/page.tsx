@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
@@ -649,7 +650,7 @@ export default function TimestampsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard title="Timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span>}>
+      <SectionCard title="Timestamps" action={<div className="flex items-center gap-3"><Link href="/timestamps/eabl-call-performance" className="text-xs font-semibold text-primary-blue hover:underline">EABL Call Performance</Link><span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span></div>}>
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">

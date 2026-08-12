@@ -686,6 +686,39 @@ model RepCall {
   @@index([employeeCode, date])
 }
 
+// EABL Call Performance — a separate call-level feed from the Pinefrost
+// Analytics SQL Server source for EABL-Nyeri and EABL-Nyahururu. It must not
+// be combined with RepCall: the two sources have different identities,
+// timekeeping fields and sales definitions.
+model EablCall {
+  id                    String   @id @default(cuid())
+  sourceCallKey         String   @unique
+  callDate              DateTime
+  salesman              String
+  agent                 String?
+  customerName          String
+  customerType          String?
+  segment               String?
+  timeIn                DateTime?
+  timeOut               DateTime?
+  durationMinutes       Int?
+  firstCallOfDay        DateTime?
+  lastCallOfDay         DateTime?
+  callsInDay            Int
+  productiveCallsInDay  Int
+  dayStrikeRatePct      Float?
+  cashSales             Float
+  creditSales           Float
+  discounts             Float
+  netSales              Float
+  isProductive          Boolean
+  createdAt             DateTime @default(now())
+
+  @@index([callDate])
+  @@index([salesman, callDate])
+  @@index([segment, callDate])
+}
+
 // Order 360 — one row per SAP order, sourced directly from pine's SAP_Orders
 // (joined to users/loading/vans/payments), mirroring
 // Order_360_Extractor.py's QUERY. Funnel/pending/age/leaderboard figures are all

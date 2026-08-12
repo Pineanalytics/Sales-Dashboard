@@ -22,7 +22,7 @@ export function GlobalFilterBar() {
   // Executive Overview owns a denser, dashboard-specific control surface that
   // groups its MTD/YTD switch with these same store-backed selectors. Showing
   // this shared bar there as well would duplicate the Principal control.
-  if (!dataset || pathname === "/timestamps" || pathname === "/dashboard") return null;
+  if (!dataset || pathname?.startsWith("/timestamps") || pathname === "/dashboard") return null;
 
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">

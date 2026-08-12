@@ -19,6 +19,7 @@
     "sales:sync": "tsx scripts/db-bridge/sales-sync.ts",
     "active-outlets:sync": "tsx scripts/db-bridge/active-outlets/run.ts",
     "timestamps:sync": "tsx scripts/db-bridge/timestamps/run.ts",
+    "eabl-call-performance:sync": "tsx scripts/db-bridge/eabl-call-performance/run.ts",
     "order360:sync": "tsx scripts/db-bridge/order-360/run.ts",
     "jp-adherence:import-plan": "tsx scripts/jp-adherence/import-plan.ts",
     "employee-master:import": "tsx scripts/employee-master/import.ts",
