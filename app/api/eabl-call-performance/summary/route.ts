@@ -29,10 +29,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const [metrics, daily, hourly, segments, reps, filters, watermark] = await Promise.all([
-      prisma.$queryRaw<Array<{ calls: bigint; productiveCalls: bigint; customers: bigint; reps: bigint; netSales: number; averageDuration: number | null }>>(Prisma.sql`
+      prisma.$queryRaw<Array<{ calls: bigint; productiveCalls: bigint; customers: bigint; reps: bigint; netSales: number; averageDuration: number | null; latestCallDate: Date | null }>>(Prisma.sql`
         SELECT COUNT(*) AS calls, COUNT(*) FILTER (WHERE "isProductive") AS "productiveCalls", COUNT(DISTINCT "customerName") AS customers,
           COUNT(DISTINCT salesman) AS reps, COALESCE(SUM("netSales"), 0)::double precision AS "netSales",
-          AVG("durationMinutes")::double precision AS "averageDuration" FROM "EablCall" WHERE ${where}`),
+          AVG("durationMinutes")::double precision AS "averageDuration", MAX("callDate") AS "latestCallDate" FROM "EablCall" WHERE ${where}`),
       prisma.$queryRaw<Array<{ date: Date; calls: bigint; productiveCalls: bigint; netSales: number }>>(Prisma.sql`
         SELECT "callDate"::date AS date, COUNT(*) AS calls, COUNT(*) FILTER (WHERE "isProductive") AS "productiveCalls", COALESCE(SUM("netSales"), 0)::double precision AS "netSales"
         FROM "EablCall" WHERE ${where} GROUP BY 1 ORDER BY 1`),
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     const number = (value: bigint | number | null) => value === null ? null : Number(value);
     return NextResponse.json({
       scope: "EABL-Nyeri & EABL-Nyahururu", month: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`,
-      metrics: { calls: number(metrics[0]?.calls ?? 0) ?? 0, productiveCalls: number(metrics[0]?.productiveCalls ?? 0) ?? 0, customers: number(metrics[0]?.customers ?? 0) ?? 0, reps: number(metrics[0]?.reps ?? 0) ?? 0, netSales: metrics[0]?.netSales ?? 0, averageDuration: metrics[0]?.averageDuration ?? null },
+      metrics: { calls: number(metrics[0]?.calls ?? 0) ?? 0, productiveCalls: number(metrics[0]?.productiveCalls ?? 0) ?? 0, customers: number(metrics[0]?.customers ?? 0) ?? 0, reps: number(metrics[0]?.reps ?? 0) ?? 0, netSales: metrics[0]?.netSales ?? 0, averageDuration: metrics[0]?.averageDuration ?? null, latestCallDate: metrics[0]?.latestCallDate?.toISOString() ?? null },
       daily: daily.map((r) => ({ date: r.date.toISOString().slice(0, 10), calls: number(r.calls) ?? 0, productiveCalls: number(r.productiveCalls) ?? 0, netSales: r.netSales })),
       hourly: hourly.map((r) => ({ hour: r.hour, calls: number(r.calls) ?? 0, netSales: r.netSales })),
       segments: segments.map((r) => ({ segment: r.segment ?? "Unassigned", calls: number(r.calls) ?? 0, productiveCalls: number(r.productiveCalls) ?? 0, netSales: r.netSales })),
