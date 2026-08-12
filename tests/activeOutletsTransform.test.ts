@@ -77,6 +77,11 @@ describe("resolveCostCentre", () => {
   it("returns null when the resolved brand has no matching Active principal", () => {
     expect(resolveCostCentre("MARS123", [principal({ principal: "Mars-Nairobi", status: "Past" })])).toBeNull();
   });
+
+  it("uses the canonical SKU mapping when the live worker cannot reach the optional principal reference database", () => {
+    expect(resolveCostCentre("BIC123", [])?.principal).toBe("Bic-Nairobi");
+    expect(resolveCostCentre("KBL123", [])?.principal).toBe("EABL-Nyahururu");
+  });
 });
 
 function outlet(overrides: Partial<OutletRow>): OutletRow {

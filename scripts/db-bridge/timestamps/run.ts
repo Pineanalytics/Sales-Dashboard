@@ -28,19 +28,36 @@ const BRIDGE_NAME = "timestamps";
 const ROLLING_WINDOW_DAYS = 2;
 const BATCH_SIZE = 2000;
 
+function nairobiCalendarDay(now: Date): Date {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(now)
+    .filter((part) => part.type !== "literal");
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  // This is a UTC midnight *date marker*, deliberately matching RepCall.date's
+  // normalized storage convention rather than the Nairobi-midnight instant.
+  return new Date(Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day)));
+}
+
 function currentMonthStart(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const day = nairobiCalendarDay(now);
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), 1));
 }
 
 // How far back RepCall is allowed to keep rows. Kept wider than the current
 // month (unlike the rolling fetch window below) so the Timestamps page's
 // Month selector has more than the current month to offer.
 function retentionStart(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (TIMESTAMPS_RETENTION_MONTHS - 1), 1));
+  const day = nairobiCalendarDay(now);
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() - (TIMESTAMPS_RETENTION_MONTHS - 1), 1));
 }
 
 function rollingWindow(now: Date): { start: Date; end: Date; nextDay: Date } {
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const todayStart = nairobiCalendarDay(now);
   const lookbackStart = new Date(todayStart.getTime() - (ROLLING_WINDOW_DAYS - 1) * 86400000);
   const start = new Date(Math.max(currentMonthStart(now).getTime(), lookbackStart.getTime()));
   return { start, end: now, nextDay: new Date(todayStart.getTime() + 86400000) };
@@ -152,7 +169,11 @@ async function main() {
   try {
     principalsData = await loadPrincipals();
   } catch (error) {
-    console.warn("[timestamps] Could not load principal enrichment; continuing without cost-centre labels.", (error as Error).message);
+    // This bridge normally runs on a machine that cannot reach the dashboard
+    // database. Keep this non-fatal condition on stdout: PowerShell Task
+    // Scheduler treats native-process stderr as an error record and otherwise
+    // aborts the wrapper before the calls can be uploaded.
+    console.log("[timestamps] Could not load principal enrichment; continuing without cost-centre labels.", (error as Error).message);
   }
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
   const callRows = buildRepCalls(events, noSaleVisits, outlets, users);

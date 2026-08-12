@@ -66,6 +66,8 @@ export interface UnmappedTimestampEmployee {
   employeeCode: string;
   salesRep: string;
   callsThisMonth: number;
+  /** Temporary history-based display allocation; never a roster assignment. */
+  inferredPrincipal: string | null;
 }
 
 export interface TimestampSummaryData {
@@ -127,7 +129,7 @@ interface DateRow { date: string }
 interface RegionRow { region: string }
 interface TeamLeaderRow { teamLeader: string }
 interface MetricRow extends TimestampRoleStats { salesRole: string | null }
-interface UnmappedRow { employeeCode: string; salesRep: string; callsThisMonth: number }
+interface UnmappedRow { employeeCode: string; salesRep: string; callsThisMonth: number; inferredPrincipal: string | null }
 type ChartRow = TimestampChartRow;
 
 const EMPTY_SQL = Prisma.sql``;
@@ -168,6 +170,25 @@ function absolutePrincipalMatchClause(principalKey: string, absolutePrincipal: P
   `;
 }
 
+/** A historical fallback for a true Employee Roaster gap only. Rostered reps
+ * always use absolutePrincipal, including mornings before their first sale. */
+function inferredPrincipalJoin(): Prisma.Sql {
+  return Prisma.sql`
+    LEFT JOIN LATERAL (
+      SELECT BTRIM(cost_centre."value") AS principal
+      FROM "RepCall" history
+      CROSS JOIN LATERAL unnest(string_to_array(history."costCentresBought", ',')) AS cost_centre("value")
+      WHERE em.id IS NULL
+        AND history."employeeCode" = r."employeeCode"
+        AND history."callOutcome" = 'Sale'
+        AND BTRIM(cost_centre."value") <> ''
+      GROUP BY BTRIM(cost_centre."value")
+      ORDER BY COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
+      LIMIT 1
+    ) inferred ON true
+  `;
+}
+
 /** Scope restriction shared by every query below, factored out so the
  * unmapped-employees worklist (getTimestampSummary) can reuse it without
  * going through sourceQuery's principal branching. */
@@ -203,7 +224,7 @@ function sourceQuery(
 ): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
   const { start, end } = monthRange;
   const teamClause = scopeClause(scope);
-  const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`;
+  const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode" ${principalKey ? inferredPrincipalJoin() : EMPTY_SQL}`;
   const salesRole = Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`;
 
   if (!principalKey) {
@@ -222,9 +243,10 @@ function sourceQuery(
   // visible in the unfiltered view above and in the General Team Leader
   // bucket below.
   const absolutePrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`);
+  const inferredPrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`);
   return {
     from,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND ${absolutePrincipalMatch} ${teamClause}`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
     salesRole,
   };
 }
@@ -406,9 +428,10 @@ export async function getTimestampSummary(
     // only, so it doesn't disappear the moment someone filters to a single
     // date. See UnmappedTimestampEmployee's own comment for why this exists.
     prisma.$queryRaw<UnmappedRow[]>(Prisma.sql`
-      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", COUNT(*)::integer AS "callsThisMonth"
+      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", COUNT(*)::integer AS "callsThisMonth", MAX(inferred.principal) AS "inferredPrincipal"
       FROM "RepCall" r
       LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+      ${inferredPrincipalJoin()}
       WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND em.id IS NULL ${scopeClause(scope)}
       GROUP BY r."employeeCode"
       ORDER BY "callsThisMonth" DESC

@@ -87,6 +87,39 @@ const SQL_PRODUCTS = `
 `;
 
 const ID_QUERY_BATCH_SIZE = 1000;
+const PINE_TIME_ZONE = "Africa/Nairobi";
+
+/** The Pine MySQL datetime columns are Nairobi wall-clock values.  MySQL
+ * parameters are strings with no offset, so sending Date#toISOString() makes
+ * a 12:35 Nairobi cutoff read as 09:35 and omits the latest three hours of
+ * sales/orders. */
+function pineTimeParts(value: Date): Record<string, string> {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: PINE_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(value)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+}
+
+export function formatPineLocalDate(value: Date): string {
+  const parts = pineTimeParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function formatPineLocalDateTime(value: Date): string {
+  const parts = pineTimeParts(value);
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
 
 function uniqueIds(ids: Iterable<string>): string[] {
   return Array.from(new Set(ids)).filter(Boolean);
@@ -228,12 +261,12 @@ export async function fetchProductsByIds(conn: Connection, ids: Iterable<string>
 }
 
 async function fetchLines(conn: Connection, sql: string, isOrder: boolean, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
-  const start = startDate.toISOString().slice(0, 10);
+  const start = formatPineLocalDate(startDate);
   // Full timestamp, not just a date — endDate is often "now" (or "today, end of day"),
   // and truncating it to a bare date turns `< end` into "< today's midnight," silently
   // excluding every sale/order made today. This was the root cause of today's data
   // never showing up as productive calls until the following day's sync.
-  const end = endDate.toISOString().slice(0, 19).replace("T", " ");
+  const end = formatPineLocalDateTime(endDate);
   const [rows] = await conn.query<(RowDataPacket & { doc_id: number; purchase_time: Date; user_id: number; customer_id: number; item_id: number; qty: number; unit_price: number })[]>(
     sql,
     [start, end]
@@ -302,8 +335,8 @@ export async function fetchNoSaleVisits(
   startDate: Date,
   endDate: Date
 ): Promise<NoSaleVisitRow[]> {
-  const start = startDate.toISOString().slice(0, 10);
-  const end = endDate.toISOString().slice(0, 10);
+  const start = formatPineLocalDate(startDate);
+  const end = formatPineLocalDate(endDate);
   const reasonSelect = columns.reason ? `, \`${columns.reason}\` AS reason` : "";
   const sql = `SELECT \`${columns.id}\` AS visit_id, \`${columns.date}\` AS visit_time, \`${columns.uid}\` AS user_id, \`${columns.cid}\` AS customer_id${reasonSelect}
                FROM pine.nosales

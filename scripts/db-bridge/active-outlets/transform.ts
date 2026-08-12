@@ -77,7 +77,21 @@ export function resolveCostCentre(sapCode: string, principals: PrincipalRow[]): 
   if (!brand) return null;
   const cleanedBrand = brand.trim().replace(/\.$/, "");
   const fixedKey = applyFixups(`${cleanedBrand}-Nairobi`);
-  return activeByKey.get(fixedKey) ?? null;
+  const referencePrincipal = activeByKey.get(fixedKey);
+  if (referencePrincipal) return referencePrincipal;
+  // The Pine-connected worker cannot normally reach the dashboard's Postgres
+  // reference database. Preserve the canonical SKU-prefix classification in
+  // that case; unknown prefixes still remain genuinely unallocated.
+  if (principals.length > 0) return null;
+  return {
+    key: `inferred:${fixedKey}`,
+    principal: fixedKey,
+    mainPrincipal: cleanedBrand,
+    location: "Nairobi",
+    locationCode: "",
+    status: "Active",
+    teamLeader: "",
+  };
 }
 
 // ---------------------------------------------------------------------------

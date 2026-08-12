@@ -85,6 +85,7 @@ interface UnmappedEmployee {
   employeeCode: string;
   salesRep: string;
   callsThisMonth: number;
+  inferredPrincipal: string | null;
 }
 
 interface TimestampSummaryResponse {
@@ -222,7 +223,7 @@ function UnmappedEmployeesNote({ unmappedEmployees }: { unmappedEmployees: Unmap
       {unmappedEmployees.length} employee(s) with real Timestamps activity this month aren&apos;t in the roster yet (shown as &quot;General&quot;) — largest:{" "}
       {unmappedEmployees
         .slice(0, 5)
-        .map((u) => `${u.salesRep} (${u.employeeCode}, ${u.callsThisMonth} calls)`)
+        .map((u) => `${u.salesRep} (${u.employeeCode}, ${u.inferredPrincipal ?? "no sale principal yet"}, ${u.callsThisMonth} calls)`)
         .join(", ")}
       .
     </p>
