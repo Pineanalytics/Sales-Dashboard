@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { Session } from "next-auth";
 import Image from "next/image";
 import {
   Navigation20Regular,
-  ArrowUpload20Regular,
   History20Regular,
   Warning20Regular,
   PersonCircle20Regular,
@@ -13,33 +12,21 @@ import {
   Shield20Regular,
 } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
-import { Spinner } from "@/components/ui/Spinner";
 import { signOutAction } from "@/app/actions";
 import { SearchBar } from "./SearchBar";
 import Link from "next/link";
 
 export function Header({ user }: { user: Session["user"] | null }) {
   const dataset = useDashboardStore((s) => s.dataset);
-  const status = useDashboardStore((s) => s.status);
   const error = useDashboardStore((s) => s.error);
   const history = useDashboardStore((s) => s.history);
-  const uploadFile = useDashboardStore((s) => s.uploadFile);
   const fetchHistory = useDashboardStore((s) => s.fetchHistory);
   const fetchSnapshot = useDashboardStore((s) => s.fetchSnapshot);
   const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const uploading = status === "loading";
   const isAdmin = user?.role === "ADMIN";
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    await uploadFile(file);
-  }
 
   function toggleHistory() {
     if (!historyOpen) fetchHistory();
@@ -119,26 +106,6 @@ export function Header({ user }: { user: Session["user"] | null }) {
               </div>
             ) : null}
           </div>
-
-          {isAdmin ? (
-            <>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="shrink-0 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-3.5 py-2 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-60 transition-all duration-300 shadow-sm"
-              >
-                {uploading ? <Spinner className="h-3.5 w-3.5" /> : <ArrowUpload20Regular className="h-4 w-4" />}
-                <span className="hidden sm:inline">{uploading ? "Processing…" : "Upload Excel"}</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-            </>
-          ) : null}
 
           <div className="relative">
             <button
