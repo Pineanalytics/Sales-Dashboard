@@ -426,21 +426,27 @@ function SalesRoleSnapshot({ title, stats, tone, productiveDays }: { title: stri
 }
 
 function RepJourneyPanel({ detail, status, onClose }: { detail: RepDetailResponse | null; status: "loading" | "idle" | "error"; onClose: () => void }) {
+  const [expanded, setExpanded] = useState(false);
   const rep = detail?.rep;
   const visits = detail?.visits ?? [];
   const firstVisit = visits[0];
   const lastVisit = visits[visits.length - 1];
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-brand-navy/35 p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Sales rep visit details">
+    <div className={`fixed inset-0 z-50 flex bg-brand-navy/35 ${expanded ? "justify-center p-0" : "justify-end p-0 sm:p-4"}`} role="dialog" aria-modal="true" aria-label="Sales rep visit details">
       <button className="absolute inset-0 cursor-default" aria-label="Close sales rep details" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl">
+      <aside className={`relative flex h-full w-full flex-col overflow-hidden bg-background shadow-2xl ${expanded ? "max-w-none" : "max-w-5xl sm:rounded-2xl"}`}>
         <div className="flex items-start justify-between border-b border-border bg-surface px-5 py-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-primary-blue">Sales rep journey</p>
             <h2 className="mt-1 text-xl font-bold text-brand-navy">{rep?.salesRep ?? "Loading rep detail…"}</h2>
             {rep ? <p className="mt-1 text-xs text-muted">{rep.region} · {rep.salesRole} · {visits.length} outlet visit(s) from {firstVisit ? formatDateLabel(firstVisit.date) : "—"} to {lastVisit ? formatDateLabel(lastVisit.date) : "—"}</p> : null}
           </div>
-          <button onClick={onClose} className="rounded-full border border-border bg-background-elevated p-2 text-muted-strong hover:bg-surface-active hover:text-foreground" aria-label="Close sales rep details"><Dismiss12Regular /></button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setExpanded((value) => !value)} className="rounded-lg border border-border bg-background-elevated px-3 py-2 text-xs font-semibold text-brand-navy hover:bg-surface-active" aria-pressed={expanded}>
+              {expanded ? "Compress view" : "Expand full view"}
+            </button>
+            <button type="button" onClick={onClose} className="rounded-full border border-border bg-background-elevated p-2 text-muted-strong hover:bg-surface-active hover:text-foreground" aria-label="Close sales rep details"><Dismiss12Regular /></button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-5">

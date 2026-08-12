@@ -46,6 +46,22 @@ function rollingWindow(now: Date): { start: Date; end: Date; nextDay: Date } {
   return { start, end: now, nextDay: new Date(todayStart.getTime() + 86400000) };
 }
 
+/** A deliberate one-time replay can rebuild historical compressed visits from
+ * Pine's line-level data, including quantities in cases.  The normal scheduled
+ * run remains restricted to its inexpensive two-day window. */
+function syncWindow(now: Date): { start: Date; end: Date; nextDay: Date; isBackfill: boolean } {
+  const from = process.env.TIMESTAMPS_BACKFILL_FROM;
+  if (!from) return { ...rollingWindow(now), isBackfill: false };
+
+  const start = new Date(`${from}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) throw new Error("TIMESTAMPS_BACKFILL_FROM must be YYYY-MM-DD.");
+  const until = process.env.TIMESTAMPS_BACKFILL_TO;
+  const end = until ? new Date(`${until}T23:59:59.999Z`) : now;
+  if (Number.isNaN(end.getTime()) || end < start) throw new Error("TIMESTAMPS_BACKFILL_TO must be YYYY-MM-DD on or after TIMESTAMPS_BACKFILL_FROM.");
+  const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  return { start, end, nextDay: new Date(endDay.getTime() + 86400000), isBackfill: true };
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -102,9 +118,9 @@ async function main() {
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY - set it in .env (same value configured on the VPS).");
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const now = new Date();
-  const { start, end, nextDay } = rollingWindow(now);
+  const { start, end, nextDay, isBackfill } = syncWindow(now);
 
-  console.log(`[timestamps] Connecting to ${config.host}/${config.database} (rolling ${ROLLING_WINDOW_DAYS}-day window ${start.toISOString()} - ${end.toISOString()})...`);
+  console.log(`[timestamps] Connecting to ${config.host}/${config.database} (${isBackfill ? "backfill" : `rolling ${ROLLING_WINDOW_DAYS}-day`} window ${start.toISOString()} - ${end.toISOString()})...`);
   const { factLines, noSaleColumns, noSaleVisits, outlets, users, products } = await withCoverageConnection(config, async (conn) => {
     const factLines = await fetchFactLines(conn, start, end);
     const noSaleColumns = await resolveNoSalesColumns(conn);
