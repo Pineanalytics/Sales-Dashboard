@@ -63,12 +63,12 @@ export default function DormantStockPage() {
 
   if (status === "loading") return <FullPageSpinner label="Loading dormant stock…" />;
   if (status === "error") return <EmptyState icon={<Archive20Regular className="h-10 w-10" />} title="Couldn't load dormant stock" description="Try again shortly. The direct SAP stock sync may still be running." />;
-  if (items.length === 0) return <EmptyState icon={<Archive20Regular className="h-10 w-10" />} title="No dormant out-of-stock items" description="Items appear here only when their stock value is zero and they have had no invoice activity in the last three months." />;
+  if (items.length === 0) return <EmptyState icon={<Archive20Regular className="h-10 w-10" />} title="No dormant out-of-stock items" description="Items appear here only when their physical stock is zero and they have had no invoice activity in the last three months." />;
 
   return (
     <div className="flex flex-col gap-6">
       <SectionCard title="Dormant Out-of-Stock Items">
-        <p className="p-1 text-sm text-muted">Zero-value SKUs with no invoice activity in the preceding three months. They are excluded from operational Stock Balance while kept here for review. {sourceDate ? `SAP stock as at ${new Date(sourceDate).toLocaleDateString()}.` : ""}</p>
+        <p className="p-1 text-sm text-muted">Zero-piece SKUs with no invoice activity in the preceding three months. They are excluded from operational Stock Balance while kept here for review. {sourceDate ? `SAP stock as at ${new Date(sourceDate).toLocaleDateString()}.` : ""}</p>
       </SectionCard>
       <KpiGrid>
         <KpiCard accent="quarter" label="Dormant SKUs" value={formatNumber(scopedItems.length)} />

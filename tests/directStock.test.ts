@@ -53,6 +53,19 @@ describe("direct SAP stock transform", () => {
     expect(result.dormantItems).toEqual([expect.objectContaining({ item: "SKU-NAMELESS" })]);
   });
 
+  it("keeps zero-valued stock with physical pieces on hand in the operational list", () => {
+    const result = buildDirectStock(
+      [{ itemCode: "SKU-FREE", itemName: "Free stock", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 5, avgPrice: null, stockValue: 0 }],
+      [], [],
+      [{ itemNo: "SKU-FREE", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null }],
+      [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
+      [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
+      new Date("2026-08-13T00:00:00Z")
+    );
+    expect(result.items).toEqual([expect.objectContaining({ item: "Free stock", openingPcs: 5 })]);
+    expect(result.dormantItems).toEqual([]);
+  });
+
   it("compares direct rows to the Excel stock snapshot at principal-item grain", () => {
     const comparison = compareDirectStockToExcel(
       [

@@ -177,7 +177,10 @@ export function buildDirectStock(
 
   const aggregates = Array.from(byPrincipalItem.values());
   const dormantItems = aggregates
-    .filter((row) => row.openingValue <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
+    // The source workbook's SAP query excludes zero on-hand quantities. Use
+    // physical pieces—not accounting valuation—to identify true stock-outs:
+    // a free/zero-valued item still on hand must remain operational.
+    .filter((row) => row.openingPcs <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
     .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: finite(row.openingPcs), openingValue: finite(row.openingValue), lastSaleDate: row.lastSaleDate }));
   const activeItems = aggregates.filter((row) => !dormantItems.some((dormant) => dormant.principal === row.principal && dormant.item === row.item));
   return {
