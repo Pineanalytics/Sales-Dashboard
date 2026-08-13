@@ -112,13 +112,17 @@ export function buildDirectStock(
     const principal = principalByName.get(principalName);
     if (!principal) continue;
 
-    const key = `${principal.principal}|${row.itemName}`;
+    // SAP permits a stock master record without an item name. The SKU is a
+    // durable human-readable fallback and keeps that operational stock visible
+    // rather than making the whole snapshot invalid.
+    const item = row.itemName?.trim() || row.itemCode;
+    const key = `${principal.principal}|${item}`;
     const demand = row.whsCode ? demandByItemWarehouse.get(`${row.itemCode}|${row.whsCode}`) : undefined;
     let aggregate = byPrincipalItem.get(key);
     if (!aggregate) {
       aggregate = {
         principal: principal.principal,
-        item: row.itemName,
+        item,
         itemCode: row.itemCode,
         openingVolume: 0,
         openingPcs: 0,
@@ -152,13 +156,14 @@ export function buildDirectStock(
     const principalName = applyStockFixups(`${product.principal}-${location}`);
     const principal = principalByName.get(principalName);
     if (!principal) continue;
-    const key = `${principal.principal}|${demandRow.itemName}`;
+    const item = demandRow.itemName?.trim() || demandRow.itemCode;
+    const key = `${principal.principal}|${item}`;
     if (byPrincipalItem.has(key)) continue;
     const demand = demandByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`);
     if (!demand) continue;
     byPrincipalItem.set(key, {
       principal: principal.principal,
-      item: demandRow.itemName,
+      item,
       itemCode: demandRow.itemCode,
       openingVolume: 0,
       openingPcs: 0,

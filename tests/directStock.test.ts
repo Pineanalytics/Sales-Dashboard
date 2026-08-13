@@ -41,6 +41,18 @@ describe("direct SAP stock transform", () => {
     expect(result.dormantItems).toEqual([expect.objectContaining({ principal: "Mars-Nairobi", item: "Dormant widget", openingValue: 0, lastSaleDate: null })]);
   });
 
+  it("uses the SKU code when SAP has a stock row without an item name", () => {
+    const result = buildDirectStock(
+      [{ itemCode: "SKU-NAMELESS", itemName: "", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 }],
+      [], [],
+      [{ itemNo: "SKU-NAMELESS", packSize: 10, principal: "Mars", costPrice: null, classification: "", ssuConversion: null }],
+      [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
+      [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
+      new Date("2026-08-13T00:00:00Z")
+    );
+    expect(result.dormantItems).toEqual([expect.objectContaining({ item: "SKU-NAMELESS" })]);
+  });
+
   it("compares direct rows to the Excel stock snapshot at principal-item grain", () => {
     const comparison = compareDirectStockToExcel(
       [
@@ -54,5 +66,17 @@ describe("direct SAP stock transform", () => {
       "snapshot-1"
     );
     expect(comparison).toMatchObject({ excelRows: 2, matchedRows: 1, onlySapRows: 1, onlyExcelRows: 1, excelStockValue: 200, directStockValue: 160, stockValueVariancePct: -20 });
+  });
+
+  it("does not overstate matches when direct labels collapse to one dashboard item", () => {
+    const comparison = compareDirectStockToExcel(
+      [
+        { principal: "Mars-Nairobi", item: "Widget", openingValue: 100 },
+        { principal: "Mars-Mombasa", item: " widget ", openingValue: 0 },
+      ],
+      [{ principal: "Mars-Nairobi", key: "mars-nairobi", item: "Widget", openingVolume: 0, openingPcs: 0, openingValue: 100, rrWeekValue: 0, rrWeekVolume: 0, daysCover: 0, action: "âšª No Sales Data" }],
+      "snapshot-1"
+    );
+    expect(comparison).toMatchObject({ excelRows: 1, matchedRows: 1, onlySapRows: 0, onlyExcelRows: 0, directStockValue: 100 });
   });
 });

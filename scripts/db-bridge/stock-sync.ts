@@ -12,6 +12,14 @@ import { buildDirectStock } from "./transform/buildDirectStock";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
+function isNonBlankText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 async function main() {
   const config = loadConfigFromEnv();
   const apiKey = process.env.UPLOAD_API_KEY;
@@ -39,6 +47,21 @@ async function main() {
   const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate);
   if (result.items.length === 0) throw new Error("Direct SAP stock build produced zero dashboard rows; preserving the prior snapshot.");
   console.log(`[stock-sync] Built ${result.items.length} operational and ${result.dormantItems.length} dormant out-of-stock rows from ${stockRows.length} balance and ${demandRows.length} demand rows.`);
+
+  const invalidOperationalRow = result.items.find((row) =>
+    !isNonBlankText(row.itemCode) || !isNonBlankText(row.principal) || !isNonBlankText(row.item) || !isNonBlankText(row.action)
+    || !isFiniteNumber(row.openingVolume) || !isFiniteNumber(row.openingPcs) || !isFiniteNumber(row.openingValue)
+    || !isFiniteNumber(row.rrWeekValue) || !isFiniteNumber(row.rrWeekVolume) || !isFiniteNumber(row.daysCover)
+  );
+  const invalidDormantRow = result.dormantItems.find((row) =>
+    !isNonBlankText(row.itemCode) || !isNonBlankText(row.principal) || !isNonBlankText(row.item)
+    || !isFiniteNumber(row.openingPcs) || !isFiniteNumber(row.openingValue)
+    || (row.lastSaleDate !== null && Number.isNaN(row.lastSaleDate.getTime()))
+  );
+  if (invalidOperationalRow || invalidDormantRow) {
+    const invalid = invalidOperationalRow ?? invalidDormantRow;
+    throw new Error(`[stock-sync] Refusing invalid SAP stock row before upload: ${JSON.stringify(invalid)}`);
+  }
 
   const response = await fetch(`${appUrl}/api/stock/upload`, {
     method: "POST",

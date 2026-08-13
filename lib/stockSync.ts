@@ -29,13 +29,16 @@ function itemKey(principal: string, item: string): string {
  * has more value), and is null rather than misleading when Excel has no total. */
 export function compareDirectStockToExcel(directRows: DirectStockComparable[], excelItems: StockItem[], excelSnapshotId: string | null): StockComparison {
   const excelByKey = new Map(excelItems.map((row) => [itemKey(row.principal, row.item), row]));
+  // Direct SAP may contain separately stored operational and dormant rows whose
+  // labels normalize to the same dashboard grain. Reconciliation is about the
+  // distinct Principal x Item identities, never the raw storage-row count.
+  const directKeys = new Set(directRows.map((row) => itemKey(row.principal, row.item)));
   let matchedRows = 0;
   let onlySapRows = 0;
-  for (const row of directRows) {
-    if (excelByKey.has(itemKey(row.principal, row.item))) matchedRows++;
+  for (const key of directKeys) {
+    if (excelByKey.has(key)) matchedRows++;
     else onlySapRows++;
   }
-  const directKeys = new Set(directRows.map((row) => itemKey(row.principal, row.item)));
   const onlyExcelRows = excelItems.filter((row) => !directKeys.has(itemKey(row.principal, row.item))).length;
   const excelStockValue = excelItems.reduce((total, row) => total + row.openingValue, 0);
   const directStockValue = directRows.reduce((total, row) => total + row.openingValue, 0);
