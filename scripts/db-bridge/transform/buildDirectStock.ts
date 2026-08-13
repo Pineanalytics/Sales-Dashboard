@@ -25,6 +25,14 @@ function midnightUtc(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+/** SAP aggregate outputs should be numeric, but a null/invalid source value
+ * must never turn into JSON `null` via NaN and reject the entire complete
+ * snapshot. A non-finite operational measure has the conservative meaning 0;
+ * the source row remains visible for reconciliation instead of disappearing. */
+function finite(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
 /** Sundays are excluded, matching the current Standard Stock query's selling
  * calendar. Public-holiday exclusions remain intentionally empty until they are
  * supplied as an authoritative maintained list rather than guessed in code. */
@@ -122,14 +130,14 @@ export function buildDirectStock(
       };
       byPrincipalItem.set(key, aggregate);
     }
-    if (product.packSize && product.packSize !== 0) aggregate.openingVolume += row.onhandQty / product.packSize;
-    aggregate.openingPcs += row.onhandQty;
-    aggregate.openingValue += row.stockValue;
+    if (product.packSize && product.packSize !== 0) aggregate.openingVolume += finite(row.onhandQty / product.packSize);
+    aggregate.openingPcs += finite(row.onhandQty);
+    aggregate.openingValue += finite(row.stockValue);
     const recentSale = row.whsCode ? recentSaleByItemWarehouse.get(`${row.itemCode}|${row.whsCode}`) ?? null : null;
     if (recentSale && (!aggregate.lastSaleDate || recentSale > aggregate.lastSaleDate)) aggregate.lastSaleDate = recentSale;
     if (demand) {
-      aggregate.rrWeekValue += demand.rrWeekValue;
-      aggregate.rrWeekVolume += product.packSize && product.packSize !== 0 ? demand.rrWeekVolume / product.packSize : 0;
+      aggregate.rrWeekValue += finite(demand.rrWeekValue);
+      aggregate.rrWeekVolume += product.packSize && product.packSize !== 0 ? finite(demand.rrWeekVolume / product.packSize) : 0;
       aggregate.matchedDemand = true;
     }
   }
@@ -155,8 +163,8 @@ export function buildDirectStock(
       openingVolume: 0,
       openingPcs: 0,
       openingValue: 0,
-      rrWeekValue: demand.rrWeekValue,
-      rrWeekVolume: product.packSize && product.packSize !== 0 ? demand.rrWeekVolume / product.packSize : 0,
+      rrWeekValue: finite(demand.rrWeekValue),
+      rrWeekVolume: product.packSize && product.packSize !== 0 ? finite(demand.rrWeekVolume / product.packSize) : 0,
       lastSaleDate: recentSaleByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`) ?? null,
       matchedDemand: true,
     });
@@ -165,23 +173,28 @@ export function buildDirectStock(
   const aggregates = Array.from(byPrincipalItem.values());
   const dormantItems = aggregates
     .filter((row) => row.openingValue <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
-    .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: row.openingPcs, openingValue: row.openingValue, lastSaleDate: row.lastSaleDate }));
+    .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: finite(row.openingPcs), openingValue: finite(row.openingValue), lastSaleDate: row.lastSaleDate }));
   const activeItems = aggregates.filter((row) => !dormantItems.some((dormant) => dormant.principal === row.principal && dormant.item === row.item));
   return {
     matchedDemandRows: activeItems.filter((row) => row.matchedDemand).length,
     dormantItems,
     items: activeItems.map((row) => {
-      const daysCover = weightedCoverDays(row.openingValue, row.rrWeekValue);
+      const openingVolume = finite(row.openingVolume);
+      const openingPcs = finite(row.openingPcs);
+      const openingValue = finite(row.openingValue);
+      const rrWeekValue = finite(row.rrWeekValue);
+      const rrWeekVolume = finite(row.rrWeekVolume);
+      const daysCover = finite(weightedCoverDays(openingValue, rrWeekValue));
       return {
         itemCode: row.itemCode,
         principal: row.principal,
         key: normalizePrincipalKey(row.principal),
         item: row.item,
-        openingVolume: row.openingVolume,
-        openingPcs: row.openingPcs,
-        openingValue: row.openingValue,
-        rrWeekValue: row.rrWeekValue,
-        rrWeekVolume: row.rrWeekVolume,
+        openingVolume,
+        openingPcs,
+        openingValue,
+        rrWeekValue,
+        rrWeekVolume,
         daysCover,
         action: stockStatus(daysCover, row.openingValue, row.rrWeekValue),
       };
