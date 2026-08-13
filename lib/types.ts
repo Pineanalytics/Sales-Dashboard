@@ -127,6 +127,13 @@ export interface Dataset {
   monthlyPL: MonthlyPLRow[];
   stockTotal: StockTotal;
   stockItems: StockItem[];
+  /** Present only when the dashboard's operational stock has been replaced by
+   * the latest complete direct SAP snapshot. */
+  stockSource?: {
+    kind: "sap-direct";
+    sourceDate: string;
+    itemCount: number;
+  };
   reportMeta: ReportMeta;
   uploadedAt: string;
 }

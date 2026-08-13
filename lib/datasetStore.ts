@@ -5,7 +5,7 @@ import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { getMonthlyCoverageRollup } from "./jpAdherence";
-import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType } from "./types";
+import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
 // which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
@@ -330,21 +330,85 @@ async function overlayPL(dataset: Dataset): Promise<Dataset> {
   return { ...dataset, monthlyPL };
 }
 
+/** Promotes the latest complete direct SAP stock snapshot to the operational
+ * Stock Balance. Dormant zero-piece items deliberately live in
+ * DormantStockActual instead, so they cannot inflate the live action list. */
+async function overlayStock(dataset: Dataset): Promise<Dataset> {
+  const rows = await prisma.stockActual.findMany({ orderBy: { sourceDate: "desc" } });
+  if (rows.length === 0) return dataset;
+
+  const stockItems: StockItem[] = rows.map((row) => ({
+    principal: row.principal,
+    key: normalizePrincipalKey(row.principal),
+    item: row.item,
+    openingVolume: row.openingVolume,
+    openingPcs: row.openingPcs,
+    openingValue: row.openingValue,
+    rrWeekValue: row.rrWeekValue,
+    rrWeekVolume: row.rrWeekVolume,
+    daysCover: row.daysCover,
+    action: row.action,
+  }));
+  const sourceDate = rows.reduce((latest, row) => row.sourceDate > latest ? row.sourceDate : latest, rows[0].sourceDate);
+  return {
+    ...dataset,
+    stockItems,
+    stockTotal: stockTotalFromItems(stockItems),
+    stockSource: { kind: "sap-direct", sourceDate: sourceDate.toISOString(), itemCount: stockItems.length },
+  };
+}
+
 async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
   const withSales = await overlaySales(dataset);
-  const [withTargets, withPL, withCoverage, withBrandCustomer] = await Promise.all([
+  const [withTargets, withPL, withCoverage, withBrandCustomer, withStock] = await Promise.all([
     overlayTargets(withSales),
     overlayPL(dataset),
     overlayCoverage(dataset),
     overlayBrandCustomer(dataset),
+    overlayStock(dataset),
   ]);
   return {
     ...withTargets,
     monthlyPL: withPL.monthlyPL,
     monthlyCoverage: withCoverage.monthlyCoverage,
     monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,
+    stockItems: withStock.stockItems,
+    stockTotal: withStock.stockTotal,
+    stockSource: withStock.stockSource,
+  };
+}
+
+export function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
+  let volume = 0, pcs = 0, value = 0, rrWeekValue = 0, rrWeekVolume = 0;
+  let outOfStockCount = 0, runningOutCount = 0, okCount = 0, noDataCount = 0;
+  for (const item of stockItems) {
+    volume += item.openingVolume;
+    pcs += item.openingPcs;
+    value += item.openingValue;
+    rrWeekValue += item.rrWeekValue;
+    rrWeekVolume += item.rrWeekVolume;
+    const tier = item.action.includes("\u{1F534}") ? "bad" : item.action.includes("\u{1F7E1}") ? "warn" : item.action.includes("\u{1F7E2}") ? "good" : "nodata";
+    if (tier === "bad") outOfStockCount += 1;
+    else if (tier === "warn") runningOutCount += 1;
+    else if (tier === "good") okCount += 1;
+    else noDataCount += 1;
+  }
+  const daysStock = weightedCoverDays(value, rrWeekValue);
+  return {
+    volume,
+    pcs,
+    value,
+    rrWeekValue,
+    rrWeekVolume,
+    daysStock,
+    itemCount: stockItems.length,
+    outOfStockCount,
+    runningOutCount,
+    okCount,
+    noDataCount,
+    action: stockStatus(daysStock, value, rrWeekValue),
   };
 }
 
@@ -366,35 +430,7 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyPL = dataset.monthlyPL.filter((r) => principalKeys.has(r.principalKey));
   const stockItems = dataset.stockItems.filter((i) => principalKeys.has(i.key));
 
-  let totalVolume = 0, totalPcs = 0, totalValue = 0, totalRRValue = 0, totalRRVolume = 0;
-  let totalOOS = 0, totalRunningOut = 0, totalOK = 0, totalNoData = 0;
-  for (const item of stockItems) {
-    totalVolume += item.openingVolume;
-    totalPcs += item.openingPcs;
-    totalValue += item.openingValue;
-    totalRRValue += item.rrWeekValue;
-    totalRRVolume += item.rrWeekVolume;
-    const tier = item.action.includes("\u{1F534}") ? "bad" : item.action.includes("\u{1F7E1}") ? "warn" : item.action.includes("\u{1F7E2}") ? "good" : "nodata";
-    if (tier === "bad") totalOOS += 1;
-    else if (tier === "warn") totalRunningOut += 1;
-    else if (tier === "good") totalOK += 1;
-    else totalNoData += 1;
-  }
-  const totalDays = weightedCoverDays(totalValue, totalRRValue);
-  const stockTotal = {
-    volume: totalVolume,
-    pcs: totalPcs,
-    value: totalValue,
-    rrWeekValue: totalRRValue,
-    rrWeekVolume: totalRRVolume,
-    daysStock: totalDays,
-    itemCount: stockItems.length,
-    outOfStockCount: totalOOS,
-    runningOutCount: totalRunningOut,
-    okCount: totalOK,
-    noDataCount: totalNoData,
-    action: stockStatus(totalDays, totalValue, totalRRValue),
-  };
+  const stockTotal = stockTotalFromItems(stockItems);
 
   return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, stockTotal };
 }

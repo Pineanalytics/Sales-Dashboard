@@ -6,11 +6,11 @@ import type { DirectStockSyncStatus } from "@/lib/stockSync";
 function count(value: number | null): string { return value === null ? "—" : value.toLocaleString(); }
 function currency(value: number | null): string { return value === null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
 
-/** The switch-over control: makes it explicit that direct SAP stock is being
- * measured in parallel and prevents a quiet replacement of the Excel feed. */
+/** Shows the live SAP feed's freshness and the residual Excel reconciliation
+ * so admins retain the migration audit trail after the switch-over. */
 export function DirectStockSyncPanel({ status }: { status: DirectStockSyncStatus | null }) {
   return (
-    <SectionCard title="Direct SAP Stock Verification" action={<Badge tier="warn">Excel remains live</Badge>}>
+    <SectionCard title="Direct SAP Stock Verification" action={<Badge tier="good">SAP is live</Badge>}>
       {!status ? (
         <p className="px-4 py-5 text-sm text-muted">No direct SAP stock snapshot has completed yet.</p>
       ) : (
@@ -25,7 +25,7 @@ export function DirectStockSyncPanel({ status }: { status: DirectStockSyncStatus
               <tr><Td>Dormant out of stock</Td><Td align="right">{status.dormantOutOfStockRows.toLocaleString()} excluded</Td><Td align="right">—</Td><Td align="right">See Dormant OOS module</Td></tr>
             </tbody>
           </TableWrap>
-          <p className="text-xs text-muted">Source rows: {status.physicalSourceRows.toLocaleString()} physical-balance rows and {status.demandSourceRows.toLocaleString()} demand rows. Review this comparison before promoting SAP stock to the dashboard.</p>
+          <p className="text-xs text-muted">Source rows: {status.physicalSourceRows.toLocaleString()} physical-balance rows and {status.demandSourceRows.toLocaleString()} demand rows. SAP is the operational Stock Balance source; this comparison remains as an audit trail for the legacy Excel snapshot.</p>
         </div>
       )}
     </SectionCard>

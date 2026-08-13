@@ -105,6 +105,11 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      {dataset.stockSource?.kind === "sap-direct" && (
+        <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
+          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module.</p>
+        </SectionCard>
+      )}
       <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5 w-fit">
         {STATUS_TABS.map((tab) => (
           <button
