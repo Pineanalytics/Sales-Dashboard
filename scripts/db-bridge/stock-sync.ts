@@ -6,7 +6,7 @@ process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchStockBalance } from "./queries/stockBalance";
-import { fetchStandardStockDemand } from "./queries/standardStock";
+import { fetchRecentActiveSales, fetchStandardStockDemand } from "./queries/standardStock";
 import { loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildDirectStock } from "./transform/buildDirectStock";
 
@@ -19,31 +19,45 @@ async function main() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const asOfDate = new Date();
   const yearStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), 0, 1));
+  const activeSalesStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth() - 3, asOfDate.getUTCDate()));
 
   console.log(`[stock-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
-  const [{ stockRows, demandRows }, products, warehouses, principals] = await Promise.all([
+  const [{ stockRows, demandRows, recentSalesRows }, products, warehouses, principals] = await Promise.all([
     withConnection(config, async (pool) => {
-      const [stockRows, demandRows] = await Promise.all([
+      const [stockRows, demandRows, recentSalesRows] = await Promise.all([
         fetchStockBalance(pool, asOfDate),
         fetchStandardStockDemand(pool, yearStart, asOfDate),
+        fetchRecentActiveSales(pool, activeSalesStart, asOfDate),
       ]);
-      return { stockRows, demandRows };
+      return { stockRows, demandRows, recentSalesRows };
     }),
     loadProducts(),
     loadWarehouses(),
     loadPrincipals(),
   ]);
 
-  const result = buildDirectStock(stockRows, demandRows, products, warehouses, principals, asOfDate);
+  const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate);
   if (result.items.length === 0) throw new Error("Direct SAP stock build produced zero dashboard rows; preserving the prior snapshot.");
-  console.log(`[stock-sync] Built ${result.items.length} principal-item rows from ${stockRows.length} balance and ${demandRows.length} demand rows.`);
+  console.log(`[stock-sync] Built ${result.items.length} operational and ${result.dormantItems.length} dormant out-of-stock rows from ${stockRows.length} balance and ${demandRows.length} demand rows.`);
 
   const response = await fetch(`${appUrl}/api/stock/upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
     body: JSON.stringify({
       sourceDate: asOfDate.toISOString().slice(0, 10),
-      rows: result.items.map(({ key: _key, ...row }) => row),
+      rows: result.items.map((item) => ({
+        itemCode: item.itemCode,
+        principal: item.principal,
+        item: item.item,
+        openingVolume: item.openingVolume,
+        openingPcs: item.openingPcs,
+        openingValue: item.openingValue,
+        rrWeekValue: item.rrWeekValue,
+        rrWeekVolume: item.rrWeekVolume,
+        daysCover: item.daysCover,
+        action: item.action,
+      })),
+      dormantRows: result.dormantItems.map((row) => ({ ...row, lastSaleDate: row.lastSaleDate?.toISOString().slice(0, 10) ?? null })),
       physicalSourceRows: stockRows.length,
       demandSourceRows: demandRows.length,
       matchedDemandRows: result.matchedDemandRows,

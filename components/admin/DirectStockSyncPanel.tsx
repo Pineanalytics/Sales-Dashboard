@@ -22,6 +22,7 @@ export function DirectStockSyncPanel({ status }: { status: DirectStockSyncStatus
               <tr><Td>Dashboard stock rows</Td><Td align="right">{count(status.rowCount)}</Td><Td align="right">{count(status.excelRowCount)}</Td><Td align="right">{status.matchedExcelRows === null ? "—" : `${count(status.matchedExcelRows)} matched`}</Td></tr>
               <tr><Td>Stock value</Td><Td align="right">{currency(status.directStockValue)}</Td><Td align="right">{currency(status.excelStockValue)}</Td><Td align="right">{status.stockValueVariancePct === null ? "—" : `${status.stockValueVariancePct >= 0 ? "+" : ""}${status.stockValueVariancePct.toFixed(2)}%`}</Td></tr>
               <tr><Td>Unmatched items</Td><Td align="right">{count(status.onlySapRows)} SAP only</Td><Td align="right">{count(status.onlyExcelRows)} Excel only</Td><Td align="right">{status.matchedDemandRows.toLocaleString()} with demand</Td></tr>
+              <tr><Td>Dormant out of stock</Td><Td align="right">{status.dormantOutOfStockRows.toLocaleString()} excluded</Td><Td align="right">—</Td><Td align="right">See Dormant OOS module</Td></tr>
             </tbody>
           </TableWrap>
           <p className="text-xs text-muted">Source rows: {status.physicalSourceRows.toLocaleString()} physical-balance rows and {status.demandSourceRows.toLocaleString()} demand rows. Review this comparison before promoting SAP stock to the dashboard.</p>

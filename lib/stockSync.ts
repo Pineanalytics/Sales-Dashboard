@@ -66,6 +66,7 @@ export interface DirectStockSyncStatus {
   physicalSourceRows: number;
   demandSourceRows: number;
   matchedDemandRows: number;
+  dormantOutOfStockRows: number;
   excelSnapshotId: string | null;
   excelRowCount: number | null;
   matchedExcelRows: number | null;

@@ -16,6 +16,12 @@ export interface StandardStockDemandRow {
   lastSale: Date;
 }
 
+export interface RecentActiveSaleRow {
+  itemCode: string;
+  warehouseCode: string;
+  lastSaleDate: Date;
+}
+
 interface StandardStockDemandRecord {
   "Item Code": string;
   "Warehouse Code": string;
@@ -101,4 +107,30 @@ export async function fetchStandardStockDemand(
     firstSale: row["First Sale"],
     lastSale: row["Last Sale"],
   }));
+}
+
+/** Invoice activity, intentionally excluding credit notes: a return is not a
+ * fresh demand signal for whether an out-of-stock item should remain on the
+ * operational stock list. */
+export async function fetchRecentActiveSales(
+  pool: sql.ConnectionPool,
+  startDate: Date,
+  endDate: Date
+): Promise<RecentActiveSaleRow[]> {
+  const result = await pool
+    .request()
+    .input("StartDate", sql.Date, startDate.toISOString().slice(0, 10))
+    .input("EndDate", sql.Date, endDate.toISOString().slice(0, 10))
+    .query<{ "Item Code": string; "Warehouse Code": string; "Last Sale": Date }>(`
+      SELECT
+        T1."ItemCode" AS "Item Code",
+        T1."WhsCode" AS "Warehouse Code",
+        MAX(T0."TaxDate") AS "Last Sale"
+      FROM OINV T0
+      INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+      WHERE T0."CANCELED" = 'N'
+        AND T0."TaxDate" BETWEEN @StartDate AND @EndDate
+      GROUP BY T1."ItemCode", T1."WhsCode";
+    `);
+  return result.recordset.map((row) => ({ itemCode: row["Item Code"], warehouseCode: row["Warehouse Code"], lastSaleDate: row["Last Sale"] }));
 }

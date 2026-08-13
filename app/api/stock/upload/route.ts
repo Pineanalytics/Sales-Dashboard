@@ -19,6 +19,15 @@ interface StockUploadRow {
   action: string;
 }
 
+interface DormantStockUploadRow {
+  principal: string;
+  item: string;
+  itemCode: string;
+  openingPcs: number;
+  openingValue: number;
+  lastSaleDate: string | null;
+}
+
 function hasValidApiKey(req: NextRequest): boolean {
   const expected = process.env.UPLOAD_API_KEY;
   const provided = req.headers.get("x-upload-api-key");
@@ -44,6 +53,14 @@ function isValidRow(value: unknown): value is StockUploadRow {
     && finiteNumber(row.rrWeekValue) && finiteNumber(row.rrWeekVolume) && finiteNumber(row.daysCover);
 }
 
+function isValidDormantRow(value: unknown): value is DormantStockUploadRow {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return nonBlankText(row.principal) && nonBlankText(row.item) && nonBlankText(row.itemCode)
+    && finiteNumber(row.openingPcs) && finiteNumber(row.openingValue)
+    && (row.lastSaleDate === null || parseSourceDate(row.lastSaleDate) !== null);
+}
+
 function parseSourceDate(value: unknown): Date | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -62,20 +79,22 @@ export async function POST(req: NextRequest) {
   const payload = body as Record<string, unknown>;
   const sourceDate = parseSourceDate(payload.sourceDate);
   const rows = payload.rows;
+  const dormantRows = payload.dormantRows;
   const physicalSourceRows = payload.physicalSourceRows;
   const demandSourceRows = payload.demandSourceRows;
   const matchedDemandRows = payload.matchedDemandRows;
-  if (!sourceDate || !Array.isArray(rows) || rows.length === 0 || !rows.every(isValidRow)
+  if (!sourceDate || !Array.isArray(rows) || !Array.isArray(dormantRows) || rows.length === 0 || !rows.every(isValidRow) || !dormantRows.every(isValidDormantRow)
     || !Number.isInteger(physicalSourceRows) || !Number.isInteger(demandSourceRows) || !Number.isInteger(matchedDemandRows)) {
     return NextResponse.json({ error: "Stock payload is incomplete or contains invalid values." }, { status: 400 });
   }
 
   const stockRows = rows as StockUploadRow[];
+  const dormantStockRows = dormantRows as DormantStockUploadRow[];
   const distinctKeys = new Set(stockRows.map((row) => `${row.principal}\u0000${row.item}`));
   if (distinctKeys.size !== stockRows.length) return NextResponse.json({ error: "Direct stock contains duplicate Principal + Item rows." }, { status: 400 });
 
   try {
-    const comparison = await compareDirectStockToLatestExcel(stockRows);
+    const comparison = await compareDirectStockToLatestExcel([...stockRows, ...dormantStockRows]);
     await prisma.$transaction(async (tx) => {
       // Delete only after every validation and Excel comparison has completed;
       // one complete new snapshot always replaces one complete old snapshot.
@@ -83,6 +102,12 @@ export async function POST(req: NextRequest) {
       await tx.stockActual.createMany({
         data: stockRows.map((row) => ({ ...row, sourceDate })),
       });
+      await tx.dormantStockActual.deleteMany();
+      if (dormantStockRows.length > 0) {
+        await tx.dormantStockActual.createMany({
+          data: dormantStockRows.map((row) => ({ ...row, sourceDate, lastSaleDate: row.lastSaleDate ? parseSourceDate(row.lastSaleDate) : null })),
+        });
+      }
       await tx.stockSyncRun.create({
         data: {
           sourceDate,
@@ -90,6 +115,7 @@ export async function POST(req: NextRequest) {
           physicalSourceRows: physicalSourceRows as number,
           demandSourceRows: demandSourceRows as number,
           matchedDemandRows: matchedDemandRows as number,
+          dormantOutOfStockRows: dormantStockRows.length,
           excelSnapshotId: comparison.excelSnapshotId,
           excelRowCount: comparison.excelRows,
           matchedExcelRows: comparison.matchedRows,
@@ -102,7 +128,7 @@ export async function POST(req: NextRequest) {
       });
     });
     invalidateDatasetCache();
-    return NextResponse.json({ count: stockRows.length, comparison }, { status: 200 });
+    return NextResponse.json({ count: stockRows.length, dormantCount: dormantStockRows.length, comparison }, { status: 200 });
   } catch (error) {
     console.error("Failed to replace direct SAP stock snapshot", error);
     return NextResponse.json({ error: "Failed to save direct SAP stock snapshot." }, { status: 500 });

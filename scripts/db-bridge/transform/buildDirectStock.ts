@@ -5,12 +5,13 @@ import { stockStatus, weightedCoverDays } from "@/lib/parseWorkbook";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { StockItem } from "@/lib/types";
 import type { StockBalanceRow } from "../queries/stockBalance";
-import type { StandardStockDemandRow } from "../queries/standardStock";
+import type { RecentActiveSaleRow, StandardStockDemandRow } from "../queries/standardStock";
 import type { ProductRow } from "../reference/loadFromDb";
 import type { PrincipalRow, WarehouseRow } from "./buildMonthlySales";
 
 export interface DirectStockBuildResult {
   items: Array<StockItem & { itemCode: string }>;
+  dormantItems: Array<{ principal: string; item: string; itemCode: string; openingPcs: number; openingValue: number; lastSaleDate: Date | null }>;
   matchedDemandRows: number;
 }
 
@@ -58,9 +59,16 @@ function buildDemandIndex(rows: StandardStockDemandRow[], startDate: Date, endDa
   return index;
 }
 
+function threeMonthsBefore(date: Date): Date {
+  const result = midnightUtc(date);
+  result.setUTCMonth(result.getUTCMonth() - 3);
+  return result;
+}
+
 export function buildDirectStock(
   stockRows: StockBalanceRow[],
   demandRows: StandardStockDemandRow[],
+  recentSalesRows: RecentActiveSaleRow[],
   products: ProductRow[],
   warehouses: WarehouseRow[],
   principals: PrincipalRow[],
@@ -71,6 +79,8 @@ export function buildDirectStock(
   const principalByName = new Map(principals.map((principal) => [principal.principal, principal]));
   const startDate = new Date(Date.UTC(asOfDate.getUTCFullYear(), 0, 1));
   const demandByItemWarehouse = buildDemandIndex(demandRows, startDate, asOfDate);
+  const recentSaleByItemWarehouse = new Map(recentSalesRows.map((row) => [`${row.itemCode}|${row.warehouseCode}`, midnightUtc(row.lastSaleDate)]));
+  const dormantCutoff = threeMonthsBefore(asOfDate);
 
   interface Aggregate {
     principal: string;
@@ -81,6 +91,7 @@ export function buildDirectStock(
     openingValue: number;
     rrWeekValue: number;
     rrWeekVolume: number;
+    lastSaleDate: Date | null;
     matchedDemand: boolean;
   }
 
@@ -106,6 +117,7 @@ export function buildDirectStock(
         openingValue: 0,
         rrWeekValue: 0,
         rrWeekVolume: 0,
+        lastSaleDate: null,
         matchedDemand: false,
       };
       byPrincipalItem.set(key, aggregate);
@@ -113,6 +125,8 @@ export function buildDirectStock(
     if (product.packSize && product.packSize !== 0) aggregate.openingVolume += row.onhandQty / product.packSize;
     aggregate.openingPcs += row.onhandQty;
     aggregate.openingValue += row.stockValue;
+    const recentSale = row.whsCode ? recentSaleByItemWarehouse.get(`${row.itemCode}|${row.whsCode}`) ?? null : null;
+    if (recentSale && (!aggregate.lastSaleDate || recentSale > aggregate.lastSaleDate)) aggregate.lastSaleDate = recentSale;
     if (demand) {
       aggregate.rrWeekValue += demand.rrWeekValue;
       aggregate.rrWeekVolume += product.packSize && product.packSize !== 0 ? demand.rrWeekVolume / product.packSize : 0;
@@ -143,14 +157,20 @@ export function buildDirectStock(
       openingValue: 0,
       rrWeekValue: demand.rrWeekValue,
       rrWeekVolume: product.packSize && product.packSize !== 0 ? demand.rrWeekVolume / product.packSize : 0,
+      lastSaleDate: recentSaleByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`) ?? null,
       matchedDemand: true,
     });
   }
 
   const aggregates = Array.from(byPrincipalItem.values());
+  const dormantItems = aggregates
+    .filter((row) => row.openingValue <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
+    .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: row.openingPcs, openingValue: row.openingValue, lastSaleDate: row.lastSaleDate }));
+  const activeItems = aggregates.filter((row) => !dormantItems.some((dormant) => dormant.principal === row.principal && dormant.item === row.item));
   return {
-    matchedDemandRows: aggregates.filter((row) => row.matchedDemand).length,
-    items: aggregates.map((row) => {
+    matchedDemandRows: activeItems.filter((row) => row.matchedDemand).length,
+    dormantItems,
+    items: activeItems.map((row) => {
       const daysCover = weightedCoverDays(row.openingValue, row.rrWeekValue);
       return {
         itemCode: row.itemCode,

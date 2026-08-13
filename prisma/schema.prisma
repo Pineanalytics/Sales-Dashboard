@@ -378,6 +378,27 @@ model StockActual {
   @@index([principal])
 }
 
+// Zero-value stock positions with no invoice activity for the trailing three
+// months. Kept separate from StockActual so the operational Stock Balance page
+// stays actionable, while the historical/dormant exposure remains visible in
+// its own review module.
+model DormantStockActual {
+  id           String    @id @default(cuid())
+  sourceDate   DateTime
+  principal    String
+  item         String
+  itemCode     String
+  openingPcs   Float
+  openingValue Float
+  lastSaleDate DateTime?
+  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+
+  @@unique([principal, item])
+  @@index([principal])
+  @@index([lastSaleDate])
+}
+
 // Immutable audit of every complete direct SAP stock refresh.  The comparison
 // fields are measured against the most recent Excel Dataset snapshot at the
 // time of upload, giving Admin a visible, reviewable switch-over decision.
@@ -389,6 +410,7 @@ model StockSyncRun {
   physicalSourceRows    Int
   demandSourceRows      Int
   matchedDemandRows     Int
+  dormantOutOfStockRows Int
   excelSnapshotId       String?
   excelRowCount         Int?
   matchedExcelRows      Int?

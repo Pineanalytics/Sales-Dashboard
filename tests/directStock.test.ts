@@ -7,6 +7,7 @@ describe("direct SAP stock transform", () => {
     const result = buildDirectStock(
       [{ itemCode: "SKU-1", itemName: "Widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 20, avgPrice: 70, stockValue: 1400 }],
       [{ itemCode: "SKU-1", warehouseCode: "W1", itemName: "Widget", quantityUnits: 60, sumQuantitySquared: 0, salesValue: 600, sellingDays: 3, firstSale: new Date("2026-01-01T00:00:00Z"), lastSale: new Date("2026-01-07T00:00:00Z") }],
+      [{ itemCode: "SKU-1", warehouseCode: "W1", lastSaleDate: new Date("2026-01-07T00:00:00Z") }],
       [{ itemNo: "SKU-1", packSize: 10, principal: "Mars", costPrice: null, classification: "" , ssuConversion: null }],
       [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
       [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
@@ -25,6 +26,19 @@ describe("direct SAP stock transform", () => {
       daysCover: 14,
       action: "🟢 OK",
     })]);
+  });
+
+  it("moves zero-value items with no invoice in three months to the dormant overview", () => {
+    const result = buildDirectStock(
+      [{ itemCode: "SKU-2", itemName: "Dormant widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 }],
+      [], [],
+      [{ itemNo: "SKU-2", packSize: 10, principal: "Mars", costPrice: null, classification: "", ssuConversion: null }],
+      [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
+      [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
+      new Date("2026-08-13T00:00:00Z")
+    );
+    expect(result.items).toEqual([]);
+    expect(result.dormantItems).toEqual([expect.objectContaining({ principal: "Mars-Nairobi", item: "Dormant widget", openingValue: 0, lastSaleDate: null })]);
   });
 
   it("compares direct rows to the Excel stock snapshot at principal-item grain", () => {
