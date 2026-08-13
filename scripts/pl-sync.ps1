@@ -27,9 +27,16 @@ function Write-Log {
 }
 
 Set-Location -Path $ProjectPath
+$tunnel = $null
 
 try {
     Write-Log "Starting P&L sync..."
+    . "$PSScriptRoot\production-reference-tunnel.ps1"
+    # P&L can overlap the top-of-hour Active Outlets job; use its own local
+    # forward so the two bridges never contend for the same listener.
+    $tunnel = Open-ProductionReferenceTunnel -LocalPgPort 5435
+    $env:DATABASE_URL = $tunnel.DatabaseUrl
+    $env:DIRECT_URL = $tunnel.DatabaseUrl
     & node --import tsx "scripts\pl-bridge\run.ts"
     if ($LASTEXITCODE -ne 0) {
         throw "pl-bridge/run.ts exited with code $LASTEXITCODE"
@@ -39,4 +46,9 @@ try {
 catch {
     Write-Log "FAILED: $($_.Exception.Message)"
     throw
+}
+finally {
+    Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:\DIRECT_URL -ErrorAction SilentlyContinue
+    Close-ProductionReferenceTunnel $tunnel
 }

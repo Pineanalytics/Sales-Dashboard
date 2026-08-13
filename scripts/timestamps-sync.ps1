@@ -22,9 +22,15 @@ function Write-Log {
 }
 
 Set-Location -Path $ProjectPath
+$tunnel = $null
 
 try {
     Write-Log "Starting Timestamps sync..."
+    . "$PSScriptRoot\production-reference-tunnel.ps1"
+    # The five-minute worker must not compete with any longer hourly bridge.
+    $tunnel = Open-ProductionReferenceTunnel -LocalPgPort 5437
+    $env:DATABASE_URL = $tunnel.DatabaseUrl
+    $env:DIRECT_URL = $tunnel.DatabaseUrl
     & node --import tsx "scripts\db-bridge\timestamps\run.ts"
     if ($LASTEXITCODE -ne 0) {
         throw "timestamps/run.ts exited with code $LASTEXITCODE"
@@ -34,4 +40,9 @@ try {
 catch {
     Write-Log "FAILED: $($_.Exception.Message)"
     throw
+}
+finally {
+    Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:\DIRECT_URL -ErrorAction SilentlyContinue
+    Close-ProductionReferenceTunnel $tunnel
 }

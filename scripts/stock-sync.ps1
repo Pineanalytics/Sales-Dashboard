@@ -11,7 +11,7 @@ param(
   # configuration. Read only the needed values into this process so the current
   # checked-in code can run without duplicating secrets into another .env file.
   [string]$SourceEnvPath = "D:\Reports & Extractions\Sales Dashboard\.env",
-  [string]$SshKey = "$HOME/.ssh/pinefrost_hostinger",
+  [string]$SshKey = "$env:USERPROFILE/.ssh/pinefrost_hostinger",
   [string]$SshTarget = "root@187.77.80.216",
   [int]$LocalPgPort = 5434
 )
@@ -29,16 +29,17 @@ try {
       Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim('"')
     }
   }
-  $pgIp = (& ssh -i $SshKey $SshTarget "docker inspect pinefrost-postgres-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'").Trim()
+  $sshOptions = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2")
+  $pgIp = (& ssh @sshOptions $SshTarget "docker inspect pinefrost-postgres-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'").Trim()
   if (-not $pgIp) { throw "Could not determine the VPS Postgres container IP." }
   $creds = @{}
-  foreach ($line in (& ssh -i $SshKey $SshTarget "grep -E '^(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)=' /opt/pinefrost/.env")) {
+  foreach ($line in (& ssh @sshOptions $SshTarget "grep -E '^(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)=' /opt/pinefrost/.env")) {
     $parts = $line -split '=', 2
     if ($parts.Length -eq 2) { $creds[$parts[0]] = $parts[1].Trim('"') }
   }
   foreach ($key in @("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")) { if (-not $creds.ContainsKey($key)) { throw "Could not read $key from VPS .env." } }
 
-  $tunnelJob = Start-Job -ScriptBlock { param($Key, $Target, $Port, $PgIp); & ssh -i $Key -N -o StrictHostKeyChecking=accept-new -L "${Port}:${PgIp}:5432" $Target } -ArgumentList $SshKey, $SshTarget, $LocalPgPort, $pgIp
+  $tunnelJob = Start-Job -ScriptBlock { param($Key, $Target, $Port, $PgIp); & ssh -i $Key -N -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -L "${Port}:${PgIp}:5432" $Target } -ArgumentList $SshKey, $SshTarget, $LocalPgPort, $pgIp
   $ready = $false
   for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; if ((Test-NetConnection -ComputerName localhost -Port $LocalPgPort -WarningAction SilentlyContinue).TcpTestSucceeded) { $ready = $true; break } }
   if (-not $ready) { throw "Postgres tunnel on localhost:$LocalPgPort never came up." }

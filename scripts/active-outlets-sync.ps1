@@ -32,9 +32,15 @@ function Write-Log {
 }
 
 Set-Location -Path $ProjectPath
+$tunnel = $null
 
 try {
     Write-Log "Starting Active Outlets + Timestamps sync..."
+    . "$PSScriptRoot\production-reference-tunnel.ps1"
+    # Active Outlets can overlap P&L at 07:00/18:00.
+    $tunnel = Open-ProductionReferenceTunnel -LocalPgPort 5436
+    $env:DATABASE_URL = $tunnel.DatabaseUrl
+    $env:DIRECT_URL = $tunnel.DatabaseUrl
     & node --import tsx "scripts\db-bridge\active-outlets\run.ts"
     if ($LASTEXITCODE -ne 0) {
         throw "active-outlets/run.ts exited with code $LASTEXITCODE"
@@ -44,4 +50,9 @@ try {
 catch {
     Write-Log "FAILED: $($_.Exception.Message)"
     throw
+}
+finally {
+    Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:\DIRECT_URL -ErrorAction SilentlyContinue
+    Close-ProductionReferenceTunnel $tunnel
 }
