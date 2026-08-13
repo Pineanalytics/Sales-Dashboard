@@ -77,6 +77,9 @@ async function uploadEventsBatched(
       monthly: isFullMode && i === 0 ? monthlyRows : [],
       year,
       calendarMonthsElapsed,
+      // Full mode will derive all outlets once in finalizeFullResync. Avoid a
+      // complete touched-outlet recalculation for every transport batch.
+      deferDerivation: isFullMode,
     });
     if (!result.ok) {
       console.error(`[active-outlets] Upload batch ${i + 1}/${batches.length} FAILED:`, result.status, JSON.stringify(result.body));

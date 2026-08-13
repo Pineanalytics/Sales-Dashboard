@@ -362,6 +362,11 @@ export async function POST(req: NextRequest) {
   }
   const year = b.year;
   const calendarMonthsElapsed = b.calendarMonthsElapsed;
+  // A full resync can contain hundreds of transport batches. Its endpoint has
+  // a dedicated finalize pass that derives every outlet exactly once after all
+  // idempotent ledger inserts land; deriving the touched set after every
+  // upload batch repeats the same expensive aggregation hundreds of times.
+  const deferDerivation = b.deferDerivation === true;
 
   try {
     const touchedKeys = new Map<string, { year: string; principal: string; customerId: string }>();
@@ -372,12 +377,14 @@ export async function POST(req: NextRequest) {
         touchedKeys.set(`${r.year}|${r.principal}|${r.customerId}`, { year: r.year, principal: r.principal, customerId: r.customerId });
       }
     }
-    await deriveForTouchedKeys(Array.from(touchedKeys.values()), calendarMonthsElapsed);
+    if (!deferDerivation) {
+      await deriveForTouchedKeys(Array.from(touchedKeys.values()), calendarMonthsElapsed);
+    }
 
     for (let i = 0; i < monthly.length; i += CHUNK_SIZE) {
       await upsertMonthlyChunk(monthly.slice(i, i + CHUNK_SIZE));
     }
-    return NextResponse.json({ eventCount: events.length, outletsTouched: touchedKeys.size, monthlyCount: monthly.length }, { status: 200 });
+    return NextResponse.json({ eventCount: events.length, outletsTouched: touchedKeys.size, monthlyCount: monthly.length, deferredDerivation: deferDerivation }, { status: 200 });
   } catch (err) {
     console.error("Failed to upsert Active Outlets rows", err);
     return NextResponse.json({ error: "Failed to save Active Outlets data." }, { status: 500 });
