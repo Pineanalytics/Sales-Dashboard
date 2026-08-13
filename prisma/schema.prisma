@@ -410,7 +410,7 @@ model StockSyncRun {
   physicalSourceRows    Int
   demandSourceRows      Int
   matchedDemandRows     Int
-  dormantOutOfStockRows Int
+  dormantOutOfStockRows Int      @default(0)
   excelSnapshotId       String?
   excelRowCount         Int?
   matchedExcelRows      Int?
