@@ -120,6 +120,33 @@ export function buildDirectStock(
     }
   }
 
+  // A SKU can have sales demand before its first stock movement in the current
+  // warehouse history (or a warehouse row may not yet exist in OITW). Keep it
+  // visible as a zero-stock item rather than silently losing the order signal.
+  for (const demandRow of demandRows) {
+    const product = productByItemCode.get(demandRow.itemCode);
+    if (!product?.principal) continue;
+    const location = warehouseByCode.get(demandRow.warehouseCode)?.location ?? "Nairobi";
+    const principalName = applyStockFixups(`${product.principal}-${location}`);
+    const principal = principalByName.get(principalName);
+    if (!principal) continue;
+    const key = `${principal.principal}|${demandRow.itemName}`;
+    if (byPrincipalItem.has(key)) continue;
+    const demand = demandByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`);
+    if (!demand) continue;
+    byPrincipalItem.set(key, {
+      principal: principal.principal,
+      item: demandRow.itemName,
+      itemCode: demandRow.itemCode,
+      openingVolume: 0,
+      openingPcs: 0,
+      openingValue: 0,
+      rrWeekValue: demand.rrWeekValue,
+      rrWeekVolume: product.packSize && product.packSize !== 0 ? demand.rrWeekVolume / product.packSize : 0,
+      matchedDemand: true,
+    });
+  }
+
   const aggregates = Array.from(byPrincipalItem.values());
   return {
     matchedDemandRows: aggregates.filter((row) => row.matchedDemand).length,

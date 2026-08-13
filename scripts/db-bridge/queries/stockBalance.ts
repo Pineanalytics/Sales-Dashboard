@@ -33,37 +33,33 @@ export async function fetchStockBalance(pool: sql.ConnectionPool, asOfDate: Date
     .request()
     .input("AsAtDate", sql.Date, asAtDate)
     .query<StockBalanceRecord>(`
+      WITH Movements AS (
+        SELECT
+          "ItemCode",
+          "Warehouse" AS "Warehouse Code",
+          SUM("InQty" - "OutQty") AS "Onhand/Available Qty",
+          SUM("TransValue") AS "Stock Value"
+        FROM OINM
+        WHERE "DocDate" <= @AsAtDate
+        GROUP BY "ItemCode", "Warehouse"
+      )
       SELECT
-          T1."ItemCode",
-          T1."ItemName",
-          T3."ItmsGrpNam" AS "Item Group",
-          T4."FirmName" AS "Brand/Manufacturer",
-          MAX(T0."Warehouse") AS "Warehouse Code",
-          T2."WhsName" AS "WhsName",
-          SUM(T0."InQty" - T0."OutQty") AS "Onhand/Available Qty",
-          SUM(T0."TransValue") / NULLIF(SUM(T0."InQty" - T0."OutQty"), 0) AS "Avg Price",
-          SUM(T0."TransValue") AS "Stock Value"
-      FROM OINM T0
-      INNER JOIN OITM T1
-          ON T0."ItemCode" = T1."ItemCode"
-      LEFT OUTER JOIN OWHS T2
-          ON T0."Warehouse" = T2."WhsCode"
-      LEFT OUTER JOIN OITB T3
-          ON T1."ItmsGrpCod" = T3."ItmsGrpCod"
-      LEFT OUTER JOIN OMRC T4
-          ON T4."FirmCode" = T1."FirmCode"
-      WHERE
-          T0."DocDate" <= @AsAtDate
-      GROUP BY
-          T1."ItemCode",
-          T1."ItemName",
-          T2."WhsName",
-          T3."ItmsGrpNam",
-          T4."FirmName"
-      HAVING
-          SUM(T0."InQty" - T0."OutQty") <> 0
-      ORDER BY
-          T1."ItemCode";
+        T1."ItemCode",
+        T1."ItemName",
+        T3."ItmsGrpNam" AS "Item Group",
+        T4."FirmName" AS "Brand/Manufacturer",
+        T0."WhsCode" AS "Warehouse Code",
+        T2."WhsName" AS "WhsName",
+        COALESCE(M."Onhand/Available Qty", 0) AS "Onhand/Available Qty",
+        M."Stock Value" / NULLIF(M."Onhand/Available Qty", 0) AS "Avg Price",
+        COALESCE(M."Stock Value", 0) AS "Stock Value"
+      FROM OITW T0
+      INNER JOIN OITM T1 ON T0."ItemCode" = T1."ItemCode"
+      LEFT OUTER JOIN Movements M ON M."ItemCode" = T0."ItemCode" AND M."Warehouse Code" = T0."WhsCode"
+      LEFT OUTER JOIN OWHS T2 ON T0."WhsCode" = T2."WhsCode"
+      LEFT OUTER JOIN OITB T3 ON T1."ItmsGrpCod" = T3."ItmsGrpCod"
+      LEFT OUTER JOIN OMRC T4 ON T4."FirmCode" = T1."FirmCode"
+      ORDER BY T1."ItemCode";
     `);
 
   return result.recordset.map((r) => ({
@@ -73,8 +69,8 @@ export async function fetchStockBalance(pool: sql.ConnectionPool, asOfDate: Date
     brand: r["Brand/Manufacturer"],
     whsCode: r["Warehouse Code"],
     whsName: r.WhsName,
-    onhandQty: r["Onhand/Available Qty"],
+    onhandQty: r["Onhand/Available Qty"] ?? 0,
     avgPrice: r["Avg Price"],
-    stockValue: r["Stock Value"],
+    stockValue: r["Stock Value"] ?? 0,
   }));
 }
