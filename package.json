@@ -17,6 +17,7 @@
     "db-bridge:coverage-compare": "tsx scripts/db-bridge/coverage/compare.ts",
     "pl:sync": "tsx scripts/pl-bridge/run.ts",
     "sales:sync": "tsx scripts/db-bridge/sales-sync.ts",
+    "stock:sync": "tsx scripts/db-bridge/stock-sync.ts",
     "active-outlets:sync": "tsx scripts/db-bridge/active-outlets/run.ts",
     "timestamps:sync": "tsx scripts/db-bridge/timestamps/run.ts",
     "eabl-call-performance:sync": "tsx scripts/db-bridge/eabl-call-performance/run.ts",

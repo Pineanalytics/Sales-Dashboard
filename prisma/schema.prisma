@@ -353,6 +353,54 @@ model DailySalesActual {
   @@index([principal])
 }
 
+// Latest complete stock snapshot from the direct SAP bridge.  This deliberately
+// sits beside (rather than inside) Snapshot: Excel remains the dashboard source
+// while the direct feed is reconciled, so a partial or materially different SAP
+// result can never overwrite the user-visible stock position.
+model StockActual {
+  id             String   @id @default(cuid())
+  sourceDate     DateTime
+  principal      String
+  item           String
+  itemCode       String
+  openingVolume  Float
+  openingPcs     Float
+  openingValue   Float
+  rrWeekValue    Float
+  rrWeekVolume   Float
+  daysCover      Float
+  action         String
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@unique([principal, item])
+  @@index([sourceDate])
+  @@index([principal])
+}
+
+// Immutable audit of every complete direct SAP stock refresh.  The comparison
+// fields are measured against the most recent Excel Dataset snapshot at the
+// time of upload, giving Admin a visible, reviewable switch-over decision.
+model StockSyncRun {
+  id                    String   @id @default(cuid())
+  sourceDate            DateTime
+  completedAt           DateTime @default(now())
+  rowCount              Int
+  physicalSourceRows    Int
+  demandSourceRows      Int
+  matchedDemandRows     Int
+  excelSnapshotId       String?
+  excelRowCount         Int?
+  matchedExcelRows      Int?
+  onlySapRows           Int?
+  onlyExcelRows         Int?
+  excelStockValue       Float?
+  directStockValue      Float?
+  stockValueVariancePct Float?
+
+  @@index([completedAt])
+}
+
 // Canonical employee master imported from the Employee Roaster workbook. Pine's
 // Sales Rep Name and SAP's Sales Rep Name are intentionally both retained: Pine
 // drives operational activity (coverage, productivity, JPA, timestamps), while

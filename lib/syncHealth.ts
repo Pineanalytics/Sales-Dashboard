@@ -34,8 +34,9 @@ export interface SyncHealthRow {
  *  "actuals" freshness is already covered by the "timestamps" row above,
  *  since JP Adherence now reads RepCall directly. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, pl, activeOutletsWatermark, timestampsWatermark, jpAdherence] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, jpAdherence] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
+    prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
@@ -48,7 +49,8 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   }
 
   return [
-    row("sales", "Sales (SAP)", "Twice daily, 06:30 & 17:30", sales._max.updatedAt, 18),
+    row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60),
+    row("stock", "Stock (SAP direct, parallel)", "Hourly", stock?.completedAt ?? null, 2),
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
