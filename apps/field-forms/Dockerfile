@@ -25,6 +25,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/coaching-initial-outlet-sync.mjs ./scripts/coaching-initial-outlet-sync.mjs
+# The detached initial-sync worker runs outside Next's traced server bundle.
+# Include only its Supabase runtime dependencies, not the full development tree.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@supabase ./node_modules/@supabase
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tslib ./node_modules/tslib
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/iceberg-js ./node_modules/iceberg-js
 
 USER nextjs
 EXPOSE 3000
