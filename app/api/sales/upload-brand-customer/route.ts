@@ -13,6 +13,7 @@ interface MonthlyCustomerSalesUploadRow {
   month: string;
   monthIndex: number;
   principal: string;
+  brand: string;
   sapName: string;
   customerName: string;
   volume: number;
@@ -23,6 +24,7 @@ interface MonthlyCustomerSalesUploadRow {
 interface DailyCustomerSalesUploadRow {
   date: string;
   principal: string;
+  brand: string;
   sapName: string;
   customerName: string;
   volume: number;
@@ -52,7 +54,7 @@ function isMonthlyRow(value: unknown): value is MonthlyCustomerSalesUploadRow {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
   return (
-    isText(row.year) && isText(row.month) && Number.isInteger(row.monthIndex) && isText(row.principal) && isText(row.sapName) && isText(row.customerName) &&
+    isText(row.year) && isText(row.month) && Number.isInteger(row.monthIndex) && isText(row.principal) && isText(row.brand) && isText(row.sapName) && isText(row.customerName) &&
     isNumber(row.volume) && isNumber(row.revenue) && isNumber(row.grossProfit)
   );
 }
@@ -61,7 +63,7 @@ function isDailyRow(value: unknown): value is DailyCustomerSalesUploadRow {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
   return (
-    isText(row.date) && isText(row.principal) && isText(row.sapName) && isText(row.customerName) &&
+    isText(row.date) && isText(row.principal) && isText(row.brand) && isText(row.sapName) && isText(row.customerName) &&
     isNumber(row.volume) && isNumber(row.revenue) && isNumber(row.grossProfit)
   );
 }
@@ -69,12 +71,12 @@ function isDailyRow(value: unknown): value is DailyCustomerSalesUploadRow {
 async function upsertMonthlyChunk(rows: MonthlyCustomerSalesUploadRow[]) {
   const values = rows.map(
     (row) =>
-      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.principal}, ${row.sapName}, ${row.customerName}, ${row.volume}, ${row.revenue}, ${row.grossProfit}, now(), now())`
+      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.principal}, ${row.brand}, ${row.sapName}, ${row.customerName}, ${row.volume}, ${row.revenue}, ${row.grossProfit}, now(), now())`
   );
   await prisma.$executeRaw`
-    INSERT INTO "BrandCustomerActual" (id, year, month, "monthIndex", principal, "sapName", "customerName", volume, revenue, "grossProfit", "createdAt", "updatedAt")
+    INSERT INTO "BrandCustomerActual" (id, year, month, "monthIndex", principal, brand, "sapName", "customerName", volume, revenue, "grossProfit", "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
-    ON CONFLICT (year, month, principal, "sapName", "customerName")
+    ON CONFLICT (year, month, principal, brand, "sapName", "customerName")
     DO UPDATE SET
       "monthIndex" = EXCLUDED."monthIndex",
       volume = EXCLUDED.volume,
@@ -87,12 +89,12 @@ async function upsertMonthlyChunk(rows: MonthlyCustomerSalesUploadRow[]) {
 async function upsertDailyChunk(rows: DailyCustomerSalesUploadRow[]) {
   const values = rows.map(
     (row) =>
-      Prisma.sql`(${randomUUID()}, ${row.date}::date, ${row.principal}, ${row.sapName}, ${row.customerName}, ${row.volume}, ${row.revenue}, ${row.grossProfit}, now(), now())`
+      Prisma.sql`(${randomUUID()}, ${row.date}::date, ${row.principal}, ${row.brand}, ${row.sapName}, ${row.customerName}, ${row.volume}, ${row.revenue}, ${row.grossProfit}, now(), now())`
   );
   await prisma.$executeRaw`
-    INSERT INTO "DailyBrandCustomerActual" (id, date, principal, "sapName", "customerName", volume, revenue, "grossProfit", "createdAt", "updatedAt")
+    INSERT INTO "DailyBrandCustomerActual" (id, date, principal, brand, "sapName", "customerName", volume, revenue, "grossProfit", "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
-    ON CONFLICT (date, principal, "sapName", "customerName")
+    ON CONFLICT (date, principal, brand, "sapName", "customerName")
     DO UPDATE SET
       volume = EXCLUDED.volume,
       revenue = EXCLUDED.revenue,

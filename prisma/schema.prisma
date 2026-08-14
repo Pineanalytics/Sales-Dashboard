@@ -540,6 +540,7 @@ model BrandCustomerActual {
   month        String
   monthIndex   Int
   principal    String
+  brand        String   @default("Unspecified")
   sapName      String
   customerName String
   volume       Float
@@ -548,7 +549,7 @@ model BrandCustomerActual {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([year, month, principal, sapName, customerName])
+  @@unique([year, month, principal, brand, sapName, customerName])
   @@index([principal, year, month])
 }
 
@@ -559,6 +560,7 @@ model DailyBrandCustomerActual {
   id           String   @id @default(cuid())
   date         DateTime @db.Date
   principal    String
+  brand        String   @default("Unspecified")
   sapName      String
   customerName String
   volume       Float
@@ -567,7 +569,7 @@ model DailyBrandCustomerActual {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([date, principal, sapName, customerName])
+  @@unique([date, principal, brand, sapName, customerName])
   @@index([principal, date])
 }
 

@@ -12,6 +12,8 @@ export interface YtdRawRow {
   monthNo: number; // 1-12, as returned by SQL
   month: string;
   itemCode: string;
+  /** SAP item label. This is the source's lowest reliable product / brand dimension. */
+  brand: string;
   whsCode: string | null;
   sapName: string;
   customerName: string;
@@ -32,6 +34,7 @@ interface YtdRawRecord {
   "Month-Year": string;
   "Month Date": string;
   ItemCode: string;
+  Brand: string;
   WhsCode: string | null;
   "SAP Rep Name": string;
   "Customer Name": string;
@@ -76,6 +79,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'YTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -111,6 +115,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'YTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -144,6 +149,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'LYTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -179,6 +185,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'LYTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -215,6 +222,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
           FORMAT(DATEFROMPARTS(YEAR(SL.[Doc Date]), MONTH(SL.[Doc Date]), 1), 'MMM-yyyy') AS [Month-Year],
           DATEFROMPARTS(YEAR(SL.[Doc Date]), MONTH(SL.[Doc Date]), 1) AS [Month Date],
           SL.[Item Code] AS ItemCode,
+          SL.[Brand] AS Brand,
           SL.[Warehouse Code] AS WhsCode,
           COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)') AS [SAP Rep Name],
           COALESCE(NULLIF(LTRIM(RTRIM(SL.[Customer Name])), ''), '(Unknown Customer)') AS [Customer Name],
@@ -237,6 +245,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
           DATENAME(MONTH, SL.[Doc Date]),
           DATEFROMPARTS(YEAR(SL.[Doc Date]), MONTH(SL.[Doc Date]), 1),
           SL.[Item Code],
+          SL.[Brand],
           SL.[Warehouse Code],
           COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)'),
           COALESCE(NULLIF(LTRIM(RTRIM(SL.[Customer Name])), ''), '(Unknown Customer)'),
@@ -249,6 +258,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
     monthNo: r["Month No"],
     month: r.Month,
     itemCode: r.ItemCode,
+    brand: r.Brand,
     whsCode: r.WhsCode,
     sapName: r["SAP Rep Name"],
     customerName: r["Customer Name"],

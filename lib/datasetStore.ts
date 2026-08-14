@@ -180,8 +180,9 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
  *  month placeholder date, same as historical Excel rows), while the CURRENT
  *  month comes from DailyBrandCustomerActual's real per-day rows instead —
  *  never both, to avoid double-counting the same month at two granularities.
- *  Keyed to match parseMonthlyBrandCustomer's own aggregation key exactly:
- *  date|principalKey|salesEmployee|customerName. */
+ *  Keyed to the live product grain: date|principalKey|brand|salesEmployee|
+ *  customerName. When live SAP data exists for a customer/day, the older
+ *  spreadsheet aggregate is replaced in full so it cannot be counted twice. */
 async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   const now = new Date();
   const currentYear = String(now.getUTCFullYear());
@@ -200,6 +201,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
     month: string;
     monthIndex: number;
     principal: string;
+    brand: string;
     salesEmployee: string;
     customerName: string;
     volume: number;
@@ -211,13 +213,14 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   for (const r of monthlyRecords) {
     if (r.year === currentYear && r.monthIndex === currentMonthIndex) continue; // current month comes from the daily table instead
     const date = `${r.year}-${String(r.monthIndex + 1).padStart(2, "0")}-01`;
-    const key = `${date}|${normalizePrincipalKey(r.principal)}|${r.sapName}|${r.customerName}`;
+    const key = `${date}|${normalizePrincipalKey(r.principal)}|${r.brand}|${r.sapName}|${r.customerName}`;
     byKey.set(key, {
       date,
       year: r.year,
       month: r.month,
       monthIndex: r.monthIndex,
       principal: r.principal,
+      brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
       volume: r.volume,
@@ -229,13 +232,14 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   for (const r of dailyRecords) {
     const dateKey = r.date.toISOString().slice(0, 10);
     if (dateKey < currentMonthStart) continue; // pre-current-month days are already covered by the monthly aggregate above
-    const key = `${dateKey}|${normalizePrincipalKey(r.principal)}|${r.sapName}|${r.customerName}`;
+    const key = `${dateKey}|${normalizePrincipalKey(r.principal)}|${r.brand}|${r.sapName}|${r.customerName}`;
     byKey.set(key, {
       date: dateKey,
       year: String(r.date.getUTCFullYear()),
       month: CANONICAL_MONTHS[r.date.getUTCMonth()],
       monthIndex: r.date.getUTCMonth(),
       principal: r.principal,
+      brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
       volume: r.volume,
@@ -244,23 +248,14 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
     });
   }
 
-  const matchedKeys = new Set<string>();
-  const merged: MonthlyBrandCustomerRow[] = dataset.monthlyBrandCustomer.map((row) => {
-    const key = `${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`;
-    const db = byKey.get(key);
-    if (!db) return row;
-    matchedKeys.add(key);
-    return {
-      ...row,
-      volume: db.volume,
-      revenue: db.revenue,
-      grossProfit: db.grossProfit,
-      grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,
-    };
-  });
+  const snapshotKeysCoveredByLiveData = new Set(
+    Array.from(byKey.values(), (db) => `${db.date}|${normalizePrincipalKey(db.principal)}|${db.salesEmployee}|${db.customerName}`)
+  );
+  const merged: MonthlyBrandCustomerRow[] = dataset.monthlyBrandCustomer.filter(
+    (row) => !snapshotKeysCoveredByLiveData.has(`${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`)
+  );
 
-  for (const [key, db] of byKey) {
-    if (matchedKeys.has(key)) continue;
+  for (const db of byKey.values()) {
     merged.push({
       date: db.date,
       year: db.year,
@@ -268,6 +263,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
       monthIndex: db.monthIndex,
       principal: db.principal,
       principalKey: normalizePrincipalKey(db.principal),
+      brand: db.brand,
       salesEmployee: db.salesEmployee,
       customerName: db.customerName,
       volume: db.volume,

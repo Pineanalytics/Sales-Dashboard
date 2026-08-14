@@ -60,6 +60,8 @@ export interface MonthlyBrandCustomerRow {
   monthIndex: number;
   principal: string;
   principalKey: string;
+  /** Product/brand label from SAP Item Name when supplied by the live sales bridge. */
+  brand?: string;
   salesEmployee: string;
   customerName: string;
   volume: number;

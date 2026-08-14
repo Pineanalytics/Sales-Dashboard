@@ -175,6 +175,7 @@ export interface MonthlyCustomerSalesRow {
   month: string;
   monthIndex: number;
   principal: string;
+  brand: string;
   sapName: string;
   customerName: string;
   volume: number;
@@ -185,6 +186,7 @@ export interface MonthlyCustomerSalesRow {
 export interface DailyCustomerSalesRow {
   date: string;
   principal: string;
+  brand: string;
   sapName: string;
   customerName: string;
   volume: number;
@@ -210,12 +212,13 @@ export function buildMonthlyCustomerSales(
     const principal = activePrincipalByKey.get(applyFixups(`${product.principal}-${location}`));
     if (!principal) continue;
 
-    const key = `${row.year}|${row.monthNo}|${principal.principal}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
+    const key = `${row.year}|${row.monthNo}|${principal.principal}|${normalizeName(row.brand)}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
     const existing = byKey.get(key) ?? {
       year: String(row.year),
       month: CANONICAL_MONTHS[row.monthNo - 1],
       monthIndex: row.monthNo - 1,
       principal: principal.principal,
+      brand: row.brand,
       sapName: row.sapName,
       customerName: row.customerName,
       volume: 0,
@@ -246,10 +249,11 @@ export function buildDailyCustomerSales(
     const principal = activePrincipalByKey.get(applyFixups(`${product.principal}-${location}`));
     if (!principal) continue;
 
-    const key = `${row.date}|${principal.principal}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
+    const key = `${row.date}|${principal.principal}|${normalizeName(row.brand)}|${normalizeName(row.sapName)}|${normalizeName(row.customerName)}`;
     const existing = byKey.get(key) ?? {
       date: row.date,
       principal: principal.principal,
+      brand: row.brand,
       sapName: row.sapName,
       customerName: row.customerName,
       volume: 0,
@@ -284,6 +288,7 @@ export function dailyRowsToMonthlyInput(rows: DailySalesRawRow[]): YtdRawRow[] {
       monthNo,
       month: CANONICAL_MONTHS[monthNo - 1],
       itemCode: row.itemCode,
+      brand: row.brand,
       whsCode: row.whsCode,
       sapName: row.sapName,
       customerName: row.customerName,

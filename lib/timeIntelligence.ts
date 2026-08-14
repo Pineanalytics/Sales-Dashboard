@@ -586,6 +586,37 @@ export interface PrincipalBrandCustomerSummary {
   grossMarginPct: number | null;
 }
 
+export interface BrandCustomerSummary {
+  brand: string;
+  volume: number;
+  revenue: number;
+  grossProfit: number;
+  grossMarginPct: number | null;
+}
+
+/** Groups the live sales feed by its retained SAP item label. A principal is a
+ * filter for this view, never a stand-in for an actual brand/product. */
+export function summarizeBrandCustomerByBrand(
+  dataset: Dataset,
+  selection: PeriodSelection,
+  principalKey: string | null
+): BrandCustomerSummary[] {
+  const rows = filterBrandCustomer(dataset, selection, principalKey);
+  const byBrand = new Map<string, { brand: string; volume: number; revenue: number; grossProfit: number }>();
+  for (const r of rows) {
+    const brand = r.brand?.trim() || "Unspecified product";
+    const existing = byBrand.get(brand);
+    if (existing) {
+      existing.volume += r.volume;
+      existing.revenue += r.revenue;
+      existing.grossProfit += r.grossProfit;
+    } else {
+      byBrand.set(brand, { brand, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+    }
+  }
+  return Array.from(byBrand.values()).map((brand) => ({ ...brand, grossMarginPct: marginFrom(brand.revenue, brand.grossProfit) }));
+}
+
 /** Groups by the raw Principal string so same-brand different-location principals
  *  show as distinct slices/rows, matching the rest of the sales side. */
 export function summarizeBrandCustomerByPrincipal(

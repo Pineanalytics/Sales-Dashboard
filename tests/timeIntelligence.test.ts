@@ -13,6 +13,7 @@ import {
   summarizeCoverageTargetsForPeriod,
   summarizeCoverageByRep,
   summarizeBrandCustomerByCustomer,
+  summarizeBrandCustomerByBrand,
   summarizeBrandCustomerByRep,
   summarizeBrandCustomerByPrincipal,
   summarizeBrandCustomerForCurrentWeek,
@@ -75,6 +76,7 @@ function brandCustomerRow(overrides: Partial<MonthlyBrandCustomerRow>): MonthlyB
     monthIndex: 0,
     principal: "EABL-Nyeri",
     principalKey: "eabl",
+    brand: "EABL Lager 500ml",
     salesEmployee: "Jane Doe",
     customerName: "Cash Customer",
     volume: 0,
@@ -448,6 +450,18 @@ describe("brand & customer summaries", () => {
     const byPrincipal = summarizeBrandCustomerByPrincipal(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
     expect(byPrincipal).toHaveLength(1);
     expect(byPrincipal[0]).toMatchObject({ principal: "EABL-Nyeri", revenue: 50000 });
+  });
+
+  it("summarizeBrandCustomerByBrand keeps SAP brand/product labels separate within one principal", () => {
+    const byBrand = summarizeBrandCustomerByBrand(buildDataset({
+      monthlyBrandCustomer: [
+        brandCustomerRow({ brand: "Blue Band 500g", revenue: 100, grossProfit: 20 }),
+        brandCustomerRow({ brand: "Blue Band 500g", customerName: "Shop Two", revenue: 50, grossProfit: 5 }),
+        brandCustomerRow({ brand: "Royco 100g", revenue: 25, grossProfit: 4 }),
+      ],
+    }), { kind: "MTD", year: "2026", month: "January" }, "EABL-Nyeri");
+    expect(byBrand).toHaveLength(2);
+    expect(byBrand.find((row) => row.brand === "Blue Band 500g")).toMatchObject({ revenue: 150, grossProfit: 25 });
   });
 });
 

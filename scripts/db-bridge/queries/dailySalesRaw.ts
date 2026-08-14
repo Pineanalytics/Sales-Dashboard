@@ -11,6 +11,8 @@ import sql from "mssql";
 export interface DailySalesRawRow {
   date: string; // "YYYY-MM-DD"
   itemCode: string;
+  /** SAP item label. This is the source's lowest reliable product / brand dimension. */
+  brand: string;
   whsCode: string | null;
   sapName: string;
   customerName: string;
@@ -25,6 +27,7 @@ export interface DailySalesRawRow {
 interface DailySalesRawRecord {
   DocDate: Date;
   ItemCode: string;
+  Brand: string;
   WhsCode: string | null;
   "SAP Rep Name": string;
   "Customer Name": string;
@@ -62,6 +65,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
           SELECT
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -92,6 +96,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
           SELECT
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
+              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -119,6 +124,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
       SELECT
           SL.[Doc Date] AS DocDate,
           SL.[Item Code] AS ItemCode,
+          SL.[Brand] AS Brand,
           SL.[Warehouse Code] AS WhsCode,
           COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)') AS [SAP Rep Name],
           COALESCE(NULLIF(LTRIM(RTRIM(SL.[Customer Name])), ''), '(Unknown Customer)') AS [Customer Name],
@@ -136,6 +142,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
       GROUP BY
           SL.[Doc Date],
           SL.[Item Code],
+          SL.[Brand],
           SL.[Warehouse Code],
           COALESCE(NULLIF(LTRIM(RTRIM(SR.SlpName)), ''), '(Unassigned)'),
           COALESCE(NULLIF(LTRIM(RTRIM(SL.[Customer Name])), ''), '(Unknown Customer)'),
@@ -145,6 +152,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
   return result.recordset.map((r) => ({
     date: r.DocDate.toISOString().slice(0, 10),
     itemCode: r.ItemCode,
+    brand: r.Brand,
     whsCode: r.WhsCode,
     sapName: r["SAP Rep Name"],
     customerName: r["Customer Name"],
