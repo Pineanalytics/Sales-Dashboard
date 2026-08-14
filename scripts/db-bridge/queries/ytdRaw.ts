@@ -79,7 +79,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'YTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
-              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -105,6 +105,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T1.PriceBefDi AS [Price Before Discount]
           FROM OINV T0
           INNER JOIN INV1 T1 ON T0.DocEntry = T1.DocEntry
+          INNER JOIN OITM T2 ON T1.ItemCode = T2.ItemCode
           WHERE
               T0.CANCELED = 'N'
               AND T0.TaxDate BETWEEN @StartDate AND @EndDate
@@ -115,7 +116,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'YTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
-              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -139,6 +140,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T1.PriceBefDi AS [Price Before Discount]
           FROM ORIN T0
           INNER JOIN RIN1 T1 ON T0.DocEntry = T1.DocEntry
+          INNER JOIN OITM T2 ON T1.ItemCode = T2.ItemCode
           WHERE
               T0.CANCELED = 'N'
               AND T0.TaxDate BETWEEN @StartDate AND @EndDate
@@ -149,7 +151,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'LYTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
-              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -175,6 +177,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T1.PriceBefDi AS [Price Before Discount]
           FROM OINV T0
           INNER JOIN INV1 T1 ON T0.DocEntry = T1.DocEntry
+          INNER JOIN OITM T2 ON T1.ItemCode = T2.ItemCode
           WHERE
               T0.CANCELED = 'N'
               AND T0.TaxDate BETWEEN @LYStartDate AND @LYEndDate
@@ -185,7 +188,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               'LYTD' AS Period,
               T0.TaxDate AS [Doc Date],
               T1.ItemCode AS [Item Code],
-              COALESCE(NULLIF(LTRIM(RTRIM(T1.ItemName)), ''), '(Unspecified product)') AS [Brand],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.ItemName)), ''), '(Unspecified product)') AS [Brand],
               T1.WhsCode AS [Warehouse Code],
               T0.SlpCode AS [Salesperson Code],
               T0.CardName AS [Customer Name],
@@ -209,6 +212,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
               T1.PriceBefDi AS [Price Before Discount]
           FROM ORIN T0
           INNER JOIN RIN1 T1 ON T0.DocEntry = T1.DocEntry
+          INNER JOIN OITM T2 ON T1.ItemCode = T2.ItemCode
           WHERE
               T0.CANCELED = 'N'
               AND T0.TaxDate BETWEEN @LYStartDate AND @LYEndDate
