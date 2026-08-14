@@ -9,18 +9,49 @@ export interface KnownRep {
 }
 
 export async function getKnownPrincipals(): Promise<string[]> {
-  const [targetPrincipals, masterPrincipals, contributionPrincipals] = await Promise.all([
+  const [referencePrincipals, targetPrincipals, masterPrincipals, contributionPrincipals] = await Promise.all([
+    prisma.principal.findMany({ select: { principal: true }, distinct: ["principal"] }),
     prisma.target.findMany({ select: { principal: true }, distinct: ["principal"] }),
     prisma.employeeMaster.findMany({ where: { active: true }, select: { absolutePrincipal: true }, distinct: ["absolutePrincipal"] }),
     prisma.employeePrincipalContribution.findMany({ select: { principal: true }, distinct: ["principal"] }),
   ]);
   return Array.from(
     new Set([
+      ...referencePrincipals.map((p) => p.principal),
       ...masterPrincipals.map((p) => p.absolutePrincipal),
       ...contributionPrincipals.map((p) => p.principal),
       ...targetPrincipals.map((p) => p.principal),
     ])
   ).sort();
+}
+
+/**
+ * Selectable SAP salesperson names. The rep-actual tables are populated by the
+ * direct SAP bridge, so this list follows the names SAP is currently sending
+ * rather than relying on manually typed roster values. Existing roster and
+ * assignment values remain as a fallback for a historical rep whose SAP rows
+ * have aged out of the retained actuals window.
+ */
+export async function getKnownSapSalesReps(): Promise<string[]> {
+  const [dailyReps, monthlyReps, dailyCustomerReps, customerReps, masterReps, assignedReps] = await Promise.all([
+    prisma.dailySalesRepActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+    prisma.salesRepActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+    prisma.dailyBrandCustomerActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+    prisma.brandCustomerActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+    prisma.employeeMaster.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+    prisma.teamLeaderAssignment.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
+  ]);
+
+  return Array.from(
+    new Set([
+      ...dailyReps.map((row) => row.sapName),
+      ...monthlyReps.map((row) => row.sapName),
+      ...dailyCustomerReps.map((row) => row.sapName),
+      ...customerReps.map((row) => row.sapName),
+      ...masterReps.map((row) => row.sapName),
+      ...assignedReps.map((row) => row.sapName),
+    ].filter((name): name is string => typeof name === "string" && Boolean(name.trim())).map((name) => name.trim()))
+  ).sort((a, b) => a.localeCompare(b));
 }
 
 export async function getKnownMainPrincipals(): Promise<string[]> {

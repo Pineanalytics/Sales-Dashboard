@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { getKnownPrincipals, getKnownSapSalesReps } from "@/lib/adminReference";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
 
 const PAGE = "/admin/employee-master";
@@ -48,6 +49,13 @@ export async function saveEmployeeMasterAction(formData: FormData) {
 
   if (!employeeCode || !pineName || !absolutePrincipal || !teamLeaderName) {
     redirect(`${PAGE}?error=${encodeURIComponent("Employee code, Pine name, absolute principal, and Team Leader are required.")}`);
+  }
+  const [knownPrincipals, knownSapNames] = await Promise.all([getKnownPrincipals(), getKnownSapSalesReps()]);
+  if (!knownPrincipals.includes(absolutePrincipal)) {
+    redirect(`${PAGE}?error=${encodeURIComponent("Choose an available principal from the list.")}`);
+  }
+  if (!knownSapNames.includes(sapName)) {
+    redirect(`${PAGE}?error=${encodeURIComponent("Choose a SAP sales rep name from the live SAP list.")}`);
   }
   if (existing) await assertCanEditEmployee(editor, employeeCode);
 
