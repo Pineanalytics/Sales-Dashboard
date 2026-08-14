@@ -101,7 +101,7 @@ async function main() {
   stats.sourceRows = outlets.length;
   await updateRun({ message: `Reconciling ${outlets.length.toLocaleString()} active Analytics outlet relationships.`, stats });
   const [existingOutlets, references] = await Promise.all([
-    fetchAll("coaching_outlets", "id, outlet_code, is_active"),
+    fetchAll("coaching_outlets", "id, outlet_code, name, is_active"),
     ensureReferenceValues(outlets),
   ]);
   const sourceCountByCustomerId = new Map();
@@ -131,7 +131,13 @@ async function main() {
       continue;
     }
     if (sourceRow && legacyRow && sourceRow.id !== legacyRow.id && !isAmbiguousCustomer) {
-      archiveRows.push({ id: sourceRow.id, form_id: formId, outlet_code: archivedCode(sourceRow.id), is_active: false });
+      archiveRows.push({
+        id: sourceRow.id,
+        form_id: formId,
+        name: sourceRow.name,
+        outlet_code: archivedCode(sourceRow.id),
+        is_active: false,
+      });
       target = legacyRow;
       stats.archivedDuplicates++;
     } else if (!target && legacyRow) {
