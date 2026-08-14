@@ -14,21 +14,31 @@ function monthRange(month: string | null) {
   return { start, end };
 }
 
+function dayRange(date: string) {
+  const start = new Date(`${date}T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   const month = req.nextUrl.searchParams.get("month");
   if (month && !/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: '"month" must be YYYY-MM.' }, { status: 400 });
+  const selectedDate = req.nextUrl.searchParams.get("date");
+  if (selectedDate && !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return NextResponse.json({ error: '"date" must be YYYY-MM-DD.' }, { status: 400 });
   const rep = req.nextUrl.searchParams.get("rep")?.trim() || null;
   const segment = req.nextUrl.searchParams.get("segment")?.trim() || null;
   const { start, end } = monthRange(month);
-  const conditions = [Prisma.sql`"callDate" >= ${start}`, Prisma.sql`"callDate" < ${end}`];
+  const dateWindow = selectedDate ? dayRange(selectedDate) : null;
+  const conditions = [Prisma.sql`"callDate" >= ${dateWindow?.start ?? start}`, Prisma.sql`"callDate" < ${dateWindow?.end ?? end}`];
   if (rep) conditions.push(Prisma.sql`"salesman" = ${rep}`);
   if (segment) conditions.push(Prisma.sql`segment = ${segment}`);
   const where = Prisma.join(conditions, " AND ");
 
   try {
-    const [metrics, daily, hourly, segments, reps, filters, watermark] = await Promise.all([
+    const [metrics, daily, hourly, segments, reps, filters, availableDates, watermark] = await Promise.all([
       prisma.$queryRaw<Array<{ calls: bigint; productiveCalls: bigint; customers: bigint; reps: bigint; netSales: number; averageDuration: number | null; latestCallDate: Date | null }>>(Prisma.sql`
         SELECT COUNT(*) AS calls, COUNT(*) FILTER (WHERE "isProductive") AS "productiveCalls", COUNT(DISTINCT "customerName") AS customers,
           COUNT(DISTINCT salesman) AS reps, COALESCE(SUM("netSales"), 0)::double precision AS "netSales",
@@ -47,6 +57,7 @@ export async function GET(req: NextRequest) {
           COALESCE(SUM("netSales"),0)::double precision AS "netSales", AVG("durationMinutes")::double precision AS "averageDuration"
         FROM "EablCall" WHERE ${where} GROUP BY salesman ORDER BY "netSales" DESC, calls DESC`),
       Promise.all([prisma.eablCall.findMany({ distinct: ["salesman"], select: { salesman: true }, orderBy: { salesman: "asc" } }), prisma.eablCall.findMany({ distinct: ["segment"], select: { segment: true }, where: { segment: { not: null } }, orderBy: { segment: "asc" } })]),
+      prisma.eablCall.findMany({ where: { callDate: { gte: start, lt: end } }, distinct: ["callDate"], select: { callDate: true }, orderBy: { callDate: "desc" } }),
       prisma.syncWatermark.findUnique({ where: { bridge: "eabl-call-performance" }, select: { updatedAt: true } }),
     ]);
     const number = (value: bigint | number | null) => value === null ? null : Number(value);
@@ -57,7 +68,11 @@ export async function GET(req: NextRequest) {
       hourly: hourly.map((r) => ({ hour: r.hour, calls: number(r.calls) ?? 0, netSales: r.netSales })),
       segments: segments.map((r) => ({ segment: r.segment ?? "Unassigned", calls: number(r.calls) ?? 0, productiveCalls: number(r.productiveCalls) ?? 0, netSales: r.netSales })),
       reps: reps.map((r) => ({ ...r, calls: number(r.calls) ?? 0, productiveCalls: number(r.productiveCalls) ?? 0, customers: number(r.customers) ?? 0 })),
-      filters: { reps: filters[0].map((r) => r.salesman), segments: filters[1].flatMap((r) => r.segment ? [r.segment] : []) },
+      filters: {
+        reps: filters[0].map((r) => r.salesman),
+        segments: filters[1].flatMap((r) => r.segment ? [r.segment] : []),
+        dates: availableDates.map((r) => r.callDate.toISOString().slice(0, 10)),
+      },
       syncUpdatedAt: watermark?.updatedAt.toISOString() ?? null,
     });
   } catch (error) {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
@@ -11,6 +10,7 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
+import { SfaReportNavigator } from "@/components/timestamps/SfaReportNavigator";
 import { formatCompact, formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
 import {
   averageMinutes,
@@ -651,7 +651,8 @@ export default function TimestampsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard title="Timestamps" action={<div className="flex items-center gap-3"><Link href="/timestamps/eabl-call-performance" className="text-xs font-semibold text-primary-blue hover:underline">EABL Call Performance</Link><span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span></div>}>
+      <SfaReportNavigator current="Pine" />
+      <SectionCard title="SalesEdge timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span>}>
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">
