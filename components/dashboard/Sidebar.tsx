@@ -60,6 +60,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
 ];
 
+const COACHING_FORM_ID = "de8bc27c-c074-4220-a34c-6b07db02a61e";
+const COACHING_MANAGEMENT_URL = `https://app.pinefrostdb.com/admin/forms/${COACHING_FORM_ID}/coaching/management`;
+const COACHING_WORKSPACE_URL = `https://app.pinefrostdb.com/forms/${COACHING_FORM_ID}/coaching`;
+
 export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const pathname = usePathname();
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
@@ -82,6 +86,10 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const isAdmin = user?.role === "ADMIN";
   const isTeamLeader = user?.role === "TEAM_LEADER";
   const isSupervisor = user?.role === "SUPERVISOR";
+  const canAccessCoaching = isAdmin || isTeamLeader || isSupervisor;
+  // Coaching remains a separately authenticated application. Supervisors and
+  // administrators land on its approval dashboard; team leaders open their work list.
+  const coachingHref = isAdmin || isSupervisor ? COACHING_MANAGEMENT_URL : COACHING_WORKSPACE_URL;
   // Admins always see every report; a viewer only sees the pages their admin granted.
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
@@ -158,8 +166,26 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
           })}
         </nav>
 
-        {isAdmin || isTeamLeader || isSupervisor ? (
+        {canAccessCoaching ? (
           <>
+            <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Field execution</div>
+            <nav className="px-3 pt-2 flex flex-col gap-1">
+              <a
+                href={coachingHref}
+                target="_blank"
+                rel="noreferrer"
+                title="Coaching & Accompaniment"
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                  expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                } text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue`}
+              >
+                <span className="text-secondary-blue">
+                  <PeopleTeam20Regular />
+                </span>
+                <span className={expanded ? "" : "md:hidden"}>Coaching & Accompaniment</span>
+              </a>
+            </nav>
             <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Targets</div>
             <nav className="px-3 pt-2 flex flex-col gap-1">
               <Link
