@@ -24,6 +24,21 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
+# Long-running source workers use the same checked-in bridge code as the
+# dashboard, but run in their own containers. Keeping them separate means a
+# slow SAP/Pine read can never occupy the Next.js request process.
+FROM deps AS sync-worker
+WORKDIR /app
+COPY . .
+# Bridge entry points call process.loadEnvFile(). The real values are injected
+# by Compose at runtime; this harmless template only makes the file available
+# inside the image and cannot override an already-set environment variable.
+COPY .env.example .env
+RUN npx prisma generate
+RUN groupadd --system --gid 1001 nodejs && useradd --system --uid 1001 --gid nodejs nextjs
+USER nextjs
+CMD ["node", "--import", "tsx", "scripts/continuous-sync-worker.ts"]
+
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production

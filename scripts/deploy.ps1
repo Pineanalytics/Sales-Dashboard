@@ -88,8 +88,8 @@ try {
     # $RemotePath first (except .env, which isn't tracked and must survive) makes
     # every deploy an exact mirror of the committed tree, matching this script's own
     # documented intent.
-    Write-Host "==> Clearing $RemotePath (except .env) before extracting..." -ForegroundColor Cyan
-    Invoke-Ssh "find $RemotePath -mindepth 1 -not -name '.env' -delete"
+    Write-Host "==> Clearing $RemotePath (except protected environment files) before extracting..." -ForegroundColor Cyan
+    Invoke-Ssh "find $RemotePath -mindepth 1 -not -name '.env' -not -name '.sync.env' -delete"
 
     Write-Host "==> Extracting the committed tree into $RemotePath..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && tar -xf /tmp/pinefrost-deploy.tar && rm /tmp/pinefrost-deploy.tar"

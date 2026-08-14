@@ -17,6 +17,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Required only by the host-networked SAP worker. This remains private to
+    # the VPS; it is not reachable from the public network.
+    ports:
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -60,6 +64,83 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
+
+  # Fast, user-facing call feeds. The dashboard itself never reads Pine/EABL:
+  # this worker writes small batches to Postgres in the background.
+  live-sync-worker:
+    build:
+      context: .
+      target: sync-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_started
+    env_file:
+      - .sync.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PL_BRIDGE_APP_URL: http://app:3000
+      EABL_CALL_APP_URL: http://app:3000
+      CONTINUOUS_SYNC_JOBS: timestamps,eabl
+      TIMESTAMPS_INTERVAL_SECONDS: 30
+      EABL_INTERVAL_SECONDS: 60
+    cpus: 0.75
+    mem_limit: 512m
+
+  # Outlet aggregation can be heavier, so it has a separate cap and can never
+  # delay the real-time timestamps worker.
+  outlets-sync-worker:
+    build:
+      context: .
+      target: sync-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_started
+    env_file:
+      - .sync.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PL_BRIDGE_APP_URL: http://app:3000
+      CONTINUOUS_SYNC_JOBS: active-outlets
+      ACTIVE_OUTLETS_INTERVAL_SECONDS: 300
+    cpus: 0.75
+    mem_limit: 1024m
+
+  # SAP is reachable only through the office-originated reverse tunnel bound
+  # to the VPS loopback interface. Host networking allows this container to
+  # consume that private listener without publishing SAP to the internet.
+  sap-sync-worker:
+    build:
+      context: .
+      target: sync-worker
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_started
+    env_file:
+      - .sync.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5433/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5433/${POSTGRES_DB}
+      PL_BRIDGE_APP_URL: https://pinefrostdb.com
+      SQLBRIDGE_SQL_SERVER: 127.0.0.1
+      SQLBRIDGE_SQL_PORT: 14333
+      CONTINUOUS_SYNC_JOBS: sales,pl,stock
+      SALES_INTERVAL_SECONDS: 300
+      PL_INTERVAL_SECONDS: 1800
+      STOCK_INTERVAL_SECONDS: 900
+    cpus: 0.75
+    mem_limit: 1024m
 
 volumes:
   postgres_data:

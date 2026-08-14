@@ -6,6 +6,7 @@ import sql from "mssql";
 
 export interface BridgeConfig {
   server: string;
+  port: number;
   database: string;
   user: string;
   password: string;
@@ -26,6 +27,7 @@ function readEnv(name: string): string {
 export function loadConfigFromEnv(): BridgeConfig {
   return {
     server: readEnv("SQLBRIDGE_SQL_SERVER"),
+    port: Number(process.env.SQLBRIDGE_SQL_PORT ?? "1433"),
     database: readEnv("SQLBRIDGE_SQL_DATABASE"),
     user: readEnv("SQLBRIDGE_SQL_USER"),
     password: readEnv("SQLBRIDGE_SQL_PASSWORD"),
@@ -40,6 +42,7 @@ export async function withConnection<T>(
 ): Promise<T> {
   const pool = await new sql.ConnectionPool({
     server: config.server,
+    port: config.port,
     database: config.database,
     user: config.user,
     password: config.password,
