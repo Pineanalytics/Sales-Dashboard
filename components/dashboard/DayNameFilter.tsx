@@ -32,7 +32,7 @@ export function DayNameFilter() {
               key={day}
               onClick={() => toggleDayName(day)}
               className={`rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors duration-200 ${
-                active ? "bg-brand-orange text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
+                active ? "bg-secondary-blue text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
               }`}
             >
               {day}

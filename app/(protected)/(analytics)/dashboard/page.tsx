@@ -126,7 +126,7 @@ export default function DashboardPage() {
                 </SectionCard>
           </div>
 
-          <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(10,31,82,0.05)]">
+          <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(11,61,53,0.05)]">
             <summary className="cursor-pointer text-xs font-semibold text-muted-strong marker:text-primary-blue">
               Daily breakdown options
               <span className="ml-2 font-normal text-muted">Filter the weekly and daily projection cards by weekday.</span>

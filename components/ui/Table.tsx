@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(10,31,82,0.06)]">
+    <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(11,61,53,0.06)]">
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">{children}</table>
       </div>

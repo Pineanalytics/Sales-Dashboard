@@ -1,48 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  /* Pinefrost Limited corporate palette. Semantic variable names below (primary-blue,
-     dark-navy, accent-*, etc.) are kept stable even where the underlying hue changed,
-     since every component references these names rather than raw hex — re-theming only
-     ever requires touching this file. */
-  --background: #f4f7fb;
-  --background-elevated: #eaf1fb;
+  /* Pinefrost Distribution's shared visual system. Existing semantic names stay
+     stable, so components inherit the rebrand without one-off colour overrides. */
+  --background: #f6f8f4;
+  --background-elevated: #edf3ec;
   --surface: #ffffff;
-  --surface-hover: #eaf2fe;
-  --surface-active: #dce9fd;
-  --border: #dde5f2;
-  --border-strong: #b9c8e6;
-  --foreground: #10193a;
-  --muted: #5c6b8a;
-  --muted-strong: #33415c;
+  --surface-hover: #e7f0e5;
+  --surface-active: #d9e8d6;
+  --border: #d8e3d6;
+  --border-strong: #b7c9b4;
+  --foreground: #123f37;
+  --muted: #64756e;
+  --muted-strong: #3d554d;
 
-  /* Brand core */
-  --brand-navy: #0a1f52;
-  --brand-royal: #153d9a;
-  --brand-corporate: #0e63e7;
-  --brand-cyan: #25d8ff;
-  --brand-orange: #f7931e;
-  --brand-gold: #fdb515;
+  /* Brand core: pine ink and the leaf-green mark are the visual anchors. */
+  --brand-navy: #0b3d35;
+  --brand-royal: #155b4a;
+  --brand-corporate: #24754f;
+  --brand-cyan: #71b741;
+  --brand-orange: #a87022;
+  --brand-gold: #c29a42;
 
-  --primary-blue: #153d9a; /* Royal Blue */
-  --secondary-blue: #0e63e7; /* Corporate Blue */
-  --dark-navy: #0a1f52; /* Primary Navy */
-  --accent-blue: #25d8ff; /* Cyan Accent — glows, hover highlights, secondary chart series */
-  --button-blue: #153d9a;
-  --button-blue-hover: #0e63e7;
+  /* Legacy token aliases retained for the established component library. */
+  --primary-blue: #0b3d35;
+  --secondary-blue: #1f6a4e;
+  --dark-navy: #082f29;
+  --accent-blue: #24754f;
+  --button-blue: #0b3d35;
+  --button-blue-hover: #155b4a;
 
-  /* Tier colors: good=Corporate Blue, warn=Gold, bad=Orange (never red), neutral=slate-blue */
-  --accent-green: #0e63e7;
-  --accent-green-soft: #0e63e71a;
-  --accent-amber: #fdb515;
-  --accent-amber-soft: #fdb5151f;
-  --accent-red: #f7931e;
-  --accent-red-soft: #f7931e1a;
-  --accent-purple: #25d8ff;
-  --accent-purple-soft: #25d8ff1a;
-  --accent-grey: #8a94ae;
-  --accent-grey-soft: #8a94ae1a;
-  --accent-blue-soft: #25d8ff1a;
+  /* Semantic status colours. Leaf green is reserved for emphasis, not dense text. */
+  --accent-green: #218c5a;
+  --accent-green-soft: #218c5a1a;
+  --accent-amber: #a87022;
+  --accent-amber-soft: #a870221f;
+  --accent-red: #b6533a;
+  --accent-red-soft: #b6533a1a;
+  --accent-purple: #2f7e78;
+  --accent-purple-soft: #2f7e781a;
+  --accent-grey: #71817b;
+  --accent-grey-soft: #71817b1a;
+  --accent-blue-soft: #24754f1a;
 
   --font-sans: "Segoe UI", "Segoe UI Variable", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
 }
@@ -69,6 +68,7 @@
   --color-brand-royal: var(--brand-royal);
   --color-brand-corporate: var(--brand-corporate);
   --color-brand-cyan: var(--brand-cyan);
+  --color-brand-leaf: var(--brand-cyan);
   --color-brand-orange: var(--brand-orange);
   --color-brand-gold: var(--brand-gold);
 
@@ -116,8 +116,7 @@ body {
 table tbody tr {
   transition: background-color 200ms ease;
 }
-/* Alternating rows read as a subtle tint under the base surface — the TotalRow's own
-   background (applied with Tailwind's `!` important-modifier) always wins over this. */
+/* Alternating rows use a restrained sage tint; Total rows can still override it. */
 table tbody tr:nth-child(even) {
   background-color: var(--background-elevated);
 }
@@ -125,11 +124,7 @@ table tbody tr:hover {
   background-color: var(--surface-hover);
 }
 
-/* Order 360 (app/(protected)/(analytics)/order-360) renders its own dark tables —
-   the light-theme striping/hover above use --background-elevated/--surface-hover,
-   both light tokens, which read as near-white rows under Order 360's white text.
-   Scoped under its own wrapper class (higher specificity wins) rather than
-   touching the shared rule every other (light) table in the app relies on. */
+/* Order 360 renders its own dark tables; keep the shared light row treatment scoped out. */
 .order360-scope table tbody tr:nth-child(even) {
   background-color: rgba(255, 255, 255, 0.03);
 }
@@ -137,12 +132,11 @@ table tbody tr:hover {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
-/* Reusable soft cyan glow — active controls, selected sidebar items, button hover. */
+/* A calm green focus ring for selected controls and button hover. */
 .shadow-cyan-glow {
-  box-shadow: 0 0 0 3px rgba(37, 216, 255, 0.25), 0 4px 14px rgba(37, 216, 255, 0.3);
+  box-shadow: 0 0 0 3px rgba(113, 183, 65, 0.2), 0 6px 16px rgba(11, 61, 53, 0.16);
 }
 
-/* Motion */
 @keyframes fadeIn {
   from {
     opacity: 0;

@@ -46,10 +46,11 @@ export default async function LoginPage({
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-dark-navy to-primary-blue px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-surface p-8 shadow-[0_8px_24px_rgba(0,0,0,0.20)]">
-        <Image src="/pinefrost-logo.png" alt="Pinefrost Limited" width={1014} height={810} className="h-20 w-auto rounded-lg object-contain" />
-        <h1 className="mt-3 text-2xl font-bold text-primary-blue">Pinefrost Limited Performance Dashboard</h1>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-surface to-surface-active px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-8 shadow-[0_14px_34px_rgba(11,61,53,0.14)]">
+        <Image src="/brand/pinefrost-distribution-logo.png" alt="Pinefrost Distribution" width={1472} height={723} priority className="h-16 w-auto object-contain" />
+        <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-blue">Pinefrost Analytics</p>
+        <h1 className="mt-1 text-2xl font-bold text-primary-blue">Performance Dashboard</h1>
         <p className="mt-1 text-sm text-muted">Sign in to view or manage sales reports.</p>
 
         <form action={login} className="mt-6 flex flex-col gap-4">

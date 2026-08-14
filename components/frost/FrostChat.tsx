@@ -125,7 +125,7 @@ export function FrostChat() {
                     className={`max-w-[80%] rounded-xl px-3.5 py-2 text-sm leading-relaxed ${
                       m.role === "user"
                         ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white"
-                        : "bg-surface text-foreground shadow-[0_1px_3px_rgba(10,31,82,0.06)]"
+                        : "bg-surface text-foreground shadow-[0_1px_3px_rgba(11,61,53,0.06)]"
                     }`}
                   >
                     {m.content}
@@ -160,7 +160,7 @@ export function FrostChat() {
           )}
           {sending ? (
             <div className="flex justify-start">
-              <div className="rounded-xl bg-surface px-3.5 py-2 shadow-[0_1px_3px_rgba(10,31,82,0.06)]">
+              <div className="rounded-xl bg-surface px-3.5 py-2 shadow-[0_1px_3px_rgba(11,61,53,0.06)]">
                 <Spinner className="h-3.5 w-3.5" />
               </div>
             </div>

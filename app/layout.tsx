@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pinefrost Limited Performance Dashboard",
-  description: "Kenya distributor sales analytics — revenue, coverage, profitability, stock and forecasts by principal.",
+  title: "Pinefrost Analytics | Performance Dashboard",
+  description: "Pinefrost Analytics — performance intelligence for Pinefrost Distribution.",
+  applicationName: "Pinefrost Analytics",
+  themeColor: "#0b3d35",
 };
 
 export default function RootLayout({

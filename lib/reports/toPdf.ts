@@ -2,22 +2,19 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import type { ReportContent } from "./types";
 
-// Pinefrost brand hex values (mirrors app/globals.css's --dark-navy/--primary-blue —
-// duplicated here rather than imported since this runs outside any CSS-variable
-// context, same rationale as every other cross-subtree color duplication in this repo).
-const NAVY: [number, number, number] = [10, 31, 82];
-const ROYAL_BLUE: [number, number, number] = [21, 61, 154];
+// Matches the shared Pinefrost Distribution visual system. PDFs run outside CSS,
+// so the values are intentionally kept explicit here.
+const PINE: [number, number, number] = [11, 61, 53];
+const FOREST: [number, number, number] = [31, 106, 78];
+const SAGE_ROW: [number, number, number] = [237, 243, 236];
 const PAGE_MARGIN = 40;
 
-/** Generic ReportContent -> PDF Blob using jspdf + jspdf-autotable: a navy title band,
- *  an optional KPI summary strip, then one table per section with automatic page
- *  breaks, and a page-number footer. Deliberately data-only — no chart images (see
- *  plan notes on why that's out of scope). */
+/** Converts report data into a branded, print-friendly PDF. */
 export function reportToPdfBlob(report: ReportContent): Blob {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  doc.setFillColor(...NAVY);
+  doc.setFillColor(...PINE);
   doc.rect(0, 0, pageWidth, 70, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
@@ -25,10 +22,10 @@ export function reportToPdfBlob(report: ReportContent): Blob {
   doc.text(report.title, PAGE_MARGIN, 32);
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text(`Generated ${report.generatedAt.toLocaleString()}`, PAGE_MARGIN, 50);
+  doc.text(`Pinefrost Analytics · Generated ${report.generatedAt.toLocaleString()}`, PAGE_MARGIN, 50);
 
   let cursorY = 90;
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(18, 63, 55);
 
   if (report.summary && report.summary.length > 0) {
     doc.setFontSize(10);
@@ -74,8 +71,8 @@ export function reportToPdfBlob(report: ReportContent): Blob {
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
       head: [section.columns],
       body: section.rows,
-      headStyles: { fillColor: ROYAL_BLUE, textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [245, 247, 251] },
+      headStyles: { fillColor: FOREST, textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: SAGE_ROW },
       styles: { fontSize: 8, cellPadding: 4 },
     });
 
@@ -86,7 +83,7 @@ export function reportToPdfBlob(report: ReportContent): Blob {
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
-    doc.setTextColor(120, 120, 120);
+    doc.setTextColor(100, 117, 110);
     doc.text(`Page ${i} of ${pageCount}`, pageWidth - PAGE_MARGIN - 60, doc.internal.pageSize.getHeight() - 20);
   }
 

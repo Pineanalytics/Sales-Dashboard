@@ -1,23 +1,19 @@
-// Order 360's own dark surface, blended from the reference dashboard's palette
-// (--bg-base:#0B1220, --bg-panel:#121A2B, --accent:#3FD8C2) and this app's own
-// Pinefrost brand tokens (--brand-navy:#0a1f52, --brand-orange:#f7931e,
-// --accent-blue:#25d8ff — see app/globals.css) rather than either verbatim.
-// Scoped to this one module, the same way DashboardHero.tsx drops a dark navy
-// panel into an otherwise light page.
+// Order 360 keeps a distinct dark workspace while using the same pine and leaf-green
+// visual language as the rest of Pinefrost Analytics.
 export const O360 = {
-  base: "#0a0f1f", // between brand-navy and the reference's near-black base
-  panel: "#111a33", // card surface
-  panelSoft: "#0e1730",
+  base: "#071f1b",
+  panel: "#0d312a",
+  panelSoft: "#0a2923",
   border: "border-white/10",
   borderSoft: "border-white/[0.07]",
   text: "text-white/90",
   textMuted: "text-white/55",
   textFaint: "text-white/35",
-  accent: "#25d8ff", // this app's accent-blue, standing in for the reference's teal
-  gold: "#f7931e", // brand-orange, standing in for the reference's gold
-  good: "#34d399", // emerald-400
-  warn: "#fbbf24", // amber-400
-  bad: "#fb7185", // rose-400
+  accent: "#71b741",
+  gold: "#c29a42",
+  good: "#58b875",
+  warn: "#e0b355",
+  bad: "#dc7a61",
 } as const;
 
 export function ageClass(age: number): "good" | "warn" | "bad" {

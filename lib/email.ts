@@ -32,7 +32,7 @@ export async function sendApprovalEmail(to: string, name: string | null): Promis
 
   const loginUrl = `${appUrl()}/login`;
   const greeting = name ? `Hi ${name},` : "Hi,";
-  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Limited Performance Dashboard";
+  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Analytics";
 
   try {
     const transporter = nodemailer.createTransport({
@@ -47,8 +47,8 @@ export async function sendApprovalEmail(to: string, name: string | null): Promis
       replyTo: REPLY_TO,
       to,
       subject: "Your Pinefrost Dashboard access has been approved",
-      text: `${greeting}\n\nYour account request for the Pinefrost Limited Performance Dashboard has been created and approved. You can now sign in here:\n\n${loginUrl}\n\nIf you didn't request this account, please contact your administrator.\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
-      html: `<p>${greeting}</p><p>Your account request for the <strong>Pinefrost Limited Performance Dashboard</strong> has been created and approved. You can now sign in:</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you didn't request this account, please contact your administrator.</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
+      text: `${greeting}\n\nYour account request for Pinefrost Analytics has been created and approved. You can now sign in here:\n\n${loginUrl}\n\nIf you didn't request this account, please contact your administrator.\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
+      html: `<p>${greeting}</p><p>Your account request for <strong>Pinefrost Analytics</strong> has been created and approved. You can now sign in:</p><p><a href="${loginUrl}">${loginUrl}</a></p><p>If you didn't request this account, please contact your administrator.</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
     });
     return { sent: true };
   } catch (err) {
@@ -61,8 +61,8 @@ export async function sendApprovalEmail(to: string, name: string | null): Promis
 // both the first-run seed content and what "Reset to original" reverts to
 // (see app/(protected)/admin/users/actions.ts).
 export const ANNOUNCEMENT_TEMPLATE_KEY = "new-modules-announcement";
-export const DEFAULT_ANNOUNCEMENT_SUBJECT = "New modules added to the Pinefrost Dashboard";
-export const DEFAULT_ANNOUNCEMENT_BODY = `Three new modules have been added to the Pinefrost Limited Performance Dashboard:
+export const DEFAULT_ANNOUNCEMENT_SUBJECT = "New modules added to Pinefrost Analytics";
+export const DEFAULT_ANNOUNCEMENT_BODY = `Three new modules have been added to Pinefrost Analytics:
 
 - Active Outlets — distinct buying-outlet counts per Principal, with Channel/Sub Channel and Primary/Secondary breakdowns
 - Timestamps — rep call activity for the current month, with time-of-day and productivity detail
@@ -114,7 +114,7 @@ export async function sendAnnouncementEmail(to: string, name: string | null, sub
 
   const loginUrl = `${appUrl()}/login`;
   const greeting = name ? `Hi ${name},` : "Hi,";
-  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Limited Performance Dashboard";
+  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Analytics";
 
   try {
     const transporter = nodemailer.createTransport({

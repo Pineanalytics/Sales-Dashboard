@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Session } from "next-auth";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Navigation20Regular,
   History20Regular,
@@ -14,7 +15,6 @@ import {
 import { useDashboardStore } from "@/lib/store";
 import { signOutAction } from "@/app/actions";
 import { SearchBar } from "./SearchBar";
-import Link from "next/link";
 
 export function Header({ user }: { user: Session["user"] | null }) {
   const dataset = useDashboardStore((s) => s.dataset);
@@ -40,41 +40,43 @@ export function Header({ user }: { user: Session["user"] | null }) {
   }
 
   return (
-    <header className="sticky top-0 z-30">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-3.5 md:py-4 shadow-[0_2px_10px_rgba(10,31,82,0.25)] flex items-center gap-3">
+    <header className="sticky top-0 z-30 border-b border-border bg-surface/95 shadow-[0_2px_12px_rgba(11,61,53,0.08)] backdrop-blur">
+      <div className="h-1 bg-gradient-to-r from-brand-navy via-secondary-blue to-brand-leaf" />
+      <div className="flex items-center gap-3 px-4 py-3 md:px-8 md:py-3.5">
         <button
-          className="md:hidden text-white/90 hover:text-white shrink-0"
+          className="shrink-0 text-primary-blue md:hidden"
           onClick={() => setSidebarOpen(true)}
           aria-label="Open menu"
         >
           <Navigation20Regular />
         </button>
 
-        <Link href="/dashboard" className="flex items-center gap-2.5 shrink-0">
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-3 shrink-0" aria-label="Pinefrost Analytics home">
           <Image
-            src="/pinefrost-logo.png"
-            alt="Pinefrost Limited"
-            width={1014}
-            height={810}
-            className="hidden sm:block h-9 w-auto rounded-md object-contain"
+            src="/brand/pinefrost-distribution-logo.png"
+            alt="Pinefrost Distribution"
+            width={1472}
+            height={723}
+            priority
+            className="hidden h-9 w-auto object-contain sm:block"
           />
-          <span className="hidden lg:block text-[15px] font-bold text-white leading-tight whitespace-nowrap">
+          <span className="hidden border-l border-border pl-3 text-[13px] font-semibold tracking-[0.01em] text-primary-blue lg:block whitespace-nowrap">
             Pinefrost Analytics
           </span>
         </Link>
 
         <SearchBar />
 
-        <div className="flex items-center gap-2 ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <div className="relative">
             <button
               onClick={toggleHistory}
-              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/40 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
+              className="hidden items-center gap-2 rounded-full border border-border px-3.5 py-2 text-xs font-semibold text-muted-strong transition-colors hover:border-secondary-blue hover:bg-surface-hover hover:text-primary-blue sm:inline-flex"
             >
-              <History20Regular className="h-4 w-4" /> History
+              <History20Regular className="h-4 w-4 text-secondary-blue" /> History
             </button>
             {historyOpen ? (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground z-50">
+              <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-2xl bg-surface text-foreground shadow-[0_12px_28px_rgba(11,61,53,0.18)] ring-1 ring-border">
                 <div className="max-h-72 overflow-y-auto">
                   {history.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-muted">No snapshot history yet.</p>
@@ -86,20 +88,16 @@ export function Header({ user }: { user: Session["user"] | null }) {
                           fetchSnapshot(h.id);
                           setHistoryOpen(false);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-surface-hover transition-colors border-b border-border/60 last:border-0"
+                        className="w-full border-b border-border/60 px-3 py-2 text-left text-xs transition-colors last:border-0 hover:bg-surface-hover"
                       >
-                        <div className="font-medium truncate">{h.reportTitle}</div>
+                        <div className="truncate font-medium">{h.reportTitle}</div>
                         <div className="text-muted">{new Date(h.uploadedAt).toLocaleString()}</div>
                       </button>
                     ))
                   )}
                 </div>
                 {isAdmin ? (
-                  <Link
-                    href="/admin/dataset"
-                    onClick={() => setHistoryOpen(false)}
-                    className="block px-3 py-2.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover transition-colors border-t border-border/60"
-                  >
+                  <Link href="/admin/dataset" onClick={() => setHistoryOpen(false)} className="block border-t border-border/60 px-3 py-2.5 text-xs font-semibold text-primary-blue transition-colors hover:bg-surface-hover">
                     View all in Admin →
                   </Link>
                 ) : null}
@@ -110,38 +108,29 @@ export function Header({ user }: { user: Session["user"] | null }) {
           <div className="relative">
             <button
               onClick={toggleAccount}
-              className="inline-flex items-center gap-2 rounded-full border border-white/40 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10 hover:border-brand-orange hover:text-brand-orange transition-colors duration-300"
+              className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-2 text-xs font-semibold text-muted-strong transition-colors hover:border-secondary-blue hover:bg-surface-hover hover:text-primary-blue"
               aria-label="Account menu"
             >
-              <PersonCircle20Regular className="h-5 w-5" />
-              <span className="hidden md:inline max-w-[120px] truncate">{user?.name || user?.email}</span>
+              <PersonCircle20Regular className="h-5 w-5 text-secondary-blue" />
+              <span className="hidden max-w-[120px] truncate md:inline">{user?.name || user?.email}</span>
             </button>
             {accountOpen ? (
-              <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-hidden text-foreground z-50">
-                <div className="px-4 py-3 border-b border-border/60">
-                  <div className="text-sm font-medium truncate">{user?.name || "Account"}</div>
-                  <div className="text-xs text-muted truncate">{user?.email}</div>
+              <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-2xl bg-surface text-foreground shadow-[0_12px_28px_rgba(11,61,53,0.18)] ring-1 ring-border">
+                <div className="border-b border-border/60 px-4 py-3">
+                  <div className="truncate text-sm font-medium">{user?.name || "Account"}</div>
+                  <div className="truncate text-xs text-muted">{user?.email}</div>
                   <span className="mt-2 inline-block rounded-full bg-accent-blue-soft px-2 py-0.5 text-[11px] font-semibold text-accent-blue">
                     {{ ADMIN: "Administrator", TEAM_LEADER: "Team Leader", SUPERVISOR: "Sales Supervisor", VIEWER: "Viewer" }[user?.role ?? "VIEWER"]}
                   </span>
                 </div>
                 {isAdmin ? (
-                  <Link
-                    href="/admin"
-                    onClick={() => setAccountOpen(false)}
-                    className="flex items-center gap-2 px-4 py-2.5 text-xs hover:bg-surface-hover transition-colors border-b border-border/60"
-                  >
-                    <Shield20Regular className="h-4 w-4 text-secondary-blue" />
-                    Admin
+                  <Link href="/admin" onClick={() => setAccountOpen(false)} className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5 text-xs transition-colors hover:bg-surface-hover">
+                    <Shield20Regular className="h-4 w-4 text-secondary-blue" /> Admin
                   </Link>
                 ) : null}
                 <form action={signOutAction}>
-                  <button
-                    type="submit"
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-xs text-accent-red hover:bg-surface-hover transition-colors"
-                  >
-                    <SignOut20Regular className="h-4 w-4" />
-                    Sign out
+                  <button type="submit" className="flex w-full items-center gap-2 px-4 py-2.5 text-xs text-accent-red transition-colors hover:bg-accent-red-soft">
+                    <SignOut20Regular className="h-4 w-4" /> Sign out
                   </button>
                 </form>
               </div>
@@ -151,13 +140,13 @@ export function Header({ user }: { user: Session["user"] | null }) {
       </div>
 
       {dataset ? (
-        <div className="hidden md:block bg-dark-navy/95 px-4 md:px-8 py-1 text-[11px] text-white/60 truncate">
+        <div className="hidden border-t border-border bg-background-elevated px-4 py-1 text-[11px] text-muted md:block md:px-8">
           Last data refreshed at {new Date(dataset.uploadedAt).toLocaleString()}
         </div>
       ) : null}
 
       {error ? (
-        <div className="mx-4 md:mx-8 mt-3 flex items-center gap-2 rounded-xl border-l-4 border-l-accent-red bg-surface px-3 py-3 text-xs text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border-l-4 border-l-accent-red bg-surface px-3 py-3 text-xs text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)] md:mx-8">
           <Warning20Regular className="h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>

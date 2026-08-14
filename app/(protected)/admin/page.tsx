@@ -28,12 +28,12 @@ export default async function AdminLandingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(10,31,82,0.25)]">
+      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
         <Link href="/" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
           ← Back to dashboard
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Admin</h1>
-        <p className="mt-1 text-sm text-white/70">Manage users and reference data for the Pinefrost Limited Performance Dashboard.</p>
+        <p className="mt-1 text-sm text-white/70">Manage users and reference data for Pinefrost Analytics.</p>
       </div>
 
       <div className="max-w-4xl mx-auto p-4 md:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4">

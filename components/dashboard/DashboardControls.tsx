@@ -22,7 +22,7 @@ export function DashboardControls({ view, onViewChange }: { view: DashboardView;
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
 
   return (
-    <section className="rounded-2xl border border-border bg-surface px-4 py-3 shadow-[0_4px_14px_rgba(10,31,82,0.08)] md:px-5">
+    <section className="rounded-2xl border border-border bg-surface px-4 py-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)] md:px-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <div className="inline-flex shrink-0 rounded-xl bg-background-elevated p-1" aria-label="Executive summary view">
