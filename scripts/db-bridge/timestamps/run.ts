@@ -26,7 +26,11 @@ import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "timestamps";
 const ROLLING_WINDOW_DAYS = 2;
-const BATCH_SIZE = 2000;
+// The direct server worker reaches Next.js without the public proxy's request
+// buffering. Timestamp records are wider than sales/event records, so keep its
+// payload deliberately small enough for Node's route-body limit. The desktop
+// fallback retains the existing 2,000-row batch unless explicitly overridden.
+const BATCH_SIZE = Number(process.env.TIMESTAMPS_BATCH_SIZE ?? "2000");
 
 function nairobiCalendarDay(now: Date): Date {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -130,6 +134,7 @@ async function setSyncState(appUrl: string, apiKey: string, completedAt: Date): 
 }
 
 async function main() {
+  if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1) throw new Error("TIMESTAMPS_BATCH_SIZE must be a positive integer.");
   const config = loadCoverageConfigFromEnv();
   const apiKey = process.env.UPLOAD_API_KEY;
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY - set it in .env (same value configured on the VPS).");
