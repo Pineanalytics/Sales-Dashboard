@@ -82,8 +82,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PL_BRIDGE_APP_URL: http://app:3000
-      EABL_CALL_APP_URL: http://app:3000
+      # Use the same HTTPS ingress as the established bridge jobs. It handles
+      # large JSON request streaming more consistently than the raw internal
+      # Next server under concurrent worker writes.
+      PL_BRIDGE_APP_URL: https://pinefrostdb.com
+      EABL_CALL_APP_URL: https://pinefrostdb.com
       CONTINUOUS_SYNC_JOBS: timestamps,eabl
       TIMESTAMPS_INTERVAL_SECONDS: 30
       TIMESTAMPS_BATCH_SIZE: 250
@@ -108,7 +111,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PL_BRIDGE_APP_URL: http://app:3000
+      PL_BRIDGE_APP_URL: https://pinefrostdb.com
       CONTINUOUS_SYNC_JOBS: active-outlets
       ACTIVE_OUTLETS_INTERVAL_SECONDS: 300
     cpus: 0.75
