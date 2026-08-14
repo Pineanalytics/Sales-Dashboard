@@ -5,12 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Session } from "next-auth";
 import {
-  Board20Regular,
   ArrowTrending20Regular,
-  DataLine20Regular,
   PeopleTeam20Regular,
-  PersonCircle20Regular,
-  ChartMultiple20Regular,
   Money20Regular,
   Box20Regular,
   DocumentText20Regular,
@@ -44,12 +40,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/frost", label: "Frost", icon: Sparkle20Regular },
   { href: "/insights", label: "Insights", icon: Lightbulb20Regular },
-  { href: "/dashboard", label: "Executive Overview", icon: Board20Regular },
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
-  { href: "/time-intelligence", label: "Time Intelligence", icon: DataLine20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
-  { href: "/reps", label: "Rep Performance", icon: PersonCircle20Regular },
-  { href: "/customers", label: "Customers & Brands", icon: ChartMultiple20Regular },
   { href: "/profitability", label: "Profitability", icon: Money20Regular },
   { href: "/stock", label: "Stock Balance", icon: Box20Regular },
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ArrowTrending20Regular, Board20Regular, ChartMultiple20Regular, DataLine20Regular, PersonCircle20Regular } from "@fluentui/react-icons";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useDashboardStore } from "@/lib/store";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -14,12 +16,52 @@ import { principalsByRevenueDesc } from "@/lib/selectors";
 import { CANONICAL_MONTHS, getAvailableMonths, summarizeSalesForPeriod } from "@/lib/timeIntelligence";
 import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
+import { useCurrentUser } from "@/components/dashboard/UserContext";
+import DashboardPage from "../dashboard/page";
+import TimeIntelligencePage from "../time-intelligence/page";
+import RepsPage from "../reps/page";
+import CustomersPage from "../customers/page";
 
 function month3(month: string): string {
   return month.slice(0, 3);
 }
 
+type SalesSection = "cockpit" | "executive" | "time" | "reps" | "customers";
+
+const SALES_SECTIONS: { id: SalesSection; pageKey: string; label: string; description: string; Icon: typeof ArrowTrending20Regular }[] = [
+  { id: "cockpit", pageKey: "sales", label: "Sales cockpit", description: "Revenue, target and principal mix", Icon: ArrowTrending20Regular },
+  { id: "executive", pageKey: "dashboard", label: "Executive", description: "MTD and YTD leadership view", Icon: Board20Regular },
+  { id: "time", pageKey: "time-intelligence", label: "Time intelligence", description: "Trends, growth and comparisons", Icon: DataLine20Regular },
+  { id: "reps", pageKey: "reps", label: "Rep performance", description: "People, contribution and productivity", Icon: PersonCircle20Regular },
+  { id: "customers", pageKey: "customers", label: "Customers & brands", description: "Customer concentration and brand mix", Icon: ChartMultiple20Regular },
+];
+
 export default function SalesPage() {
+  const [active, setActive] = useState<SalesSection>("cockpit");
+  const user = useCurrentUser();
+  const availableSections = SALES_SECTIONS.filter((section) => user?.role === "ADMIN" || (user?.allowedPages ?? []).includes(section.pageKey));
+  const current = availableSections.some((section) => section.id === active) ? active : availableSections[0]?.id;
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm md:p-5">
+        <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-secondary-blue">Commercial analysis</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">Sales Performance</h1><p className="mt-1 text-sm text-muted">One workspace for leadership, trends, reps and customers. Your global period and principal filters apply throughout.</p></div>
+          <p className="text-xs text-muted">One active view at a time · less scrolling</p>
+        </div>
+        <nav aria-label="Sales analysis sections" className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
+          {availableSections.map(({ id, label, description, Icon }) => <button key={id} type="button" onClick={() => setActive(id)} className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-left transition ${current === id ? "border-primary-blue bg-accent-blue-soft shadow-sm" : "border-border bg-surface hover:border-secondary-blue/50 hover:bg-accent-blue-soft/40"}`}><span className={`rounded-lg p-2 ${current === id ? "bg-primary-blue text-white" : "bg-accent-blue-soft text-secondary-blue"}`}><Icon /></span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-foreground">{label}</span><span className="block truncate text-[11px] text-muted">{description}</span></span></button>)}
+        </nav>
+      </section>
+      {current === "cockpit" ? <SalesCockpit /> : null}
+      {current === "executive" ? <DashboardPage /> : null}
+      {current === "time" ? <TimeIntelligencePage /> : null}
+      {current === "reps" ? <RepsPage /> : null}
+      {current === "customers" ? <CustomersPage /> : null}
+    </div>
+  );
+}
+
+function SalesCockpit() {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const period = useDashboardStore((s) => s.selectedPeriod);
