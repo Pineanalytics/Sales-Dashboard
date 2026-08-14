@@ -23,6 +23,7 @@ import {
 export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: ViewProps) {
   const customers = summarizeBrandCustomerByCustomer(dataset, period, selectedPrincipalKey).sort((a, b) => b.revenue - a.revenue);
   const principalShare = summarizeBrandCustomerByPrincipal(dataset, period).sort((a, b) => b.revenue - a.revenue);
+  const brandPerformance = summarizeBrandCustomerByPrincipal(dataset, period, selectedPrincipalKey).sort((a, b) => b.revenue - a.revenue);
 
   const totalRevenue = customers.reduce((s, c) => s + c.revenue, 0);
   const totalVolume = customers.reduce((s, c) => s + c.volume, 0);
@@ -106,6 +107,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
             <Th align="right">Revenue</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="center">Margin</Th>
+            <Th align="center">Contribution</Th>
           </Thead>
           <tbody>
             {customers.slice(0, 30).map((c) => (
@@ -117,6 +119,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
                 <Td align="center">
                   <Badge tier={marginTier(c.grossMarginPct)}>{formatPercent(c.grossMarginPct)}</Badge>
                 </Td>
+                <Td align="center">{formatPercent(totalRevenue > 0 ? (c.revenue / totalRevenue) * 100 : null)}</Td>
               </tr>
             ))}
             <TotalRow>
@@ -127,6 +130,40 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
               <Td align="center">
                 <Badge tier={marginTier(overallMarginPct)}>{formatPercent(overallMarginPct)}</Badge>
               </Td>
+              <Td align="center">{formatPercent(totalRevenue > 0 ? 100 : null)}</Td>
+            </TotalRow>
+          </tbody>
+        </TableWrap>
+      </SectionCard>
+
+      <SectionCard title="Brand / Principal Performance" action={<span className="text-xs text-muted">Same selected period and principal filter as the customer scorecard</span>}>
+        <TableWrap>
+          <Thead>
+            <Th>Principal</Th>
+            <Th align="right">Volume</Th>
+            <Th align="right">Revenue</Th>
+            <Th align="right">Gross Profit</Th>
+            <Th align="center">Margin</Th>
+            <Th align="center">Contribution</Th>
+          </Thead>
+          <tbody>
+            {brandPerformance.map((brand) => (
+              <tr key={brand.principal}>
+                <Td><span className="font-semibold text-brand-navy">{brand.principal}</span></Td>
+                <Td align="right">{formatNumber(brand.volume)}</Td>
+                <Td align="right">{formatCompact(brand.revenue)}</Td>
+                <Td align="right">{formatCompact(brand.grossProfit)}</Td>
+                <Td align="center"><Badge tier={marginTier(brand.grossMarginPct)}>{formatPercent(brand.grossMarginPct)}</Badge></Td>
+                <Td align="center">{formatPercent(totalRevenue > 0 ? (brand.revenue / totalRevenue) * 100 : null)}</Td>
+              </tr>
+            ))}
+            <TotalRow>
+              <Td>Total</Td>
+              <Td align="right">{formatNumber(totalVolume)}</Td>
+              <Td align="right">{formatCompact(totalRevenue)}</Td>
+              <Td align="right">{formatCompact(totalGP)}</Td>
+              <Td align="center"><Badge tier={marginTier(overallMarginPct)}>{formatPercent(overallMarginPct)}</Badge></Td>
+              <Td align="center">{formatPercent(totalRevenue > 0 ? 100 : null)}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>

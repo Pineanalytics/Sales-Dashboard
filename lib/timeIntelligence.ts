@@ -590,10 +590,10 @@ export interface PrincipalBrandCustomerSummary {
  *  show as distinct slices/rows, matching the rest of the sales side. */
 export function summarizeBrandCustomerByPrincipal(
   dataset: Dataset,
-  selection: PeriodSelection
+  selection: PeriodSelection,
+  principalKey: string | null = null
 ): PrincipalBrandCustomerSummary[] {
-  const keys = periodKeySet(resolvePeriodMonths(selection));
-  const rows = dataset.monthlyBrandCustomer.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
+  const rows = filterBrandCustomer(dataset, selection, principalKey);
   const byPrincipal = new Map<string, { principal: string; principalKey: string; volume: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const existing = byPrincipal.get(r.principal);

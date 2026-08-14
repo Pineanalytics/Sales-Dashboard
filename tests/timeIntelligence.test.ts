@@ -443,6 +443,12 @@ describe("brand & customer summaries", () => {
     expect(nyeri.revenue).toBe(50000);
     expect(nyahururu.revenue).toBe(30000);
   });
+
+  it("summarizeBrandCustomerByPrincipal honors the selected raw principal", () => {
+    const byPrincipal = summarizeBrandCustomerByPrincipal(dataset, { kind: "MTD", year: "2026", month: "June" }, "EABL-Nyeri");
+    expect(byPrincipal).toHaveLength(1);
+    expect(byPrincipal[0]).toMatchObject({ principal: "EABL-Nyeri", revenue: 50000 });
+  });
 });
 
 describe("summarizeBrandCustomerForCurrentWeek", () => {
