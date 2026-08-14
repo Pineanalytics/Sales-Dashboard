@@ -30,6 +30,10 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  // Analytics calls this server-to-server endpoint with the private bridge
+  // key. It must not be redirected to the field app's browser login page;
+  // the route itself validates that key before reading any Coaching data.
+  if (path === "/api/integrations/analytics/coaching") return response;
   const isAuthRoute = path.startsWith("/login");
   const isPendingRoute = path.startsWith("/pending-approval");
   const isChangePasswordRoute = path.startsWith("/change-password");
