@@ -4,7 +4,6 @@
 export type TimeManagementStatus = "on-time" | "grace" | "late";
 export type ClosingStatus = "closed-on-time" | "closed-early" | "day-in-progress" | "not-due" | "unknown";
 
-const NAIROBI_UTC_OFFSET_MINUTES = 3 * 60;
 const ON_TIME_CUTOFF_MINUTES = 9 * 60 + 30;
 const CLOSE_OF_TRADE_CUTOFF_MINUTES = 16 * 60;
 
@@ -29,7 +28,11 @@ export function recentMonthOptions(now: Date, count = TIMESTAMPS_RETENTION_MONTH
 export function nairobiMinutesAfterMidnight(iso: string): number | null {
   const value = new Date(iso);
   if (Number.isNaN(value.getTime())) return null;
-  return (value.getUTCHours() * 60 + value.getUTCMinutes() + NAIROBI_UTC_OFFSET_MINUTES) % (24 * 60);
+  // Pine's MySQL datetime columns carry Nairobi wall-clock values. They are
+  // persisted in RepCall as UTC-shaped values (09:30 local is 09:30Z), so a
+  // date boundary stays stable. Adding three hours here made every live call
+  // look three hours later than it really was.
+  return value.getUTCHours() * 60 + value.getUTCMinutes();
 }
 
 export function firstCallStatus(firstCall: string): TimeManagementStatus {
@@ -74,12 +77,10 @@ export function averageMinutes(minutesList: number[]): number | null {
   return minutesList.reduce((sum, m) => sum + m, 0) / minutesList.length;
 }
 
-/** Inverse of nairobiMinutesAfterMidnight: builds a real ISO instant (today's
- *  date, arbitrary) carrying the given Nairobi clock time, so an averaged
- *  minutes-after-midnight value can still flow through every existing
- *  ISO-string-based formatter/status function unchanged. */
+/** Inverse of nairobiMinutesAfterMidnight: builds the UTC-shaped timestamp
+ * carrying a stored Pine/Nairobi wall-clock time, for monthly averages. */
 export function isoFromNairobiMinutes(minutes: number, base = new Date()): string {
-  const utcMinutesTotal = (((Math.round(minutes) - NAIROBI_UTC_OFFSET_MINUTES) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const utcMinutesTotal = ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60);
   const result = new Date(base);
   result.setUTCHours(Math.floor(utcMinutesTotal / 60), utcMinutesTotal % 60, 0, 0);
   return result.toISOString();

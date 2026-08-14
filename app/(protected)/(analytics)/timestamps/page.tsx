@@ -142,6 +142,12 @@ type TimestampSlide = "overview" | "reps" | "time";
 const SUMMARY_PAGE_SIZE = 50;
 
 function formatTime12h(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+/** The sync watermark is a genuine UTC instant, unlike RepCall's UTC-shaped
+ * Nairobi wall-clock timestamp values. */
+function formatInstantTime12h(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", { timeZone: "Africa/Nairobi", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
@@ -594,9 +600,14 @@ export default function TimestampsPage() {
     if (selectedDate) params.set("date", selectedDate);
     if (selectedRegion) params.set("region", selectedRegion);
     if (selectedTeamLeader) params.set("teamLeader", selectedTeamLeader);
-    setRepDetailStatus("loading");
-    setRepDetail(null);
-    void fetch(`/api/timestamps/rep-detail?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+    void Promise.resolve()
+      .then(() => {
+        if (!controller.signal.aborted) {
+          setRepDetailStatus("loading");
+          setRepDetail(null);
+        }
+        return fetch(`/api/timestamps/rep-detail?${params.toString()}`, { cache: "no-store", signal: controller.signal });
+      })
       .then(async (res) => {
         const body = (await res.json()) as RepDetailResponse & { error?: string };
         if (!res.ok) throw new Error(body.error || "Failed to load rep detail.");
@@ -742,7 +753,7 @@ export default function TimestampsPage() {
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales role</span>
             <RoleToggle value={roleFilter} onChange={(role) => { setRoleFilter(role); setSelectedRep(null); setRepQuery(""); setSelectedRegion(null); setSummaryLimit(SUMMARY_PAGE_SIZE); }} />
           </div>
-          <span className="mb-1 ml-auto text-xs text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatTime12h(summary.syncUpdatedAt)}` : ""}</span>
+          <span className="mb-1 ml-auto text-xs text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatInstantTime12h(summary.syncUpdatedAt)}` : ""}</span>
         </div>
       </SectionCard>
 

@@ -298,20 +298,6 @@ export function principalScopedSalesRole(
   return ["DSR", "TDR", "KAMS", "ADMIN"].includes(group) ? "Primary Sales" : "Secondary Sales";
 }
 
-function principalScopedSalesRoleExpression(principalKey: string | null): Prisma.Sql {
-  if (!principalKey) return Prisma.sql`r."salesRole"`;
-
-  const selectedMars = timestampPrincipalKey(principalKey) === "mars";
-  return Prisma.sql`
-    CASE
-      WHEN UPPER(BTRIM(r."employeeGroup")) = 'DSR' AND BTRIM(r."employeeCode") IN ('1172', '1032') THEN 'Secondary Sales'
-      WHEN UPPER(BTRIM(r."employeeGroup")) = 'TDR' AND ${selectedMars} THEN 'Secondary Sales'
-      WHEN UPPER(BTRIM(r."employeeGroup")) IN ('DSR', 'TDR', 'KAMS', 'ADMIN') THEN 'Primary Sales'
-      ELSE 'Secondary Sales'
-    END
-  `;
-}
-
 function selectedRoleClause(filters: TimestampFilters, salesRole: Prisma.Sql): Prisma.Sql {
   return filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND ${salesRole} = ${filters.roleFilter}`;
 }
@@ -319,14 +305,10 @@ function selectedRoleClause(filters: TimestampFilters, salesRole: Prisma.Sql): P
 function chartBucket(granularity: TimestampChartGranularity): Prisma.Sql {
   if (granularity === "Daily") return Prisma.sql`to_char(r.date, 'YYYY-MM-DD')`;
   if (granularity === "Weekly") return Prisma.sql`CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer`;
-  // "callTime" is a naive `timestamp` column holding a genuine UTC instant
-  // (same convention as lib/timeManagement.ts's nairobiMinutesAfterMidnight:
-  // UTC hour + 3 = Nairobi wall-clock). Postgres's `AT TIME ZONE` on a naive
-  // column does the OPPOSITE conversion — it treats the value as already
-  // being Nairobi-local and subtracts 3h to reach UTC, which silently shifted
-  // every hourly bucket backward by 3 hours (an 8am first call bucketed at
-  // 2am). A plain interval add matches the established convention exactly.
-  return Prisma.sql`EXTRACT(HOUR FROM (r."callTime" + INTERVAL '3 hours'))::integer`;
+  // RepCall holds Pine's Nairobi wall-clock value in a UTC-shaped timestamp
+  // (09:30 Nairobi is stored as 09:30Z). Group on the stored hour directly;
+  // adding three hours puts live calls into a future noon bucket.
+  return Prisma.sql`EXTRACT(HOUR FROM r."callTime")::integer`;
 }
 
 function emptyStats(): TimestampRoleStats {
@@ -484,8 +466,8 @@ export async function getTimestampRepDetail(
 
   type DetailMetricRow = TimestampRoleStats;
   interface DetailRepRow { employeeCode: string; salesRep: string; region: string; salesRole: string }
-  interface DetailTrendRow extends TimestampRepTrend {}
-  interface DetailVisitRow extends TimestampOutletVisit {}
+  type DetailTrendRow = TimestampRepTrend;
+  type DetailVisitRow = TimestampOutletVisit;
 
   const [repRows, metricRows, dailyTrend, weeklyTrend, visits] = await Promise.all([
     prisma.$queryRaw<DetailRepRow[]>(Prisma.sql`

@@ -141,7 +141,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
 
       {dataset ? (
         <div className="hidden border-t border-border bg-background-elevated px-4 py-1 text-[11px] text-muted md:block md:px-8">
-          Last data refreshed at {new Date(dataset.uploadedAt).toLocaleString()}
+          Dashboard dataset refreshed at {new Date(dataset.uploadedAt).toLocaleString()} · Live reports show their own sync time
         </div>
       ) : null}
 
