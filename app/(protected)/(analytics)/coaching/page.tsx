@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { coachingScopeForUser, loadCoachingSnapshot } from "@/lib/coachingBridge";
 import { ReviewDecision } from "@/components/coaching/ReviewDecision";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 type SearchParams = { from?: string; to?: string; principal?: string };
@@ -65,7 +66,7 @@ export default async function CoachingPage({ searchParams }: { searchParams: Pro
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground md:text-3xl">Coaching & Accompaniment</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted">Live Coaching records, feedback and action follow-through — accessed with your Analytics permissions.</p>
           </div>
-          <p className="text-xs text-muted">Live source · updated {new Date(snapshot.generatedAt).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}</p>
+          <div className="flex items-center gap-3"><div className="hidden rounded-full bg-accent-blue-soft p-1 text-sm font-semibold sm:flex"><span className="rounded-full bg-surface px-4 py-2 text-primary-blue shadow-sm">Workspace</span><Link href={`/coaching/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${supplied.principal ? `&principal=${encodeURIComponent(supplied.principal)}` : ""}`} className="rounded-full px-4 py-2 text-muted hover:text-primary-blue">Reporting</Link></div><p className="text-xs text-muted">Live source · updated {new Date(snapshot.generatedAt).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })}</p></div>
         </div>
         <form className="mt-5 grid gap-3 rounded-xl bg-accent-blue-soft/40 p-3 sm:grid-cols-2 lg:grid-cols-4" method="get">
           <label className="text-xs font-medium text-muted">From<input name="from" type="date" defaultValue={from} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground" /></label>

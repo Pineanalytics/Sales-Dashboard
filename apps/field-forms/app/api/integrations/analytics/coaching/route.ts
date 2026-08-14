@@ -158,6 +158,7 @@ export async function POST(request: Request) {
           .limit(MAX_RECORDS)
       : { data: [] };
     const repNamesById = new Map((reps ?? []).map((rep) => [rep.id, rep.full_name]));
+    const principalNamesById = new Map((principals ?? []).map((item) => [item.id, item.name]));
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       principals: principals ?? [],
@@ -169,6 +170,7 @@ export async function POST(request: Request) {
       visits: (rawVisits ?? []).filter((visit) => includedIds.has(visit.accompaniment_id)).map((visit) => ({
         ...visit,
         outletName: outletById.get(visit.outlet_id)?.name ?? "Unassigned outlet",
+        principalName: principalNamesById.get(outletById.get(visit.outlet_id)?.principal_id ?? "") ?? "Unassigned principal",
       })),
       actions: actions ?? [],
     });

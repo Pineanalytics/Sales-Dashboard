@@ -16,7 +16,7 @@ export type CoachingAccompaniment = {
   overall_score: number | null;
   supervisor_comments: string | null;
 };
-export type CoachingVisit = { id: string; accompaniment_id: string; outlet_id: string; outletName: string; planned: boolean; geofence_status: string | null };
+export type CoachingVisit = { id: string; accompaniment_id: string; outlet_id: string; outletName: string; principalName: string; planned: boolean; geofence_status: string | null };
 export type CoachingAction = { id: string; accompaniment_id: string; issue: string; coaching_area: string | null; priority: string; target_date: string | null; status: string };
 export type CoachingSnapshot = {
   generatedAt: string;
