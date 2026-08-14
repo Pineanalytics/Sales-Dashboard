@@ -16,8 +16,10 @@ import {
   summarizeSalesForPeriod,
 } from "@/lib/timeIntelligence";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
+import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
 
 export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: ViewProps) {
+  const { data: dateMatched, loading: dateGrowthLoading } = useDateAwareGrowth(period, selectedPrincipalKey);
   const years = getAvailableYears(dataset);
   const yearIdx = years.indexOf(period.year);
   const priorYear = yearIdx > 0 ? years[yearIdx - 1] : null;
@@ -32,6 +34,16 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
     priorPeriodSummary && priorPeriodSummary.revenue > 0
       ? ((currentSummary.revenue - priorPeriodSummary.revenue) / priorPeriodSummary.revenue) * 100
       : null;
+  const dateCurrentRevenue = dateMatched?.current?.revenue;
+  const dateYoyRevenue = dateMatched?.yoy?.revenue;
+  const dateMomRevenue = dateMatched?.mom?.revenue;
+  const useDateMatched = Boolean(dateMatched?.available && dateCurrentRevenue !== null && dateCurrentRevenue !== undefined);
+  const dateMatchedYoy = useDateMatched && dateYoyRevenue !== null && dateYoyRevenue !== undefined && dateYoyRevenue > 0
+    ? ((dateCurrentRevenue! - dateYoyRevenue) / dateYoyRevenue) * 100
+    : null;
+  const dateMatchedMom = useDateMatched && dateMomRevenue !== null && dateMomRevenue !== undefined && dateMomRevenue > 0
+    ? ((dateCurrentRevenue! - dateMomRevenue) / dateMomRevenue) * 100
+    : null;
 
   const monthsThisYear = getAvailableMonths(dataset, period.year);
   const monthlyRows = CANONICAL_MONTHS.filter((m) => monthsThisYear.includes(m)).map((month) => {
@@ -78,13 +90,21 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
         <KpiCard accent="quarter" label="Gross Margin" value={formatPercent(currentSummary.grossMarginPct)} size="md" />
         <KpiCard
           accent="growth"
-          label={priorYear ? `YOY vs ${priorYear}` : "YOY"}
+          label={useDateMatched ? `YoY through ${dateMatched?.asOf ?? "selected date"}` : priorYear ? `YOY vs ${priorYear}` : "YOY"}
           value={
-            <span className={tierTextClass[trendTier(yoyVariance)]}>{yoyVariance !== null ? formatTrendPercent(yoyVariance) : "—"}</span>
+            <span className={tierTextClass[trendTier(useDateMatched ? dateMatchedYoy : yoyVariance)]}>{dateGrowthLoading ? "…" : useDateMatched ? formatTrendPercent(dateMatchedYoy) : yoyVariance !== null ? formatTrendPercent(yoyVariance) : "—"}</span>
           }
           size="md"
         />
+        <KpiCard
+          accent="growth"
+          label={useDateMatched ? `MoM through ${dateMatched?.asOf ?? "selected date"}` : "MoM"}
+          value={<span className={tierTextClass[trendTier(dateMatchedMom)]}>{dateGrowthLoading ? "…" : useDateMatched ? formatTrendPercent(dateMatchedMom) : "—"}</span>}
+          size="md"
+        />
       </KpiGrid>
+
+      {period.month && !dateGrowthLoading && !useDateMatched ? <p className="-mt-3 text-xs text-muted">Daily SAP history is not available for a date-matched comparison in this selected month.</p> : null}
 
       <SectionCard title={`Monthly Revenue Trend — ${period.year}${priorYear ? ` vs ${priorYear}` : ""}`}>
         <ResponsiveContainer width="100%" height={340}>

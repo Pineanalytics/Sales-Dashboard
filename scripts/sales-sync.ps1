@@ -37,7 +37,11 @@ param(
     # grain, full current year for daily grain) instead of the routine current-
     # month-only refresh — see sales-sync.ts's own header comment. Run this once
     # manually; the scheduled task always runs without it.
-    [switch]$Backfill
+    [switch]$Backfill,
+    # Compact SAP-only repair for the date-aware YoY/MoM cards: the current
+    # MTD window, matching previous-month days, and matching prior-year days.
+    # It is never used by the scheduled task.
+    [switch]$ComparisonBackfill
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,6 +90,8 @@ try {
 
     if ($Backfill) {
         & node --import tsx "scripts\db-bridge\sales-sync.ts" --backfill
+    } elseif ($ComparisonBackfill) {
+        & node --import tsx "scripts\db-bridge\sales-sync.ts" --comparison-backfill
     } else {
         & node --import tsx "scripts\db-bridge\sales-sync.ts"
     }

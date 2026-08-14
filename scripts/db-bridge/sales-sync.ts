@@ -8,6 +8,9 @@
 // 30 minutes, via scripts/sales-sync.ps1 (which opens the Postgres SSH tunnel
 // this script's Prisma-backed reference-data reads need). Run directly with:
 // npm run sales:sync -- --backfill (or without the flag for a routine run).
+// For a compact date-matched YoY/MoM history repair, run
+// `npm run sales:sync -- --comparison-backfill` once. It reads only the
+// current MTD, matching prior-month MTD, and matching prior-year MTD windows.
 //
 // Two modes:
 //   --backfill  Full historical fetch (YTD_Raw's own YTD+LYTD branches, i.e.
@@ -15,6 +18,10 @@
 //               2025+2026, matching the "backfill from January 2025" decision)
 //               plus the full current year of daily-grain rows. Run this once
 //               manually; NOT part of the routine 30-minute cadence.
+//   --comparison-backfill  Daily-grain only: current MTD, the matching days
+//               in the previous month, and the same days last year. It does
+//               not run YTD_Raw, and is intentionally a one-off repair for
+//               date-aware comparison cards.
 //   (default)   Routine refresh. Skips the full-year YTD_Raw scan entirely —
 //               only fetches the CURRENT MONTH's day-grain rows, then derives
 //               the monthly-grain rollup from those same rows via
@@ -48,16 +55,31 @@ import {
 } from "./transform/buildRepSales";
 
 const isBackfill = process.argv.includes("--backfill");
+const isComparisonBackfill = process.argv.includes("--comparison-backfill");
 
 // Daily-grain fetch window. Backfill: Jan 1 of the CURRENT year through today
 // (the "widen to the full current year" decision — daily grain is not backfilled
 // all the way to 2025; that's YTD_Raw's own YTD+LYTD job, monthly/customer grain
 // only). Routine refresh: just the current month.
-function dailyWindow(asOfDate: Date, backfill: boolean): { start: Date; end: Date } {
+function dailyWindows(asOfDate: Date, backfill: boolean, comparisonBackfill: boolean): { start: Date; end: Date }[] {
+  if (comparisonBackfill) {
+    const year = asOfDate.getUTCFullYear();
+    const month = asOfDate.getUTCMonth();
+    const day = asOfDate.getUTCDate();
+    const previousMonthEnd = new Date(Date.UTC(year, month, 0));
+    const previousMonth = previousMonthEnd.getUTCMonth();
+    const previousMonthYear = previousMonthEnd.getUTCFullYear();
+    const priorMonthCutoff = Math.min(day, previousMonthEnd.getUTCDate());
+    return [
+      { start: new Date(Date.UTC(year, month, 1)), end: asOfDate },
+      { start: new Date(Date.UTC(previousMonthYear, previousMonth, 1)), end: new Date(Date.UTC(previousMonthYear, previousMonth, priorMonthCutoff)) },
+      { start: new Date(Date.UTC(year - 1, month, 1)), end: new Date(Date.UTC(year - 1, month, day)) },
+    ];
+  }
   const start = backfill
     ? new Date(Date.UTC(asOfDate.getUTCFullYear(), 0, 1))
     : new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), 1));
-  return { start, end: asOfDate };
+  return [{ start, end: asOfDate }];
 }
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -71,19 +93,32 @@ async function main() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
   const asOfDate = new Date();
+  const mode = isBackfill ? "BACKFILL" : isComparisonBackfill ? "COMPARISON BACKFILL" : "routine";
   console.log(
-    `[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)}, mode: ${isBackfill ? "BACKFILL" : "routine"})...`
+    `[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)}, mode: ${mode})...`
   );
 
-  const { start: dailyStart, end: dailyEnd } = dailyWindow(asOfDate, isBackfill);
+  const dailyWindowsToRead = dailyWindows(asOfDate, isBackfill, isComparisonBackfill);
 
-  const [dailyRawRows, products, warehousesData, employees, principalsData] = await Promise.all([
-    withConnection(config, (pool) => fetchDailySalesRaw(pool, dailyStart, dailyEnd)),
+  // Read the bounded comparison windows serially. This is a rare manual path,
+  // so protecting SAP from concurrent long-running aggregates matters more
+  // than shaving a few seconds off the refresh.
+  const dailyRowsPromise = (async () => {
+    const batches = [];
+    for (const window of dailyWindowsToRead) {
+      batches.push(await withConnection(config, (pool) => fetchDailySalesRaw(pool, window.start, window.end)));
+    }
+    return batches;
+  })();
+
+  const [dailyRawRowsByWindow, products, warehousesData, employees, principalsData] = await Promise.all([
+    dailyRowsPromise,
     loadProducts(),
     loadWarehouses(),
     loadEmployeeMaster(),
     loadPrincipals(),
   ]);
+  const dailyRawRows = dailyRawRowsByWindow.flat();
 
   // Only the backfill path runs the heavier full-year (x2 years) YTD_Raw scan —
   // sequential after the above, not parallel, since backfill is a rare, manually
@@ -91,7 +126,7 @@ async function main() {
   const ytdRows: YtdRawRow[] = isBackfill ? await withConnection(config, (pool) => fetchYtdRaw(pool, asOfDate)) : [];
 
   console.log(
-    `[sales-sync] Fetched ${isBackfill ? `${ytdRows.length} YTD_Raw rows (current + prior year) and ` : ""}${dailyRawRows.length} daily rows (${dailyStart.toISOString().slice(0, 10)} to ${dailyEnd.toISOString().slice(0, 10)}). Loaded ${products.length} product rows, ${warehousesData.length} warehouse rows, and ${employees.length} Employee Roaster rows from Postgres.`
+    `[sales-sync] Fetched ${isBackfill ? `${ytdRows.length} YTD_Raw rows (current + prior year) and ` : ""}${dailyRawRows.length} daily rows across ${dailyWindowsToRead.map((window) => `${window.start.toISOString().slice(0, 10)} to ${window.end.toISOString().slice(0, 10)}`).join(", ")}. Loaded ${products.length} product rows, ${warehousesData.length} warehouse rows, and ${employees.length} Employee Roaster rows from Postgres.`
   );
 
   // Routine refreshes derive the monthly-grain rollup from the current-month
@@ -108,6 +143,32 @@ async function main() {
   console.log(
     `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, and ${dailyCustomerSales.length} customer-day rows.`
   );
+
+  // The comparison repair is deliberately daily-principal only. Do not touch
+  // monthly, rep, customer, target or derived tables: their existing history
+  // remains authoritative, and date-aware cards only read DailySalesActual.
+  if (isComparisonBackfill) {
+    const dailyRows = dailySales.map((r) => ({
+      date: r.date,
+      location: r.location,
+      principal: r.principal,
+      revenue: r.revenue,
+      cogs: r.cogs,
+      grossProfit: r.grossProfit,
+    }));
+    console.log(`[sales-sync] Uploading comparison history to ${appUrl}/api/sales/upload-daily...`);
+    const dailyResponse = await fetch(`${appUrl}/api/sales/upload-daily`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+      body: JSON.stringify({ rows: dailyRows }),
+    });
+    const dailyBody = await dailyResponse.json();
+    if (!dailyResponse.ok) {
+      throw new Error(`Comparison daily upload rejected (HTTP ${dailyResponse.status}): ${JSON.stringify(dailyBody)}`);
+    }
+    console.log(`[sales-sync] Comparison history upload succeeded. Saved ${dailyBody.count} daily rows.`);
+    return;
+  }
 
   const rows = monthlySales.map((r) => ({
     year: r.year,
