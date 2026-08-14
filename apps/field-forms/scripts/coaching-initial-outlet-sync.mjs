@@ -131,7 +131,7 @@ async function main() {
       continue;
     }
     if (sourceRow && legacyRow && sourceRow.id !== legacyRow.id && !isAmbiguousCustomer) {
-      archiveRows.push({ id: sourceRow.id, outlet_code: archivedCode(sourceRow.id), is_active: false });
+      archiveRows.push({ id: sourceRow.id, form_id: formId, outlet_code: archivedCode(sourceRow.id), is_active: false });
       target = legacyRow;
       stats.archivedDuplicates++;
     } else if (!target && legacyRow) {
@@ -149,7 +149,7 @@ async function main() {
     };
     if (rep) stats.assignmentMatched++;
     if (target) {
-      updateRows.push({ id: target.id, ...values });
+      updateRows.push({ id: target.id, form_id: formId, ...values });
       if (target.id === legacyRow?.id) stats.linkedExisting++;
       else stats.sourceRowsUpdated++;
     } else {
