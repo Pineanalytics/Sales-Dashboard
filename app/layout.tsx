@@ -1,10 +1,13 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Pinefrost Analytics | Performance Dashboard",
   description: "Pinefrost Analytics — performance intelligence for Pinefrost Distribution.",
   applicationName: "Pinefrost Analytics",
+};
+
+export const viewport: Viewport = {
   themeColor: "#0b3d35",
 };
 
