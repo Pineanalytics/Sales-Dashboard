@@ -20,7 +20,7 @@ const OVERLAP_BUFFER_HOURS = 3;
 // Match the API's database chunk size. One request now maps to one bounded
 // insert statement, avoiding reverse-proxy timeouts on larger transport
 // batches while keeping the worker's memory use flat.
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 250;
 const FULL_WINDOW_DAYS = 7;
 const MAX_UPLOAD_ATTEMPTS = 3;
 const UPLOAD_RETRY_DELAY_MS = 1_500;
@@ -33,8 +33,9 @@ interface SyncState {
 async function postJson(appUrl: string, apiKey: string, path: string, body: unknown): Promise<{ ok: boolean; status: number; body: unknown }> {
   const response = await fetch(`${appUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey, Connection: "close" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
   });
   // A proxy may legally return an empty successful response. Do not throw
   // while parsing it: HTTP status is the source of truth for idempotent
