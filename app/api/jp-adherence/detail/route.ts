@@ -6,10 +6,8 @@ import { getJpAdherenceDetail } from "@/lib/jpAdherence";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Lazy drill-down: the rep-day detail (planned vs actual, outlet by outlet) is
-// only computed for one rep-day at a time (?date=YYYY-MM-DD&employeeCode=...),
-// never the whole month, since a live join over the full plan/RepCall window
-// would be needlessly wide for what's just a modal's worth of rows.
+// Lazy drill-down: one rep-day of Timestamp visits classified against the live
+// Pine PJP outlet owner, avoiding a wide full-period join for a modal-sized view.
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {

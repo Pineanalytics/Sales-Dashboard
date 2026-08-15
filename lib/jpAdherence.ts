@@ -24,7 +24,6 @@ export interface JpAdherenceKpis {
   productiveOutlets: number;
   strikeRatePct: number;
   plannedNotVisited: number;
-  unplannedVisits: number;
 }
 
 export interface JpRepDaySummaryRow {
@@ -57,21 +56,6 @@ export interface JpMonthlyCoverageRow {
   qty: number;
 }
 
-export interface JpPlanRow {
-  date: string;
-  day: string;
-  employeeCode: string;
-  employeeName: string;
-  customerId: string;
-  customerName: string;
-  region: string;
-  teamLeader: string;
-  routeName: string;
-  subRegion: string;
-  salesRole: string;
-  channel: string;
-}
-
 export interface JpDetailRow {
   employeeCode: string;
   employeeName: string;
@@ -80,7 +64,7 @@ export interface JpDetailRow {
   plannedFlag: boolean;
   visitedFlag: boolean;
   productiveFlag: boolean;
-  jpStatus: "Planned & Productive" | "Planned & Visited" | "Planned Not Visited" | "Unplanned Visit";
+  jpStatus: "PJP-aligned & Productive" | "PJP-aligned Visit" | "Outside PJP";
   sales: number;
   qty: number;
 }
@@ -88,7 +72,6 @@ export interface JpDetailRow {
 export interface JpAdherenceSummary {
   kpis: JpAdherenceKpis;
   repDaySummary: JpRepDaySummaryRow[];
-  planRows: JpPlanRow[];
   availableMonths: string[];
   availableDates: string[];
   availableReps: { employeeCode: string; employeeName: string }[];
@@ -96,7 +79,6 @@ export interface JpAdherenceSummary {
 }
 
 const EMPTY_SQL = Prisma.sql``;
-const PLAN_ROW_LIMIT = 500;
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
@@ -130,14 +112,6 @@ export function monthWindow(year: string, monthIndex: number): { start: Date; en
  *  Plan workbook has no Principal column, so a multi-principal rep's planned-outlet
  *  count is identical under each of their contributed principals — there is no way to
  *  attribute a specific planned visit to one principal over another from the source file. */
-async function principalEligibleEmployeeCodes(principalKey: string): Promise<string[]> {
-  const rows = await prisma.employeeMaster.findMany({
-    where: { active: true },
-    select: { employeeCode: true, contributions: { select: { principal: true } } },
-  });
-  return rows.filter((r) => r.contributions.some((c) => normalizePrincipalKey(c.principal) === principalKey)).map((r) => r.employeeCode);
-}
-
 async function teamLeaderEligibleEmployeeCodes(teamLeader: string): Promise<string[]> {
   const rows = await prisma.employeeMaster.findMany({ where: { teamLeader }, select: { employeeCode: true } });
   return rows.map((r) => r.employeeCode);
@@ -150,16 +124,12 @@ async function teamLeaderEligibleEmployeeCodes(teamLeader: string): Promise<stri
  *  EmployeeMaster join needed for that one). */
 async function resolveEmployeeCodeFilter(
   scope: TeamLeaderScope | null,
-  principalKey: string | null,
+  _principalKey: string | null,
   employeeCode: string | null,
   teamLeader: string | null
 ): Promise<string[] | "ALL"> {
   let codes: string[] | null = null;
   if (scope) codes = scope.employeeCodes;
-  if (principalKey) {
-    const eligible = await principalEligibleEmployeeCodes(principalKey);
-    codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
-  }
   if (teamLeader) {
     const eligible = await teamLeaderEligibleEmployeeCodes(teamLeader);
     codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
@@ -195,10 +165,9 @@ interface PlanJoinRow {
   employeeCode: string;
   employeeName: string;
   salesRole: string;
-  customerId: string;
-  outletsPlanned: bigint | number;
-  outletsVisited: bigint | number;
-  productiveOutlets: bigint | number;
+  timestampVisits: bigint | number;
+  pjpAlignedVisits: bigint | number;
+  productivePjpVisits: bigint | number;
 }
 
 /** Core plan-anchored aggregate: JourneyPlanRow LEFT JOIN RepCall, grouped per rep-day.
@@ -206,32 +175,48 @@ interface PlanJoinRow {
  *  anchor on — see getUnplannedVisits). */
 async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpRepDaySummaryRow[]> {
   const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
-  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND p."salesRole" = ${filters.roleFilter}`;
-  const dateClause = filters.date ? Prisma.sql`AND p.date >= ${filters.date} AND p.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
+  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
+  const dateClause = filters.date ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
+  const years = Array.from(
+    new Set([range.start.getUTCFullYear(), new Date(range.end.getTime() - 1).getUTCFullYear()].map(String))
+  );
+  const principalClause = filters.principalKey
+    ? Prisma.sql`AND regexp_replace(split_part(lower(a.principal), '-', 1), '[^a-z0-9]', '', 'g') = ${filters.principalKey}`
+    : EMPTY_SQL;
 
   const rows = await prisma.$queryRaw<PlanJoinRow[]>(Prisma.sql`
+    WITH pjp_owned_outlets AS (
+      SELECT DISTINCT a."customerId", a."pjpEmployeeCode"
+      FROM "ActiveOutlet" a
+      WHERE a.status = 'Active'
+        AND a."pjpEmployeeCode" IS NOT NULL
+        AND a."pjpEmployeeCode" <> ''
+        AND a.year IN (${Prisma.join(years)})
+        ${principalClause}
+    )
     SELECT
-      p.date AS date,
-      p."employeeCode" AS "employeeCode",
-      MAX(p."employeeName") AS "employeeName",
-      MAX(p."salesRole") AS "salesRole",
-      COUNT(DISTINCT p."customerId")::int AS "outletsPlanned",
-      COUNT(DISTINCT p."customerId") FILTER (WHERE r.id IS NOT NULL)::int AS "outletsVisited",
-      COUNT(DISTINCT p."customerId") FILTER (WHERE r."callOutcome" = 'Sale')::int AS "productiveOutlets"
-    FROM "JourneyPlanRow" p
-    LEFT JOIN "RepCall" r ON r.date = p.date AND r."employeeCode" = p."employeeCode" AND r."outletId" = p."customerId"
-    WHERE p.date >= ${range.start} AND p.date < ${range.end}
-    ${employeeCodeClause(Prisma.sql`p."employeeCode"`, codes)}
-    ${dayNameClause(Prisma.sql`p.day`, filters.dayNames)}
+      r.date AS date,
+      r."employeeCode" AS "employeeCode",
+      MAX(r."salesRep") AS "employeeName",
+      MAX(r."salesRole") AS "salesRole",
+      COUNT(DISTINCT r."outletId")::int AS "timestampVisits",
+      COUNT(DISTINCT r."outletId") FILTER (WHERE p."customerId" IS NOT NULL)::int AS "pjpAlignedVisits",
+      COUNT(DISTINCT r."outletId") FILTER (WHERE p."customerId" IS NOT NULL AND r."callOutcome" = 'Sale')::int AS "productivePjpVisits"
+    FROM "RepCall" r
+    LEFT JOIN pjp_owned_outlets p
+      ON p."customerId" = r."outletId" AND p."pjpEmployeeCode" = r."employeeCode"
+    WHERE r.date >= ${range.start} AND r.date < ${range.end}
+    ${employeeCodeClause(Prisma.sql`r."employeeCode"`, codes)}
+    ${dayNameClause(repCallDayNameExpr(), filters.dayNames)}
     ${roleClause}
     ${dateClause}
-    GROUP BY p.date, p."employeeCode"
+    GROUP BY r.date, r."employeeCode"
   `);
 
   return rows.map((r) => {
-    const outletsPlanned = Number(r.outletsPlanned);
-    const outletsVisited = Number(r.outletsVisited);
-    const productiveOutlets = Number(r.productiveOutlets);
+    const outletsPlanned = Number(r.timestampVisits);
+    const outletsVisited = Number(r.pjpAlignedVisits);
+    const productiveOutlets = Number(r.productivePjpVisits);
     const jpAdherencePct = outletsPlanned > 0 ? round1((outletsVisited / outletsPlanned) * 100) : 0;
     const strikeRatePct = outletsVisited > 0 ? round1((productiveOutlets / outletsVisited) * 100) : 0;
     return {
@@ -252,25 +237,7 @@ async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeade
 
 /** RepCall rows with no matching plan row for that rep-day-outlet — a visit that
  *  wasn't on the plan at all. */
-async function getUnplannedVisits(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<number> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
-  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
-  const dateClause = filters.date ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
-
-  const result = await prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-    SELECT COUNT(DISTINCT (r.date, r."employeeCode", r."outletId"))::bigint AS count
-    FROM "RepCall" r
-    LEFT JOIN "JourneyPlanRow" p ON p.date = r.date AND p."employeeCode" = r."employeeCode" AND p."customerId" = r."outletId"
-    WHERE p.id IS NULL AND r.date >= ${range.start} AND r.date < ${range.end}
-    ${employeeCodeClause(Prisma.sql`r."employeeCode"`, codes)}
-    ${dayNameClause(repCallDayNameExpr(), filters.dayNames)}
-    ${roleClause}
-    ${dateClause}
-  `);
-  return Number(result[0]?.count ?? 0);
-}
-
-function aggregateKpis(repDaySummary: JpRepDaySummaryRow[], unplannedVisits: number): JpAdherenceKpis {
+function aggregateKpis(repDaySummary: JpRepDaySummaryRow[]): JpAdherenceKpis {
   const outletsPlanned = repDaySummary.reduce((s, r) => s + r.outletsPlanned, 0);
   const outletsVisited = repDaySummary.reduce((s, r) => s + r.outletsVisited, 0);
   const productiveOutlets = repDaySummary.reduce((s, r) => s + r.productiveOutlets, 0);
@@ -281,31 +248,7 @@ function aggregateKpis(repDaySummary: JpRepDaySummaryRow[], unplannedVisits: num
     productiveOutlets,
     strikeRatePct: outletsVisited > 0 ? round1((productiveOutlets / outletsVisited) * 100) : 0,
     plannedNotVisited: outletsPlanned - outletsVisited,
-    unplannedVisits,
   };
-}
-
-async function getPlanRows(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpPlanRow[]> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
-  const where: Prisma.Sql[] = [Prisma.sql`p.date >= ${range.start} AND p.date < ${range.end}`];
-  if (codes !== "ALL") {
-    if (codes.length === 0) where.push(Prisma.sql`false`);
-    else where.push(Prisma.sql`p."employeeCode" IN (${Prisma.join(codes)})`);
-  }
-  if (filters.dayNames && filters.dayNames.length > 0) where.push(Prisma.sql`p.day = ANY(${filters.dayNames})`);
-  if (filters.roleFilter !== "all") where.push(Prisma.sql`p."salesRole" = ${filters.roleFilter}`);
-  if (filters.date) where.push(Prisma.sql`p.date >= ${filters.date} AND p.date < ${new Date(filters.date.getTime() + 86400000)}`);
-
-  const rows = await prisma.$queryRaw<
-    { date: Date; day: string; employeeCode: string; employeeName: string; customerId: string; customerName: string; region: string; teamLeader: string; routeName: string; subRegion: string; salesRole: string; channel: string }[]
-  >(Prisma.sql`
-    SELECT p.date, p.day, p."employeeCode", p."employeeName", p."customerId", p."customerName", p.region, p."teamLeader", p."routeName", p."subRegion", p."salesRole", p.channel
-    FROM "JourneyPlanRow" p
-    WHERE ${Prisma.join(where, " AND ")}
-    ORDER BY p.date, p."employeeCode", p."customerName"
-    LIMIT ${PLAN_ROW_LIMIT}
-  `);
-  return rows.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10) }));
 }
 
 /** Distinct Employee Roaster team leader names within the caller's own
@@ -322,22 +265,18 @@ async function getAvailableTeamLeaders(scope: TeamLeaderScope | null): Promise<s
 }
 
 export async function getJpAdherenceSummary(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpAdherenceSummary> {
-  const [repDaySummary, unplannedVisits, planRows, availableTeamLeaders] = await Promise.all([
+  const [repDaySummary, availableTeamLeaders] = await Promise.all([
     getRepDayRows(range, scope, filters),
-    getUnplannedVisits(range, scope, filters),
-    getPlanRows(range, scope, filters),
     getAvailableTeamLeaders(scope),
   ]);
-
   const availableDates = Array.from(new Set(repDaySummary.map((r) => r.date))).sort();
   const availableReps = Array.from(new Map(repDaySummary.map((r) => [r.employeeCode, { employeeCode: r.employeeCode, employeeName: r.employeeName }])).values()).sort((a, b) =>
     a.employeeName.localeCompare(b.employeeName)
   );
 
   return {
-    kpis: aggregateKpis(repDaySummary, unplannedVisits),
+    kpis: aggregateKpis(repDaySummary),
     repDaySummary: repDaySummary.sort((a, b) => a.date.localeCompare(b.date) || a.employeeName.localeCompare(b.employeeName)),
-    planRows,
     availableMonths: [],
     availableDates,
     availableReps,
@@ -345,14 +284,13 @@ export async function getJpAdherenceSummary(range: { start: Date; end: Date }, s
   };
 }
 
-/** The months JourneyPlanRow actually has data for — drives the Month selector without
- *  needing a separate round trip for every filter change. */
+/** Timestamp months available to the caller, for the Month selector. */
 export async function getAvailablePlanMonths(scope: TeamLeaderScope | null): Promise<string[]> {
   const codes = scope ? scope.employeeCodes : null;
   const rows = await prisma.$queryRaw<{ monthLabel: string }[]>(Prisma.sql`
-    SELECT DISTINCT "monthLabel" FROM "JourneyPlanRow"
+    SELECT DISTINCT to_char(date, 'YYYY-MM') AS "monthLabel" FROM "RepCall"
     ${codes ? (codes.length > 0 ? Prisma.sql`WHERE "employeeCode" IN (${Prisma.join(codes)})` : Prisma.sql`WHERE false`) : EMPTY_SQL}
-    ORDER BY "monthLabel"
+    ORDER BY "monthLabel" DESC
   `);
   return rows.map((r) => r.monthLabel);
 }
@@ -361,51 +299,41 @@ export async function getAvailablePlanMonths(scope: TeamLeaderScope | null): Pro
  *  (one rep, one day) to just fetch both sides and classify in JS. */
 export async function getJpAdherenceDetail(date: Date, employeeCode: string): Promise<JpDetailRow[]> {
   const dayEnd = new Date(date.getTime() + 86400000);
-  const [planRows, callRows] = await Promise.all([
-    prisma.journeyPlanRow.findMany({ where: { date, employeeCode }, select: { customerId: true, customerName: true, employeeName: true } }),
-    prisma.repCall.findMany({ where: { date: { gte: date, lt: dayEnd }, employeeCode }, select: { outletId: true, outletName: true, callOutcome: true, sales: true, qty: true, salesRep: true } }),
-  ]);
+  const callRows = await prisma.repCall.findMany({
+    where: { date: { gte: date, lt: dayEnd }, employeeCode },
+    select: { outletId: true, outletName: true, callOutcome: true, sales: true, qty: true, salesRep: true },
+  });
+  if (callRows.length === 0) return [];
 
-  const callByOutlet = new Map(callRows.map((c) => [c.outletId, c]));
-  const rows: JpDetailRow[] = [];
-  const employeeName = planRows[0]?.employeeName ?? callRows[0]?.salesRep ?? "";
+  const pjpOutlets = await prisma.activeOutlet.findMany({
+    where: {
+      year: String(date.getUTCFullYear()),
+      status: "Active",
+      pjpEmployeeCode: employeeCode,
+      customerId: { in: [...new Set(callRows.map((call) => call.outletId))] },
+    },
+    select: { customerId: true },
+    distinct: ["customerId"],
+  });
+  const pjpOutletIds = new Set(pjpOutlets.map((outlet) => outlet.customerId));
+  const employeeName = callRows[0]?.salesRep ?? "";
 
-  for (const p of planRows) {
-    const call = callByOutlet.get(p.customerId);
-    const visitedFlag = !!call;
-    const productiveFlag = call?.callOutcome === "Sale";
-    rows.push({
+  return callRows.map((call) => {
+    const pjpAligned = pjpOutletIds.has(call.outletId);
+    const productiveFlag = call.callOutcome === "Sale";
+    return {
       employeeCode,
       employeeName,
-      customerId: p.customerId,
-      customerName: p.customerName,
-      plannedFlag: true,
-      visitedFlag,
-      productiveFlag,
-      jpStatus: productiveFlag ? "Planned & Productive" : visitedFlag ? "Planned & Visited" : "Planned Not Visited",
-      sales: call?.sales ?? 0,
-      qty: call?.qty ?? 0,
-    });
-  }
-
-  const plannedOutletIds = new Set(planRows.map((p) => p.customerId));
-  for (const c of callRows) {
-    if (plannedOutletIds.has(c.outletId)) continue;
-    rows.push({
-      employeeCode,
-      employeeName,
-      customerId: c.outletId,
-      customerName: c.outletName,
-      plannedFlag: false,
+      customerId: call.outletId,
+      customerName: call.outletName,
+      plannedFlag: pjpAligned,
       visitedFlag: true,
-      productiveFlag: c.callOutcome === "Sale",
-      jpStatus: "Unplanned Visit",
-      sales: c.sales,
-      qty: c.qty,
-    });
-  }
-
-  return rows;
+      productiveFlag,
+      jpStatus: pjpAligned ? (productiveFlag ? "PJP-aligned & Productive" : "PJP-aligned Visit") : "Outside PJP",
+      sales: call.sales,
+      qty: call.qty,
+    };
+  });
 }
 
 interface CoverageRawRow {

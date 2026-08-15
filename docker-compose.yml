@@ -30,6 +30,12 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Field Forms shares this Docker network and also has a service called
+    # "app". Give Analytics a stable, non-generic alias for worker-to-API calls.
+    networks:
+      default:
+        aliases:
+          - pinefrost-analytics-app
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,7 +120,7 @@ services:
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # The worker and API share this private Docker network; keep bridge
       # uploads server-to-server rather than traversing the public proxy.
-      PL_BRIDGE_APP_URL: http://app:3000
+      PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
       CONTINUOUS_SYNC_JOBS: active-outlets
       # A full YTD aggregate is intentionally a quiet overnight job. It uses
       # bounded weekly source windows and cannot delay live timestamps.

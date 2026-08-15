@@ -8,7 +8,6 @@
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { FactLineRow, NoSaleVisitRow, OutletRow, ProductRow, UserRow } from "./query";
-import type { EmployeeMasterReferenceRow } from "../reference/loadFromDb";
 
 export interface PrincipalRow {
   key: string;
@@ -282,8 +281,9 @@ export interface ActiveOutletEventRow {
   territory: string;
   latitude: number | null;
   longitude: number | null;
-  /** Planned PJP ownership is retained only for an active Analytics roster rep.
-   * Principal remains SKU-derived above; it is never inferred from this owner. */
+  /** Pine's PJP owner. Principal remains SKU-derived above; it is never
+   * inferred from this owner. The field-form sync independently resolves an
+   * active roster match and leaves dormant owners unassigned. */
   pjpEmployeeCode: string | null;
   pjpRepName: string | null;
   pjpRepGroup: string | null;
@@ -299,8 +299,7 @@ export interface ActiveOutletEventRow {
 export function buildActiveOutletEvents(
   events: PurchaseEvent[],
   outlets: OutletRow[],
-  users: UserRow[],
-  activePjpByEmployeeCode: Map<string, EmployeeMasterReferenceRow>
+  users: UserRow[]
 ): ActiveOutletEventRow[] {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -310,7 +309,6 @@ export function buildActiveOutletEvents(
     if (e.costCentre === null) continue;
     const outlet = outletById.get(e.customerId);
     const user = userById.get(e.userId);
-    const pjpOwner = outlet?.pjpUserId ? activePjpByEmployeeCode.get(outlet.pjpUserId) : undefined;
     rows.push({
       year: e.year,
       principal: e.costCentre,
@@ -327,10 +325,10 @@ export function buildActiveOutletEvents(
       territory: outlet?.territory ?? "Unassigned",
       latitude: outlet?.latitude ?? null,
       longitude: outlet?.longitude ?? null,
-      pjpEmployeeCode: pjpOwner?.employeeCode ?? null,
-      pjpRepName: pjpOwner?.pineName ?? null,
-      pjpRepGroup: pjpOwner ? outlet?.pjpRepGroup ?? null : null,
-      pjpRegion: pjpOwner ? outlet?.pjpRegion ?? null : null,
+      pjpEmployeeCode: outlet?.pjpUserId ?? null,
+      pjpRepName: outlet?.pjpRepName ?? null,
+      pjpRepGroup: outlet?.pjpRepGroup ?? null,
+      pjpRegion: outlet?.pjpRegion ?? null,
       repName: user?.employee ?? null,
       repGroup: user?.userGroup ?? null,
     });

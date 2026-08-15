@@ -25,22 +25,15 @@ export interface SyncHealthRow {
  *  otherwise look identical to a missed/failed run under the old
  *  data-table-timestamp check. SyncWatermark is bumped on every *successful*
  *  run regardless of whether there was anything new to write, so it's the
- *  correct freshness signal now.
- *
- *  JP Adherence's Journey Plan is a manually-uploaded business workbook (see
- *  scripts/jp-adherence/import-plan.ts), not a scheduled sync — a ~35-day
- *  threshold flags a genuinely stale plan (no new month uploaded) without
- *  falsely alarming for most of every month between uploads. Adherence
- *  "actuals" freshness is already covered by the "timestamps" row above,
- *  since JP Adherence now reads RepCall directly. */
+ *  correct freshness signal now. PJP ownership adherence joins those
+ *  ActiveOutlet owner fields to RepCall, so it shares their source freshness. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, jpAdherence] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
-    prisma.journeyPlanRow.aggregate({ _max: { createdAt: true } }),
   ]);
 
   function row(key: string, label: string, cadenceLabel: string, lastUpdated: Date | null, staleAfterHours: number): SyncHealthRow {
@@ -54,6 +47,6 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
-    row("jpAdherence", "JP Adherence Plan (manual upload)", "Uploaded monthly via scripts/jp-adherence/import-plan.ts", jpAdherence._max.createdAt, 35 * 24),
+    row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
   ];
 }

@@ -11,7 +11,7 @@ if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "../coverage/mysql";
 import { fetchFactLines, fetchOutlets, fetchProducts, fetchUsers } from "./query";
 import { buildActiveOutletEvents, collapseToPurchaseEvents, type ActiveOutletEventRow } from "./transform";
-import { loadEmployeeMaster, loadPrincipals } from "../reference/loadFromDb";
+import { loadPrincipals } from "../reference/loadFromDb";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "active-outlets";
@@ -150,9 +150,8 @@ async function main() {
     : new Date(Math.max(ytdStart.getTime(), (syncState.lastIncrementalAt ? new Date(syncState.lastIncrementalAt).getTime() : ytdStart.getTime()) - OVERLAP_BUFFER_HOURS * 3_600_000));
   const sourceWindows = windows(fetchStart, now, isFullMode);
 
-  const [principalsData, employees] = await Promise.all([loadPrincipals(), loadEmployeeMaster()]);
-  const activePjpByEmployeeCode = new Map(employees.filter((employee) => employee.active).map((employee) => [employee.employeeCode, employee]));
-  console.log(`[active-outlets] ${isFullMode ? "FULL nightly" : "incremental"} sync: ${sourceWindows.length} source window(s), ${activePjpByEmployeeCode.size} active roster reps eligible for PJP ownership.`);
+  const principalsData = await loadPrincipals();
+  console.log(`[active-outlets] ${isFullMode ? "FULL nightly" : "incremental"} sync: ${sourceWindows.length} source window(s), retaining Pine outlet PJP ownership.`);
 
   let eventsOk = true;
   let sourceLines = 0;
@@ -170,7 +169,7 @@ async function main() {
       unmatchedSkuCount += unmatched;
       eventCount += events.length;
       for (const event of events) if (event.purchaseTime > newestEventTime) newestEventTime = event.purchaseTime;
-      const eventRows = buildActiveOutletEvents(events, outlets, users, activePjpByEmployeeCode);
+      const eventRows = buildActiveOutletEvents(events, outlets, users);
       console.log(`[active-outlets] ${window.start.toISOString().slice(0, 10)}-${window.end.toISOString().slice(0, 10)}: ${factLines.length} lines -> ${eventRows.length} events.`);
       if (!(await uploadEventsBatched(appUrl, apiKey, eventRows, year, calendarMonthsElapsed, isFullMode))) {
         eventsOk = false;

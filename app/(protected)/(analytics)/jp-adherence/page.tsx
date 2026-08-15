@@ -23,7 +23,6 @@ interface JpKpis {
   productiveOutlets: number;
   strikeRatePct: number;
   plannedNotVisited: number;
-  unplannedVisits: number;
 }
 
 interface JpRepDaySummaryRow {
@@ -38,21 +37,6 @@ interface JpRepDaySummaryRow {
   strikeRatePct: number;
   plannedNotVisited: number;
   status: string;
-}
-
-interface JpPlanRow {
-  date: string;
-  day: string;
-  employeeCode: string;
-  employeeName: string;
-  customerId: string;
-  customerName: string;
-  region: string;
-  teamLeader: string;
-  routeName: string;
-  subRegion: string;
-  salesRole: string;
-  channel: string;
 }
 
 interface JpMonthlyCoverageRow {
@@ -74,7 +58,6 @@ interface JpMonthlyCoverageRow {
 interface JpAdherenceResponse {
   kpis: JpKpis;
   repDaySummary: JpRepDaySummaryRow[];
-  planRows: JpPlanRow[];
   availableMonths: string[];
   availableDates: string[];
   availableReps: { employeeCode: string; employeeName: string }[];
@@ -161,7 +144,7 @@ export default function JpAdherencePage() {
     );
   }
 
-  const hasData = data.repDaySummary.length > 0 || data.planRows.length > 0;
+  const hasData = data.repDaySummary.length > 0;
 
   const availableMonths = data.availableMonths.length > 0 ? data.availableMonths : [selectedMonth];
   const selectedRepName = selectedRep ? data.availableReps.find((r) => r.employeeCode === selectedRep)?.employeeName : undefined;
@@ -187,8 +170,8 @@ export default function JpAdherencePage() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, acc]) => ({
       name: formatDateLabel(date),
-      "Adherence %": acc.planned > 0 ? Math.round((acc.visited / acc.planned) * 1000) / 10 : 0,
-      "Strike Rate %": acc.visited > 0 ? Math.round((acc.productive / acc.visited) * 1000) / 10 : 0,
+      "PJP Adherence %": acc.planned > 0 ? Math.round((acc.visited / acc.planned) * 1000) / 10 : 0,
+      "PJP Strike Rate %": acc.visited > 0 ? Math.round((acc.productive / acc.visited) * 1000) / 10 : 0,
     }));
 
   // Monthly Coverage is a broader multi-month view (RepCall's own retention),
@@ -206,7 +189,7 @@ export default function JpAdherencePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionCard title="JP Adherence" action={<span className="text-xs text-muted">{formatMonthLabel(selectedMonth)}</span>}>
+      <SectionCard title="PJP Ownership Adherence" action={<span className="text-xs text-muted">{formatMonthLabel(selectedMonth)}</span>}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
           <div className="shrink-0">
             <DateCalendarPicker availableDates={data.availableDates} selectedDate={selectedDate} onSelectDate={setSelectedDate} allLabel="All Dates" />
@@ -330,24 +313,23 @@ export default function JpAdherencePage() {
       {!hasData ? (
         <EmptyState
           icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
-          title="No Journey Plan data for this period"
-          description="Pick a different month above, or upload a new Journey Plan via scripts/jp-adherence/import-plan.ts. Adherence is measured against RepCall's live Timestamps data, refreshed every 5 minutes."
+          title="No Timestamp visits for this period"
+          description="PJP ownership adherence is calculated from the active Pine outlet owner and live Timestamp calls. Choose a month with Timestamp activity or check the live sync."
         />
       ) : (
         <>
-          <SectionCard title="JP Adherence">
+          <SectionCard title="PJP Ownership Adherence">
             <KpiGrid>
-              <KpiCard accent="coverage" label="Outlets Planned" value={<AnimatedValue value={data.kpis.outletsPlanned} format={formatNumber} />} />
-              <KpiCard accent="coverage" label="Outlets Visited" value={<AnimatedValue value={data.kpis.outletsVisited} format={formatNumber} />} />
-              <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(data.kpis.jpAdherencePct)]}>{formatPercent(data.kpis.jpAdherencePct)}</span>} />
-              <KpiCard accent="quarter" label="Strike Rate" value={<span className={tierTextClass[productivityTier(data.kpis.strikeRatePct)]}>{formatPercent(data.kpis.strikeRatePct)}</span>} />
-              <KpiCard accent="revenue" label="Planned Not Visited" value={<AnimatedValue value={data.kpis.plannedNotVisited} format={formatNumber} />} />
-              <KpiCard accent="mission" label="Unplanned Visits" value={<AnimatedValue value={data.kpis.unplannedVisits} format={formatNumber} />} />
+              <KpiCard accent="coverage" label="Timestamp Visits" value={<AnimatedValue value={data.kpis.outletsPlanned} format={formatNumber} />} />
+              <KpiCard accent="coverage" label="PJP-aligned Visits" value={<AnimatedValue value={data.kpis.outletsVisited} format={formatNumber} />} />
+              <KpiCard accent="growth" label="PJP Ownership Adherence" value={<span className={tierTextClass[productivityTier(data.kpis.jpAdherencePct)]}>{formatPercent(data.kpis.jpAdherencePct)}</span>} />
+              <KpiCard accent="quarter" label="PJP Strike Rate" value={<span className={tierTextClass[productivityTier(data.kpis.strikeRatePct)]}>{formatPercent(data.kpis.strikeRatePct)}</span>} />
+              <KpiCard accent="revenue" label="Outside PJP" value={<AnimatedValue value={data.kpis.plannedNotVisited} format={formatNumber} />} />
               <KpiCard accent="coverage" label="Productive Days" value={<AnimatedValue value={productiveDaysCount} format={formatNumber} />} sublabel="Days with ≥1 productive visit" />
             </KpiGrid>
           </SectionCard>
 
-          <SectionCard title="JP Adherence Trend" action={<span className="text-xs text-muted">Adherence % vs Strike Rate %</span>}>
+          <SectionCard title="PJP Ownership Trend" action={<span className="text-xs text-muted">Ownership adherence % vs PJP strike rate %</span>}>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
@@ -355,14 +337,14 @@ export default function JpAdherencePage() {
                 <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} unit="%" axisLine={false} tickLine={false} width={32} />
                 <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
                 <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
-                <Line type="monotone" dataKey="Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="PJP Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="PJP Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </SectionCard>
 
           <SectionCard
-            title="JP Adherence Report"
+            title="PJP Ownership Adherence Report"
             action={
               <span className="text-xs text-muted">
                 {selectedDate ? formatDateLabel(selectedDate) : formatMonthLabel(selectedMonth)}
@@ -377,12 +359,12 @@ export default function JpAdherencePage() {
                 <Th>Date</Th>
                 <Th>Employee</Th>
                 <Th>Sales Role</Th>
-                <Th align="right">Planned</Th>
-                <Th align="right">Visited</Th>
+                <Th align="right">Timestamp Visits</Th>
+                <Th align="right">PJP-aligned</Th>
                 <Th align="center">Adherence %</Th>
                 <Th align="right">Productive</Th>
                 <Th align="center">Strike Rate</Th>
-                <Th align="right">Planned Not Visited</Th>
+                <Th align="right">Outside PJP</Th>
                 <Th align="center">Status</Th>
               </Thead>
               <tbody>
@@ -422,44 +404,6 @@ export default function JpAdherencePage() {
                   <Td align="right">{formatNumber(data.kpis.plannedNotVisited)}</Td>
                   <Td align="center">—</Td>
                 </TotalRow>
-              </tbody>
-            </TableWrap>
-          </SectionCard>
-
-          <SectionCard
-            title="Journey Plan"
-            action={
-              <span className="text-xs text-muted">
-                {data.planRows.length >= 500 ? `Showing first 500 rows` : `${formatNumber(data.planRows.length)} rows`}
-              </span>
-            }
-          >
-            <TableWrap>
-              <Thead>
-                <Th>Date</Th>
-                <Th>Day</Th>
-                <Th>Employee</Th>
-                <Th>Team Leader</Th>
-                <Th>Customer</Th>
-                <Th>Region</Th>
-                <Th>Sub Region</Th>
-                <Th>Route</Th>
-                <Th>Channel</Th>
-              </Thead>
-              <tbody>
-                {data.planRows.map((r) => (
-                  <tr key={`${r.date}|${r.employeeCode}|${r.customerId}`}>
-                    <Td>{formatDateLabel(r.date)}</Td>
-                    <Td>{r.day}</Td>
-                    <Td>{r.employeeName}</Td>
-                    <Td>{r.teamLeader}</Td>
-                    <Td>{r.customerName}</Td>
-                    <Td>{r.region}</Td>
-                    <Td>{r.subRegion}</Td>
-                    <Td>{r.routeName}</Td>
-                    <Td>{r.channel}</Td>
-                  </tr>
-                ))}
               </tbody>
             </TableWrap>
           </SectionCard>
