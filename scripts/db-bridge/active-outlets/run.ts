@@ -14,8 +14,13 @@ const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "active-outlets";
 const FULL_RESYNC_AFTER_HOURS = 22;
 const OVERLAP_BUFFER_HOURS = 3;
-const BATCH_SIZE = 2_000;
+// Match the API's database chunk size. One request now maps to one bounded
+// insert statement, avoiding reverse-proxy timeouts on larger transport
+// batches while keeping the worker's memory use flat.
+const BATCH_SIZE = 500;
 const FULL_WINDOW_DAYS = 7;
+const MAX_UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_DELAY_MS = 1_500;
 
 interface SyncState {
   lastIncrementalAt: string | null;
@@ -28,7 +33,23 @@ async function postJson(appUrl: string, apiKey: string, path: string, body: unkn
     headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
     body: JSON.stringify(body),
   });
-  return { ok: response.ok, status: response.status, body: await response.json() };
+  // A proxy may legally return an empty successful response. Do not throw
+  // while parsing it: HTTP status is the source of truth for idempotent
+  // uploads, and an empty body must not abandon an otherwise completed batch.
+  const text = await response.text();
+  let responseBody: unknown = text || null;
+  if (text) {
+    try {
+      responseBody = JSON.parse(text);
+    } catch {
+      // Preserve an HTML/plain-text upstream error for the caller's log.
+    }
+  }
+  return { ok: response.ok, status: response.status, body: responseBody };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -70,18 +91,31 @@ async function uploadEventsBatched(
   let total = 0;
   for (const [i, batch] of chunk(eventRows, BATCH_SIZE).entries()) {
     if (batch.length === 0) continue;
-    const result = await postJson(appUrl, apiKey, "/api/active-outlets/upload", {
-      events: batch,
-      monthly: [],
-      year,
-      calendarMonthsElapsed,
-      deferDerivation,
-      // A nightly full pass refreshes source-owned metadata such as PJP and
-      // validated coordinates even if the purchase event itself already exists.
-      refreshMetadata: deferDerivation,
-    });
-    if (!result.ok) {
-      console.error(`[active-outlets] Upload batch ${i + 1} FAILED:`, result.status, JSON.stringify(result.body));
+    let uploaded = false;
+    for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await postJson(appUrl, apiKey, "/api/active-outlets/upload", {
+          events: batch,
+          monthly: [],
+          year,
+          calendarMonthsElapsed,
+          deferDerivation,
+          // A nightly full pass refreshes source-owned metadata such as PJP and
+          // validated coordinates even if the purchase event itself already exists.
+          refreshMetadata: deferDerivation,
+        });
+        if (result.ok) {
+          uploaded = true;
+          break;
+        }
+        console.warn(`[active-outlets] Upload batch ${i + 1} attempt ${attempt} failed:`, result.status, JSON.stringify(result.body));
+      } catch (err) {
+        console.warn(`[active-outlets] Upload batch ${i + 1} attempt ${attempt} failed before a response:`, err);
+      }
+      if (attempt < MAX_UPLOAD_ATTEMPTS) await sleep(UPLOAD_RETRY_DELAY_MS * attempt);
+    }
+    if (!uploaded) {
+      console.error(`[active-outlets] Upload batch ${i + 1} failed after ${MAX_UPLOAD_ATTEMPTS} attempt(s).`);
       return false;
     }
     total += batch.length;

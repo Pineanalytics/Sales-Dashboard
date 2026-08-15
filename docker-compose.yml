@@ -111,7 +111,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PL_BRIDGE_APP_URL: https://pinefrostdb.com
+      # The worker and API share this private Docker network; keep bridge
+      # uploads server-to-server rather than traversing the public proxy.
+      PL_BRIDGE_APP_URL: http://app:3000
       CONTINUOUS_SYNC_JOBS: active-outlets
       # A full YTD aggregate is intentionally a quiet overnight job. It uses
       # bounded weekly source windows and cannot delay live timestamps.
