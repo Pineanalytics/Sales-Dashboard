@@ -113,7 +113,11 @@ services:
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       CONTINUOUS_SYNC_JOBS: active-outlets
-      ACTIVE_OUTLETS_INTERVAL_SECONDS: 300
+      # A full YTD aggregate is intentionally a quiet overnight job. It uses
+      # bounded weekly source windows and cannot delay live timestamps.
+      ACTIVE_OUTLETS_DAILY_AT: "01:15"
+      ACTIVE_OUTLETS_RUN_ON_START: "false"
+      TZ: Africa/Nairobi
     cpus: 0.75
     mem_limit: 1024m
 

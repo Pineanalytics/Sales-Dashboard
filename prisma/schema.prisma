@@ -618,6 +618,12 @@ model ActiveOutlet {
   channel            String
   subChannel         String
   territory          String
+  latitude           Float?
+  longitude          Float?
+  pjpEmployeeCode    String?
+  pjpRepName         String?
+  pjpRepGroup        String?
+  pjpRegion          String?
   salesRole          String // dominant role for the period: "Primary Sales" | "Secondary Sales"
   status             String   @default("Active") // "Active" | "Inactive"
   timesBought        Int
@@ -667,6 +673,12 @@ model ActiveOutletEvent {
   channel    String
   subChannel String
   territory  String
+  latitude  Float?
+  longitude Float?
+  pjpEmployeeCode String?
+  pjpRepName      String?
+  pjpRepGroup     String?
+  pjpRegion       String?
   repName    String?
   repGroup   String?
   createdAt  DateTime @default(now())

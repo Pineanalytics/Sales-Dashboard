@@ -8,6 +8,7 @@
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { FactLineRow, NoSaleVisitRow, OutletRow, ProductRow, UserRow } from "./query";
+import type { EmployeeMasterReferenceRow } from "../reference/loadFromDb";
 
 export interface PrincipalRow {
   key: string;
@@ -279,6 +280,14 @@ export interface ActiveOutletEventRow {
   channel: string;
   subChannel: string;
   territory: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Planned PJP ownership is retained only for an active Analytics roster rep.
+   * Principal remains SKU-derived above; it is never inferred from this owner. */
+  pjpEmployeeCode: string | null;
+  pjpRepName: string | null;
+  pjpRepGroup: string | null;
+  pjpRegion: string | null;
   repName: string | null;
   repGroup: string | null;
 }
@@ -287,7 +296,12 @@ export interface ActiveOutletEventRow {
  *  resolved to a known principal (costCentre: null) can't be attributed
  *  here (it still counts as a call/productive call on the Timestamps side,
  *  which doesn't need Cost Centre attribution). */
-export function buildActiveOutletEvents(events: PurchaseEvent[], outlets: OutletRow[], users: UserRow[]): ActiveOutletEventRow[] {
+export function buildActiveOutletEvents(
+  events: PurchaseEvent[],
+  outlets: OutletRow[],
+  users: UserRow[],
+  activePjpByEmployeeCode: Map<string, EmployeeMasterReferenceRow>
+): ActiveOutletEventRow[] {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -296,6 +310,7 @@ export function buildActiveOutletEvents(events: PurchaseEvent[], outlets: Outlet
     if (e.costCentre === null) continue;
     const outlet = outletById.get(e.customerId);
     const user = userById.get(e.userId);
+    const pjpOwner = outlet?.pjpUserId ? activePjpByEmployeeCode.get(outlet.pjpUserId) : undefined;
     rows.push({
       year: e.year,
       principal: e.costCentre,
@@ -310,6 +325,12 @@ export function buildActiveOutletEvents(events: PurchaseEvent[], outlets: Outlet
       channel: outlet ? resolveChannel(outlet.subChannel, outlet.sourceChannel) : "Retail",
       subChannel: outlet?.subChannel ?? "Unknown",
       territory: outlet?.territory ?? "Unassigned",
+      latitude: outlet?.latitude ?? null,
+      longitude: outlet?.longitude ?? null,
+      pjpEmployeeCode: pjpOwner?.employeeCode ?? null,
+      pjpRepName: pjpOwner?.pineName ?? null,
+      pjpRepGroup: pjpOwner ? outlet?.pjpRepGroup ?? null : null,
+      pjpRegion: pjpOwner ? outlet?.pjpRegion ?? null : null,
       repName: user?.employee ?? null,
       repGroup: user?.userGroup ?? null,
     });

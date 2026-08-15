@@ -28,6 +28,12 @@ interface ActiveOutletEventUploadRow {
   channel: string;
   subChannel: string;
   territory: string;
+  latitude: number | null;
+  longitude: number | null;
+  pjpEmployeeCode: string | null;
+  pjpRepName: string | null;
+  pjpRepGroup: string | null;
+  pjpRegion: string | null;
   repName: string | null;
   repGroup: string | null;
 }
@@ -51,6 +57,12 @@ interface DerivedOutletRow {
   channel: string;
   subChannel: string;
   territory: string;
+  latitude: number | null;
+  longitude: number | null;
+  pjpEmployeeCode: string | null;
+  pjpRepName: string | null;
+  pjpRepGroup: string | null;
+  pjpRegion: string | null;
   salesRole: string;
   timesBought: number;
   purchaseDays: number;
@@ -72,25 +84,28 @@ function frequencyBand(purchaseCount: number, frequencyPerMonth: number): string
   return "High Frequency - More Than 3 Times Monthly";
 }
 
-async function insertEventChunk(rows: ActiveOutletEventUploadRow[]) {
+async function insertEventChunk(rows: ActiveOutletEventUploadRow[], refreshMetadata: boolean) {
   const values = rows.map(
     (r) =>
-      Prisma.sql`(${randomUUID()}, ${r.year}, ${r.principal}, ${r.customerId}, ${r.docId}, ${r.isOrder}, ${new Date(r.date)}, ${r.sales}, ${r.qty}, ${r.salesRole}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.repName}, ${r.repGroup}, now())`
+      Prisma.sql`(${randomUUID()}, ${r.year}, ${r.principal}, ${r.customerId}, ${r.docId}, ${r.isOrder}, ${new Date(r.date)}, ${r.sales}, ${r.qty}, ${r.salesRole}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.latitude}, ${r.longitude}, ${r.pjpEmployeeCode}, ${r.pjpRepName}, ${r.pjpRepGroup}, ${r.pjpRegion}, ${r.repName}, ${r.repGroup}, now())`
   );
+  const conflictAction = refreshMetadata
+    ? Prisma.sql`DO UPDATE SET date = EXCLUDED.date, sales = EXCLUDED.sales, qty = EXCLUDED.qty, "salesRole" = EXCLUDED."salesRole", "outletName" = EXCLUDED."outletName", channel = EXCLUDED.channel, "subChannel" = EXCLUDED."subChannel", territory = EXCLUDED.territory, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude, "pjpEmployeeCode" = EXCLUDED."pjpEmployeeCode", "pjpRepName" = EXCLUDED."pjpRepName", "pjpRepGroup" = EXCLUDED."pjpRepGroup", "pjpRegion" = EXCLUDED."pjpRegion", "repName" = EXCLUDED."repName", "repGroup" = EXCLUDED."repGroup"`
+    : Prisma.sql`DO NOTHING`;
   await prisma.$executeRaw`
-    INSERT INTO "ActiveOutletEvent" (id, year, principal, "customerId", "docId", "isOrder", date, sales, qty, "salesRole", "outletName", channel, "subChannel", territory, "repName", "repGroup", "createdAt")
+    INSERT INTO "ActiveOutletEvent" (id, year, principal, "customerId", "docId", "isOrder", date, sales, qty, "salesRole", "outletName", channel, "subChannel", territory, latitude, longitude, "pjpEmployeeCode", "pjpRepName", "pjpRepGroup", "pjpRegion", "repName", "repGroup", "createdAt")
     VALUES ${Prisma.join(values)}
-    ON CONFLICT (year, principal, "customerId", "docId", "isOrder") DO NOTHING
+    ON CONFLICT (year, principal, "customerId", "docId", "isOrder") ${conflictAction}
   `;
 }
 
 async function upsertOutletChunk(rows: DerivedOutletRow[]) {
   const values = rows.map(
     (r) =>
-      Prisma.sql`(${randomUUID()}, ${r.year}, ${r.principal}, ${r.customerId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.salesRole}, ${r.timesBought}, ${r.purchaseDays}, ${r.activeMonths}, ${r.firstPurchaseDate}, ${r.lastPurchaseDate}, ${r.frequencyBand}, ${r.sales}, ${r.qty}, ${r.mostRecentRep}, ${r.mostRecentRepGroup}, now(), now())`
+      Prisma.sql`(${randomUUID()}, ${r.year}, ${r.principal}, ${r.customerId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.latitude}, ${r.longitude}, ${r.pjpEmployeeCode}, ${r.pjpRepName}, ${r.pjpRepGroup}, ${r.pjpRegion}, ${r.salesRole}, ${r.timesBought}, ${r.purchaseDays}, ${r.activeMonths}, ${r.firstPurchaseDate}, ${r.lastPurchaseDate}, ${r.frequencyBand}, ${r.sales}, ${r.qty}, ${r.mostRecentRep}, ${r.mostRecentRepGroup}, now(), now())`
   );
   await prisma.$executeRaw`
-    INSERT INTO "ActiveOutlet" (id, year, principal, "customerId", "outletName", channel, "subChannel", territory, "salesRole", "timesBought", "purchaseDays", "activeMonths", "firstPurchaseDate", "lastPurchaseDate", "frequencyBand", sales, qty, "mostRecentRep", "mostRecentRepGroup", "createdAt", "updatedAt")
+    INSERT INTO "ActiveOutlet" (id, year, principal, "customerId", "outletName", channel, "subChannel", territory, latitude, longitude, "pjpEmployeeCode", "pjpRepName", "pjpRepGroup", "pjpRegion", "salesRole", "timesBought", "purchaseDays", "activeMonths", "firstPurchaseDate", "lastPurchaseDate", "frequencyBand", sales, qty, "mostRecentRep", "mostRecentRepGroup", "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT (year, principal, "customerId")
     DO UPDATE SET
@@ -98,6 +113,12 @@ async function upsertOutletChunk(rows: DerivedOutletRow[]) {
       channel = EXCLUDED.channel,
       "subChannel" = EXCLUDED."subChannel",
       territory = EXCLUDED.territory,
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude,
+      "pjpEmployeeCode" = EXCLUDED."pjpEmployeeCode",
+      "pjpRepName" = EXCLUDED."pjpRepName",
+      "pjpRepGroup" = EXCLUDED."pjpRepGroup",
+      "pjpRegion" = EXCLUDED."pjpRegion",
       "salesRole" = EXCLUDED."salesRole",
       "timesBought" = EXCLUDED."timesBought",
       "purchaseDays" = EXCLUDED."purchaseDays",
@@ -147,6 +168,12 @@ interface AggRow {
   channel: string;
   subChannel: string;
   territory: string;
+  latitude: number | null;
+  longitude: number | null;
+  pjpEmployeeCode: string | null;
+  pjpRepName: string | null;
+  pjpRepGroup: string | null;
+  pjpRegion: string | null;
   repName: string | null;
   repGroup: string | null;
 }
@@ -172,6 +199,12 @@ async function mapAndUpsert(aggRows: AggRow[], calendarMonthsElapsed: number) {
       channel: r.channel,
       subChannel: r.subChannel,
       territory: r.territory,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      pjpEmployeeCode: r.pjpEmployeeCode,
+      pjpRepName: r.pjpRepName,
+      pjpRepGroup: r.pjpRepGroup,
+      pjpRegion: r.pjpRegion,
       salesRole: Number(r.primaryEvents) >= Number(r.secondaryEvents) ? "Primary Sales" : "Secondary Sales",
       timesBought,
       purchaseDays: Number(r.purchaseDays),
@@ -213,12 +246,12 @@ async function deriveForTouchedKeys(keys: { year: string; principal: string; cus
     ),
     recent AS (
       SELECT DISTINCT ON (year, principal, "customerId")
-        year, principal, "customerId", "outletName", channel, "subChannel", territory, "repName", "repGroup"
+        year, principal, "customerId", "outletName", channel, "subChannel", territory, latitude, longitude, "pjpEmployeeCode", "pjpRepName", "pjpRepGroup", "pjpRegion", "repName", "repGroup"
       FROM "ActiveOutletEvent"
       WHERE (year, principal, "customerId") IN (${Prisma.join(keyTuples)})
       ORDER BY year, principal, "customerId", date DESC, "createdAt" DESC
     )
-    SELECT agg.*, recent."outletName", recent.channel, recent."subChannel", recent.territory, recent."repName", recent."repGroup"
+    SELECT agg.*, recent."outletName", recent.channel, recent."subChannel", recent.territory, recent.latitude, recent.longitude, recent."pjpEmployeeCode", recent."pjpRepName", recent."pjpRepGroup", recent."pjpRegion", recent."repName", recent."repGroup"
     FROM agg JOIN recent USING (year, principal, "customerId")
   `;
   await mapAndUpsert(aggRows, calendarMonthsElapsed);
@@ -249,15 +282,50 @@ async function deriveForFullYear(year: string, calendarMonthsElapsed: number) {
     ),
     recent AS (
       SELECT DISTINCT ON (year, principal, "customerId")
-        year, principal, "customerId", "outletName", channel, "subChannel", territory, "repName", "repGroup"
+        year, principal, "customerId", "outletName", channel, "subChannel", territory, latitude, longitude, "pjpEmployeeCode", "pjpRepName", "pjpRepGroup", "pjpRegion", "repName", "repGroup"
       FROM "ActiveOutletEvent"
       WHERE year = ${year}
       ORDER BY year, principal, "customerId", date DESC, "createdAt" DESC
     )
-    SELECT agg.*, recent."outletName", recent.channel, recent."subChannel", recent.territory, recent."repName", recent."repGroup"
+    SELECT agg.*, recent."outletName", recent.channel, recent."subChannel", recent.territory, recent.latitude, recent.longitude, recent."pjpEmployeeCode", recent."pjpRepName", recent."pjpRepGroup", recent."pjpRegion", recent."repName", recent."repGroup"
     FROM agg JOIN recent USING (year, principal, "customerId")
   `;
   await mapAndUpsert(aggRows, calendarMonthsElapsed);
+
+  await prisma.$executeRaw`DELETE FROM "ActiveOutletMonthly" WHERE year = ${year}`;
+  const monthlyRows = await prisma.$queryRaw<{
+    year: string;
+    month: string;
+    monthIndex: number;
+    principal: string;
+    salesRole: string;
+    distinctOutlets: bigint;
+    transactions: bigint;
+    sales: number;
+  }[]>`
+    SELECT
+      year,
+      to_char(date, 'FMMonth') AS month,
+      EXTRACT(MONTH FROM date)::int - 1 AS "monthIndex",
+      principal,
+      "salesRole",
+      COUNT(DISTINCT "customerId") AS "distinctOutlets",
+      COUNT(*) AS transactions,
+      SUM(sales) AS sales
+    FROM "ActiveOutletEvent"
+    WHERE year = ${year}
+    GROUP BY year, EXTRACT(MONTH FROM date), principal, "salesRole"
+  `;
+  for (let i = 0; i < monthlyRows.length; i += CHUNK_SIZE) {
+    await upsertMonthlyChunk(
+      monthlyRows.slice(i, i + CHUNK_SIZE).map((row) => ({
+        ...row,
+        distinctOutlets: Number(row.distinctOutlets),
+        transactions: Number(row.transactions),
+        sales: Number(row.sales),
+      }))
+    );
+  }
 
   await prisma.$executeRaw`
     UPDATE "ActiveOutlet"
@@ -294,6 +362,12 @@ function isValidEventRow(row: unknown): row is ActiveOutletEventUploadRow {
     typeof r.channel === "string" &&
     typeof r.subChannel === "string" &&
     typeof r.territory === "string" &&
+    (r.latitude === null || typeof r.latitude === "number") &&
+    (r.longitude === null || typeof r.longitude === "number") &&
+    (r.pjpEmployeeCode === null || typeof r.pjpEmployeeCode === "string") &&
+    (r.pjpRepName === null || typeof r.pjpRepName === "string") &&
+    (r.pjpRepGroup === null || typeof r.pjpRepGroup === "string") &&
+    (r.pjpRegion === null || typeof r.pjpRegion === "string") &&
     (r.repName === null || typeof r.repName === "string") &&
     (r.repGroup === null || typeof r.repGroup === "string")
   );
@@ -367,12 +441,13 @@ export async function POST(req: NextRequest) {
   // idempotent ledger inserts land; deriving the touched set after every
   // upload batch repeats the same expensive aggregation hundreds of times.
   const deferDerivation = b.deferDerivation === true;
+  const refreshMetadata = b.refreshMetadata === true;
 
   try {
     const touchedKeys = new Map<string, { year: string; principal: string; customerId: string }>();
     for (let i = 0; i < events.length; i += CHUNK_SIZE) {
       const chunk = events.slice(i, i + CHUNK_SIZE);
-      await insertEventChunk(chunk);
+      await insertEventChunk(chunk, refreshMetadata);
       for (const r of chunk) {
         touchedKeys.set(`${r.year}|${r.principal}|${r.customerId}`, { year: r.year, principal: r.principal, customerId: r.customerId });
       }

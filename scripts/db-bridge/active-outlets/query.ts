@@ -15,6 +15,14 @@ export interface OutletRow {
   subChannel: string;
   sourceChannel: string;
   territory: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Pine's planned PJP owner. It is retained only when it has an active
+   * Analytics roster match (applied in run.ts), never used for principal attribution. */
+  pjpUserId: string | null;
+  pjpRepName: string | null;
+  pjpRepGroup: string | null;
+  pjpRegion: string | null;
 }
 
 export interface UserRow {
@@ -68,11 +76,60 @@ const SQL_OUTLETS = `
           ELSE 'Retailers'
       END AS sub_channel,
       o_channel,
-      o_county
-  FROM pine.outlets
-  WHERE o_status = 1
-    AND o_name NOT LIKE '%test %'
+      o_county,
+      o_lat,
+      o_pjp_userid,
+      CONCAT_WS(' ', pjp.first_name, pjp.last_name) AS pjp_rep_name,
+      pjp.salesgroup AS pjp_rep_group,
+      pjp.region AS pjp_region
+  FROM pine.outlets o
+  LEFT JOIN pine.users pjp ON pjp.id = o.o_pjp_userid
+  WHERE o.o_status = 1
+    AND o.o_name NOT LIKE '%test %'
 `;
+
+/** Pine's o_lat is a legacy text field containing "latitude,longitude".
+ * Invalid and (0,0) pairs are deliberately withheld instead of placing an
+ * outlet at the Gulf of Guinea in the field map. */
+function parseCoordinates(value: string | null): { latitude: number | null; longitude: number | null } {
+  const match = value?.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return { latitude: null, longitude: null };
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || (latitude === 0 && longitude === 0)) {
+    return { latitude: null, longitude: null };
+  }
+  return { latitude, longitude };
+}
+
+type OutletSourceRow = RowDataPacket & {
+  o_id: number;
+  o_name: string;
+  sub_channel: string;
+  o_channel: string | null;
+  o_county: string | null;
+  o_lat: string | null;
+  o_pjp_userid: number | null;
+  pjp_rep_name: string | null;
+  pjp_rep_group: string | null;
+  pjp_region: string | null;
+};
+
+function mapOutlet(r: OutletSourceRow): OutletRow {
+  const coordinates = parseCoordinates(r.o_lat);
+  return {
+    id: String(r.o_id),
+    name: r.o_name ?? "",
+    subChannel: r.sub_channel || "Unknown",
+    sourceChannel: r.o_channel?.trim() || "",
+    territory: r.o_county?.trim() || "Unassigned",
+    ...coordinates,
+    pjpUserId: r.o_pjp_userid && r.o_pjp_userid > 0 ? String(r.o_pjp_userid) : null,
+    pjpRepName: r.pjp_rep_name?.trim() || null,
+    pjpRepGroup: r.pjp_rep_group?.trim() || null,
+    pjpRegion: r.pjp_region?.trim() || null,
+  };
+}
 
 const SQL_USERS = `
   SELECT id, first_name, last_name, salesgroup, region
@@ -168,14 +225,8 @@ const SQL_ORDER_LINES = `
 `;
 
 export async function fetchOutlets(conn: Connection): Promise<OutletRow[]> {
-  const [rows] = await conn.query<(RowDataPacket & { o_id: number; o_name: string; sub_channel: string; o_channel: string | null; o_county: string | null })[]>(SQL_OUTLETS);
-  return rows.map((r) => ({
-    id: String(r.o_id),
-    name: r.o_name ?? "",
-    subChannel: r.sub_channel || "Unknown",
-    sourceChannel: r.o_channel?.trim() || "",
-    territory: r.o_county?.trim() || "Unassigned",
-  }));
+  const [rows] = await conn.query<OutletSourceRow[]>(SQL_OUTLETS);
+  return rows.map(mapOutlet);
 }
 
 /** Fetch only the active outlet dimension rows touched by a compact bridge
@@ -188,20 +239,14 @@ export async function fetchOutletsByIds(conn: Connection, ids: Iterable<string>)
 
   const rows = await Promise.all(
     idBatches(requested).map(async (batch) => {
-      const [result] = await conn.query<(RowDataPacket & { o_id: number; o_name: string; sub_channel: string; o_channel: string | null; o_county: string | null })[]>(
+      const [result] = await conn.query<OutletSourceRow[]>(
         `${SQL_OUTLETS} AND o_id IN (?)`,
         [batch]
       );
       return result;
     })
   );
-  return rows.flat().map((r) => ({
-    id: String(r.o_id),
-    name: r.o_name ?? "",
-    subChannel: r.sub_channel || "Unknown",
-    sourceChannel: r.o_channel?.trim() || "",
-    territory: r.o_county?.trim() || "Unassigned",
-  }));
+  return rows.flat().map(mapOutlet);
 }
 
 export async function fetchUsers(conn: Connection): Promise<UserRow[]> {
