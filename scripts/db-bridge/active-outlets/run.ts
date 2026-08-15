@@ -4,9 +4,9 @@
 // uploaded idempotently before the next is read; the final server-side pass
 // derives all outlet and monthly summaries exactly once.
 // Local runs rely on .env, while the VPS injects its bridge address through
-// Docker. Loading .env in production would overwrite that private address and
-// send the worker back through the public reverse proxy.
-if (process.env.NODE_ENV !== "production") process.loadEnvFile();
+// Docker. Never load the fallback file when Docker has supplied the private
+// bridge address; it would overwrite that address and use the public proxy.
+if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "../coverage/mysql";
 import { fetchFactLines, fetchOutlets, fetchProducts, fetchUsers } from "./query";
