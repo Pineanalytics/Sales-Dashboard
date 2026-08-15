@@ -3,7 +3,10 @@
 // one Node array previously exhausted the VPS worker heap. Each window is
 // uploaded idempotently before the next is read; the final server-side pass
 // derives all outlet and monthly summaries exactly once.
-process.loadEnvFile();
+// Local runs rely on .env, while the VPS injects its bridge address through
+// Docker. Loading .env in production would overwrite that private address and
+// send the worker back through the public reverse proxy.
+if (process.env.NODE_ENV !== "production") process.loadEnvFile();
 
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "../coverage/mysql";
 import { fetchFactLines, fetchOutlets, fetchProducts, fetchUsers } from "./query";
@@ -71,8 +74,13 @@ function windows(start: Date, end: Date, full: boolean): { start: Date; end: Dat
 
 async function getSyncState(appUrl: string, apiKey: string): Promise<SyncState> {
   const response = await fetch(`${appUrl}/api/active-outlets/sync-state?bridge=${BRIDGE_NAME}`, { headers: { "x-upload-api-key": apiKey } });
-  if (!response.ok) throw new Error(`Failed to read sync state: ${response.status} ${await response.text()}`);
-  return response.json();
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Failed to read sync state: ${response.status} ${text}`);
+  try {
+    return JSON.parse(text) as SyncState;
+  } catch {
+    throw new Error(`Sync state returned a non-JSON response: ${text.slice(0, 200)}`);
+  }
 }
 
 async function setSyncState(appUrl: string, apiKey: string, body: { lastIncrementalAt: string; lastFullResyncAt?: string }): Promise<void> {
