@@ -7,3 +7,9 @@ node_modules
 output
 logs
 *.log
+# Field Forms (coaching/asset app) has its own separate repo, Dockerfile, and
+# docker-compose.yml, deployed as its own stack - this repo's docker-compose.yml
+# never builds from apps/field-forms, and it has no deps installed in this
+# repo's own node_modules, so leaving it in the build context only breaks
+# `next build`'s whole-tree TypeScript check for no benefit.
+apps/field-forms
