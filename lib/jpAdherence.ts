@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
@@ -282,6 +283,35 @@ export async function getJpAdherenceSummary(range: { start: Date; end: Date }, s
     availableReps,
     availableTeamLeaders,
   };
+}
+
+// Same reasoning as lib/timestampSummary.ts's getTimestampSummaryCached: only
+// scope.employeeCodes crosses the cache boundary (the only field this file
+// ever reads off scope — checked directly above), never the full
+// TeamLeaderScope, since its Set-typed normalizedNames field doesn't survive
+// unstable_cache's argument serialization safely. range's two Dates and
+// every JpAdherenceFilters field are plain-JSON-safe as-is.
+const getJpAdherenceSummaryCachedInner = unstable_cache(
+  async (range: { start: Date; end: Date }, employeeCodes: string[] | null, filters: JpAdherenceFilters): Promise<JpAdherenceSummary> => {
+    const scope: TeamLeaderScope | null = employeeCodes
+      ? { teamLeaderId: null, supervisorId: null, teamLeaderIds: [], principals: [], employeeCodes, normalizedNames: new Set() }
+      : null;
+    return getJpAdherenceSummary(range, scope, filters);
+  },
+  ["jp-adherence-summary"],
+  // range is already a discrete, stable value here (a fixed month window or
+  // explicit from/to params — never a continuously-advancing "now"), so a
+  // short TTL is enough to collapse concurrent identical requests without
+  // needing any rounding at the call site, unlike Timestamps.
+  { revalidate: 60 }
+);
+
+export async function getJpAdherenceSummaryCached(
+  range: { start: Date; end: Date },
+  scope: TeamLeaderScope | null,
+  filters: JpAdherenceFilters
+): Promise<JpAdherenceSummary> {
+  return getJpAdherenceSummaryCachedInner(range, scope ? scope.employeeCodes : null, filters);
 }
 
 /** Timestamp months available to the caller, for the Month selector. */

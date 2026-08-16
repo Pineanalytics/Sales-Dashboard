@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
@@ -435,6 +436,40 @@ export async function getTimestampSummary(
     chartRows,
     unmappedEmployees: unmappedRows,
   };
+}
+
+// unstable_cache derives its key from the arguments the returned function is
+// actually called with — every field here must be plain JSON (a bare Date is
+// fine, it has its own toJSON; a Set is not, it serializes to "{}" and would
+// silently collapse distinct scopes onto the same cache entry). scope's only
+// field getTimestampSummary reads is employeeCodes (checked above), so that's
+// the only piece that crosses the cache boundary — the Set-bearing
+// TeamLeaderScope itself never does. `null` vs `[]` for employeeCodes is
+// preserved (null = unrestricted/admin; [] = restricted to nothing).
+const getTimestampSummaryCachedInner = unstable_cache(
+  async (nowIso: string, employeeCodes: string[] | null, filters: TimestampFilters): Promise<TimestampSummaryData> => {
+    const scope: TeamLeaderScope | null = employeeCodes
+      ? { teamLeaderId: null, supervisorId: null, teamLeaderIds: [], principals: [], employeeCodes, normalizedNames: new Set() }
+      : null;
+    return getTimestampSummary(new Date(nowIso), scope, filters);
+  },
+  ["timestamp-summary"],
+  // Short TTL, not tag-invalidated: the underlying sync itself only runs
+  // every 30s-5min (continuous-sync-worker.ts), so a 60s cache is invisible
+  // to users but collapses concurrent identical requests into one DB round
+  // trip — the same problem class as the dataset overlay fix above, just
+  // handled with a TTL instead of a bound query since there's no natural
+  // "only fetch what changed" filter for a live rolling window.
+  { revalidate: 60 }
+);
+
+/** Cached entry point for the compact Timestamps summary — same signature
+ *  and behavior as getTimestampSummary, minus the cost of re-running it for
+ *  every request within the same rounded-to-the-minute cache window. Callers
+ *  should round `now` themselves (see app/api/timestamps/summary/route.ts)
+ *  so requests within the same minute actually share a cache key. */
+export async function getTimestampSummaryCached(now: Date, scope: TeamLeaderScope | null, filters: TimestampFilters): Promise<TimestampSummaryData> {
+  return getTimestampSummaryCachedInner(now.toISOString(), scope ? scope.employeeCodes : null, filters);
 }
 
 /** Detailed, ordered visit journey for one selected sales rep. It intentionally

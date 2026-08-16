@@ -30,6 +30,16 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # No limit here previously — confirmed live (docker stats) running
+    # unbounded at 4.17GB/120% CPU on a 4-core/15GB host shared with the full
+    # Field Forms Supabase stack. Not capping CPU (would throttle real user
+    # request latency); memory gets a real ceiling so a genuine runaway/leak
+    # OOM-kills and restarts just this container - predictable - instead of
+    # the kernel OOM-killer picking a victim among every process on the box,
+    # which could just as easily be Postgres. 6g gives ~40% headroom above
+    # the observed peak; revisit after the overlayBrandCustomer fix has had
+    # a few sync cycles to show its actual new steady-state.
+    mem_limit: 6g
     # Field Forms shares this Docker network and also has a service called
     # "app". Give Analytics a stable, non-generic alias for worker-to-API calls.
     networks:

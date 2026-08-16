@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { getJpAdherenceSummary, getAvailablePlanMonths, getMonthlyCoverageRollup, monthWindow, type JpAdherenceFilters, type SalesRoleFilter } from "@/lib/jpAdherence";
+import { getJpAdherenceSummaryCached, getAvailablePlanMonths, getMonthlyCoverageRollup, monthWindow, type JpAdherenceFilters, type SalesRoleFilter } from "@/lib/jpAdherence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const range = fromParam && toParam ? { start: fromParam, end: toParam } : monthWindow(monthParam.year, monthParam.monthIndex);
     const [summary, availableMonths, monthlyCoverage] = await Promise.all([
-      getJpAdherenceSummary(range, scope, filters),
+      getJpAdherenceSummaryCached(range, scope, filters),
       getAvailablePlanMonths(scope),
       getMonthlyCoverageRollup(scope),
     ]);

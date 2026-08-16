@@ -186,12 +186,19 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
 async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   const now = new Date();
   const currentYear = String(now.getUTCFullYear());
+  const priorYear = String(now.getUTCFullYear() - 1);
   const currentMonthIndex = now.getUTCMonth();
   const currentMonthStart = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, "0")}-01`;
 
+  // Both queries used to be bare findMany() — a full scan of every row ever
+  // synced (316k+/381k+ live) on every cache-miss, even though the loop below
+  // only ever keeps the current-year/prior-year monthly rows and the current
+  // month's daily rows. Filtering here instead of after the fetch keeps the
+  // query (and this table's future growth) bounded — the daily filter alone
+  // was discarding ~90% of what it fetched.
   const [monthlyRecords, dailyRecords] = await Promise.all([
-    prisma.brandCustomerActual.findMany(),
-    prisma.dailyBrandCustomerActual.findMany(),
+    prisma.brandCustomerActual.findMany({ where: { year: { in: [currentYear, priorYear] } } }),
+    prisma.dailyBrandCustomerActual.findMany({ where: { date: { gte: new Date(`${currentMonthStart}T00:00:00.000Z`) } } }),
   ]);
   if (monthlyRecords.length === 0 && dailyRecords.length === 0) return dataset;
 
@@ -354,17 +361,35 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
   };
 }
 
+// Only fires on a loadLatestSnapshot cache MISS (getLatestSnapshot's
+// unstable_cache wrapper skips this entirely on a hit) — every 30min-ish
+// routine sync invalidation, not per-request, so this can't spam the logs.
+// Cheap diagnostic for exactly the kind of regression this file already had
+// once (a bare findMany() on a 300k+-row table): if one leg's duration jumps,
+// it names which overlay to look at instead of guessing.
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const ms = Date.now() - start;
+    if (ms > 200) console.warn(`[datasetStore] overlay "${label}" took ${ms}ms`);
+  }
+}
+
 async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
+  const overallStart = Date.now();
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
-  const withSales = await overlaySales(dataset);
+  const withSales = await timed("sales", () => overlaySales(dataset));
   const [withTargets, withPL, withCoverage, withBrandCustomer, withStock] = await Promise.all([
-    overlayTargets(withSales),
-    overlayPL(dataset),
-    overlayCoverage(dataset),
-    overlayBrandCustomer(dataset),
-    overlayStock(dataset),
+    timed("targets", () => overlayTargets(withSales)),
+    timed("pl", () => overlayPL(dataset)),
+    timed("coverage", () => overlayCoverage(dataset)),
+    timed("brandCustomer", () => overlayBrandCustomer(dataset)),
+    timed("stock", () => overlayStock(dataset)),
   ]);
+  console.log(`[datasetStore] overlayAdminData total: ${Date.now() - overallStart}ms`);
   return {
     ...withTargets,
     monthlyPL: withPL.monthlyPL,

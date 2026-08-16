@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
-  getTimestampSummary,
+  getTimestampSummaryCached,
   type TimestampChartGranularity,
   type TimestampFilters,
   type TimestampRoleFilter,
@@ -81,8 +81,12 @@ export async function GET(req: NextRequest) {
 
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+    // Rounded to the minute so concurrent requests in the same window actually
+    // share getTimestampSummaryCached's cache key — an exact `new Date()` would
+    // carry millisecond precision and defeat the cache on every single call.
+    const nowRounded = new Date(Math.floor(Date.now() / 60_000) * 60_000);
     const [summary, watermark] = await Promise.all([
-      getTimestampSummary(new Date(), scope, filters),
+      getTimestampSummaryCached(nowRounded, scope, filters),
       prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" }, select: { updatedAt: true } }),
     ]);
     return NextResponse.json({ ...summary, syncUpdatedAt: watermark?.updatedAt.toISOString() ?? null });
