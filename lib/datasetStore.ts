@@ -232,82 +232,76 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   if (monthlyRecords.length === 0 && dailyRecords.length === 0) return dataset;
   const mergeStart = Date.now();
 
-  interface DbRow {
-    date: string;
-    year: string;
-    month: string;
-    monthIndex: number;
-    principal: string;
-    brand: string;
-    salesEmployee: string;
-    customerName: string;
-    cases: number;
-    revenue: number;
-    grossProfit: number;
-  }
-  const byKey = new Map<string, DbRow>();
+  // Was: a DbRow intermediate keyed by Map, read back to build a Set (which
+  // called normalizePrincipalKey AGAIN off the already-normalized value used
+  // to build the map key), then read back a THIRD time to build the actual
+  // MonthlyBrandCustomerRow output (normalizePrincipalKey a third time, plus
+  // a second full object allocation per row) - normalizePrincipalKey costs a
+  // trim + split + toLowerCase + regex replace, not free at ~340k rows x3.
+  // The Map now holds the final MonthlyBrandCustomerRow shape directly -
+  // principalKey and grossMarginPct computed exactly once, right where the
+  // rest of the row's fields already are - so every later pass just reads
+  // already-computed fields off the stored object instead of recomputing.
+  const byKey = new Map<string, MonthlyBrandCustomerRow>();
 
   for (const r of monthlyRecords) {
     if (r.year === currentYear && r.monthIndex === currentMonthIndex) continue; // current month comes from the daily table instead
     const date = `${r.year}-${String(r.monthIndex + 1).padStart(2, "0")}-01`;
-    const key = `${date}|${normalizePrincipalKey(r.principal)}|${r.brand}|${r.sapName}|${r.customerName}`;
+    const principalKey = normalizePrincipalKey(r.principal);
+    const key = `${date}|${principalKey}|${r.brand}|${r.sapName}|${r.customerName}`;
     byKey.set(key, {
       date,
       year: r.year,
       month: r.month,
       monthIndex: r.monthIndex,
       principal: r.principal,
+      principalKey,
       brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
       cases: r.cases,
       revenue: r.revenue,
       grossProfit: r.grossProfit,
+      grossMarginPct: r.revenue > 0 ? Math.round((r.grossProfit / r.revenue) * 1000) / 10 : null,
     });
   }
 
   for (const r of dailyRecords) {
     const dateKey = r.date.toISOString().slice(0, 10);
     if (dateKey < currentMonthStart) continue; // pre-current-month days are already covered by the monthly aggregate above
-    const key = `${dateKey}|${normalizePrincipalKey(r.principal)}|${r.brand}|${r.sapName}|${r.customerName}`;
+    const principalKey = normalizePrincipalKey(r.principal);
+    const key = `${dateKey}|${principalKey}|${r.brand}|${r.sapName}|${r.customerName}`;
     byKey.set(key, {
       date: dateKey,
       year: String(r.date.getUTCFullYear()),
       month: CANONICAL_MONTHS[r.date.getUTCMonth()],
       monthIndex: r.date.getUTCMonth(),
       principal: r.principal,
+      principalKey,
       brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
       cases: r.cases,
       revenue: r.revenue,
       grossProfit: r.grossProfit,
+      grossMarginPct: r.revenue > 0 ? Math.round((r.grossProfit / r.revenue) * 1000) / 10 : null,
     });
   }
 
-  const snapshotKeysCoveredByLiveData = new Set(
-    Array.from(byKey.values(), (db) => `${db.date}|${normalizePrincipalKey(db.principal)}|${db.salesEmployee}|${db.customerName}`)
-  );
+  // Same two passes over byKey.values() as before (Set must be complete
+  // before the old-snapshot filter can run correctly), but each is now a
+  // cheap Set.add/array.push off an already-built object — no more
+  // recomputing principalKey or reallocating a second object shape.
+  const snapshotKeysCoveredByLiveData = new Set<string>();
+  for (const row of byKey.values()) {
+    snapshotKeysCoveredByLiveData.add(`${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`);
+  }
   const merged: MonthlyBrandCustomerRow[] = dataset.monthlyBrandCustomer.filter(
     (row) => !snapshotKeysCoveredByLiveData.has(`${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`)
   );
 
-  for (const db of byKey.values()) {
-    merged.push({
-      date: db.date,
-      year: db.year,
-      month: db.month,
-      monthIndex: db.monthIndex,
-      principal: db.principal,
-      principalKey: normalizePrincipalKey(db.principal),
-      brand: db.brand,
-      salesEmployee: db.salesEmployee,
-      customerName: db.customerName,
-      cases: db.cases,
-      revenue: db.revenue,
-      grossProfit: db.grossProfit,
-      grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,
-    });
+  for (const row of byKey.values()) {
+    merged.push(row);
   }
 
   const mergeMs = Date.now() - mergeStart;
