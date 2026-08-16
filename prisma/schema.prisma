@@ -495,7 +495,7 @@ model SalesRepActual {
   // computed at sync time in scripts/db-bridge/transform/buildRepSales.ts. Not
   // raw SAP Quantity — verified live that Quantity is piece-denominated on
   // ~99.97% of real invoice lines regardless of the item's nominal Sales UOM.
-  cases        Float
+  cases        Float    @default(0)
   revenue      Float
   cogs         Float
   grossProfit  Float
@@ -518,7 +518,7 @@ model DailySalesRepActual {
   employeeCode String?
   employeeName String?
   // See SalesRepActual.cases — same conversion, day grain.
-  cases        Float
+  cases        Float    @default(0)
   revenue      Float
   cogs         Float
   grossProfit  Float
@@ -549,7 +549,7 @@ model BrandCustomerActual {
   sapName      String
   customerName String
   // See SalesRepActual.cases — same conversion, customer/brand grain.
-  cases        Float
+  cases        Float    @default(0)
   revenue      Float
   grossProfit  Float
   updatedAt    DateTime @updatedAt
@@ -570,7 +570,7 @@ model DailyBrandCustomerActual {
   sapName      String
   customerName String
   // See SalesRepActual.cases — same conversion, customer/brand day grain.
-  cases        Float
+  cases        Float    @default(0)
   revenue      Float
   grossProfit  Float
   updatedAt    DateTime @updatedAt
