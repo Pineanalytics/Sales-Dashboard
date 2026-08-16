@@ -1,4 +1,5 @@
 import { unstable_cache, revalidateTag } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
@@ -197,25 +198,35 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   // query (and this table's future growth) bounded — the daily filter alone
   // was discarding ~90% of what it fetched.
   //
-  // Live EXPLAIN ANALYZE after this filter landed showed the SQL itself is
+  // Live EXPLAIN ANALYZE after that filter landed showed the SQL itself is
   // fast (22ms daily via the date-led unique index, 125ms monthly via a
   // cheap seq scan — 2025+2026 turned out to already BE the whole table, so
   // the year filter mostly guards against future growth, not today's cost).
-  // But overlayAdminData's own timing still logged ~10s for this function —
-  // the gap is Prisma Client hydrating ~340k rows into full model objects.
-  // `select` narrows that to only the columns DbRow actually uses (drops id/
-  // createdAt/updatedAt) - the fetchMs/mergeMs split below confirms whether
-  // that's enough or whether $queryRaw is warranted next.
+  // But overlayAdminData's own timing still logged ~10s for this function.
+  // Adding `select` (only the columns DbRow uses, dropping id/createdAt/
+  // updatedAt) cut it to ~7.7s — real, but the fetch phase alone was still
+  // ~6.1s of that for ~340k rows, confirmed via a fetchMs/mergeMs timing
+  // split as Prisma Client's own model-hydration cost, not the SQL or the
+  // merge loop. $queryRaw bypasses that hydration pipeline (same pattern
+  // already used throughout lib/timestampSummary.ts/lib/jpAdherence.ts) -
+  // still fully typed via the generic param, just skipping Prisma Client's
+  // per-row model instantiation.
   const fetchStart = Date.now();
   const [monthlyRecords, dailyRecords] = await Promise.all([
-    prisma.brandCustomerActual.findMany({
-      where: { year: { in: [currentYear, priorYear] } },
-      select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
-    }),
-    prisma.dailyBrandCustomerActual.findMany({
-      where: { date: { gte: new Date(`${currentMonthStart}T00:00:00.000Z`) } },
-      select: { date: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
-    }),
+    prisma.$queryRaw<
+      { year: string; month: string; monthIndex: number; principal: string; brand: string; sapName: string; customerName: string; cases: number; revenue: number; grossProfit: number }[]
+    >(Prisma.sql`
+      SELECT year, month, "monthIndex", principal, brand, "sapName", "customerName", cases, revenue, "grossProfit"
+      FROM "BrandCustomerActual"
+      WHERE year IN (${currentYear}, ${priorYear})
+    `),
+    prisma.$queryRaw<
+      { date: Date; principal: string; brand: string; sapName: string; customerName: string; cases: number; revenue: number; grossProfit: number }[]
+    >(Prisma.sql`
+      SELECT date, principal, brand, "sapName", "customerName", cases, revenue, "grossProfit"
+      FROM "DailyBrandCustomerActual"
+      WHERE date >= ${new Date(`${currentMonthStart}T00:00:00.000Z`)}
+    `),
   ]);
   const fetchMs = Date.now() - fetchStart;
   if (monthlyRecords.length === 0 && dailyRecords.length === 0) return dataset;
