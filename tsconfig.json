@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "apps/field-forms", "field-forms"]
+  "exclude": ["node_modules", "field-forms"]
 }
