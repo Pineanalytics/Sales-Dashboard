@@ -196,11 +196,30 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   // month's daily rows. Filtering here instead of after the fetch keeps the
   // query (and this table's future growth) bounded — the daily filter alone
   // was discarding ~90% of what it fetched.
+  //
+  // Live EXPLAIN ANALYZE after this filter landed showed the SQL itself is
+  // fast (22ms daily via the date-led unique index, 125ms monthly via a
+  // cheap seq scan — 2025+2026 turned out to already BE the whole table, so
+  // the year filter mostly guards against future growth, not today's cost).
+  // But overlayAdminData's own timing still logged ~10s for this function —
+  // the gap is Prisma Client hydrating ~340k rows into full model objects.
+  // `select` narrows that to only the columns DbRow actually uses (drops id/
+  // createdAt/updatedAt) - the fetchMs/mergeMs split below confirms whether
+  // that's enough or whether $queryRaw is warranted next.
+  const fetchStart = Date.now();
   const [monthlyRecords, dailyRecords] = await Promise.all([
-    prisma.brandCustomerActual.findMany({ where: { year: { in: [currentYear, priorYear] } } }),
-    prisma.dailyBrandCustomerActual.findMany({ where: { date: { gte: new Date(`${currentMonthStart}T00:00:00.000Z`) } } }),
+    prisma.brandCustomerActual.findMany({
+      where: { year: { in: [currentYear, priorYear] } },
+      select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+    }),
+    prisma.dailyBrandCustomerActual.findMany({
+      where: { date: { gte: new Date(`${currentMonthStart}T00:00:00.000Z`) } },
+      select: { date: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+    }),
   ]);
+  const fetchMs = Date.now() - fetchStart;
   if (monthlyRecords.length === 0 && dailyRecords.length === 0) return dataset;
+  const mergeStart = Date.now();
 
   interface DbRow {
     date: string;
@@ -278,6 +297,13 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
       grossProfit: db.grossProfit,
       grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,
     });
+  }
+
+  const mergeMs = Date.now() - mergeStart;
+  if (fetchMs > 200 || mergeMs > 200) {
+    console.warn(
+      `[datasetStore] overlayBrandCustomer: fetch ${fetchMs}ms (${monthlyRecords.length} monthly + ${dailyRecords.length} daily rows) / merge ${mergeMs}ms (${dataset.monthlyBrandCustomer.length} existing snapshot rows filtered) / total ${fetchMs + mergeMs}ms`
+    );
   }
 
   return { ...dataset, monthlyBrandCustomer: merged };
