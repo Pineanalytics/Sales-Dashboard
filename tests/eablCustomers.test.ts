@@ -14,8 +14,12 @@ describe("derivePrincipal", () => {
     expect(derivePrincipal("nyeri town")).toBe("EABL-Nyeri");
   });
 
-  it("falls back to EABL-General for a real but unmapped territory (e.g. Othaya), never guessing the nearest named one", () => {
-    expect(derivePrincipal("DGO-D03-A09-T047 - Othaya")).toBe("EABL-General");
+  it("maps Othaya to EABL-Nyeri - administratively part of Nyeri, confirmed directly, not a substring match on 'nyeri'", () => {
+    expect(derivePrincipal("DGO-D03-A09-T047 - Othaya")).toBe("EABL-Nyeri");
+  });
+
+  it("falls back to EABL-General for a genuinely separate, unrelated area (e.g. Upper Mountain KSO), never guessing the nearest named one", () => {
+    expect(derivePrincipal("DGO-D03-A71-T756 - Upper Mountain KSO")).toBe("EABL-General");
   });
 
   it("falls back to EABL-General for null/unknown territory", () => {

@@ -53,16 +53,18 @@ export interface TransformedEablCustomer {
 }
 
 /** "EABL-Nyeri" / "EABL-Nyahururu" derived from Territory text, matching
- *  EablCall's own scope naming ("EABL-Nyeri & EABL-Nyahururu"). Anything
- *  else (confirmed live: a real third territory, Othaya, plus other areas
- *  entirely unrelated to this module) gets "EABL-General" rather than being
- *  silently dropped or guessed onto the nearest named principal - same
- *  "don't guess, flag it" bucket already used for Timestamps' roster-
- *  unmapped reps. */
+ *  EablCall's own scope naming ("EABL-Nyeri & EABL-Nyahururu"). Othaya is
+ *  administratively part of Nyeri (confirmed directly, not inferred from
+ *  the text) — mapped explicitly rather than relying on a substring match,
+ *  since "Othaya" doesn't contain "nyeri" itself. Anything else (confirmed
+ *  live: a genuinely separate area, "Upper Mountain KSO" — 29 customers,
+ *  unrelated to this module) gets "EABL-General" rather than being silently
+ *  dropped or guessed onto the nearest named principal - same "don't guess,
+ *  flag it" bucket already used for Timestamps' roster-unmapped reps. */
 export function derivePrincipal(territory: string | null): string {
   const value = territory?.toLowerCase() ?? "";
   if (value.includes("nyahururu")) return "EABL-Nyahururu";
-  if (value.includes("nyeri")) return "EABL-Nyeri";
+  if (value.includes("nyeri") || value.includes("othaya")) return "EABL-Nyeri";
   return "EABL-General";
 }
 
