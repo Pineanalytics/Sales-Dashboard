@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "eabl" | "active-outlets" | "sales" | "pl" | "stock";
+type JobName = "timestamps" | "eabl" | "eabl-customers" | "active-outlets" | "sales" | "pl" | "stock";
 
 interface JobDefinition {
   name: JobName;
@@ -19,6 +19,10 @@ interface JobDefinition {
 const jobs: Record<JobName, JobDefinition> = {
   timestamps: { name: "timestamps", entry: "scripts/db-bridge/timestamps/run.ts", intervalEnv: "TIMESTAMPS_INTERVAL_SECONDS", defaultSeconds: 30 },
   eabl: { name: "eabl", entry: "scripts/db-bridge/eabl-call-performance/run.ts", intervalEnv: "EABL_INTERVAL_SECONDS", defaultSeconds: 60 },
+  // Reference/master data, not a live call feed - the source table barely
+  // changes day to day (confirmed live: ~800-1000 rows total), so this runs
+  // far less often than the 60s call sync above. Default 6 hours.
+  "eabl-customers": { name: "eabl-customers", entry: "scripts/db-bridge/eabl-call-performance/sync-customers.ts", intervalEnv: "EABL_CUSTOMERS_INTERVAL_SECONDS", defaultSeconds: 21_600 },
   "active-outlets": { name: "active-outlets", entry: "scripts/db-bridge/active-outlets/run.ts", intervalEnv: "ACTIVE_OUTLETS_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "ACTIVE_OUTLETS_DAILY_AT", runOnStartEnv: "ACTIVE_OUTLETS_RUN_ON_START" },
   sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 300 },
   pl: { name: "pl", entry: "scripts/pl-bridge/run.ts", intervalEnv: "PL_INTERVAL_SECONDS", defaultSeconds: 1800 },

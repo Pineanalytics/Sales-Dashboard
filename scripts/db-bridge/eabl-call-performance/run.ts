@@ -10,7 +10,7 @@ const BRIDGE = "eabl-call-performance";
 const BATCH_SIZE = 1000;
 
 interface SourceCall {
-  sourceCallKey: string; callDate: Date; salesman: string; agent: string | null; customerName: string;
+  sourceCallKey: string; callDate: Date; salesman: string; agent: string | null; customerCode: string | null; customerName: string;
   customerType: string | null; segment: string | null; timeIn: Date | null; timeOut: Date | null; durationMinutes: number | null;
   firstCallOfDay: Date | null; lastCallOfDay: Date | null; callsInDay: number; productiveCallsInDay: number; dayStrikeRatePct: number | null;
   cashSales: number; creditSales: number; discounts: number; netSales: number; isProductive: boolean;
@@ -35,7 +35,7 @@ async function main() {
   try {
     const result = await pool.request().input("start", sql.DateTime2, start).input("end", sql.DateTime2, end).query<SourceCall>(`
       SELECT CONCAT('eabl:', CONVERT(varchar(100), c.Id)) AS sourceCallKey,
-        c.CallDate AS callDate, d.Salesman AS salesman, d.Agent AS agent, c.CustomerName AS customerName, c.CustType AS customerType, c.Segment AS segment,
+        c.CallDate AS callDate, d.Salesman AS salesman, d.Agent AS agent, c.CustomerCode AS customerCode, c.CustomerName AS customerName, c.CustType AS customerType, c.Segment AS segment,
         c.TimeIn AS timeIn, c.TimeOut AS timeOut, DATEDIFF(minute, c.TimeIn, c.TimeOut) AS durationMinutes,
         MIN(c.TimeIn) OVER (PARTITION BY c.SalesmanDayId) AS firstCallOfDay, MAX(c.TimeOut) OVER (PARTITION BY c.SalesmanDayId) AS lastCallOfDay,
         COUNT(*) OVER (PARTITION BY c.SalesmanDayId) AS callsInDay, SUM(CASE WHEN c.NetSales > 0 THEN 1 ELSE 0 END) OVER (PARTITION BY c.SalesmanDayId) AS productiveCallsInDay,

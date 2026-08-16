@@ -126,5 +126,22 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  if (resource === "eabl-customers") {
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+    const pageSize = boundedPageSize(url.searchParams.get("pageSize"));
+    const rows = await prisma.eablCustomerMaster.findMany({
+      select: { id: true, customerId: true, principal: true, outletName: true, channel: true, subChannel: true, territory: true, latitude: true, longitude: true, status: true, updatedAt: true },
+      orderBy: { id: "asc" },
+      take: pageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const hasMore = rows.length > pageSize;
+    const customers = hasMore ? rows.slice(0, pageSize) : rows;
+    return NextResponse.json(
+      { syncedAt: new Date().toISOString(), customers, nextCursor: hasMore ? customers.at(-1)?.id ?? null : null },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   return NextResponse.json({ error: "Unknown coaching reference resource." }, { status: 400 });
 }

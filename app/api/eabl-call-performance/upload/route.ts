@@ -11,6 +11,7 @@ interface EablCallUploadRow {
   callDate: string;
   salesman: string;
   agent: string | null;
+  customerCode: string | null;
   customerName: string;
   customerType: string | null;
   segment: string | null;
@@ -45,7 +46,7 @@ function isValidRow(value: unknown): value is EablCallUploadRow {
   const nullableNumber = (v: unknown) => v === null || typeof v === "number";
   return typeof row.sourceCallKey === "string" && typeof row.callDate === "string" &&
     typeof row.salesman === "string" && typeof row.customerName === "string" &&
-    nullableString(row.agent) && nullableString(row.customerType) && nullableString(row.segment) &&
+    nullableString(row.agent) && nullableString(row.customerCode) && nullableString(row.customerType) && nullableString(row.segment) &&
     nullableString(row.timeIn) && nullableString(row.timeOut) && nullableString(row.firstCallOfDay) && nullableString(row.lastCallOfDay) &&
     nullableNumber(row.durationMinutes) && nullableNumber(row.dayStrikeRatePct) &&
     typeof row.callsInDay === "number" && typeof row.productiveCallsInDay === "number" &&

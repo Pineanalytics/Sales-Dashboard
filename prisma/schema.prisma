@@ -787,6 +787,13 @@ model EablCall {
   callDate              DateTime
   salesman              String
   agent                 String?
+  // SAP MasterData.Customers.DMSCustomerCode — confirmed live as a 100%
+  // reliable join key against DSR_Calls.CustomerCode (817/817 matched).
+  // Nullable: historical rows synced before this field existed never had it
+  // selected, and it's never used to gate anything — customerName remains
+  // the call's own identity, this is purely an optional join key onto
+  // EablCustomerMaster for whoever wants richer outlet detail.
+  customerCode          String?
   customerName          String
   customerType          String?
   segment               String?
@@ -808,6 +815,40 @@ model EablCall {
   @@index([callDate])
   @@index([salesman, callDate])
   @@index([segment, callDate])
+  @@index([customerCode])
+}
+
+// EABL customer master — SAP MasterData.Customers, scoped to only the
+// customers with real DSR_Calls activity (~817 of the master's 1,010 rows;
+// the rest belong to other areas entirely - "Mountain KSO", "Offtrade" -
+// unrelated to EABL-Nyeri/Nyahururu). Feeds two things: a real join target
+// for EablCall.customerCode, and — via
+// /api/integrations/coaching/reference?resource=eabl-customers — Field
+// Forms' coaching Master Data, the same way ActiveOutlet already feeds
+// resource=outlets. No PJP-ownership-equivalent field: confirmed live that
+// no "assigned rep" concept exists anywhere in the source master data
+// (MasterData.OutletActivityAccess looked like a candidate but is empty and
+// is visit-frequency tracking, not ownership) - not fabricated here.
+model EablCustomerMaster {
+  id           String   @id @default(cuid())
+  customerId   String   @unique // DMSCustomerCode
+  // "EABL-Nyeri" / "EABL-Nyahururu" derived from the source Territory field,
+  // matching EablCall's own scope naming. "EABL-General" is the honest
+  // fallback for a real third territory (Othaya) with no named principal to
+  // map onto - never silently dropped or guessed onto the nearest one.
+  principal    String
+  outletName   String
+  channel      String?
+  subChannel   String?
+  territory    String?
+  latitude     Float?
+  longitude    Float?
+  status       String // "ACTIVE" | "INACTIVE" (source CustomerStatus)
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@index([principal])
+  @@index([status])
 }
 
 // Order 360 — one row per SAP order, sourced directly from pine's SAP_Orders
