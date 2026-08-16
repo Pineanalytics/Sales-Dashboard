@@ -61,7 +61,7 @@ interface CommonRepSalesRow {
   sapName: string;
   employeeCode: string | null;
   employeeName: string | null;
-  volume: number;
+  cases: number;
   revenue: number;
   cogs: number;
   grossProfit: number;
@@ -108,12 +108,12 @@ export function buildMonthlyRepSales(
       principal: principal.principal,
       sapName: row.sapName,
       ...rep,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       cogs: 0,
       grossProfit: 0,
     };
-    existing.volume += row.qtySold;
+    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
     existing.revenue += row.salesAmount;
     existing.cogs += row.cogs;
     existing.grossProfit += row.grossMargin;
@@ -148,12 +148,12 @@ export function buildDailyRepSales(
       principal: principal.principal,
       sapName: row.sapName,
       ...rep,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       cogs: 0,
       grossProfit: 0,
     };
-    existing.volume += row.qtySold;
+    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
     existing.revenue += row.salesAmount;
     existing.cogs += row.cogs;
     existing.grossProfit += row.grossMargin;
@@ -178,7 +178,7 @@ export interface MonthlyCustomerSalesRow {
   brand: string;
   sapName: string;
   customerName: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
 }
@@ -189,7 +189,7 @@ export interface DailyCustomerSalesRow {
   brand: string;
   sapName: string;
   customerName: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
 }
@@ -221,11 +221,11 @@ export function buildMonthlyCustomerSales(
       brand: row.brand,
       sapName: row.sapName,
       customerName: row.customerName,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       grossProfit: 0,
     };
-    existing.volume += row.qtySold;
+    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
     existing.revenue += row.salesAmount;
     existing.grossProfit += row.grossMargin;
     byKey.set(key, existing);
@@ -256,11 +256,11 @@ export function buildDailyCustomerSales(
       brand: row.brand,
       sapName: row.sapName,
       customerName: row.customerName,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       grossProfit: 0,
     };
-    existing.volume += row.qtySold;
+    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
     existing.revenue += row.salesAmount;
     existing.grossProfit += row.grossMargin;
     byKey.set(key, existing);
@@ -294,6 +294,7 @@ export function dailyRowsToMonthlyInput(rows: DailySalesRawRow[]): YtdRawRow[] {
       customerName: row.customerName,
       isFreeSale: row.isFreeSale,
       qtySold: row.qtySold,
+      packSize: row.packSize,
       salesAmount: row.salesAmount,
       grossProfit: 0,
       grossSales: row.grossSales,

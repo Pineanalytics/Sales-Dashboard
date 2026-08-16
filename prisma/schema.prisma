@@ -491,7 +491,11 @@ model SalesRepActual {
   sapName      String
   employeeCode String?
   employeeName String?
-  volume       Float
+  // Cases = SAP invoice/credit-note Quantity (piece-denominated) / OITM.NumInBuy,
+  // computed at sync time in scripts/db-bridge/transform/buildRepSales.ts. Not
+  // raw SAP Quantity — verified live that Quantity is piece-denominated on
+  // ~99.97% of real invoice lines regardless of the item's nominal Sales UOM.
+  cases        Float
   revenue      Float
   cogs         Float
   grossProfit  Float
@@ -513,7 +517,8 @@ model DailySalesRepActual {
   sapName      String
   employeeCode String?
   employeeName String?
-  volume       Float
+  // See SalesRepActual.cases — same conversion, day grain.
+  cases        Float
   revenue      Float
   cogs         Float
   grossProfit  Float
@@ -543,7 +548,8 @@ model BrandCustomerActual {
   brand        String   @default("Unspecified")
   sapName      String
   customerName String
-  volume       Float
+  // See SalesRepActual.cases — same conversion, customer/brand grain.
+  cases        Float
   revenue      Float
   grossProfit  Float
   updatedAt    DateTime @updatedAt
@@ -563,7 +569,8 @@ model DailyBrandCustomerActual {
   brand        String   @default("Unspecified")
   sapName      String
   customerName String
-  volume       Float
+  // See SalesRepActual.cases — same conversion, customer/brand day grain.
+  cases        Float
   revenue      Float
   grossProfit  Float
   updatedAt    DateTime @updatedAt

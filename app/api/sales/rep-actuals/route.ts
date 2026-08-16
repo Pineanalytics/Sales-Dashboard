@@ -6,7 +6,7 @@ import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Read-side route for SAP-only rep value and volume. Pine operational data is
+/** Read-side route for SAP-only rep value and cases. Pine operational data is
  * deliberately not mixed into this response; the client joins coverage and
  * productivity separately by the canonical Pine employee name. */
 export async function GET(req: NextRequest) {

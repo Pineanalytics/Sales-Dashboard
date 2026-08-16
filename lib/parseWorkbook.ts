@@ -304,7 +304,11 @@ interface BrandCustomerAgg {
   principalKey: string;
   salesEmployee: string;
   customerName: string;
-  volume: number;
+  // Named "cases" to match MonthlyBrandCustomerRow, but this legacy Excel path
+  // reads the sheet's own "Volume" column verbatim — whatever unit that
+  // historical export used (not converted to cases like the live SAP bridge
+  // now is). Only pre-2025 months still fall back to this path.
+  cases: number;
   revenue: number;
   grossProfit: number;
 }
@@ -369,13 +373,13 @@ function parseMonthlyBrandCustomer(wb: XLSX.WorkBook): MonthlyBrandCustomerRow[]
         principalKey,
         salesEmployee,
         customerName,
-        volume: 0,
+        cases: 0,
         revenue: 0,
         grossProfit: 0,
       };
       byKey.set(key, agg);
     }
-    agg.volume += toNumber(row[colIdx["Volume"]]);
+    agg.cases += toNumber(row[colIdx["Volume"]]);
     agg.revenue += toNumber(row[colIdx["Revenue"]]);
     agg.grossProfit += toNumber(row[colIdx["GP"]]);
   }

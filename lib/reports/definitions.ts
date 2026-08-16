@@ -315,8 +315,8 @@ const repsReport: ReportDefinition = {
         },
         {
           title: "Revenue by Rep",
-          columns: ["Rep", "Volume", "Revenue", "Gross Profit", "Margin %"],
-          rows: revenueByRep.map((r) => [r.salesEmployee, round2(r.volume), round2(r.revenue), round2(r.grossProfit), r.grossMarginPct !== null ? r.grossMarginPct : "N/A"]),
+          columns: ["Rep", "Cases", "Revenue", "Gross Profit", "Margin %"],
+          rows: revenueByRep.map((r) => [r.salesEmployee, round2(r.cases), round2(r.revenue), round2(r.grossProfit), r.grossMarginPct !== null ? r.grossMarginPct : "N/A"]),
         },
       ],
     };
@@ -339,13 +339,13 @@ const customersReport: ReportDefinition = {
       sections: [
         {
           title: "By Customer",
-          columns: ["Customer", "Volume", "Revenue", "Gross Profit", "Margin %"],
-          rows: byCustomer.map((c) => [c.customerName, round2(c.volume), round2(c.revenue), round2(c.grossProfit), c.grossMarginPct !== null ? c.grossMarginPct : "N/A"]),
+          columns: ["Customer", "Cases", "Revenue", "Gross Profit", "Margin %"],
+          rows: byCustomer.map((c) => [c.customerName, round2(c.cases), round2(c.revenue), round2(c.grossProfit), c.grossMarginPct !== null ? c.grossMarginPct : "N/A"]),
         },
         {
           title: "By Principal",
-          columns: ["Principal", "Volume", "Revenue", "Gross Profit", "Margin %"],
-          rows: byPrincipal.map((p) => [p.principal, round2(p.volume), round2(p.revenue), round2(p.grossProfit), p.grossMarginPct !== null ? p.grossMarginPct : "N/A"]),
+          columns: ["Principal", "Cases", "Revenue", "Gross Profit", "Margin %"],
+          rows: byPrincipal.map((p) => [p.principal, round2(p.cases), round2(p.revenue), round2(p.grossProfit), p.grossMarginPct !== null ? p.grossMarginPct : "N/A"]),
         },
       ],
     };

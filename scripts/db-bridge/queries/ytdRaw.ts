@@ -19,6 +19,13 @@ export interface YtdRawRow {
   customerName: string;
   isFreeSale: boolean;
   qtySold: number;
+  /** SAP OITM.NumInBuy — units per purchase pack (e.g. 12 for a "12-Pack").
+   *  This is the field that actually converts Quantity (always piece-
+   *  denominated on real invoice lines, confirmed live) into cases. Null
+   *  when SAP has no usable pack size for this item (rare — ~0.1% of items,
+   *  none of them actually sold recently as of the live check that
+   *  established this). */
+  packSize: number | null;
   salesAmount: number;
   grossProfit: number;
   grossSales: number;
@@ -40,6 +47,7 @@ interface YtdRawRecord {
   "Customer Name": string;
   "Is Free Sale": number;
   QtySold: number;
+  "Pack Size": number | null;
   "Sales Amount": number;
   "Gross Profit": number;
   "Gross Sales": number;
@@ -87,6 +95,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
                   WHEN T0.CANCELED = 'C' THEN -T1.Quantity
                   ELSE T1.Quantity
               END AS QtySold,
+              T2.NumInBuy AS [Pack Size],
               CASE
                   WHEN T0.isIns = 'N'
                        AND T1.LineTotal > T1.StockSum
@@ -124,6 +133,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
                   WHEN T0.CANCELED = 'C' THEN T1.Quantity
                   ELSE -T1.Quantity
               END AS QtySold,
+              T2.NumInBuy AS [Pack Size],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.StockSum
                   WHEN T1.StockSum = 0 THEN -T1.LineTotal
@@ -159,6 +169,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
                   WHEN T0.CANCELED = 'C' THEN -T1.Quantity
                   ELSE T1.Quantity
               END AS QtySold,
+              T2.NumInBuy AS [Pack Size],
               CASE
                   WHEN T0.isIns = 'N'
                        AND T1.LineTotal > T1.StockSum
@@ -196,6 +207,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
                   WHEN T0.CANCELED = 'C' THEN T1.Quantity
                   ELSE -T1.Quantity
               END AS QtySold,
+              T2.NumInBuy AS [Pack Size],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.StockSum
                   WHEN T1.StockSum = 0 THEN -T1.LineTotal
@@ -232,6 +244,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
           COALESCE(NULLIF(LTRIM(RTRIM(SL.[Customer Name])), ''), '(Unknown Customer)') AS [Customer Name],
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END AS [Is Free Sale],
           SUM(SL.QtySold) AS QtySold,
+          MAX(SL.[Pack Size]) AS [Pack Size],
           SUM(SL.[Sales Amount]) AS [Sales Amount],
           SUM(SL.[Gross Profit]) AS [Gross Profit],
           SUM(CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 0 ELSE SL.[Gross Sales] END) AS [Gross Sales],
@@ -268,6 +281,7 @@ export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Pro
     customerName: r["Customer Name"],
     isFreeSale: r["Is Free Sale"] === 1,
     qtySold: r.QtySold,
+    packSize: r["Pack Size"] && r["Pack Size"] > 0 ? r["Pack Size"] : null,
     salesAmount: r["Sales Amount"],
     grossProfit: r["Gross Profit"],
     grossSales: r["Gross Sales"],

@@ -13,8 +13,8 @@ function baseDataset(): Dataset {
       { year: "2026", month: "July", monthIndex: 6, salesRole: "Primary Sales", employeeName: "Rep B", principal: "EFL-Nairobi", principalKey: "efl", coverage: 5, productiveCalls: 4, productivityPct: 80 },
     ],
     monthlyBrandCustomer: [
-      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", salesEmployee: "Rep A", customerName: "Shop 1", volume: 10, revenue: 100, grossProfit: 40, grossMarginPct: 40 },
-      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "EFL-Nairobi", principalKey: "efl", salesEmployee: "Rep B", customerName: "Shop 2", volume: 20, revenue: 200, grossProfit: 80, grossMarginPct: 40 },
+      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", salesEmployee: "Rep A", customerName: "Shop 1", cases: 10, revenue: 100, grossProfit: 40, grossMarginPct: 40 },
+      { date: "2026-07-01", year: "2026", month: "July", monthIndex: 6, principal: "EFL-Nairobi", principalKey: "efl", salesEmployee: "Rep B", customerName: "Shop 2", cases: 20, revenue: 200, grossProfit: 80, grossMarginPct: 40 },
     ],
     monthlyPL: [
       { year: "2026", month: "July", monthIndex: 6, principal: "Bic-Nairobi", principalKey: "bic", accountCode: "4000", accountName: "Sales", lineType: "REVENUE", amount: 100 },

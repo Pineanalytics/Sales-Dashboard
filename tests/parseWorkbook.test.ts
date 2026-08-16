@@ -113,7 +113,7 @@ describe("parseWorkbook — monthly brand & customer", () => {
     // Customer lines (different Item Name, same day) merge into one.
     expect(dataset.monthlyBrandCustomer).toHaveLength(3);
     const row = dataset.monthlyBrandCustomer.find((r) => r.customerName === "Cash Customer" && r.principal === "EABL-Nyeri")!;
-    expect(row.volume).toBe(100);
+    expect(row.cases).toBe(100);
     expect(row.revenue).toBe(50000);
     expect(row.grossProfit).toBe(8000);
     // Derived from the summed totals (8000/50000*100), never from the per-line GP Margin % column.

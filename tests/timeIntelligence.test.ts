@@ -79,7 +79,7 @@ function brandCustomerRow(overrides: Partial<MonthlyBrandCustomerRow>): MonthlyB
     brand: "EABL Lager 500ml",
     salesEmployee: "Jane Doe",
     customerName: "Cash Customer",
-    volume: 0,
+    cases: 0,
     revenue: 0,
     grossProfit: 0,
     grossMarginPct: null,
@@ -469,17 +469,17 @@ describe("summarizeBrandCustomerForCurrentWeek", () => {
   // August 2026's 1st is a Saturday, so its Mondays are Aug 3/10/17/24/31
   // ("Aug Week 1".."Aug Week 5") — verified against lib/mtdTarget.ts's own
   // working-day tests, same calendar.
-  it("sums revenue/volume/grossProfit for rows within the Monday-Sunday week containing 'today', excluding other weeks", () => {
+  it("sums revenue/cases/grossProfit for rows within the Monday-Sunday week containing 'today', excluding other weeks", () => {
     const dataset = buildDataset({
       monthlyBrandCustomer: [
-        brandCustomerRow({ date: "2026-08-03", revenue: 100, volume: 10, grossProfit: 20 }), // Monday of Aug Week 1
-        brandCustomerRow({ date: "2026-08-05", revenue: 200, volume: 20, grossProfit: 40 }), // same week
-        brandCustomerRow({ date: "2026-08-10", revenue: 999, volume: 99, grossProfit: 99 }), // Aug Week 2 - excluded
+        brandCustomerRow({ date: "2026-08-03", revenue: 100, cases: 10, grossProfit: 20 }), // Monday of Aug Week 1
+        brandCustomerRow({ date: "2026-08-05", revenue: 200, cases: 20, grossProfit: 40 }), // same week
+        brandCustomerRow({ date: "2026-08-10", revenue: 999, cases: 99, grossProfit: 99 }), // Aug Week 2 - excluded
       ],
     });
     const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-08-05T00:00:00Z"));
     expect(result.revenue).toBe(300);
-    expect(result.volume).toBe(30);
+    expect(result.cases).toBe(30);
     expect(result.grossProfit).toBe(60);
     expect(result.weekLabel).toBe("Aug Week 1");
   });

@@ -64,7 +64,7 @@ export interface MonthlyBrandCustomerRow {
   brand?: string;
   salesEmployee: string;
   customerName: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;

@@ -88,7 +88,7 @@ describe("buildRepPerformanceRows", () => {
       employees: [employee({})],
       coverageByRepMonth,
       targets,
-      sapRows: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", volume: 10, revenue: 500_000, grossProfit: 100_000 }],
+      sapRows: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", cases: 10, revenue: 500_000, grossProfit: 100_000 }],
       months,
       principalKey: null,
       teamLeaderFilter: null,
@@ -182,7 +182,7 @@ describe("buildRepPerformanceRows", () => {
   });
 
   it("keeps unmatched SAP revenue visible with no team leader, excluded once a team leader filter is active", () => {
-    const sapRows = [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Ghost Rep", employeeCode: null, employeeName: "Ghost Rep", salesRole: null, volume: 1, revenue: 10_000, grossProfit: 1_000 }];
+    const sapRows = [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Ghost Rep", employeeCode: null, employeeName: "Ghost Rep", salesRole: null, cases: 1, revenue: 10_000, grossProfit: 1_000 }];
     const withoutFilter = buildRepPerformanceRows({ employees: [], coverageByRepMonth: [], targets: [], sapRows, months, principalKey: null, teamLeaderFilter: null, salesRoleFilter: null });
     expect(withoutFilter).toHaveLength(1);
     expect(withoutFilter[0].employeeCode).toBeNull();

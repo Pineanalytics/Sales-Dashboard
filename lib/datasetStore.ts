@@ -204,7 +204,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
     brand: string;
     salesEmployee: string;
     customerName: string;
-    volume: number;
+    cases: number;
     revenue: number;
     grossProfit: number;
   }
@@ -223,7 +223,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
       brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
-      volume: r.volume,
+      cases: r.cases,
       revenue: r.revenue,
       grossProfit: r.grossProfit,
     });
@@ -242,7 +242,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
       brand: r.brand,
       salesEmployee: r.sapName,
       customerName: r.customerName,
-      volume: r.volume,
+      cases: r.cases,
       revenue: r.revenue,
       grossProfit: r.grossProfit,
     });
@@ -266,7 +266,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
       brand: db.brand,
       salesEmployee: db.salesEmployee,
       customerName: db.customerName,
-      volume: db.volume,
+      cases: db.cases,
       revenue: db.revenue,
       grossProfit: db.grossProfit,
       grossMarginPct: db.revenue > 0 ? Math.round((db.grossProfit / db.revenue) * 1000) / 10 : null,

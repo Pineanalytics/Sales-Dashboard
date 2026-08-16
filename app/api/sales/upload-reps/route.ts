@@ -16,7 +16,7 @@ interface MonthlyRepSalesUploadRow {
   sapName: string;
   employeeCode: string | null;
   employeeName: string | null;
-  volume: number;
+  cases: number;
   revenue: number;
   cogs: number;
   grossProfit: number;
@@ -29,7 +29,7 @@ interface DailyRepSalesUploadRow {
   sapName: string;
   employeeCode: string | null;
   employeeName: string | null;
-  volume: number;
+  cases: number;
   revenue: number;
   cogs: number;
   grossProfit: number;
@@ -62,7 +62,7 @@ function isMonthlyRow(value: unknown): value is MonthlyRepSalesUploadRow {
   const row = value as Record<string, unknown>;
   return (
     isText(row.year) && isText(row.month) && Number.isInteger(row.monthIndex) && isText(row.location) && isText(row.principal) && isText(row.sapName) &&
-    isNullableText(row.employeeCode) && isNullableText(row.employeeName) && isNumber(row.volume) && isNumber(row.revenue) && isNumber(row.cogs) && isNumber(row.grossProfit)
+    isNullableText(row.employeeCode) && isNullableText(row.employeeName) && isNumber(row.cases) && isNumber(row.revenue) && isNumber(row.cogs) && isNumber(row.grossProfit)
   );
 }
 
@@ -71,17 +71,17 @@ function isDailyRow(value: unknown): value is DailyRepSalesUploadRow {
   const row = value as Record<string, unknown>;
   return (
     isText(row.date) && isText(row.location) && isText(row.principal) && isText(row.sapName) && isNullableText(row.employeeCode) && isNullableText(row.employeeName) &&
-    isNumber(row.volume) && isNumber(row.revenue) && isNumber(row.cogs) && isNumber(row.grossProfit)
+    isNumber(row.cases) && isNumber(row.revenue) && isNumber(row.cogs) && isNumber(row.grossProfit)
   );
 }
 
 async function upsertMonthlyChunk(rows: MonthlyRepSalesUploadRow[]) {
   const values = rows.map(
     (row) =>
-      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.location}, ${row.principal}, ${row.sapName}, ${row.employeeCode}, ${row.employeeName}, ${row.volume}, ${row.revenue}, ${row.cogs}, ${row.grossProfit}, now(), now())`
+      Prisma.sql`(${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.location}, ${row.principal}, ${row.sapName}, ${row.employeeCode}, ${row.employeeName}, ${row.cases}, ${row.revenue}, ${row.cogs}, ${row.grossProfit}, now(), now())`
   );
   await prisma.$executeRaw`
-    INSERT INTO "SalesRepActual" (id, year, month, "monthIndex", location, principal, "sapName", "employeeCode", "employeeName", volume, revenue, cogs, "grossProfit", "createdAt", "updatedAt")
+    INSERT INTO "SalesRepActual" (id, year, month, "monthIndex", location, principal, "sapName", "employeeCode", "employeeName", cases, revenue, cogs, "grossProfit", "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT (year, month, principal, "sapName")
     DO UPDATE SET
@@ -89,7 +89,7 @@ async function upsertMonthlyChunk(rows: MonthlyRepSalesUploadRow[]) {
       location = EXCLUDED.location,
       "employeeCode" = EXCLUDED."employeeCode",
       "employeeName" = EXCLUDED."employeeName",
-      volume = EXCLUDED.volume,
+      cases = EXCLUDED.cases,
       revenue = EXCLUDED.revenue,
       cogs = EXCLUDED.cogs,
       "grossProfit" = EXCLUDED."grossProfit",
@@ -100,17 +100,17 @@ async function upsertMonthlyChunk(rows: MonthlyRepSalesUploadRow[]) {
 async function upsertDailyChunk(rows: DailyRepSalesUploadRow[]) {
   const values = rows.map(
     (row) =>
-      Prisma.sql`(${randomUUID()}, ${row.date}::date, ${row.location}, ${row.principal}, ${row.sapName}, ${row.employeeCode}, ${row.employeeName}, ${row.volume}, ${row.revenue}, ${row.cogs}, ${row.grossProfit}, now(), now())`
+      Prisma.sql`(${randomUUID()}, ${row.date}::date, ${row.location}, ${row.principal}, ${row.sapName}, ${row.employeeCode}, ${row.employeeName}, ${row.cases}, ${row.revenue}, ${row.cogs}, ${row.grossProfit}, now(), now())`
   );
   await prisma.$executeRaw`
-    INSERT INTO "DailySalesRepActual" (id, date, location, principal, "sapName", "employeeCode", "employeeName", volume, revenue, cogs, "grossProfit", "createdAt", "updatedAt")
+    INSERT INTO "DailySalesRepActual" (id, date, location, principal, "sapName", "employeeCode", "employeeName", cases, revenue, cogs, "grossProfit", "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT (date, principal, "sapName")
     DO UPDATE SET
       location = EXCLUDED.location,
       "employeeCode" = EXCLUDED."employeeCode",
       "employeeName" = EXCLUDED."employeeName",
-      volume = EXCLUDED.volume,
+      cases = EXCLUDED.cases,
       revenue = EXCLUDED.revenue,
       cogs = EXCLUDED.cogs,
       "grossProfit" = EXCLUDED."grossProfit",

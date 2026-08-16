@@ -25,7 +25,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
   const brandPerformance = summarizeBrandCustomerByBrand(dataset, period, selectedPrincipalKey).sort((a, b) => b.revenue - a.revenue);
 
   const totalRevenue = customers.reduce((s, c) => s + c.revenue, 0);
-  const totalVolume = customers.reduce((s, c) => s + c.volume, 0);
+  const totalCases = customers.reduce((s, c) => s + c.cases, 0);
   const totalGP = customers.reduce((s, c) => s + c.grossProfit, 0);
   const overallMarginPct = totalRevenue > 0 ? Math.round((totalGP / totalRevenue) * 1000) / 10 : null;
 
@@ -42,7 +42,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
     <div className="flex flex-col gap-6">
       <KpiGrid>
         <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={<AnimatedValue value={totalRevenue} format={formatCompact} />} />
-        <KpiCard accent="revenue" label={`${period.kind} Volume`} value={<AnimatedValue value={totalVolume} format={formatNumber} />} />
+        <KpiCard accent="revenue" label={`${period.kind} Cases`} value={<AnimatedValue value={totalCases} format={formatNumber} />} />
         <KpiCard accent="quarter" label="Gross Margin" value={formatPercent(overallMarginPct)} size="md" />
         <KpiCard
           accent="growth"
@@ -92,7 +92,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
         <TableWrap>
           <Thead>
             <Th>Customer</Th>
-            <Th align="right">Volume</Th>
+            <Th align="right">Cases</Th>
             <Th align="right">Revenue</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="center">Margin</Th>
@@ -102,7 +102,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
             {customers.slice(0, 30).map((customer) => (
               <tr key={customer.customerName}>
                 <Td>{customer.customerName}</Td>
-                <Td align="right">{formatNumber(customer.volume)}</Td>
+                <Td align="right">{formatNumber(customer.cases)}</Td>
                 <Td align="right">{formatCompact(customer.revenue)}</Td>
                 <Td align="right">{formatCompact(customer.grossProfit)}</Td>
                 <Td align="center"><Badge tier={marginTier(customer.grossMarginPct)}>{formatPercent(customer.grossMarginPct)}</Badge></Td>
@@ -111,7 +111,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
             ))}
             <TotalRow>
               <Td>Total</Td>
-              <Td align="right">{formatNumber(totalVolume)}</Td>
+              <Td align="right">{formatNumber(totalCases)}</Td>
               <Td align="right">{formatCompact(totalRevenue)}</Td>
               <Td align="right">{formatCompact(totalGP)}</Td>
               <Td align="center"><Badge tier={marginTier(overallMarginPct)}>{formatPercent(overallMarginPct)}</Badge></Td>
@@ -125,7 +125,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
         <TableWrap>
           <Thead>
             <Th>Brand / Product</Th>
-            <Th align="right">Volume</Th>
+            <Th align="right">Cases</Th>
             <Th align="right">Revenue</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="center">Margin</Th>
@@ -135,7 +135,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
             {brandPerformance.map((brand) => (
               <tr key={brand.brand}>
                 <Td><span className="font-semibold text-brand-navy">{brand.brand}</span></Td>
-                <Td align="right">{formatNumber(brand.volume)}</Td>
+                <Td align="right">{formatNumber(brand.cases)}</Td>
                 <Td align="right">{formatCompact(brand.revenue)}</Td>
                 <Td align="right">{formatCompact(brand.grossProfit)}</Td>
                 <Td align="center"><Badge tier={marginTier(brand.grossMarginPct)}>{formatPercent(brand.grossMarginPct)}</Badge></Td>
@@ -144,7 +144,7 @@ export function CustomerBrandView({ dataset, selectedPrincipalKey, period }: Vie
             ))}
             <TotalRow>
               <Td>Total</Td>
-              <Td align="right">{formatNumber(totalVolume)}</Td>
+              <Td align="right">{formatNumber(totalCases)}</Td>
               <Td align="right">{formatCompact(totalRevenue)}</Td>
               <Td align="right">{formatCompact(totalGP)}</Td>
               <Td align="center"><Badge tier={marginTier(overallMarginPct)}>{formatPercent(overallMarginPct)}</Badge></Td>

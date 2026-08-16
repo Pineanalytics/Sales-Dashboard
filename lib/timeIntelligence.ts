@@ -488,7 +488,7 @@ function filterBrandCustomer(dataset: Dataset, selection: PeriodSelection, princ
 
 export interface CustomerSummary {
   customerName: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -500,15 +500,15 @@ export function summarizeBrandCustomerByCustomer(
   principalKey: string | null
 ): CustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
-  const byCustomer = new Map<string, { customerName: string; volume: number; revenue: number; grossProfit: number }>();
+  const byCustomer = new Map<string, { customerName: string; cases: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const existing = byCustomer.get(r.customerName);
     if (existing) {
-      existing.volume += r.volume;
+      existing.cases += r.cases;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
-      byCustomer.set(r.customerName, { customerName: r.customerName, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+      byCustomer.set(r.customerName, { customerName: r.customerName, cases: r.cases, revenue: r.revenue, grossProfit: r.grossProfit });
     }
   }
   return Array.from(byCustomer.values()).map((c) => ({ ...c, grossMarginPct: marginFrom(c.revenue, c.grossProfit) }));
@@ -516,7 +516,7 @@ export function summarizeBrandCustomerByCustomer(
 
 export interface RepBrandCustomerSummary {
   salesEmployee: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -528,15 +528,15 @@ export function summarizeBrandCustomerByRep(
   principalKey: string | null
 ): RepBrandCustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
-  const byRep = new Map<string, { salesEmployee: string; volume: number; revenue: number; grossProfit: number }>();
+  const byRep = new Map<string, { salesEmployee: string; cases: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const existing = byRep.get(r.salesEmployee);
     if (existing) {
-      existing.volume += r.volume;
+      existing.cases += r.cases;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
-      byRep.set(r.salesEmployee, { salesEmployee: r.salesEmployee, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+      byRep.set(r.salesEmployee, { salesEmployee: r.salesEmployee, cases: r.cases, revenue: r.revenue, grossProfit: r.grossProfit });
     }
   }
   return Array.from(byRep.values()).map((rep) => ({ ...rep, grossMarginPct: marginFrom(rep.revenue, rep.grossProfit) }));
@@ -545,7 +545,7 @@ export function summarizeBrandCustomerByRep(
 export interface RepPrincipalBrandCustomerSummary {
   salesEmployee: string;
   principal: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -562,16 +562,16 @@ export interface RepPrincipalBrandCustomerSummary {
  *  dimension. */
 export function summarizeBrandCustomerByRepAndPrincipal(dataset: Dataset, selection: PeriodSelection, principalKey: string | null): RepPrincipalBrandCustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
-  const byRepPrincipal = new Map<string, { salesEmployee: string; principal: string; volume: number; revenue: number; grossProfit: number }>();
+  const byRepPrincipal = new Map<string, { salesEmployee: string; principal: string; cases: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const key = `${r.salesEmployee}|${r.principal}`;
     const existing = byRepPrincipal.get(key);
     if (existing) {
-      existing.volume += r.volume;
+      existing.cases += r.cases;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
-      byRepPrincipal.set(key, { salesEmployee: r.salesEmployee, principal: r.principal, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+      byRepPrincipal.set(key, { salesEmployee: r.salesEmployee, principal: r.principal, cases: r.cases, revenue: r.revenue, grossProfit: r.grossProfit });
     }
   }
   return Array.from(byRepPrincipal.values()).map((rep) => ({ ...rep, grossMarginPct: marginFrom(rep.revenue, rep.grossProfit) }));
@@ -580,7 +580,7 @@ export function summarizeBrandCustomerByRepAndPrincipal(dataset: Dataset, select
 export interface PrincipalBrandCustomerSummary {
   principal: string;
   principalKey: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -588,7 +588,7 @@ export interface PrincipalBrandCustomerSummary {
 
 export interface BrandCustomerSummary {
   brand: string;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -602,16 +602,16 @@ export function summarizeBrandCustomerByBrand(
   principalKey: string | null
 ): BrandCustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
-  const byBrand = new Map<string, { brand: string; volume: number; revenue: number; grossProfit: number }>();
+  const byBrand = new Map<string, { brand: string; cases: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const brand = r.brand?.trim() || "Unspecified product";
     const existing = byBrand.get(brand);
     if (existing) {
-      existing.volume += r.volume;
+      existing.cases += r.cases;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
-      byBrand.set(brand, { brand, volume: r.volume, revenue: r.revenue, grossProfit: r.grossProfit });
+      byBrand.set(brand, { brand, cases: r.cases, revenue: r.revenue, grossProfit: r.grossProfit });
     }
   }
   return Array.from(byBrand.values()).map((brand) => ({ ...brand, grossMarginPct: marginFrom(brand.revenue, brand.grossProfit) }));
@@ -625,18 +625,18 @@ export function summarizeBrandCustomerByPrincipal(
   principalKey: string | null = null
 ): PrincipalBrandCustomerSummary[] {
   const rows = filterBrandCustomer(dataset, selection, principalKey);
-  const byPrincipal = new Map<string, { principal: string; principalKey: string; volume: number; revenue: number; grossProfit: number }>();
+  const byPrincipal = new Map<string, { principal: string; principalKey: string; cases: number; revenue: number; grossProfit: number }>();
   for (const r of rows) {
     const existing = byPrincipal.get(r.principal);
     if (existing) {
-      existing.volume += r.volume;
+      existing.cases += r.cases;
       existing.revenue += r.revenue;
       existing.grossProfit += r.grossProfit;
     } else {
       byPrincipal.set(r.principal, {
         principal: r.principal,
         principalKey: r.principal,
-        volume: r.volume,
+        cases: r.cases,
         revenue: r.revenue,
         grossProfit: r.grossProfit,
       });
@@ -666,7 +666,7 @@ export interface BrandCustomerWeekSummary {
    *  didn't generate this exact Monday (shouldn't happen — defensive only). */
   weekLabel: string;
   revenue: number;
-  volume: number;
+  cases: number;
   grossProfit: number;
 }
 
@@ -685,18 +685,18 @@ export function summarizeBrandCustomerForCurrentWeek(dataset: Dataset, principal
   const matched = weeksInMondaysMonth.find((w) => w.weekStartDate.getTime() === monday.getTime());
 
   let revenue = 0;
-  let volume = 0;
+  let cases = 0;
   let grossProfit = 0;
   for (const r of dataset.monthlyBrandCustomer) {
     if (principalKey && r.principal !== principalKey) continue;
     const d = new Date(`${r.date}T00:00:00Z`).getTime();
     if (d >= monday.getTime() && d <= weekEnd.getTime()) {
       revenue += r.revenue;
-      volume += r.volume;
+      cases += r.cases;
       grossProfit += r.grossProfit;
     }
   }
-  return { weekStartDate: monday, weekLabel: matched?.weekLabel ?? "", revenue, volume, grossProfit };
+  return { weekStartDate: monday, weekLabel: matched?.weekLabel ?? "", revenue, cases, grossProfit };
 }
 
 // ---------------------------------------------------------------------------

@@ -116,7 +116,7 @@ export interface SapRepActualInput {
   employeeCode: string | null;
   employeeName: string | null;
   salesRole: string | null;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
 }
@@ -130,7 +130,7 @@ export interface RepPerformanceRow {
   coverage: number | null;
   productiveCalls: number | null;
   productivityPct: number | null;
-  volume: number;
+  cases: number;
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
@@ -239,7 +239,7 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
       coverage,
       productiveCalls,
       productivityPct,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       grossProfit: 0,
       grossMarginPct: null,
@@ -260,7 +260,7 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
     const existing = matchedCode ? rows.get(matchedCode) : undefined;
 
     if (existing) {
-      existing.volume += row.volume;
+      existing.cases += row.cases;
       existing.revenue += row.revenue;
       existing.grossProfit += row.grossProfit;
       existing.grossMarginPct = existing.revenue > 0 ? round1((existing.grossProfit / existing.revenue) * 100) : null;
@@ -281,14 +281,14 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
       coverage: null,
       productiveCalls: null,
       productivityPct: null,
-      volume: 0,
+      cases: 0,
       revenue: 0,
       grossProfit: 0,
       grossMarginPct: null,
       target: null,
       achievementPct: null,
     };
-    fallback.volume += row.volume;
+    fallback.cases += row.cases;
     fallback.revenue += row.revenue;
     fallback.grossProfit += row.grossProfit;
     fallback.grossMarginPct = fallback.revenue > 0 ? round1((fallback.grossProfit / fallback.revenue) * 100) : null;

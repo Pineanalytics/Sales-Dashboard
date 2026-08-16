@@ -72,7 +72,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
   );
 
   const totalRevenue = merged.reduce((sum, row) => sum + row.revenue, 0);
-  const totalVolume = merged.reduce((sum, row) => sum + row.volume, 0);
+  const totalCases = merged.reduce((sum, row) => sum + row.cases, 0);
   const totalCoverage = merged.reduce((sum, row) => sum + (row.coverage ?? 0), 0);
   const totalProductive = merged.reduce((sum, row) => sum + (row.productiveCalls ?? 0), 0);
   const portfolioProductivity = totalCoverage > 0 ? Math.round((totalProductive / totalCoverage) * 1000) / 10 : 0;
@@ -125,7 +125,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
 
       <KpiGrid>
         <KpiCard accent="revenue" label={`${period.kind} SAP Rep Value`} value={<AnimatedValue value={totalRevenue} format={formatCompact} />} />
-        <KpiCard accent="mission" label={`${period.kind} SAP Rep Volume`} value={<AnimatedValue value={totalVolume} format={formatCompact} />} />
+        <KpiCard accent="mission" label={`${period.kind} SAP Rep Cases`} value={<AnimatedValue value={totalCases} format={formatCompact} />} />
         <KpiCard accent="coverage" label="Reps Tracked" value={<AnimatedValue value={merged.length} format={formatNumber} />} />
         <KpiCard accent="coverage" label="Portfolio Productivity" value={<AnimatedValue value={portfolioProductivity} format={formatPercent} />} />
         <KpiCard
@@ -180,14 +180,14 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
         </SectionCard>
       </ChartGrid>
 
-      <SectionCard title="Rep Leaderboard" action={<span className="text-xs text-muted">SAP: value/volume · Pine (RepCall): coverage/productivity · Target: contribution % × Principal target, Primary only</span>}>
+      <SectionCard title="Rep Leaderboard" action={<span className="text-xs text-muted">SAP: value/cases · Pine (RepCall): coverage/productivity · Target: contribution % × Principal target, Primary only</span>}>
         <TableWrap>
           <Thead>
             <Th>Employee</Th>
             <Th>Team Leader</Th>
             <Th>Role</Th>
             <Th align="right">SAP Value</Th>
-            <Th align="right">SAP Volume</Th>
+            <Th align="right">SAP Cases</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="right">Margin</Th>
             <Th align="right">Coverage</Th>
@@ -202,7 +202,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
                 <Td>{row.teamLeader ?? "—"}</Td>
                 <Td>{row.salesRole}</Td>
                 <Td align="right">{formatCompact(row.revenue)}</Td>
-                <Td align="right">{formatCompact(row.volume)}</Td>
+                <Td align="right">{formatCompact(row.cases)}</Td>
                 <Td align="right">{formatCompact(row.grossProfit)}</Td>
                 <Td align="right"><Badge tier={marginTier(row.grossMarginPct)}>{formatPercent(row.grossMarginPct)}</Badge></Td>
                 <Td align="right">{row.coverage != null ? formatNumber(row.coverage) : "—"}</Td>
@@ -216,7 +216,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
               <Td>—</Td>
               <Td>—</Td>
               <Td align="right">{formatCompact(totalRevenue)}</Td>
-              <Td align="right">{formatCompact(totalVolume)}</Td>
+              <Td align="right">{formatCompact(totalCases)}</Td>
               <Td align="right">{formatCompact(merged.reduce((sum, row) => sum + row.grossProfit, 0))}</Td>
               <Td align="right">—</Td>
               <Td align="right">{formatNumber(totalCoverage)}</Td>
