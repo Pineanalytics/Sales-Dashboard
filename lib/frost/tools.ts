@@ -626,10 +626,13 @@ export const syncHealthTool = betaTool({
  *  with the app's "never invent, only report what's real" data). max_uses
  *  caps searches per turn, both for cost and because each search's raw
  *  result content shares the same reply token budget as the synthesized
- *  answer itself — too many searches in one turn was observed cutting
- *  answers off mid-sentence before there was any room left to write them. */
+ *  answer itself. The 20260209 variant (vs. the older 20250305) adds
+ *  dynamic filtering — Claude filters results server-side before they reach
+ *  the context window — which is what actually relieves that pressure; a
+ *  heavy search turn was previously observed cutting answers off
+ *  mid-sentence before there was any room left to write them. */
 const webSearchTool = {
-  type: "web_search_20250305" as const,
+  type: "web_search_20260209" as const,
   name: "web_search" as const,
   max_uses: 2,
 };

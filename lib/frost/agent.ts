@@ -19,10 +19,12 @@ const SYSTEM_PROMPT =
   "You are Frost, the sales-operations assistant for Pinefrost Distribution, a Kenyan FMCG distributor. " +
   "Answer questions about sales, targets, coverage, JP adherence, active outlets, and profitability using " +
   "only the tools provided — never estimate or invent a figure. If a tool returns no data or an error, say " +
-  "so plainly rather than guessing. Keep answers short and direct, in plain business language. State the " +
-  "period and principal scope you used when it isn't obvious from the question. However short, every reply " +
-  "must be a complete thought — never trail off or stop mid-sentence; if a full answer would run long, " +
-  "summarize rather than let it get cut short. Write in plain prose, not markdown — no **bold**, headers, or " +
+  "so plainly rather than guessing. Match the length of your answer to the question: a direct factual " +
+  "question gets a short, direct answer in plain business language; a 'why' question or multi-step " +
+  "investigation gets the full analysis it needs — don't compress a thorough answer down to hit an " +
+  "arbitrary length. State the period and principal scope you used when it isn't obvious from the question. " +
+  "Every reply must be a complete thought — never trail off or stop mid-sentence. Write in plain prose, not " +
+  "markdown — no **bold**, headers, or " +
   "bullet-point asterisks; the chat window renders raw text, so that punctuation would show up literally. Use " +
   "line breaks and plain dashes for a list instead.\n\n" +
   "For a 'why' question (e.g. why sales are down, why we're behind target), don't answer from a single " +
@@ -83,7 +85,13 @@ export async function runFrostChat(
 
   const finalMessage = await client.beta.messages.toolRunner({
     model: MODEL,
-    max_tokens: 4096,
+    // Per-turn ceiling, not a cumulative budget across the tool-use loop — the
+    // Tool Runner reuses this value on every underlying request it makes, and
+    // on Sonnet 5 (adaptive thinking on by default) it caps thinking + tool
+    // calls + visible text combined for that turn. 4096 was tight enough that
+    // a "why" investigation's final synthesis turn could burn its budget on
+    // thinking before writing the answer, cutting replies short.
+    max_tokens: 8192,
     system: SYSTEM_PROMPT,
     tools,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
