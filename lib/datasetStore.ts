@@ -5,7 +5,7 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
-import { getMonthlyCoverageRollup } from "./jpAdherence";
+import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
 // getLatestSnapshot() composes four separate queries (the Snapshot row itself —
@@ -104,7 +104,12 @@ async function overlaySales(dataset: Dataset): Promise<Dataset> {
  *  retroactive per-month counting vs. whatever the Excel pivot did) — see
  *  project notes; that's the intended, going-forward number now. */
 async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
-  const rollupRows = await getMonthlyCoverageRollup(null);
+  // EABL's own rollup (lib/jpAdherence.ts's getEablMonthlyCoverageRollup) is
+  // merged in right alongside Pine's — same row shape, same merge-by-key
+  // logic below, so Coverage & Productivity picks it up wherever an EABL
+  // principal is selected with zero further changes to this function.
+  const [pineRows, eablRows] = await Promise.all([getMonthlyCoverageRollup(null), getEablMonthlyCoverageRollup()]);
+  const rollupRows = [...pineRows, ...eablRows];
   if (rollupRows.length === 0) return dataset;
 
   interface Agg {

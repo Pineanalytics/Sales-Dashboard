@@ -433,3 +433,69 @@ export async function getMonthlyCoverageRollup(scope: TeamLeaderScope | null): P
     } as JpMonthlyCoverageRow;
   });
 }
+
+interface EablCoverageRawRow {
+  salesman: string;
+  principal: string;
+  year: string;
+  monthIndex: number;
+  coverage: bigint | number;
+  productive: bigint | number;
+  revenue: number;
+}
+
+/** EABL's equivalent of getMonthlyCoverageRollup above — same shape, so
+ *  overlayCoverage can merge both sources into dataset.monthlyCoverage with
+ *  no changes on that side. Sourced from EablCall (already live in this
+ *  Postgres DB, no new connection needed) joined to EablCustomerMaster on
+ *  customerCode for principal attribution — calls with no customerCode
+ *  match are excluded rather than guessed into a principal, same "don't
+ *  guess" rule used throughout this bridge. That join only resolves for
+ *  calls synced since customerCode was added to the EABL bridge query
+ *  (see EablCall.customerCode's own doc comment) — coverage here is
+ *  therefore non-retroactive and grows from that point forward, the same
+ *  "going forward, not reconstructed" principle already established for
+ *  Pine's own RepCall-sourced rollup above (see that function's comment).
+ *  No EABL "sales rep roster" exists to resolve a real salesRole from
+ *  (confirmed live - no equivalent of EmployeeMaster for EABL's DSR reps),
+ *  so every row is tagged "Primary Sales": EABL's DSR call reps are the
+ *  sole/direct sales channel for these on-trade outlets, not a support
+ *  role - the same single-role assumption already used for Pine's own DSR/
+ *  MBSR/TDR reps in the common case. Revisit if EABL ever needs a
+ *  Secondary-Sales distinction of its own. */
+export async function getEablMonthlyCoverageRollup(): Promise<JpMonthlyCoverageRow[]> {
+  const raw = await prisma.$queryRaw<EablCoverageRawRow[]>(Prisma.sql`
+    SELECT
+      ec.salesman AS salesman,
+      ecm.principal AS principal,
+      EXTRACT(YEAR FROM ec."callDate")::text AS year,
+      (EXTRACT(MONTH FROM ec."callDate")::int - 1) AS "monthIndex",
+      COUNT(DISTINCT ec."customerCode")::int AS coverage,
+      COUNT(DISTINCT ec."customerCode") FILTER (WHERE ec."isProductive")::int AS productive,
+      COALESCE(SUM(ec."netSales"), 0)::double precision AS revenue
+    FROM "EablCall" ec
+    INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
+    WHERE ec."customerCode" IS NOT NULL
+    GROUP BY ec.salesman, ecm.principal, year, "monthIndex"
+  `);
+
+  return raw.map((r) => {
+    const coverage = Number(r.coverage);
+    const productive = Number(r.productive);
+    return {
+      year: r.year,
+      monthIndex: r.monthIndex,
+      employeeCode: r.salesman,
+      employeeName: r.salesman,
+      principal: r.principal,
+      principalKey: normalizePrincipalKey(r.principal),
+      salesRole: "Primary Sales",
+      activityStatus: productive > 0 ? "Active" : "Inactive",
+      coverage,
+      productive,
+      productivityPct: coverage > 0 ? round1((productive / coverage) * 100) : 0,
+      revenue: r.revenue,
+      qty: 0,
+    } as JpMonthlyCoverageRow;
+  });
+}
