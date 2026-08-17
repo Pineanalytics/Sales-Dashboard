@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
     const cursor = url.searchParams.get("cursor") ?? undefined;
     const pageSize = boundedPageSize(url.searchParams.get("pageSize"));
     const rows = await prisma.eablCustomerMaster.findMany({
-      select: { id: true, customerId: true, principal: true, outletName: true, channel: true, subChannel: true, territory: true, latitude: true, longitude: true, status: true, updatedAt: true },
+      select: { id: true, customerId: true, principal: true, outletName: true, channel: true, subChannel: true, territory: true, route: true, latitude: true, longitude: true, status: true, updatedAt: true },
       orderBy: { id: "asc" },
       take: pageSize + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

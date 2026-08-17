@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { derivePrincipal, parseGpsCoordinate, transformEablCustomers, type EablCustomerRow } from "../scripts/db-bridge/eabl-call-performance/customers";
+import { derivePrincipal, deriveRouteName, parseGpsCoordinate, transformEablCustomers, type EablCustomerRow } from "../scripts/db-bridge/eabl-call-performance/customers";
 
 describe("derivePrincipal", () => {
   it("maps a Nyeri territory to EABL-Nyeri", () => {
@@ -28,6 +28,28 @@ describe("derivePrincipal", () => {
   });
 });
 
+describe("deriveRouteName", () => {
+  it("strips the distributor/route code, keeping only the readable place name", () => {
+    expect(deriveRouteName("PFL1002 - Ngarua")).toBe("EABL-Ngarua");
+  });
+
+  it("prefixes EABL- so it can never collide with a same-named Pine route", () => {
+    expect(deriveRouteName("DST-353705-PFL12 - Kiganjo")).toBe("EABL-Kiganjo");
+  });
+
+  it("handles the inconsistent 'code -CODE - Name' source formatting (extra space, no space after the inner hyphen)", () => {
+    expect(deriveRouteName("DST-353705 -PFL09 - Chinga Othaya")).toBe("EABL-Chinga Othaya");
+  });
+
+  it("maps 'NA - Unknown' (a real, common source value) to no route rather than a fabricated one", () => {
+    expect(deriveRouteName("NA - Unknown")).toBeNull();
+  });
+
+  it("maps null to no route", () => {
+    expect(deriveRouteName(null)).toBeNull();
+  });
+});
+
 describe("parseGpsCoordinate", () => {
   it("parses 'longitude,latitude' order, not the more common 'lat,long'", () => {
     // Real sample value - 36.36 can only be a longitude (Kenya's latitude
@@ -53,13 +75,14 @@ describe("transformEablCustomers", () => {
       channel: "001 - On Trade",
       subChannel: "034 - On Trade",
       territory: "DGO-D03-A09-T045 - Nyahururu",
+      route: "PFL1003 - Nyahururu Town",
       gpsCoordinate: "36.3633646,0.039607",
       status: "ACTIVE",
       ...overrides,
     };
   }
 
-  it("produces the full shape with a derived principal and parsed coordinates", () => {
+  it("produces the full shape with a derived principal, derived route, and parsed coordinates", () => {
     const [result] = transformEablCustomers([row({})]);
     expect(result).toEqual({
       customerId: "KE0159645",
@@ -68,6 +91,7 @@ describe("transformEablCustomers", () => {
       channel: "001 - On Trade",
       subChannel: "034 - On Trade",
       territory: "DGO-D03-A09-T045 - Nyahururu",
+      route: "EABL-Nyahururu Town",
       latitude: 0.039607,
       longitude: 36.3633646,
       status: "ACTIVE",

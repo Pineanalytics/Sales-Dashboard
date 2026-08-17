@@ -841,6 +841,11 @@ model EablCustomerMaster {
   channel      String?
   subChannel   String?
   territory    String?
+  // Source SAP `Route` field (e.g. "EABL-Kiganjo") - finer-grained than
+  // territory, prefixed to avoid colliding with a same-named Pine route
+  // once synced into Field Forms' coaching_routes. Null when the source
+  // route is genuinely unset ("NA - Unknown").
+  route        String?
   latitude     Float?
   longitude    Float?
   status       String // "ACTIVE" | "INACTIVE" (source CustomerStatus)

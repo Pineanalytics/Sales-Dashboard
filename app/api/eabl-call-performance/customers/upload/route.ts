@@ -14,6 +14,7 @@ interface EablCustomerUploadRow {
   channel: string | null;
   subChannel: string | null;
   territory: string | null;
+  route: string | null;
   latitude: number | null;
   longitude: number | null;
   status: string;
@@ -35,7 +36,7 @@ function isValidRow(value: unknown): value is EablCustomerUploadRow {
   const nullableNumber = (v: unknown) => v === null || typeof v === "number";
   return typeof row.customerId === "string" && typeof row.principal === "string" && typeof row.outletName === "string" &&
     typeof row.status === "string" && nullableString(row.channel) && nullableString(row.subChannel) && nullableString(row.territory) &&
-    nullableNumber(row.latitude) && nullableNumber(row.longitude);
+    nullableString(row.route) && nullableNumber(row.latitude) && nullableNumber(row.longitude);
 }
 
 /** Full reconcile every sync: this is a small (~800-1000 row) reference
@@ -70,10 +71,10 @@ export async function POST(req: NextRequest) {
         const batch = customers.slice(index, index + CHUNK_SIZE);
         const values = batch.map(
           (row) =>
-            Prisma.sql`(${randomUUID()}, ${row.customerId}, ${row.principal}, ${row.outletName}, ${row.channel}, ${row.subChannel}, ${row.territory}, ${row.latitude}, ${row.longitude}, ${row.status}, now(), now())`
+            Prisma.sql`(${randomUUID()}, ${row.customerId}, ${row.principal}, ${row.outletName}, ${row.channel}, ${row.subChannel}, ${row.territory}, ${row.route}, ${row.latitude}, ${row.longitude}, ${row.status}, now(), now())`
         );
         await tx.$executeRaw`
-          INSERT INTO "EablCustomerMaster" (id, "customerId", principal, "outletName", channel, "subChannel", territory, latitude, longitude, status, "createdAt", "updatedAt")
+          INSERT INTO "EablCustomerMaster" (id, "customerId", principal, "outletName", channel, "subChannel", territory, route, latitude, longitude, status, "createdAt", "updatedAt")
           VALUES ${Prisma.join(values)}
           ON CONFLICT ("customerId")
           DO UPDATE SET
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
             channel = EXCLUDED.channel,
             "subChannel" = EXCLUDED."subChannel",
             territory = EXCLUDED.territory,
+            route = EXCLUDED.route,
             latitude = EXCLUDED.latitude,
             longitude = EXCLUDED.longitude,
             status = EXCLUDED.status,

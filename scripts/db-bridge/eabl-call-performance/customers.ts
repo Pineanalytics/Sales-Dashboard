@@ -15,6 +15,7 @@ export interface EablCustomerRow {
   channel: string | null;
   subChannel: string | null;
   territory: string | null;
+  route: string | null;
   gpsCoordinate: string | null;
   status: string;
 }
@@ -25,6 +26,7 @@ interface SourceCustomer {
   channel: string | null;
   subChannel: string | null;
   territory: string | null;
+  route: string | null;
   gpsCoordinate: string | null;
   status: string;
 }
@@ -32,7 +34,7 @@ interface SourceCustomer {
 export async function fetchEablCustomers(pool: ConnectionPool): Promise<EablCustomerRow[]> {
   const result = await pool.request().query<SourceCustomer>(`
     SELECT m.DMSCustomerCode AS customerId, m.CustomerName AS outletName, m.GlobalChannel AS channel,
-      m.SubChannel AS subChannel, m.Territory AS territory, m.GPSCoordinate AS gpsCoordinate, m.CustomerStatus AS status
+      m.SubChannel AS subChannel, m.Territory AS territory, m.Route AS route, m.GPSCoordinate AS gpsCoordinate, m.CustomerStatus AS status
     FROM PinefrostAnalytics.MasterData.Customers m
     WHERE m.DMSCustomerCode IS NOT NULL AND LTRIM(RTRIM(m.DMSCustomerCode)) <> ''
       AND EXISTS (SELECT 1 FROM PinefrostAnalytics.Transactions.DSR_Calls c WHERE c.CustomerCode = m.DMSCustomerCode)
@@ -47,6 +49,7 @@ export interface TransformedEablCustomer {
   channel: string | null;
   subChannel: string | null;
   territory: string | null;
+  route: string | null;
   latitude: number | null;
   longitude: number | null;
   status: string;
@@ -66,6 +69,28 @@ export function derivePrincipal(territory: string | null): string {
   if (value.includes("nyahururu")) return "EABL-Nyahururu";
   if (value.includes("nyeri") || value.includes("othaya")) return "EABL-Nyeri";
   return "EABL-General";
+}
+
+/** The source's actual route field (SAP `Route` column, e.g. "PFL1002 -
+ *  Ngarua" / "DST-353705-PFL12 - Kiganjo") — confirmed live by inspecting
+ *  MasterData.Customers directly (43 distinct Territory/Route pairs across
+ *  the active-call customer base), not to be confused with `Territory`
+ *  (Nyeri/Nyahururu/Othaya/Upper Mountain KSO), which is a coarser level
+ *  above it and already drives `principal` above. An earlier version of
+ *  this bridge mistakenly used the territory name itself as the "route",
+ *  which was wrong — corrected here to use this real field instead.
+ *  Strips the leading distributor/route code before " - ", keeping only
+ *  the readable place name, and prefixes "EABL-" so it can never collide
+ *  with (or get merged into) a same-named Pine route — same discipline
+ *  already applied to principal and outlet_code. "NA - Unknown" (a real,
+ *  fairly common source value) maps to no route rather than a fabricated
+ *  one, same "don't guess" pattern used everywhere else in this bridge. */
+export function deriveRouteName(raw: string | null): string | null {
+  if (!raw) return null;
+  const parts = raw.split(" - ");
+  const name = parts[parts.length - 1]?.trim();
+  if (!name || name.toLowerCase() === "unknown") return null;
+  return `EABL-${name}`;
 }
 
 /** Source format is "longitude,latitude" - confirmed live by range-checking
@@ -92,6 +117,7 @@ export function transformEablCustomers(rows: EablCustomerRow[]): TransformedEabl
       channel: row.channel?.trim() || null,
       subChannel: row.subChannel?.trim() || null,
       territory: row.territory?.trim() || null,
+      route: deriveRouteName(row.route),
       latitude,
       longitude,
       status: row.status?.trim().toUpperCase() === "ACTIVE" ? "ACTIVE" : "INACTIVE",
