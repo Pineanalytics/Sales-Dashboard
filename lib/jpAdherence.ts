@@ -202,14 +202,28 @@ interface PlanJoinRow {
  *  Covers everything except Unplanned Visits (which by definition has no plan row to
  *  anchor on — see getUnplannedVisits). */
 async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeaderScope | null, filters: JpAdherenceFilters): Promise<JpRepDaySummaryRow[]> {
-  const codes = await resolveEmployeeCodeFilter(scope, filters.principalKey, filters.employeeCode, filters.teamLeader);
+  // JpAdherenceFilters.principalKey's own doc comment says "normalized" but
+  // every principal selector in this app (principalsByRevenueDesc /
+  // summarizeSalesByPrincipal, deliberately keyed by the RAW principal
+  // string so same-brand different-location principals like
+  // "EABL-Nyeri"/"EABL-Nyahururu" list separately) actually sends the raw
+  // display name, e.g. "Suntory-Nairobi" — never pre-normalized. Every other
+  // working principal-filtered feature normalizes at the point of use
+  // (lib/timestampSummary.ts's timestampPrincipalKey) rather than trusting
+  // the caller; this file never did, so both the PJP-owned-outlets match
+  // below and the rep-eligibility filter always compared a normalized
+  // left-hand side against an un-normalized filters.principalKey and never
+  // matched anything — confirmed live: filtering by "Suntory-Nairobi"
+  // produced zero PJP-aligned visits, not just diluted ones.
+  const principalKey = filters.principalKey ? normalizePrincipalKey(filters.principalKey) : null;
+  const codes = await resolveEmployeeCodeFilter(scope, principalKey, filters.employeeCode, filters.teamLeader);
   const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
   const dateClause = filters.date ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
   const years = Array.from(
     new Set([range.start.getUTCFullYear(), new Date(range.end.getTime() - 1).getUTCFullYear()].map(String))
   );
-  const principalClause = filters.principalKey
-    ? Prisma.sql`AND regexp_replace(split_part(lower(a.principal), '-', 1), '[^a-z0-9]', '', 'g') = ${filters.principalKey}`
+  const principalClause = principalKey
+    ? Prisma.sql`AND regexp_replace(split_part(lower(a.principal), '-', 1), '[^a-z0-9]', '', 'g') = ${principalKey}`
     : EMPTY_SQL;
 
   const rows = await prisma.$queryRaw<PlanJoinRow[]>(Prisma.sql`
