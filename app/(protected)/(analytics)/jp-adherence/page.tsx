@@ -94,7 +94,7 @@ interface JpPatternAdherence {
     repsWithNoHistory: number;
   };
   repRows: JpPatternRepRow[];
-  previousMonthLabel: string;
+  planWindowLabel: string;
 }
 
 interface JpAdherenceResponse {
@@ -414,28 +414,29 @@ export default function JpAdherencePage() {
         title="Historical Pattern Adherence"
         action={
           <span className="text-xs text-muted">
-            Target = each rep's own outlets from {data.patternAdherence.previousMonthLabel} on that weekday · vs actually revisited this month
+            Target = each rep's own outlets from {data.patternAdherence.planWindowLabel} on that weekday · vs actually revisited the rest of the month
           </span>
         }
       >
         {data.patternAdherence.repRows.length === 0 ? (
           <EmptyState
             icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
-            title="No prior-month pattern to compare against"
-            description={`Needs Timestamp visit history from ${data.patternAdherence.previousMonthLabel} to build each rep's usual weekday outlets. Pick a later month, or check the live sync.`}
+            title="No first-two-weeks pattern to compare against yet"
+            description={`Needs Timestamp visit history from ${data.patternAdherence.planWindowLabel} to build each rep's usual weekday outlets, then at least one day past that window to measure. Wait for the 15th, pick a completed month, or check the live sync.`}
           />
         ) : (
           <>
             <p className="mb-3 text-xs text-muted">
-              The "plan" here isn't an uploaded file — it's each rep's own outlets from {data.patternAdherence.previousMonthLabel} on the
-              matching weekday (every Monday's targets come from last month's Mondays, etc.), re-applied to this month.
+              The "plan" here isn't an uploaded file or last month — it's each rep's own outlets from this month's first two weeks
+              ({data.patternAdherence.planWindowLabel}) on the matching weekday (every Monday's targets come from this month's first
+              two Mondays, etc.), re-applied to the rest of the month.
             </p>
             <KpiGrid>
-              <KpiCard accent="coverage" label="Targeted Outlets" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel={`From ${data.patternAdherence.previousMonthLabel}'s same-weekday visits`} />
+              <KpiCard accent="coverage" label="Targeted Outlets" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel={`From ${data.patternAdherence.planWindowLabel}'s same-weekday visits`} />
               <KpiCard accent="coverage" label="Revisited" value={<AnimatedValue value={data.patternAdherence.kpis.visitedOutlets} format={formatNumber} />} />
               <KpiCard accent="growth" label="Pattern Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} />
               <KpiCard accent="revenue" label="Off-pattern Visits" value={<AnimatedValue value={data.patternAdherence.kpis.unplannedVisits} format={formatNumber} />} sublabel="Visited, but not a usual outlet for that weekday" />
-              <KpiCard accent="quarter" label="No History Yet" value={<AnimatedValue value={data.patternAdherence.kpis.repsWithNoHistory} format={formatNumber} />} sublabel={`Active this period, nothing in ${data.patternAdherence.previousMonthLabel} to compare`} />
+              <KpiCard accent="quarter" label="No History Yet" value={<AnimatedValue value={data.patternAdherence.kpis.repsWithNoHistory} format={formatNumber} />} sublabel={`Active after ${data.patternAdherence.planWindowLabel}, nothing in that window to compare`} />
             </KpiGrid>
             <div className="mt-4">
               <TableWrap>

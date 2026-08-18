@@ -51,18 +51,21 @@ export interface JpRepDaySummaryRow {
 }
 
 /** Historical-pattern plan adherence — the "plan" isn't an uploaded file
- *  here, it's derived from each rep's own actual visit history: for every
- *  weekday, whichever outlets a rep called on that weekday last calendar
- *  month become their "usual" outlets for that weekday, re-applied to every
- *  occurrence of that weekday in the selected month. This replaced an
- *  earlier version built on JourneyPlanRow (the real uploaded Journey Plan)
- *  because that file's exact-day match rate was ~4%, an unusable signal —
- *  see git history for that investigation. Deliberately distinct from
- *  JpRepDaySummaryRow/JpAdherenceKpis above, which despite this page's
- *  historical "PJP Ownership Adherence" naming actually measures ownership
- *  alignment (are today's calls to outlets you own, per ActiveOutlet's
- *  static pjpEmployeeCode assignment) — a genuinely different, still-useful
- *  metric, just not "did you revisit your usual customers this week." */
+ *  here, it's derived from each rep's own actual visit history within the
+ *  SAME month: for every weekday, whichever outlets a rep called on that
+ *  weekday during the month's first two weeks (days 1-14) become their
+ *  "usual" outlets for that weekday, re-applied to every occurrence of that
+ *  weekday in the rest of the month (days 15+, the period actually
+ *  measured). Went through two earlier versions — JourneyPlanRow (the real
+ *  uploaded Journey Plan, ~4% exact-day match, unusable) and last-calendar-
+ *  month's same-weekday visits — before settling on this intra-month split
+ *  per direct request; see git history for both investigations. Deliberately
+ *  distinct from JpRepDaySummaryRow/JpAdherenceKpis above, which despite
+ *  this page's historical "PJP Ownership Adherence" naming actually
+ *  measures ownership alignment (are today's calls to outlets you own, per
+ *  ActiveOutlet's static pjpEmployeeCode assignment) — a genuinely
+ *  different, still-useful metric, just not "did you revisit your usual
+ *  customers this week." */
 export interface JpPatternAdherenceKpis {
   plannedOutlets: number;
   visitedOutlets: number;
@@ -70,10 +73,10 @@ export interface JpPatternAdherenceKpis {
   /** Visits to an outlet that isn't in that rep's historical set for that
    *  weekday — off-pattern, not necessarily wrong (new customer, one-off). */
   unplannedVisits: number;
-  /** Reps with visits in the selected period but no prior-month history at
-   *  all (new to the roster, or inactive last month) — nothing to compare
-   *  against, so they're excluded from plannedOutlets/visitedOutlets and
-   *  counted here instead of silently vanishing from the report. */
+  /** Reps with visits in days 15+ but no first-two-weeks history at all (new
+   *  to the roster mid-month, or inactive in the first half) — nothing to
+   *  compare against, so they're excluded from plannedOutlets/visitedOutlets
+   *  and counted here instead of silently vanishing from the report. */
   repsWithNoHistory: number;
 }
 
@@ -93,8 +96,9 @@ export interface JpPatternRepRow {
 export interface JpPatternAdherenceSummary {
   kpis: JpPatternAdherenceKpis;
   repRows: JpPatternRepRow[];
-  /** e.g. "July 2026" — the month whose visits became this month's targets. */
-  previousMonthLabel: string;
+  /** e.g. "1–14 Aug 2026" — the window whose visits became the rest of the
+   *  month's targets. */
+  planWindowLabel: string;
 }
 
 export interface JpMonthlyCoverageRow {
@@ -379,11 +383,13 @@ interface CurrentVisitRow {
 
 const PREV_MONTH_EMPTY_SQL = Prisma.sql``;
 
-/** Last calendar month's RepCall activity, one distinct (employeeCode, day-
- *  of-week, outletId) triple per row — the raw material "usual Monday
- *  customers", "usual Tuesday customers", etc. are built from in JS below.
- *  Scoped by the same employeeCode/role restriction as the current period so
- *  we never build a target set for a rep who'd be filtered out anyway. */
+/** This same month's first two weeks (days 1-14) of RepCall activity, one
+ *  distinct (employeeCode, day-of-week, outletId) triple per row — the raw
+ *  material "usual Monday customers", "usual Tuesday customers", etc. are
+ *  built from in JS below, then re-applied to the rest of the month (days
+ *  15+). Scoped by the same employeeCode/role restriction as the measured
+ *  period so we never build a target set for a rep who'd be filtered out
+ *  anyway. */
 async function getHistoricalCalls(
   prevStart: Date,
   prevEnd: Date,
@@ -456,17 +462,22 @@ export async function getPatternAdherenceSummary(
 ): Promise<JpPatternAdherenceSummary> {
   const principalKey = filters.principalKey ? normalizePrincipalKey(filters.principalKey) : null;
   const codes = await resolveEmployeeCodeFilter(scope, principalKey, filters.employeeCode, filters.teamLeader);
-  const prevStart = new Date(Date.UTC(range.start.getUTCFullYear(), range.start.getUTCMonth() - 1, 1));
-  const prevEnd = new Date(Date.UTC(range.start.getUTCFullYear(), range.start.getUTCMonth(), 1));
+  // Intra-month split: days 1-14 build the target set ("the plan"), days 15+
+  // are measured against it. range.start is always the 1st of the selected
+  // month (monthWindow()'s own contract) — see this function's own JSDoc for
+  // why this replaced both an uploaded-file basis and a prior-month basis.
+  const firstHalfStart = range.start;
+  const firstHalfEnd = new Date(range.start.getTime() + 14 * 86400000);
+  const measureRange = { start: firstHalfEnd, end: range.end };
 
   const [historicalCalls, currentVisits, masters] = await Promise.all([
-    getHistoricalCalls(prevStart, prevEnd, codes, filters.roleFilter),
-    getCurrentVisits(range, codes, filters),
+    getHistoricalCalls(firstHalfStart, firstHalfEnd, codes, filters.roleFilter),
+    getCurrentVisits(measureRange, codes, filters),
     prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, teamLeader: true, absolutePrincipal: true, salesRole: true } }),
   ]);
   const masterByCode = new Map(masters.map((m) => [m.employeeCode, m]));
 
-  // "usual outlets" per rep+weekday, built from last month alone.
+  // "usual outlets" per rep+weekday, built from this month's first two weeks.
   const targetsByKey = new Map<string, Set<string>>();
   for (const row of historicalCalls) {
     const key = `${row.employeeCode}|${row.dow}`;
@@ -485,7 +496,7 @@ export async function getPatternAdherenceSummary(
     visitsByRepDate.get(key)!.add(v.outletId);
   }
 
-  const dates = applicableDates(range, filters.dayNames);
+  const dates = applicableDates(measureRange, filters.dayNames);
   const perRep = new Map<string, { plannedOutlets: number; visitedOutlets: number }>();
   for (const employeeCode of repsWithHistory) {
     let plannedOutlets = 0;
@@ -548,7 +559,7 @@ export async function getPatternAdherenceSummary(
       repsWithNoHistory,
     },
     repRows,
-    previousMonthLabel: prevStart.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }),
+    planWindowLabel: `${firstHalfStart.getUTCDate()}–${new Date(firstHalfEnd.getTime() - 86400000).getUTCDate()} ${firstHalfStart.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })}`,
   };
 }
 
