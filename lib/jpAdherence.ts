@@ -50,24 +50,34 @@ export interface JpRepDaySummaryRow {
   status: "Excellent" | "Good" | "Below Target";
 }
 
-/** True, day-specific Journey Plan adherence — JourneyPlanRow (the real
- *  uploaded plan: one row per rep/outlet/date scheduled to be visited) LEFT
- *  JOIN RepCall on the exact same day. Deliberately distinct from
+/** Historical-pattern plan adherence — the "plan" isn't an uploaded file
+ *  here, it's derived from each rep's own actual visit history: for every
+ *  weekday, whichever outlets a rep called on that weekday last calendar
+ *  month become their "usual" outlets for that weekday, re-applied to every
+ *  occurrence of that weekday in the selected month. This replaced an
+ *  earlier version built on JourneyPlanRow (the real uploaded Journey Plan)
+ *  because that file's exact-day match rate was ~4%, an unusable signal —
+ *  see git history for that investigation. Deliberately distinct from
  *  JpRepDaySummaryRow/JpAdherenceKpis above, which despite this page's
  *  historical "PJP Ownership Adherence" naming actually measures ownership
  *  alignment (are today's calls to outlets you own, per ActiveOutlet's
  *  static pjpEmployeeCode assignment) — a genuinely different, still-useful
- *  metric, just not "was today's specific plan followed." */
-export interface JpPlanAdherenceKpis {
+ *  metric, just not "did you revisit your usual customers this week." */
+export interface JpPatternAdherenceKpis {
   plannedOutlets: number;
   visitedOutlets: number;
   planAdherencePct: number;
-  /** RepCall visits with no matching JourneyPlanRow row for that exact
-   *  rep/outlet/date — visited, but not what the plan said for that day. */
+  /** Visits to an outlet that isn't in that rep's historical set for that
+   *  weekday — off-pattern, not necessarily wrong (new customer, one-off). */
   unplannedVisits: number;
+  /** Reps with visits in the selected period but no prior-month history at
+   *  all (new to the roster, or inactive last month) — nothing to compare
+   *  against, so they're excluded from plannedOutlets/visitedOutlets and
+   *  counted here instead of silently vanishing from the report. */
+  repsWithNoHistory: number;
 }
 
-export interface JpPlanRepRow {
+export interface JpPatternRepRow {
   employeeCode: string;
   employeeName: string;
   teamLeader: string;
@@ -80,9 +90,11 @@ export interface JpPlanRepRow {
   status: "Excellent" | "Good" | "Below Target";
 }
 
-export interface JpPlanAdherenceSummary {
-  kpis: JpPlanAdherenceKpis;
-  repRows: JpPlanRepRow[];
+export interface JpPatternAdherenceSummary {
+  kpis: JpPatternAdherenceKpis;
+  repRows: JpPatternRepRow[];
+  /** e.g. "July 2026" — the month whose visits became this month's targets. */
+  previousMonthLabel: string;
 }
 
 export interface JpMonthlyCoverageRow {
@@ -353,67 +365,168 @@ function aggregateKpis(repDaySummary: JpRepDaySummaryRow[]): JpAdherenceKpis {
   };
 }
 
-interface PlanAdherenceRawRow {
+interface HistoricalCallRow {
   employeeCode: string;
-  employeeName: string;
-  teamLeader: string | null;
-  principal: string | null;
-  salesRole: string | null;
-  plannedOutlets: bigint | number;
-  visitedOutlets: bigint | number;
+  dow: number; // 0=Sunday..6=Saturday, matches Date.getUTCDay()
+  outletId: string;
 }
 
-/** True, day-specific plan adherence: JourneyPlanRow (the real uploaded
- *  plan) LEFT JOIN RepCall on the exact same rep/outlet/date. Filters by
- *  the rep's own EmployeeMaster.salesRole (not JourneyPlanRow.salesRole, a
- *  per-upload-row tag carrying the same disagreement risk RepCall.salesRole
- *  had — see getRepDayRows's own comment) so a role filter behaves
- *  identically to the Ownership report above. */
-async function getPlanAdherenceRows(
+interface CurrentVisitRow {
+  employeeCode: string;
+  date: Date;
+  outletId: string;
+}
+
+const PREV_MONTH_EMPTY_SQL = Prisma.sql``;
+
+/** Last calendar month's RepCall activity, one distinct (employeeCode, day-
+ *  of-week, outletId) triple per row — the raw material "usual Monday
+ *  customers", "usual Tuesday customers", etc. are built from in JS below.
+ *  Scoped by the same employeeCode/role restriction as the current period so
+ *  we never build a target set for a rep who'd be filtered out anyway. */
+async function getHistoricalCalls(
+  prevStart: Date,
+  prevEnd: Date,
+  codes: string[] | "ALL",
+  roleFilter: SalesRoleFilter
+): Promise<HistoricalCallRow[]> {
+  const roleClause = roleFilter === "all" ? PREV_MONTH_EMPTY_SQL : Prisma.sql`AND e."salesRole" = ${roleFilter}`;
+  return prisma.$queryRaw<HistoricalCallRow[]>(Prisma.sql`
+    SELECT DISTINCT r."employeeCode" AS "employeeCode", EXTRACT(DOW FROM r.date)::int AS dow, r."outletId" AS "outletId"
+    FROM "RepCall" r
+    LEFT JOIN "EmployeeMaster" e ON e."employeeCode" = r."employeeCode"
+    WHERE r.date >= ${prevStart} AND r.date < ${prevEnd}
+    ${employeeCodeClause(Prisma.sql`r."employeeCode"`, codes)}
+    ${roleClause}
+  `);
+}
+
+/** The current period's actual visits, respecting every JpAdherenceFilters
+ *  field — same shape of restriction as getRepDayRows, just returning raw
+ *  rows instead of a pre-aggregated rep-day summary since the historical-
+ *  pattern match has to happen in JS (against a Set per rep+weekday). */
+async function getCurrentVisits(
+  range: { start: Date; end: Date },
+  codes: string[] | "ALL",
+  filters: JpAdherenceFilters
+): Promise<CurrentVisitRow[]> {
+  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND e."salesRole" = ${filters.roleFilter}`;
+  const dateClause = filters.date
+    ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}`
+    : EMPTY_SQL;
+  return prisma.$queryRaw<CurrentVisitRow[]>(Prisma.sql`
+    SELECT r."employeeCode" AS "employeeCode", r.date AS date, r."outletId" AS "outletId"
+    FROM "RepCall" r
+    LEFT JOIN "EmployeeMaster" e ON e."employeeCode" = r."employeeCode"
+    WHERE r.date >= ${range.start} AND r.date < ${range.end}
+    ${employeeCodeClause(Prisma.sql`r."employeeCode"`, codes)}
+    ${dayNameClause(repCallDayNameExpr(), filters.dayNames)}
+    ${roleClause}
+    ${dateClause}
+  `);
+}
+
+/** Every calendar date in [range.start, range.end) that has actually
+ *  happened (capped at today) and, when filters.dayNames is set, falls on
+ *  one of those weekdays — the set of dates a historical target even
+ *  applies to. filters.date (a single selected day) narrows range itself
+ *  upstream of this function's callers in the same way getRepDayRows does,
+ *  so no separate handling is needed here beyond the cap at "today". */
+function applicableDates(range: { start: Date; end: Date }, dayNames: string[] | null): Date[] {
+  const today = new Date();
+  const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 1));
+  const end = range.end < todayUTC ? range.end : todayUTC;
+  const dayNameSet = dayNames && dayNames.length > 0 ? new Set(dayNames) : null;
+  const dates: Date[] = [];
+  for (let d = new Date(range.start); d < end; d = new Date(d.getTime() + 86400000)) {
+    if (dayNameSet && !dayNameSet.has(dayNameFromDate(d))) continue;
+    dates.push(d);
+  }
+  return dates;
+}
+
+/** Historical-pattern plan adherence — see JpPatternAdherenceSummary's own
+ *  comment for why this replaced a JourneyPlanRow-based version. Identity
+ *  fields (name/teamLeader/principal/salesRole) are resolved via a single
+ *  EmployeeMaster lookup, same pattern as getMonthlyCoverageRollup. */
+export async function getPatternAdherenceSummary(
   range: { start: Date; end: Date },
   scope: TeamLeaderScope | null,
   filters: JpAdherenceFilters
-): Promise<JpPlanRepRow[]> {
+): Promise<JpPatternAdherenceSummary> {
   const principalKey = filters.principalKey ? normalizePrincipalKey(filters.principalKey) : null;
   const codes = await resolveEmployeeCodeFilter(scope, principalKey, filters.employeeCode, filters.teamLeader);
-  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND e."salesRole" = ${filters.roleFilter}`;
-  const dateClause = filters.date
-    ? Prisma.sql`AND jp.date >= ${filters.date} AND jp.date < ${new Date(filters.date.getTime() + 86400000)}`
-    : EMPTY_SQL;
-  const dayClause = filters.dayNames && filters.dayNames.length > 0 ? Prisma.sql`AND jp.day = ANY(${filters.dayNames})` : EMPTY_SQL;
+  const prevStart = new Date(Date.UTC(range.start.getUTCFullYear(), range.start.getUTCMonth() - 1, 1));
+  const prevEnd = new Date(Date.UTC(range.start.getUTCFullYear(), range.start.getUTCMonth(), 1));
 
-  const rows = await prisma.$queryRaw<PlanAdherenceRawRow[]>(Prisma.sql`
-    SELECT
-      jp."employeeCode" AS "employeeCode",
-      MAX(COALESCE(e."pineName", jp."employeeName")) AS "employeeName",
-      MAX(e."teamLeader") AS "teamLeader",
-      MAX(e."absolutePrincipal") AS "principal",
-      MAX(e."salesRole") AS "salesRole",
-      COUNT(*)::int AS "plannedOutlets",
-      COUNT(r."outletId")::int AS "visitedOutlets"
-    FROM "JourneyPlanRow" jp
-    LEFT JOIN "EmployeeMaster" e ON e."employeeCode" = jp."employeeCode"
-    LEFT JOIN "RepCall" r
-      ON r."employeeCode" = jp."employeeCode" AND r."outletId" = jp."customerId" AND r.date = jp.date
-    WHERE jp.date >= ${range.start} AND jp.date < ${range.end}
-    ${employeeCodeClause(Prisma.sql`jp."employeeCode"`, codes)}
-    ${roleClause}
-    ${dateClause}
-    ${dayClause}
-    GROUP BY jp."employeeCode"
-  `);
+  const [historicalCalls, currentVisits, masters] = await Promise.all([
+    getHistoricalCalls(prevStart, prevEnd, codes, filters.roleFilter),
+    getCurrentVisits(range, codes, filters),
+    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, teamLeader: true, absolutePrincipal: true, salesRole: true } }),
+  ]);
+  const masterByCode = new Map(masters.map((m) => [m.employeeCode, m]));
 
-  return rows
-    .map((r) => {
-      const plannedOutlets = Number(r.plannedOutlets);
-      const visitedOutlets = Number(r.visitedOutlets);
+  // "usual outlets" per rep+weekday, built from last month alone.
+  const targetsByKey = new Map<string, Set<string>>();
+  for (const row of historicalCalls) {
+    const key = `${row.employeeCode}|${row.dow}`;
+    if (!targetsByKey.has(key)) targetsByKey.set(key, new Set());
+    targetsByKey.get(key)!.add(row.outletId);
+  }
+  const repsWithHistory = new Set(historicalCalls.map((r) => r.employeeCode));
+
+  // Actual visits, grouped for O(1) lookup by rep+date.
+  const visitsByRepDate = new Map<string, Set<string>>();
+  const repsWithCurrentActivity = new Set<string>();
+  for (const v of currentVisits) {
+    repsWithCurrentActivity.add(v.employeeCode);
+    const key = `${v.employeeCode}|${v.date.toISOString().slice(0, 10)}`;
+    if (!visitsByRepDate.has(key)) visitsByRepDate.set(key, new Set());
+    visitsByRepDate.get(key)!.add(v.outletId);
+  }
+
+  const dates = applicableDates(range, filters.dayNames);
+  const perRep = new Map<string, { plannedOutlets: number; visitedOutlets: number }>();
+  for (const employeeCode of repsWithHistory) {
+    let plannedOutlets = 0;
+    let visitedOutlets = 0;
+    for (const d of dates) {
+      const dow = d.getUTCDay();
+      const target = targetsByKey.get(`${employeeCode}|${dow}`);
+      if (!target || target.size === 0) continue;
+      plannedOutlets += target.size;
+      const visitedToday = visitsByRepDate.get(`${employeeCode}|${d.toISOString().slice(0, 10)}`);
+      if (visitedToday) {
+        for (const outletId of visitedToday) {
+          if (target.has(outletId)) visitedOutlets += 1;
+        }
+      }
+    }
+    if (plannedOutlets > 0) perRep.set(employeeCode, { plannedOutlets, visitedOutlets });
+  }
+
+  // Off-pattern visits: an actual visit whose outlet isn't in that rep's
+  // historical set for that specific weekday (only counted for reps that
+  // have SOME history — otherwise every visit would trivially count).
+  let unplannedVisits = 0;
+  for (const v of currentVisits) {
+    if (!repsWithHistory.has(v.employeeCode)) continue;
+    const target = targetsByKey.get(`${v.employeeCode}|${v.date.getUTCDay()}`);
+    if (!target || !target.has(v.outletId)) unplannedVisits += 1;
+  }
+
+  const repsWithNoHistory = Array.from(repsWithCurrentActivity).filter((c) => !repsWithHistory.has(c)).length;
+
+  const repRows: JpPatternRepRow[] = Array.from(perRep.entries())
+    .map(([employeeCode, { plannedOutlets, visitedOutlets }]) => {
+      const master = masterByCode.get(employeeCode);
       const planAdherencePct = plannedOutlets > 0 ? round1((visitedOutlets / plannedOutlets) * 100) : 0;
       return {
-        employeeCode: r.employeeCode,
-        employeeName: r.employeeName,
-        teamLeader: r.teamLeader ?? "Unassigned",
-        principal: r.principal ?? "Unassigned",
-        salesRole: r.salesRole ?? "Unassigned",
+        employeeCode,
+        employeeName: master?.pineName ?? employeeCode,
+        teamLeader: master?.teamLeader ?? "Unassigned",
+        principal: master?.absolutePrincipal ?? "Unassigned",
+        salesRole: master?.salesRole ?? "Unassigned",
         plannedOutlets,
         visitedOutlets,
         planAdherencePct,
@@ -422,48 +535,20 @@ async function getPlanAdherenceRows(
       };
     })
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-}
 
-/** RepCall visits with no matching JourneyPlanRow row for that exact
- *  rep/outlet/date — a visit that wasn't on that day's plan. Company/scope-
- *  level only (not broken out per rep) to keep this a single cheap query
- *  rather than a second full join. */
-async function getUnplannedVisitsCount(range: { start: Date; end: Date }, scope: TeamLeaderScope | null): Promise<number> {
-  const scopeClause = scope
-    ? scope.employeeCodes.length > 0
-      ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`
-      : Prisma.sql`AND false`
-    : EMPTY_SQL;
-  const rows = await prisma.$queryRaw<{ count: bigint | number }[]>(Prisma.sql`
-    SELECT COUNT(DISTINCT (r."employeeCode", r.date, r."outletId"))::int AS count
-    FROM "RepCall" r
-    LEFT JOIN "JourneyPlanRow" jp
-      ON jp."employeeCode" = r."employeeCode" AND jp."customerId" = r."outletId" AND jp.date = r.date
-    WHERE r.date >= ${range.start} AND r.date < ${range.end} AND jp.id IS NULL
-    ${scopeClause}
-  `);
-  return Number(rows[0]?.count ?? 0);
-}
-
-export async function getJourneyPlanAdherenceSummary(
-  range: { start: Date; end: Date },
-  scope: TeamLeaderScope | null,
-  filters: JpAdherenceFilters
-): Promise<JpPlanAdherenceSummary> {
-  const [repRows, unplannedVisits] = await Promise.all([
-    getPlanAdherenceRows(range, scope, filters),
-    getUnplannedVisitsCount(range, scope),
-  ]);
   const plannedOutlets = repRows.reduce((s, r) => s + r.plannedOutlets, 0);
   const visitedOutlets = repRows.reduce((s, r) => s + r.visitedOutlets, 0);
+
   return {
     kpis: {
       plannedOutlets,
       visitedOutlets,
       planAdherencePct: plannedOutlets > 0 ? round1((visitedOutlets / plannedOutlets) * 100) : 0,
       unplannedVisits,
+      repsWithNoHistory,
     },
     repRows,
+    previousMonthLabel: prevStart.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }),
   };
 }
 

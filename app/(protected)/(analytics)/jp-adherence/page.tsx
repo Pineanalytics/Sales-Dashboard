@@ -72,7 +72,7 @@ interface JpMonthlyCoverageRow {
   qty: number;
 }
 
-interface JpPlanRepRow {
+interface JpPatternRepRow {
   employeeCode: string;
   employeeName: string;
   teamLeader: string;
@@ -85,14 +85,16 @@ interface JpPlanRepRow {
   status: string;
 }
 
-interface JpPlanAdherence {
+interface JpPatternAdherence {
   kpis: {
     plannedOutlets: number;
     visitedOutlets: number;
     planAdherencePct: number;
     unplannedVisits: number;
+    repsWithNoHistory: number;
   };
-  repRows: JpPlanRepRow[];
+  repRows: JpPatternRepRow[];
+  previousMonthLabel: string;
 }
 
 interface JpAdherenceResponse {
@@ -103,7 +105,7 @@ interface JpAdherenceResponse {
   availableReps: { employeeCode: string; employeeName: string }[];
   availableTeamLeaders: string[];
   monthlyCoverage: JpMonthlyCoverageRow[];
-  planAdherence: JpPlanAdherence;
+  patternAdherence: JpPatternAdherence;
 }
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -409,22 +411,31 @@ export default function JpAdherencePage() {
       </SectionCard>
 
       <SectionCard
-        title="Journey Plan Adherence"
-        action={<span className="text-xs text-muted">Planned for that exact day (uploaded Journey Plan) vs actually visited that day</span>}
+        title="Historical Pattern Adherence"
+        action={
+          <span className="text-xs text-muted">
+            Target = each rep's own outlets from {data.patternAdherence.previousMonthLabel} on that weekday · vs actually revisited this month
+          </span>
+        }
       >
-        {data.planAdherence.repRows.length === 0 ? (
+        {data.patternAdherence.repRows.length === 0 ? (
           <EmptyState
             icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
-            title="No Journey Plan rows for this period"
-            description="This needs an uploaded Journey Plan (rep/outlet/date schedule) covering the selected period — check the plan upload for this month."
+            title="No prior-month pattern to compare against"
+            description={`Needs Timestamp visit history from ${data.patternAdherence.previousMonthLabel} to build each rep's usual weekday outlets. Pick a later month, or check the live sync.`}
           />
         ) : (
           <>
+            <p className="mb-3 text-xs text-muted">
+              The "plan" here isn't an uploaded file — it's each rep's own outlets from {data.patternAdherence.previousMonthLabel} on the
+              matching weekday (every Monday's targets come from last month's Mondays, etc.), re-applied to this month.
+            </p>
             <KpiGrid>
-              <KpiCard accent="coverage" label="Planned Outlets" value={<AnimatedValue value={data.planAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel="Rep × outlet × day, from the uploaded plan" />
-              <KpiCard accent="coverage" label="Visited (on plan)" value={<AnimatedValue value={data.planAdherence.kpis.visitedOutlets} format={formatNumber} />} />
-              <KpiCard accent="growth" label="Plan Adherence" value={<span className={tierTextClass[productivityTier(data.planAdherence.kpis.planAdherencePct)]}>{formatPercent(data.planAdherence.kpis.planAdherencePct)}</span>} />
-              <KpiCard accent="revenue" label="Unplanned Visits" value={<AnimatedValue value={data.planAdherence.kpis.unplannedVisits} format={formatNumber} />} sublabel="Visited, but not on that day's plan" />
+              <KpiCard accent="coverage" label="Targeted Outlets" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel={`From ${data.patternAdherence.previousMonthLabel}'s same-weekday visits`} />
+              <KpiCard accent="coverage" label="Revisited" value={<AnimatedValue value={data.patternAdherence.kpis.visitedOutlets} format={formatNumber} />} />
+              <KpiCard accent="growth" label="Pattern Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} />
+              <KpiCard accent="revenue" label="Off-pattern Visits" value={<AnimatedValue value={data.patternAdherence.kpis.unplannedVisits} format={formatNumber} />} sublabel="Visited, but not a usual outlet for that weekday" />
+              <KpiCard accent="quarter" label="No History Yet" value={<AnimatedValue value={data.patternAdherence.kpis.repsWithNoHistory} format={formatNumber} />} sublabel={`Active this period, nothing in ${data.patternAdherence.previousMonthLabel} to compare`} />
             </KpiGrid>
             <div className="mt-4">
               <TableWrap>
@@ -433,14 +444,14 @@ export default function JpAdherencePage() {
                   <Th>Team Leader</Th>
                   <Th>Principal</Th>
                   <Th>Sales Role</Th>
-                  <Th align="right">Planned</Th>
-                  <Th align="right">Visited</Th>
+                  <Th align="right">Targeted</Th>
+                  <Th align="right">Revisited</Th>
                   <Th align="center">Adherence %</Th>
                   <Th align="right">Missed</Th>
                   <Th align="center">Status</Th>
                 </Thead>
                 <tbody>
-                  {data.planAdherence.repRows.map((r) => (
+                  {data.patternAdherence.repRows.map((r) => (
                     <tr key={r.employeeCode}>
                       <Td>{r.employeeName}</Td>
                       <Td>{r.teamLeader}</Td>
@@ -462,12 +473,12 @@ export default function JpAdherencePage() {
                     <Td>—</Td>
                     <Td>—</Td>
                     <Td>—</Td>
-                    <Td align="right">{formatNumber(data.planAdherence.kpis.plannedOutlets)}</Td>
-                    <Td align="right">{formatNumber(data.planAdherence.kpis.visitedOutlets)}</Td>
+                    <Td align="right">{formatNumber(data.patternAdherence.kpis.plannedOutlets)}</Td>
+                    <Td align="right">{formatNumber(data.patternAdherence.kpis.visitedOutlets)}</Td>
                     <Td align="center">
-                      <Badge tier={productivityTier(data.planAdherence.kpis.planAdherencePct)}>{data.planAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
+                      <Badge tier={productivityTier(data.patternAdherence.kpis.planAdherencePct)}>{data.patternAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
                     </Td>
-                    <Td align="right">{formatNumber(data.planAdherence.kpis.plannedOutlets - data.planAdherence.kpis.visitedOutlets)}</Td>
+                    <Td align="right">{formatNumber(data.patternAdherence.kpis.plannedOutlets - data.patternAdherence.kpis.visitedOutlets)}</Td>
                     <Td align="center">—</Td>
                   </TotalRow>
                 </tbody>

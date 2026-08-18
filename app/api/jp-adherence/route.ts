@@ -5,7 +5,7 @@ import {
   getJpAdherenceSummaryCached,
   getAvailablePlanMonths,
   getMonthlyCoverageRollup,
-  getJourneyPlanAdherenceSummary,
+  getPatternAdherenceSummary,
   monthWindow,
   type JpAdherenceFilters,
   type SalesRoleFilter,
@@ -83,13 +83,13 @@ export async function GET(req: NextRequest) {
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const range = fromParam && toParam ? { start: fromParam, end: toParam } : monthWindow(monthParam.year, monthParam.monthIndex);
-    const [summary, availableMonths, monthlyCoverage, planAdherence] = await Promise.all([
+    const [summary, availableMonths, monthlyCoverage, patternAdherence] = await Promise.all([
       getJpAdherenceSummaryCached(range, scope, filters),
       getAvailablePlanMonths(scope),
       getMonthlyCoverageRollup(scope),
-      getJourneyPlanAdherenceSummary(range, scope, filters),
+      getPatternAdherenceSummary(range, scope, filters),
     ]);
-    return NextResponse.json({ ...summary, availableMonths, monthlyCoverage, planAdherence });
+    return NextResponse.json({ ...summary, availableMonths, monthlyCoverage, patternAdherence });
   } catch (err) {
     console.error("Failed to load JP Adherence data", err);
     return NextResponse.json({ error: "Failed to load JP Adherence data." }, { status: 500 });
