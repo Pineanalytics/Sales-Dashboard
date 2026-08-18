@@ -30,10 +30,24 @@ export interface PrincipalMonthTarget {
   valueTarget: number;
 }
 
+/** Distinct product lines (brands/SKUs — see BrandCustomerActual.brand) a rep
+ *  sold that principal-month, sourced from the same table Customer & Brand
+ *  reads. Matched to a rep the same way SapRepActualInput is (by sapName —
+ *  BrandCustomerActual carries no employeeCode), feeding LPPC (Lines Per
+ *  Productive Call) in Rep Performance. */
+export interface RepLinesInput {
+  year: string;
+  monthIndex: number;
+  principal: string;
+  sapName: string;
+  lines: number;
+}
+
 export interface RepPerformanceData {
   employees: RepPerformanceEmployee[];
   coverageByRepMonth: RepMonthCoverage[];
   targets: PrincipalMonthTarget[];
+  repLines: RepLinesInput[];
 }
 
 interface RawCoverageRow {
@@ -42,6 +56,14 @@ interface RawCoverageRow {
   coverage: bigint | number;
   productiveCalls: bigint | number;
   totalCalls: bigint | number;
+}
+
+interface RawLinesRow {
+  year: string;
+  monthIndex: number;
+  principal: string;
+  sapName: string;
+  lines: bigint | number;
 }
 
 /** Coverage/productivity for Rep Performance come straight from RepCall (the same
@@ -58,7 +80,7 @@ export async function getRepPerformanceData(year: string, scope: TeamLeaderScope
         : Prisma.sql`AND false`
       : Prisma.sql``;
 
-  const [employees, rawCoverage, targets] = await Promise.all([
+  const [employees, rawCoverage, targets, rawLines] = await Promise.all([
     prisma.employeeMaster.findMany({
       where: employeeWhere,
       select: {
@@ -88,6 +110,13 @@ export async function getRepPerformanceData(year: string, scope: TeamLeaderScope
       where: { year, ...(scope ? { principal: { in: scope.principals } } : {}) },
       select: { principal: true, monthIndex: true, valueTarget: true },
     }),
+    prisma.$queryRaw<RawLinesRow[]>(Prisma.sql`
+      SELECT year, "monthIndex", principal, "sapName", COUNT(DISTINCT brand)::int AS lines
+      FROM "BrandCustomerActual"
+      WHERE year = ${year}
+      ${scope ? Prisma.sql`AND principal IN (${Prisma.join(scope.principals.length > 0 ? scope.principals : ["__none__"])})` : Prisma.sql``}
+      GROUP BY year, "monthIndex", principal, "sapName"
+    `),
   ]);
 
   return {
@@ -101,6 +130,7 @@ export async function getRepPerformanceData(year: string, scope: TeamLeaderScope
       totalCalls: Number(row.totalCalls),
     })),
     targets: targets.map((t) => ({ principal: t.principal, year, monthIndex: t.monthIndex, valueTarget: t.valueTarget ?? 0 })),
+    repLines: rawLines.map((row) => ({ year: row.year, monthIndex: row.monthIndex, principal: row.principal, sapName: row.sapName, lines: Number(row.lines) })),
   };
 }
 
@@ -134,6 +164,20 @@ export interface RepPerformanceRow {
   revenue: number;
   grossProfit: number;
   grossMarginPct: number | null;
+  /** Distinct product lines (brands) sold across the selected months/principal —
+   *  see RepLinesInput. Summed across months the same (unaveraged) way cases/
+   *  revenue are, so it stays additive across the selected period. */
+  lines: number;
+  /** Cases per productive call — average volume delivered per productive visit.
+   *  Null when there's no productiveCalls to divide by (non-Primary reps, or a
+   *  rep with zero coverage this period). */
+  dropSize: number | null;
+  /** Lines Per Productive Call: distinct lines sold ÷ productive calls — an
+   *  approximation, since BrandCustomerActual is a monthly aggregate rather than
+   *  per-call transaction detail; it's "distinct lines sold that month ÷
+   *  productive calls that month", summed across the selected period, not a
+   *  true per-visit line count. Null under the same conditions as dropSize. */
+  lppc: number | null;
   /** null only for non-Primary reps, where a target doesn't apply at all. */
   target: number | null;
   achievementPct: number | null;
@@ -190,6 +234,7 @@ export interface BuildRepPerformanceRowsParams {
   coverageByRepMonth: RepMonthCoverage[];
   targets: PrincipalMonthTarget[];
   sapRows: SapRepActualInput[];
+  repLines: RepLinesInput[];
   months: { year: string; monthIndex: number }[];
   /** Normalized (lib/normalize.ts's normalizePrincipalKey), or null for "All Principals". */
   principalKey: string | null;
@@ -203,7 +248,7 @@ export interface BuildRepPerformanceRowsParams {
  *  to each rep's absolute principal, and target is the Contribution%-weighted
  *  sum of every principal a Primary rep serves. */
 export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): RepPerformanceRow[] {
-  const { employees, coverageByRepMonth, targets, sapRows, months, principalKey, teamLeaderFilter, salesRoleFilter } = params;
+  const { employees, coverageByRepMonth, targets, sapRows, repLines, months, principalKey, teamLeaderFilter, salesRoleFilter } = params;
   const monthKeys = new Set(months.map((m) => `${m.year}|${m.monthIndex}`));
 
   const rows = new Map<string, RepPerformanceRow & { employeeCode: string }>();
@@ -243,6 +288,9 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
       revenue: 0,
       grossProfit: 0,
       grossMarginPct: null,
+      lines: 0,
+      dropSize: null,
+      lppc: null,
       target,
       achievementPct: null,
     });
@@ -285,6 +333,9 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
       revenue: 0,
       grossProfit: 0,
       grossMarginPct: null,
+      lines: 0,
+      dropSize: null,
+      lppc: null,
       target: null,
       achievementPct: null,
     };
@@ -295,9 +346,37 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
     unmatched.set(key, fallback);
   }
 
+  // Same matched-by-employeeCode/fallback-by-name merge as sapRows above —
+  // BrandCustomerActual carries only sapName, no employeeCode, so it's matched
+  // the same way. Distinct-line counts are already deduped within each
+  // (year, monthIndex, principal, sapName) row by the query, so summing across
+  // matched rows here only combines different months/principals, never
+  // double-counts the same brand within one.
+  for (const row of repLines) {
+    if (!monthKeys.has(`${row.year}|${row.monthIndex}`)) continue;
+    if (principalKey && normalizePrincipalKey(row.principal) !== principalKey) continue;
+
+    const matchedCode = employeeByFallbackKey.get(nameFallbackKey(row.sapName));
+    const existing = matchedCode ? rows.get(matchedCode) : undefined;
+    if (existing) {
+      existing.lines += row.lines;
+      continue;
+    }
+
+    if (teamLeaderFilter) continue;
+    const key = nameFallbackKey(row.sapName);
+    const fallback = unmatched.get(key);
+    if (fallback) fallback.lines += row.lines;
+    // No matching SAP-value row either: nothing to attach a line count to
+    // without fabricating a leaderboard row for a rep with brand activity but
+    // no recorded cases/revenue — dropped rather than guessed at.
+  }
+
   const result = [...rows.values(), ...unmatched.values()].map((row) => ({
     ...row,
     achievementPct: row.target && row.target > 0 ? round1((row.revenue / row.target) * 100) : null,
+    dropSize: row.productiveCalls && row.productiveCalls > 0 ? round1(row.cases / row.productiveCalls) : null,
+    lppc: row.productiveCalls && row.productiveCalls > 0 ? round1(row.lines / row.productiveCalls) : null,
   }));
   return result.sort((a, b) => b.revenue - a.revenue);
 }

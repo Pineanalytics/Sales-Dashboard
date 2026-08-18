@@ -89,6 +89,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth,
       targets,
       sapRows: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", cases: 10, revenue: 500_000, grossProfit: 100_000 }],
+      repLines: [],
       months,
       principalKey: null,
       teamLeaderFilter: null,
@@ -107,6 +108,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth,
       targets,
       sapRows: [],
+      repLines: [],
       months,
       principalKey: null,
       teamLeaderFilter: null,
@@ -131,6 +133,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth,
       targets,
       sapRows: [],
+      repLines: [],
       months,
       principalKey: "bic",
       teamLeaderFilter: null,
@@ -146,6 +149,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth,
       targets,
       sapRows: [],
+      repLines: [],
       months,
       principalKey: "bic",
       teamLeaderFilter: null,
@@ -161,6 +165,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth: [],
       targets: [],
       sapRows: [],
+      repLines: [],
       months,
       principalKey: null,
       teamLeaderFilter: "Eve",
@@ -173,6 +178,7 @@ describe("buildRepPerformanceRows", () => {
       coverageByRepMonth: [],
       targets: [],
       sapRows: [],
+      repLines: [],
       months,
       principalKey: null,
       teamLeaderFilter: null,
@@ -183,11 +189,44 @@ describe("buildRepPerformanceRows", () => {
 
   it("keeps unmatched SAP revenue visible with no team leader, excluded once a team leader filter is active", () => {
     const sapRows = [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Ghost Rep", employeeCode: null, employeeName: "Ghost Rep", salesRole: null, cases: 1, revenue: 10_000, grossProfit: 1_000 }];
-    const withoutFilter = buildRepPerformanceRows({ employees: [], coverageByRepMonth: [], targets: [], sapRows, months, principalKey: null, teamLeaderFilter: null, salesRoleFilter: null });
+    const withoutFilter = buildRepPerformanceRows({ employees: [], coverageByRepMonth: [], targets: [], sapRows, repLines: [], months, principalKey: null, teamLeaderFilter: null, salesRoleFilter: null });
     expect(withoutFilter).toHaveLength(1);
     expect(withoutFilter[0].employeeCode).toBeNull();
 
-    const withFilter = buildRepPerformanceRows({ employees: [], coverageByRepMonth: [], targets: [], sapRows, months, principalKey: null, teamLeaderFilter: "Eve", salesRoleFilter: null });
+    const withFilter = buildRepPerformanceRows({ employees: [], coverageByRepMonth: [], targets: [], sapRows, repLines: [], months, principalKey: null, teamLeaderFilter: "Eve", salesRoleFilter: null });
     expect(withFilter).toHaveLength(0);
+  });
+
+  it("computes drop size (cases/productiveCalls) and LPPC (lines/productiveCalls) from matched cases and distinct-brand lines", () => {
+    const rows = buildRepPerformanceRows({
+      employees: [employee({})],
+      coverageByRepMonth, // productiveCalls: 40
+      targets,
+      sapRows: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", cases: 400, revenue: 500_000, grossProfit: 100_000 }],
+      repLines: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", lines: 120 }],
+      months,
+      principalKey: null,
+      teamLeaderFilter: null,
+      salesRoleFilter: null,
+    });
+    expect(rows[0].lines).toBe(120);
+    expect(rows[0].dropSize).toBe(10); // 400 cases / 40 productive calls
+    expect(rows[0].lppc).toBe(3); // 120 lines / 40 productive calls
+  });
+
+  it("nulls dropSize and lppc when there are no productive calls to divide by", () => {
+    const rows = buildRepPerformanceRows({
+      employees: [employee({})],
+      coverageByRepMonth: [{ employeeCode: "E1", year: "2026", monthIndex: 6, coverage: 0, productiveCalls: 0, totalCalls: 0 }],
+      targets,
+      sapRows: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", cases: 50, revenue: 500_000, grossProfit: 100_000 }],
+      repLines: [{ year: "2026", monthIndex: 6, principal: "Bic-Nairobi", sapName: "Test Rep", lines: 15 }],
+      months,
+      principalKey: null,
+      teamLeaderFilter: null,
+      salesRoleFilter: null,
+    });
+    expect(rows[0].dropSize).toBeNull();
+    expect(rows[0].lppc).toBeNull();
   });
 });

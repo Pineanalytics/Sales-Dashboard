@@ -10,7 +10,7 @@ import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, formatPercent, productivityTier, marginTier, achievementTier, tierBarColor } from "@/lib/format";
 import { resolvePeriodMonths } from "@/lib/timeIntelligence";
-import { buildRepPerformanceRows, type RepPerformanceEmployee, type RepMonthCoverage, type PrincipalMonthTarget, type SapRepActualInput } from "@/lib/repPerformance";
+import { buildRepPerformanceRows, type RepPerformanceEmployee, type RepMonthCoverage, type PrincipalMonthTarget, type SapRepActualInput, type RepLinesInput } from "@/lib/repPerformance";
 import { CHART_GRID_COLOR } from "@/components/charts/theme";
 
 type SalesRoleFilter = "Primary Sales" | "Secondary Sales";
@@ -20,6 +20,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
   const [employees, setEmployees] = useState<RepPerformanceEmployee[]>([]);
   const [coverageByRepMonth, setCoverageByRepMonth] = useState<RepMonthCoverage[]>([]);
   const [targets, setTargets] = useState<PrincipalMonthTarget[]>([]);
+  const [repLines, setRepLines] = useState<RepLinesInput[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [teamLeaderFilter, setTeamLeaderFilter] = useState<string | null>(null);
   const [salesRoleFilter, setSalesRoleFilter] = useState<SalesRoleFilter | null>(null);
@@ -39,6 +40,7 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
         setEmployees(perf.employees ?? []);
         setCoverageByRepMonth(perf.coverageByRepMonth ?? []);
         setTargets(perf.targets ?? []);
+        setRepLines(perf.repLines ?? []);
         setStatus("ready");
       })
       .catch(() => {
@@ -63,12 +65,13 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
         coverageByRepMonth,
         targets,
         sapRows,
+        repLines,
         months,
         principalKey: selectedPrincipalKey,
         teamLeaderFilter,
         salesRoleFilter,
       }),
-    [employees, coverageByRepMonth, targets, sapRows, months, selectedPrincipalKey, teamLeaderFilter, salesRoleFilter]
+    [employees, coverageByRepMonth, targets, sapRows, repLines, months, selectedPrincipalKey, teamLeaderFilter, salesRoleFilter]
   );
 
   const totalRevenue = merged.reduce((sum, row) => sum + row.revenue, 0);
@@ -84,6 +87,12 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
   const topProductivityRep = [...merged].sort((a, b) => (b.productivityPct ?? -1) - (a.productivityPct ?? -1))[0] ?? null;
   const revenueChartData = merged.slice(0, 10).map((row) => ({ name: row.employeeName, value: row.revenue }));
   const topProductivityReps = [...merged].filter((row) => row.productivityPct != null).sort((a, b) => (b.productivityPct ?? 0) - (a.productivityPct ?? 0)).slice(0, 15);
+  // merged is already sorted by revenue desc (see buildRepPerformanceRows), so
+  // this is just the head of the list — margin gets its own explicit sort since
+  // margin % and revenue rank independently (a small-revenue rep can carry the
+  // healthiest margin).
+  const top10ByRevenue = merged.slice(0, 10);
+  const top10ByMargin = [...merged].filter((row) => row.grossMarginPct != null).sort((a, b) => (b.grossMarginPct ?? 0) - (a.grossMarginPct ?? 0)).slice(0, 10);
 
   return (
     <div className="flex flex-col gap-6">
@@ -180,6 +189,46 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
         </SectionCard>
       </ChartGrid>
 
+      <ChartGrid>
+        <SectionCard title="Top 10 Reps by Revenue">
+          <TableWrap>
+            <Thead>
+              <Th align="right">#</Th>
+              <Th>Employee</Th>
+              <Th align="right">SAP Value</Th>
+            </Thead>
+            <tbody>
+              {top10ByRevenue.map((row, index) => (
+                <tr key={row.employeeCode ?? row.employeeName}>
+                  <Td align="right">{index + 1}</Td>
+                  <Td>{row.employeeName}</Td>
+                  <Td align="right">{formatCompact(row.revenue)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </SectionCard>
+
+        <SectionCard title="Top 10 Reps by Margin" action={<span className="text-xs text-muted">Gross margin %, revenue &gt; 0 only</span>}>
+          <TableWrap>
+            <Thead>
+              <Th align="right">#</Th>
+              <Th>Employee</Th>
+              <Th align="right">Margin</Th>
+            </Thead>
+            <tbody>
+              {top10ByMargin.map((row, index) => (
+                <tr key={row.employeeCode ?? row.employeeName}>
+                  <Td align="right">{index + 1}</Td>
+                  <Td>{row.employeeName}</Td>
+                  <Td align="right"><Badge tier={marginTier(row.grossMarginPct)}>{formatPercent(row.grossMarginPct)}</Badge></Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </SectionCard>
+      </ChartGrid>
+
       <SectionCard title="Rep Leaderboard" action={<span className="text-xs text-muted">SAP: value/cases · Pine (RepCall): coverage/productivity · Target: contribution % × Principal target, Primary only</span>}>
         <TableWrap>
           <Thead>
@@ -192,6 +241,8 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
             <Th align="right">Margin</Th>
             <Th align="right">Coverage</Th>
             <Th align="center">Productivity</Th>
+            <Th align="right">Drop Size</Th>
+            <Th align="right">LPPC</Th>
             <Th align="right">Target</Th>
             <Th align="center">Achievement</Th>
           </Thead>
@@ -207,6 +258,8 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
                 <Td align="right"><Badge tier={marginTier(row.grossMarginPct)}>{formatPercent(row.grossMarginPct)}</Badge></Td>
                 <Td align="right">{row.coverage != null ? formatNumber(row.coverage) : "—"}</Td>
                 <Td align="center">{row.productivityPct != null ? <Badge tier={productivityTier(row.productivityPct)}>{row.productivityPct.toFixed(1)}%</Badge> : "—"}</Td>
+                <Td align="right">{row.dropSize != null ? row.dropSize.toFixed(1) : "—"}</Td>
+                <Td align="right">{row.lppc != null ? row.lppc.toFixed(1) : "—"}</Td>
                 <Td align="right">{row.target != null ? formatCompact(row.target) : "—"}</Td>
                 <Td align="center">{row.achievementPct != null ? <Badge tier={achievementTier(row.achievementPct)}>{row.achievementPct.toFixed(1)}%</Badge> : "—"}</Td>
               </tr>
@@ -221,6 +274,8 @@ export function RepPerformanceView({ selectedPrincipalKey, period }: ViewProps) 
               <Td align="right">—</Td>
               <Td align="right">{formatNumber(totalCoverage)}</Td>
               <Td align="center"><Badge tier={productivityTier(portfolioProductivity)}>{portfolioProductivity.toFixed(1)}%</Badge></Td>
+              <Td align="right">{totalProductive > 0 ? (totalCases / totalProductive).toFixed(1) : "—"}</Td>
+              <Td align="right">{totalProductive > 0 ? (merged.reduce((sum, row) => sum + row.lines, 0) / totalProductive).toFixed(1) : "—"}</Td>
               <Td align="right">{formatCompact(totalTarget)}</Td>
               <Td align="center">{portfolioAchievement != null ? <Badge tier={achievementTier(portfolioAchievement)}>{portfolioAchievement.toFixed(1)}%</Badge> : "—"}</Td>
             </TotalRow>

@@ -110,10 +110,33 @@ describe("buildTlRanking", () => {
     expect(result.unattributedPrincipals).toHaveLength(0);
     expect(result.rankings).toHaveLength(0);
   });
+
+  it("lists every principal a Team Leader heads, sorted, sourced from ownership not revenue", () => {
+    const result = buildTlRanking(
+      [{ principal: "Bic-Nairobi", revenue: 20000 }],
+      [
+        { principal: "Bic-Nairobi", teamLeaderId: "tl-josephat" },
+        { principal: "Unilever-Nairobi", teamLeaderId: "tl-josephat" },
+        { principal: "Ukl-Intl-Nairobi", teamLeaderId: "tl-josephat" },
+      ],
+      teamLeaders,
+      []
+    );
+    // Unilever-Nairobi and Ukl-Intl-Nairobi both show up even though only
+    // Bic-Nairobi had revenue this period — ownership, not revenue, drives this list.
+    expect(result.rankings[0].principals).toEqual(["Bic-Nairobi", "Ukl-Intl-Nairobi", "Unilever-Nairobi"]);
+  });
 });
 
-function tlRow(teamLeaderId: string, teamLeaderName: string, mtdTarget: number, mtdRevenue: number, monthlyTarget: number = mtdTarget): TlRankingRow {
-  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, monthlyTarget, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null };
+function tlRow(
+  teamLeaderId: string,
+  teamLeaderName: string,
+  mtdTarget: number,
+  mtdRevenue: number,
+  monthlyTarget: number = mtdTarget,
+  principals: string[] = []
+): TlRankingRow {
+  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, monthlyTarget, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null, principals };
 }
 
 const supervisors = [
@@ -137,6 +160,19 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings[0].monthlyTarget).toBe(600000); // 400K + 200K - ties out to the overall month target
     expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toEqual(["tl-calvince", "tl-shekila"]); // best (120%) before worst (90%)
     expect(result.unassignedTeamLeaders).toHaveLength(0);
+  });
+
+  it("unions its Team Leaders' principals, deduped and sorted", () => {
+    const tlRanking = [
+      tlRow("tl-shekila", "Shekila Hassan", 100000, 90000, 400000, ["Mars-Nairobi", "Wrigley-Nairobi"]),
+      tlRow("tl-calvince", "Calvince Onditi", 50000, 60000, 200000, ["Mars-Nairobi"]),
+    ];
+    const teamLeaders = [
+      { id: "tl-shekila", name: "Shekila Hassan", supervisorId: "sup-lucy" },
+      { id: "tl-calvince", name: "Calvince Onditi", supervisorId: "sup-lucy" },
+    ];
+    const result = buildSupervisorRanking(tlRanking, teamLeaders, supervisors);
+    expect(result.rankings[0].principals).toEqual(["Mars-Nairobi", "Wrigley-Nairobi"]);
   });
 
   it("puts a Team Leader with no resolvable Supervisor into unassignedTeamLeaders", () => {

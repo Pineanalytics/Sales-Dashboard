@@ -67,6 +67,10 @@ export interface TlRankingRow {
    *  target (see MtdTargetRow.monthlyTargetValue). */
   monthlyTarget: number;
   achievedPct: number | null; // null when target is 0 (nothing to divide by)
+  /** Every Active principal this Team Leader heads (Principal.teamLeaderId), sorted.
+   *  Sourced from principalOwnership directly, not from principalRevenue — a
+   *  principal this TL heads with zero revenue this period still counts as theirs. */
+  principals: string[];
 }
 
 export interface TlRankingResult {
@@ -89,6 +93,14 @@ export function buildTlRanking(
 ): TlRankingResult {
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const teamLeaderIdByPrincipal = new Map(principalOwnership.map((p) => [p.principal, p.teamLeaderId]));
+
+  const principalsByTeamLeader = new Map<string, string[]>();
+  for (const p of principalOwnership) {
+    if (!p.teamLeaderId) continue;
+    const list = principalsByTeamLeader.get(p.teamLeaderId) ?? [];
+    list.push(p.principal);
+    principalsByTeamLeader.set(p.teamLeaderId, list);
+  }
 
   const revenueByTeamLeader = new Map<string, number>();
   const unattributedPrincipals: UnattributedPrincipal[] = [];
@@ -121,6 +133,7 @@ export function buildTlRanking(
       mtdRevenue,
       monthlyTarget: monthlyTargetByTeamLeader.get(teamLeaderId) ?? 0,
       achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
+      principals: (principalsByTeamLeader.get(teamLeaderId) ?? []).slice().sort(),
     };
   });
 
@@ -154,6 +167,9 @@ export interface SupervisorRankingRow {
   mtdRevenue: number;
   monthlyTarget: number; // sum of nested Team Leaders' monthlyTarget — see TlRankingRow
   achievedPct: number | null;
+  /** Union of every nested Team Leader's principals, deduped and sorted — the
+   *  set of principals this Supervisor's group covers. */
+  principals: string[];
   teamLeaders: TlRankingRow[]; // drill-down, already sorted best-to-worst
 }
 
@@ -228,6 +244,7 @@ export function buildSupervisorRanking(tlRanking: TlRankingRow[], teamLeaders: T
       mtdRevenue,
       monthlyTarget,
       achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
+      principals: Array.from(new Set(teamLeaders.flatMap((tl) => tl.principals))).sort(),
       teamLeaders: sortByAchievement(teamLeaders),
     };
   });
