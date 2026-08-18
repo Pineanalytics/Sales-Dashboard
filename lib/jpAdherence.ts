@@ -118,6 +118,29 @@ async function teamLeaderEligibleEmployeeCodes(teamLeader: string): Promise<stri
   return rows.map((r) => r.employeeCode);
 }
 
+/** Reps whose absolute principal or contribution membership matches the selected
+ *  principal — same "contribution is authoritative for principal membership" rule
+ *  already used by loadViewerPrincipalScope (lib/teamLeaderScope.ts). Without this,
+ *  a principal-filtered view still pulled every rep company-wide into the
+ *  outletsPlanned denominator (only the PJP-owned-outlets CTE was actually
+ *  principal-scoped), diluting jpAdherencePct toward 0% for any principal whose
+ *  own call volume is small relative to the whole company's — confirmed live:
+ *  Suntory's true scoped adherence was 15.29%, showing as 2.09% (and rounding to
+ *  0.0% under a narrower date filter) before this fix. */
+async function principalEligibleEmployeeCodes(principalKey: string): Promise<string[]> {
+  const employees = await prisma.employeeMaster.findMany({
+    where: { active: true },
+    select: { employeeCode: true, absolutePrincipal: true, contributions: { select: { principal: true } } },
+  });
+  return employees
+    .filter(
+      (e) =>
+        normalizePrincipalKey(e.absolutePrincipal) === principalKey ||
+        e.contributions.some((c) => normalizePrincipalKey(c.principal) === principalKey)
+    )
+    .map((e) => e.employeeCode);
+}
+
 /** ANDs together every employeeCode-based restriction (TeamLeaderScope, principal
  *  contribution membership, Employee Roaster team leader, rep search) into one list,
  *  or "ALL" when unrestricted. Role filtering is NOT included here — both
@@ -125,12 +148,16 @@ async function teamLeaderEligibleEmployeeCodes(teamLeader: string): Promise<stri
  *  EmployeeMaster join needed for that one). */
 async function resolveEmployeeCodeFilter(
   scope: TeamLeaderScope | null,
-  _principalKey: string | null,
+  principalKey: string | null,
   employeeCode: string | null,
   teamLeader: string | null
 ): Promise<string[] | "ALL"> {
   let codes: string[] | null = null;
   if (scope) codes = scope.employeeCodes;
+  if (principalKey) {
+    const eligible = await principalEligibleEmployeeCodes(principalKey);
+    codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
+  }
   if (teamLeader) {
     const eligible = await teamLeaderEligibleEmployeeCodes(teamLeader);
     codes = codes ? codes.filter((c) => eligible.includes(c)) : eligible;
