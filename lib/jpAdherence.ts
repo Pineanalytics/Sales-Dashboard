@@ -462,21 +462,67 @@ interface EablCoverageRawRow {
  *  sole/direct sales channel for these on-trade outlets, not a support
  *  role - the same single-role assumption already used for Pine's own DSR/
  *  MBSR/TDR reps in the common case. Revisit if EABL ever needs a
- *  Secondary-Sales distinction of its own. */
+ *  Secondary-Sales distinction of its own.
+ *
+ *  Attribution: EABL's DSR model lets several reps/agents call the same
+ *  outlet within one month (confirmed live — summing each rep's own
+ *  distinct-outlet count against the true distinct-across-reps count showed
+ *  ~2x inflation for both Nyeri and Nyahururu), unlike Pine's PJP model
+ *  where an outlet has exactly one owning rep. lib/timeIntelligence.ts's
+ *  monthlyCoverageTotals sums coverage across reps within a principal/month
+ *  to get the period total — a valid shortcut only when each outlet is
+ *  counted once. So each outlet-month here is attributed to a single
+ *  primary rep (most calls that month; ties broken by who actually sold,
+ *  then by name for determinism) before counting, keeping coverage additive
+ *  across reps the same way Pine's already is, instead of double-counting
+ *  outlets several reps called. "Productive" (sold-to) stays a property of
+ *  the outlet-month itself — true if ANY rep's call there that month was a
+ *  sale, regardless of who ends up credited with the coverage. */
 export async function getEablMonthlyCoverageRollup(): Promise<JpMonthlyCoverageRow[]> {
   const raw = await prisma.$queryRaw<EablCoverageRawRow[]>(Prisma.sql`
+    WITH outlet_month AS (
+      SELECT
+        ec."customerCode",
+        ecm.principal,
+        EXTRACT(YEAR FROM ec."callDate")::text AS year,
+        (EXTRACT(MONTH FROM ec."callDate")::int - 1) AS "monthIndex",
+        BOOL_OR(ec."isProductive") AS "everProductive",
+        COALESCE(SUM(ec."netSales"), 0)::double precision AS revenue
+      FROM "EablCall" ec
+      INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
+      WHERE ec."customerCode" IS NOT NULL
+      GROUP BY ec."customerCode", ecm.principal, year, "monthIndex"
+    ),
+    per_rep_calls AS (
+      SELECT
+        ec."customerCode", ecm.principal,
+        EXTRACT(YEAR FROM ec."callDate")::text AS year,
+        (EXTRACT(MONTH FROM ec."callDate")::int - 1) AS "monthIndex",
+        ec.salesman,
+        COUNT(*) AS calls,
+        BOOL_OR(ec."isProductive") AS "ownProductive"
+      FROM "EablCall" ec
+      INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
+      WHERE ec."customerCode" IS NOT NULL
+      GROUP BY ec."customerCode", ecm.principal, year, "monthIndex", ec.salesman
+    ),
+    primary_rep AS (
+      SELECT DISTINCT ON ("customerCode", principal, year, "monthIndex")
+        "customerCode", principal, year, "monthIndex", salesman
+      FROM per_rep_calls
+      ORDER BY "customerCode", principal, year, "monthIndex", calls DESC, "ownProductive" DESC, salesman ASC
+    )
     SELECT
-      ec.salesman AS salesman,
-      ecm.principal AS principal,
-      EXTRACT(YEAR FROM ec."callDate")::text AS year,
-      (EXTRACT(MONTH FROM ec."callDate")::int - 1) AS "monthIndex",
-      COUNT(DISTINCT ec."customerCode")::int AS coverage,
-      COUNT(DISTINCT ec."customerCode") FILTER (WHERE ec."isProductive")::int AS productive,
-      COALESCE(SUM(ec."netSales"), 0)::double precision AS revenue
-    FROM "EablCall" ec
-    INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
-    WHERE ec."customerCode" IS NOT NULL
-    GROUP BY ec.salesman, ecm.principal, year, "monthIndex"
+      pr.salesman AS salesman,
+      om.principal AS principal,
+      om.year AS year,
+      om."monthIndex" AS "monthIndex",
+      COUNT(*)::int AS coverage,
+      COUNT(*) FILTER (WHERE om."everProductive")::int AS productive,
+      COALESCE(SUM(om.revenue), 0)::double precision AS revenue
+    FROM outlet_month om
+    INNER JOIN primary_rep pr USING ("customerCode", principal, year, "monthIndex")
+    GROUP BY pr.salesman, om.principal, om.year, om."monthIndex"
   `);
 
   return raw.map((r) => {
