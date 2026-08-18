@@ -412,3 +412,82 @@ export async function deleteAssignmentAction(formData: FormData) {
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Assignment removed.") + suffix);
 }
+
+/** "Benson relieves Calvince" / "holding fort" — a peer Team Leader granted
+ *  temporary access to another Team Leader's own scope. A SUPERVISOR may
+ *  only set this up within their own group (both sides checked against
+ *  scope.teamLeaderIds) — same breadth as every other action on this page. */
+export async function createReliefAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const coveringTeamLeaderId = str(formData, "coveringTeamLeaderId");
+  const coveredTeamLeaderId = str(formData, "coveredTeamLeaderId");
+  const startDateRaw = str(formData, "startDate");
+  const endDateRaw = str(formData, "endDate");
+  const notes = str(formData, "notes") || null;
+
+  if (!coveringTeamLeaderId || !coveredTeamLeaderId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Both the covering and covered Team Leader are required."));
+  }
+  if (coveringTeamLeaderId === coveredTeamLeaderId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("A Team Leader can't relieve themselves."));
+  }
+  assertOwnsTeamLeader(scope, coveringTeamLeaderId);
+  assertOwnsTeamLeader(scope, coveredTeamLeaderId);
+
+  const startDate = startDateRaw ? new Date(startDateRaw) : new Date();
+  const endDate = endDateRaw ? new Date(endDateRaw) : null;
+  if (endDate && endDate < startDate) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("End date can't be before the start date."));
+  }
+
+  const [covering, covered] = await Promise.all([
+    prisma.teamLeader.findUnique({ where: { id: coveringTeamLeaderId }, select: { name: true } }),
+    prisma.teamLeader.findUnique({ where: { id: coveredTeamLeaderId }, select: { name: true } }),
+  ]);
+  if (!covering || !covered) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Unknown Team Leader."));
+  }
+
+  await prisma.teamLeaderRelief.create({
+    data: { coveringTeamLeaderId, coveredTeamLeaderId, startDate, endDate, notes, createdByUserId: user.id },
+  });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`${covering.name} is now covering ${covered.name}.`));
+}
+
+/** Ends a relief immediately (revokedAt), independent of any planned endDate —
+ *  the everyday "they're back" action. History is kept, not deleted. */
+export async function endReliefAction(formData: FormData) {
+  const { scope } = await requireAdminOrSupervisor();
+  const id = str(formData, "reliefId");
+
+  const existing = await prisma.teamLeaderRelief.findUnique({ where: { id } });
+  if (!existing) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Relief assignment not found."));
+  }
+  assertOwnsTeamLeader(scope, existing.coveringTeamLeaderId);
+  assertOwnsTeamLeader(scope, existing.coveredTeamLeaderId);
+
+  await prisma.teamLeaderRelief.update({ where: { id }, data: { revokedAt: new Date() } });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Relief ended."));
+}
+
+/** Removes a relief record entirely — for correcting a mistaken entry, not the
+ *  everyday "relief is over" action (use endReliefAction for that; it keeps
+ *  history). */
+export async function deleteReliefAction(formData: FormData) {
+  const { scope } = await requireAdminOrSupervisor();
+  const id = str(formData, "reliefId");
+
+  const existing = await prisma.teamLeaderRelief.findUnique({ where: { id } });
+  if (!existing) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Relief assignment not found."));
+  }
+  assertOwnsTeamLeader(scope, existing.coveringTeamLeaderId);
+  assertOwnsTeamLeader(scope, existing.coveredTeamLeaderId);
+
+  await prisma.teamLeaderRelief.delete({ where: { id } });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Relief assignment removed."));
+}

@@ -126,6 +126,42 @@ model TeamLeader {
   name         String   @unique
   supervisorId String?
   createdAt    DateTime @default(now())
+
+  coveringReliefs TeamLeaderRelief[] @relation("CoveringReliefs")
+  coveredReliefs  TeamLeaderRelief[] @relation("CoveredReliefs")
+}
+
+// "Benson relieves Calvince" / "Benson holds fort for Calvince" — a peer Team
+// Leader granted temporary access to another Team Leader's own scope
+// (principals/reps/coverage), admin- or supervisor-allocated. Deliberately a
+// separate mechanism from TeamLeader.supervisorId (a permanent reporting-
+// line fact): relief is temporary, symmetric between two peers rather than a
+// hierarchy, and one Team Leader can cover several others (or be covered by
+// several, one after another) over time, so the full history stays here
+// rather than overwriting a single "currently relieving" field.
+// "Currently active" = revokedAt IS NULL AND startDate <= now AND (endDate IS
+// NULL OR endDate >= now) — see lib/teamLeaderScope.ts's getActiveReliefs.
+// Deliberately not recursive: loadTeamLeaderScope unions in a covered Team
+// Leader's own base scope only (their assignments/supervised reps), not
+// anyone *they* might in turn be covering for — a two-hop relief chain is an
+// edge case not worth the cycle-safety complexity it would add.
+model TeamLeaderRelief {
+  id                   String    @id @default(cuid())
+  coveringTeamLeaderId String // the Team Leader granted temporary access (e.g. Benson)
+  coveredTeamLeaderId  String // the Team Leader being relieved (e.g. Calvince)
+  startDate            DateTime  @default(now())
+  endDate              DateTime? // null = indefinite, until manually ended via revokedAt
+  revokedAt            DateTime? // manual early end, independent of a planned endDate
+  notes                String? // e.g. "Calvince on annual leave"
+  createdByUserId      String? // audit: which admin/supervisor allocated this
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  covering TeamLeader @relation("CoveringReliefs", fields: [coveringTeamLeaderId], references: [id], onDelete: Cascade)
+  covered  TeamLeader @relation("CoveredReliefs", fields: [coveredTeamLeaderId], references: [id], onDelete: Cascade)
+
+  @@index([coveringTeamLeaderId])
+  @@index([coveredTeamLeaderId])
 }
 
 // One row per Sales Supervisor — a tier above Team Leader (several Team Leaders

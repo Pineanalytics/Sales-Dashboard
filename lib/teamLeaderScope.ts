@@ -40,7 +40,18 @@ export function teamLeaderSupervisesName(teamLeaderName: string, supervisorName:
   return a === b || b.startsWith(a) || a.startsWith(b);
 }
 
-export async function loadTeamLeaderScope(teamLeaderId: string): Promise<TeamLeaderScope> {
+interface TeamLeaderBaseScope {
+  principals: Set<string>;
+  employeeCodes: Set<string>;
+  normalizedNames: Set<string>;
+}
+
+/** A Team Leader's own scope — their direct TeamLeaderAssignment rows plus
+ *  every rep under their EmployeeMaster.supervisor name match — with no
+ *  relief coverage folded in. Extracted from loadTeamLeaderScope so relief
+ *  coverage (below) can union in a *covered* Team Leader's own base scope
+ *  without recursing into scope THEY might in turn be covering for. */
+async function loadTeamLeaderBaseScope(teamLeaderId: string): Promise<TeamLeaderBaseScope> {
   const [teamLeader, assignments] = await Promise.all([
     prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { name: true } }),
     prisma.teamLeaderAssignment.findMany({
@@ -77,10 +88,50 @@ export async function loadTeamLeaderScope(teamLeaderId: string): Promise<TeamLea
     }
   }
 
+  return { principals, employeeCodes, normalizedNames };
+}
+
+/** Team Leader ids this Team Leader is *currently* covering for — "Benson
+ *  relieves Calvince" / "holding fort" (TeamLeaderRelief), active meaning
+ *  not revoked and within its optional start/end window. Peer-to-peer and
+ *  admin/supervisor-allocated — deliberately separate from
+ *  TeamLeader.supervisorId (a permanent reporting-line fact, not a temporary
+ *  cover arrangement). */
+export async function getActiveReliefCoverage(teamLeaderId: string): Promise<string[]> {
+  const now = new Date();
+  const reliefs = await prisma.teamLeaderRelief.findMany({
+    where: {
+      coveringTeamLeaderId: teamLeaderId,
+      revokedAt: null,
+      startDate: { lte: now },
+      OR: [{ endDate: null }, { endDate: { gte: now } }],
+    },
+    select: { coveredTeamLeaderId: true },
+  });
+  return reliefs.map((r) => r.coveredTeamLeaderId);
+}
+
+export async function loadTeamLeaderScope(teamLeaderId: string): Promise<TeamLeaderScope> {
+  const coveredTeamLeaderIds = await getActiveReliefCoverage(teamLeaderId);
+  const ownScope = await loadTeamLeaderBaseScope(teamLeaderId);
+  // One level only — a covered Team Leader's own *base* scope, not anyone
+  // they might in turn be covering for (see loadTeamLeaderBaseScope's own
+  // comment on why this stays non-recursive).
+  const coveredScopes = await Promise.all(coveredTeamLeaderIds.map(loadTeamLeaderBaseScope));
+
+  const principals = new Set(ownScope.principals);
+  const employeeCodes = new Set(ownScope.employeeCodes);
+  const normalizedNames = new Set(ownScope.normalizedNames);
+  for (const covered of coveredScopes) {
+    for (const p of covered.principals) principals.add(p);
+    for (const c of covered.employeeCodes) employeeCodes.add(c);
+    for (const n of covered.normalizedNames) normalizedNames.add(n);
+  }
+
   return {
     teamLeaderId,
     supervisorId: null,
-    teamLeaderIds: [teamLeaderId],
+    teamLeaderIds: [teamLeaderId, ...coveredTeamLeaderIds],
     principals: Array.from(principals),
     employeeCodes: Array.from(employeeCodes),
     normalizedNames,

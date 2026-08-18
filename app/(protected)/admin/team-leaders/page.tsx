@@ -16,6 +16,9 @@ import {
   deactivateAssignmentAction,
   deleteAssignmentAction,
   uploadRosterCsvAction,
+  createReliefAction,
+  endReliefAction,
+  deleteReliefAction,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +59,7 @@ export default async function AdminTeamLeadersPage({
     filterEmployee,
   } = await searchParams;
 
-  const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers] = await Promise.all([
+  const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, reliefs] = await Promise.all([
     prisma.teamLeader.findMany({ where: scope ? { id: { in: scope.teamLeaderIds } } : {}, orderBy: { name: "asc" } }),
     prisma.teamLeaderAssignment.findMany({
       where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
@@ -66,6 +69,15 @@ export default async function AdminTeamLeadersPage({
     getKnownPrincipals(),
     prisma.supervisor.findMany({ orderBy: { name: "asc" } }),
     prisma.manager.findMany({ orderBy: { name: "asc" } }),
+    // "Currently active" mirrors lib/teamLeaderScope.ts's getActiveReliefCoverage
+    // exactly (revokedAt null, within any start/end window) — both sides scoped
+    // to a Supervisor's own group the same way teamLeaders/assignments above are.
+    prisma.teamLeaderRelief.findMany({
+      where: scope
+        ? { coveringTeamLeaderId: { in: scope.teamLeaderIds }, coveredTeamLeaderId: { in: scope.teamLeaderIds } }
+        : {},
+      orderBy: [{ createdAt: "desc" }],
+    }),
   ]);
 
   const renaming = rename ? teamLeaders.find((tl) => tl.id === rename) : undefined;
@@ -268,6 +280,103 @@ export default async function AdminTeamLeadersPage({
           </div>
         </div>
         ) : null}
+
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Relief / Holding Fort</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Grant one Team Leader temporary access to another&apos;s own scope — principals, reps, coverage —
+            while relieving or holding fort for them (e.g. annual leave). This is peer-to-peer, separate from
+            the permanent &quot;Reports to&quot; reporting line above. Access takes effect immediately and clears
+            automatically once ended or an optional end date passes.
+          </p>
+          <form action={createReliefAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Covering (e.g. Benson)</label>
+              <select name="coveringTeamLeaderId" required defaultValue="" className={inputClass}>
+                <option value="" disabled>
+                  Select
+                </option>
+                {teamLeaders.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Covered (e.g. Calvince)</label>
+              <select name="coveredTeamLeaderId" required defaultValue="" className={inputClass}>
+                <option value="" disabled>
+                  Select
+                </option>
+                {teamLeaders.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Start date (optional — default now)</label>
+              <input name="startDate" type="date" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>End date (optional — indefinite)</label>
+              <input name="endDate" type="date" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2 sm:col-span-3">
+              <label className={labelClass}>Notes (optional)</label>
+              <input name="notes" placeholder="e.g. Calvince on annual leave" className={inputClass} />
+            </div>
+            <div>
+              <button
+                type="submit"
+                className="w-full rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              >
+                Start relief
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-5 flex flex-col gap-2">
+            {reliefs.map((r) => {
+              const now = new Date();
+              const isActive = !r.revokedAt && r.startDate <= now && (!r.endDate || r.endDate >= now);
+              return (
+                <div key={r.id} className={`flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5 ${isActive ? "" : "opacity-50"}`}>
+                  <span className="text-sm font-medium text-foreground">
+                    {teamLeaderNameById.get(r.coveringTeamLeaderId) ?? "—"} covers {teamLeaderNameById.get(r.coveredTeamLeaderId) ?? "—"}
+                    <span className="ml-2 text-[13px] text-muted">
+                      {r.startDate.toISOString().slice(0, 10)}
+                      {r.endDate ? ` – ${r.endDate.toISOString().slice(0, 10)}` : " – indefinite"}
+                      {r.notes ? ` · ${r.notes}` : ""}
+                    </span>
+                    <span className={`ml-2 text-[13px] ${isActive ? "text-accent-green" : "text-accent-red"}`}>
+                      {r.revokedAt ? "Ended" : isActive ? "Active" : r.startDate > now ? "Scheduled" : "Expired"}
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {isActive ? (
+                      <form action={endReliefAction} className="inline">
+                        <input type="hidden" name="reliefId" value={r.id} />
+                        <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft transition-colors duration-300">
+                          End now
+                        </button>
+                      </form>
+                    ) : null}
+                    <form action={deleteReliefAction} className="inline">
+                      <input type="hidden" name="reliefId" value={r.id} />
+                      <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                        Remove
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              );
+            })}
+            {reliefs.length === 0 ? <p className="text-sm text-muted">No relief assignments yet.</p> : null}
+          </div>
+        </div>
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Assign a rep to a Team Leader × Principal</h2>
