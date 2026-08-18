@@ -31,7 +31,16 @@ export interface JpRepDaySummaryRow {
   date: string;
   employeeCode: string;
   employeeName: string;
+  /** The rep's own EmployeeMaster.salesRole (Employee Roster's fixed
+   *  classification) — deliberately NOT RepCall.salesRole, a per-call tag
+   *  that can disagree with a rep's own roster role (confirmed live: 26 of
+   *  121 active reps in a recent month had at least one call tagged the
+   *  opposite role from their own EmployeeMaster.salesRole). Filtering by
+   *  the per-call tag let the wrong reps leak into a role-filtered view;
+   *  filtering by the rep's own fixed role makes inclusion unambiguous. */
   salesRole: string;
+  teamLeader: string;
+  principal: string;
   outletsPlanned: number;
   outletsVisited: number;
   jpAdherencePct: number;
@@ -192,7 +201,9 @@ interface PlanJoinRow {
   date: Date;
   employeeCode: string;
   employeeName: string;
-  salesRole: string;
+  salesRole: string | null;
+  teamLeader: string | null;
+  principal: string | null;
   timestampVisits: bigint | number;
   pjpAlignedVisits: bigint | number;
   productivePjpVisits: bigint | number;
@@ -217,7 +228,16 @@ async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeade
   // produced zero PJP-aligned visits, not just diluted ones.
   const principalKey = filters.principalKey ? normalizePrincipalKey(filters.principalKey) : null;
   const codes = await resolveEmployeeCodeFilter(scope, principalKey, filters.employeeCode, filters.teamLeader);
-  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND r."salesRole" = ${filters.roleFilter}`;
+  // Filters by the rep's own EmployeeMaster.salesRole (Employee Roster's
+  // fixed classification), not RepCall.salesRole (a per-call tag) — see
+  // JpRepDaySummaryRow.salesRole's own comment for why: a rep's per-call tag
+  // can disagree with their roster role, so filtering on it let the wrong
+  // reps leak into a role-filtered view even though every individual row's
+  // own tag matched. This also means every call for an included rep counts
+  // (not just the ones happening to carry the matching tag), which is the
+  // correct reading of "show me this rep's activity" once inclusion is
+  // decided by the rep, not the call.
+  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND e."salesRole" = ${filters.roleFilter}`;
   const dateClause = filters.date ? Prisma.sql`AND r.date >= ${filters.date} AND r.date < ${new Date(filters.date.getTime() + 86400000)}` : EMPTY_SQL;
   const years = Array.from(
     new Set([range.start.getUTCFullYear(), new Date(range.end.getTime() - 1).getUTCFullYear()].map(String))
@@ -240,11 +260,14 @@ async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeade
       r.date AS date,
       r."employeeCode" AS "employeeCode",
       MAX(r."salesRep") AS "employeeName",
-      MAX(r."salesRole") AS "salesRole",
+      MAX(e."salesRole") AS "salesRole",
+      MAX(e."teamLeader") AS "teamLeader",
+      MAX(e."absolutePrincipal") AS "principal",
       COUNT(DISTINCT r."outletId")::int AS "timestampVisits",
       COUNT(DISTINCT r."outletId") FILTER (WHERE p."customerId" IS NOT NULL)::int AS "pjpAlignedVisits",
       COUNT(DISTINCT r."outletId") FILTER (WHERE p."customerId" IS NOT NULL AND r."callOutcome" = 'Sale')::int AS "productivePjpVisits"
     FROM "RepCall" r
+    LEFT JOIN "EmployeeMaster" e ON e."employeeCode" = r."employeeCode"
     LEFT JOIN pjp_owned_outlets p
       ON p."customerId" = r."outletId" AND p."pjpEmployeeCode" = r."employeeCode"
     WHERE r.date >= ${range.start} AND r.date < ${range.end}
@@ -265,7 +288,9 @@ async function getRepDayRows(range: { start: Date; end: Date }, scope: TeamLeade
       date: r.date.toISOString().slice(0, 10),
       employeeCode: r.employeeCode,
       employeeName: r.employeeName,
-      salesRole: r.salesRole,
+      salesRole: r.salesRole ?? "Unassigned",
+      teamLeader: r.teamLeader ?? "Unassigned",
+      principal: r.principal ?? "Unassigned",
       outletsPlanned,
       outletsVisited,
       jpAdherencePct,

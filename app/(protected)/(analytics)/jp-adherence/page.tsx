@@ -30,6 +30,23 @@ interface JpRepDaySummaryRow {
   employeeCode: string;
   employeeName: string;
   salesRole: string;
+  teamLeader: string;
+  principal: string;
+  outletsPlanned: number;
+  outletsVisited: number;
+  jpAdherencePct: number;
+  productiveOutlets: number;
+  strikeRatePct: number;
+  plannedNotVisited: number;
+  status: string;
+}
+
+interface JpRepSummaryRow {
+  employeeCode: string;
+  employeeName: string;
+  salesRole: string;
+  teamLeader: string;
+  principal: string;
   outletsPlanned: number;
   outletsVisited: number;
   jpAdherencePct: number;
@@ -83,6 +100,62 @@ function formatDateLabel(dateStr: string): string {
 
 function dateKey(dateStr: string): string {
   return dateStr.slice(0, 10);
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function statusFor(jpAdherencePct: number): string {
+  if (jpAdherencePct >= 90) return "Excellent";
+  if (jpAdherencePct >= 75) return "Good";
+  return "Below Target";
+}
+
+/** Rolls the day-level repDaySummary up to one row per rep for the PJP
+ *  Ownership Adherence Report table — the Date column is redundant there
+ *  since the calendar picker above it already narrows the period, and a
+ *  single row per rep is what "no Date column" actually requires (showing
+ *  several dateless rows for the same rep would be ambiguous). The PJP
+ *  Ownership Trend chart below still needs day-level data, so it keeps
+ *  reading data.repDaySummary directly rather than this rollup. */
+function rollUpByRep(rows: JpRepDaySummaryRow[]): JpRepSummaryRow[] {
+  const byRep = new Map<string, JpRepSummaryRow>();
+  for (const r of rows) {
+    const existing = byRep.get(r.employeeCode);
+    if (existing) {
+      existing.outletsPlanned += r.outletsPlanned;
+      existing.outletsVisited += r.outletsVisited;
+      existing.productiveOutlets += r.productiveOutlets;
+    } else {
+      byRep.set(r.employeeCode, {
+        employeeCode: r.employeeCode,
+        employeeName: r.employeeName,
+        salesRole: r.salesRole,
+        teamLeader: r.teamLeader,
+        principal: r.principal,
+        outletsPlanned: r.outletsPlanned,
+        outletsVisited: r.outletsVisited,
+        jpAdherencePct: 0,
+        productiveOutlets: r.productiveOutlets,
+        strikeRatePct: 0,
+        plannedNotVisited: 0,
+        status: "",
+      });
+    }
+  }
+  return Array.from(byRep.values())
+    .map((r) => {
+      const jpAdherencePct = r.outletsPlanned > 0 ? round1((r.outletsVisited / r.outletsPlanned) * 100) : 0;
+      return {
+        ...r,
+        jpAdherencePct,
+        strikeRatePct: r.outletsVisited > 0 ? round1((r.productiveOutlets / r.outletsVisited) * 100) : 0,
+        plannedNotVisited: r.outletsPlanned - r.outletsVisited,
+        status: statusFor(jpAdherencePct),
+      };
+    })
+    .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 }
 
 const ADHERENCE_STATUS_TIER: Record<string, Tier> = {
@@ -145,6 +218,7 @@ export default function JpAdherencePage() {
   }
 
   const hasData = data.repDaySummary.length > 0;
+  const repSummary = rollUpByRep(data.repDaySummary);
 
   const availableMonths = data.availableMonths.length > 0 ? data.availableMonths : [selectedMonth];
   const selectedRepName = selectedRep ? data.availableReps.find((r) => r.employeeCode === selectedRep)?.employeeName : undefined;
@@ -356,8 +430,9 @@ export default function JpAdherencePage() {
           >
             <TableWrap>
               <Thead>
-                <Th>Date</Th>
-                <Th>Employee</Th>
+                <Th>Rep Name</Th>
+                <Th>Team Leader</Th>
+                <Th>Principal</Th>
                 <Th>Sales Role</Th>
                 <Th align="right">Timestamp Visits</Th>
                 <Th align="right">PJP-aligned</Th>
@@ -368,10 +443,11 @@ export default function JpAdherencePage() {
                 <Th align="center">Status</Th>
               </Thead>
               <tbody>
-                {data.repDaySummary.map((r) => (
-                  <tr key={`${r.date}|${r.employeeCode}`}>
-                    <Td>{formatDateLabel(r.date)}</Td>
+                {repSummary.map((r) => (
+                  <tr key={r.employeeCode}>
                     <Td>{r.employeeName}</Td>
+                    <Td>{r.teamLeader}</Td>
+                    <Td>{r.principal}</Td>
                     <Td>{r.salesRole}</Td>
                     <Td align="right">{formatNumber(r.outletsPlanned)}</Td>
                     <Td align="right">{formatNumber(r.outletsVisited)}</Td>
@@ -390,6 +466,7 @@ export default function JpAdherencePage() {
                 ))}
                 <TotalRow>
                   <Td>Total</Td>
+                  <Td>—</Td>
                   <Td>—</Td>
                   <Td>—</Td>
                   <Td align="right">{formatNumber(data.kpis.outletsPlanned)}</Td>
