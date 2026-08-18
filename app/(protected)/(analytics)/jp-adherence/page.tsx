@@ -72,6 +72,29 @@ interface JpMonthlyCoverageRow {
   qty: number;
 }
 
+interface JpPlanRepRow {
+  employeeCode: string;
+  employeeName: string;
+  teamLeader: string;
+  principal: string;
+  salesRole: string;
+  plannedOutlets: number;
+  visitedOutlets: number;
+  planAdherencePct: number;
+  missedOutlets: number;
+  status: string;
+}
+
+interface JpPlanAdherence {
+  kpis: {
+    plannedOutlets: number;
+    visitedOutlets: number;
+    planAdherencePct: number;
+    unplannedVisits: number;
+  };
+  repRows: JpPlanRepRow[];
+}
+
 interface JpAdherenceResponse {
   kpis: JpKpis;
   repDaySummary: JpRepDaySummaryRow[];
@@ -80,6 +103,7 @@ interface JpAdherenceResponse {
   availableReps: { employeeCode: string; employeeName: string }[];
   availableTeamLeaders: string[];
   monthlyCoverage: JpMonthlyCoverageRow[];
+  planAdherence: JpPlanAdherence;
 }
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -384,6 +408,75 @@ export default function JpAdherencePage() {
         </div>
       </SectionCard>
 
+      <SectionCard
+        title="Journey Plan Adherence"
+        action={<span className="text-xs text-muted">Planned for that exact day (uploaded Journey Plan) vs actually visited that day</span>}
+      >
+        {data.planAdherence.repRows.length === 0 ? (
+          <EmptyState
+            icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
+            title="No Journey Plan rows for this period"
+            description="This needs an uploaded Journey Plan (rep/outlet/date schedule) covering the selected period — check the plan upload for this month."
+          />
+        ) : (
+          <>
+            <KpiGrid>
+              <KpiCard accent="coverage" label="Planned Outlets" value={<AnimatedValue value={data.planAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel="Rep × outlet × day, from the uploaded plan" />
+              <KpiCard accent="coverage" label="Visited (on plan)" value={<AnimatedValue value={data.planAdherence.kpis.visitedOutlets} format={formatNumber} />} />
+              <KpiCard accent="growth" label="Plan Adherence" value={<span className={tierTextClass[productivityTier(data.planAdherence.kpis.planAdherencePct)]}>{formatPercent(data.planAdherence.kpis.planAdherencePct)}</span>} />
+              <KpiCard accent="revenue" label="Unplanned Visits" value={<AnimatedValue value={data.planAdherence.kpis.unplannedVisits} format={formatNumber} />} sublabel="Visited, but not on that day's plan" />
+            </KpiGrid>
+            <div className="mt-4">
+              <TableWrap>
+                <Thead>
+                  <Th>Rep Name</Th>
+                  <Th>Team Leader</Th>
+                  <Th>Principal</Th>
+                  <Th>Sales Role</Th>
+                  <Th align="right">Planned</Th>
+                  <Th align="right">Visited</Th>
+                  <Th align="center">Adherence %</Th>
+                  <Th align="right">Missed</Th>
+                  <Th align="center">Status</Th>
+                </Thead>
+                <tbody>
+                  {data.planAdherence.repRows.map((r) => (
+                    <tr key={r.employeeCode}>
+                      <Td>{r.employeeName}</Td>
+                      <Td>{r.teamLeader}</Td>
+                      <Td>{r.principal}</Td>
+                      <Td>{r.salesRole}</Td>
+                      <Td align="right">{formatNumber(r.plannedOutlets)}</Td>
+                      <Td align="right">{formatNumber(r.visitedOutlets)}</Td>
+                      <Td align="center">
+                        <Badge tier={productivityTier(r.planAdherencePct)}>{r.planAdherencePct.toFixed(1)}%</Badge>
+                      </Td>
+                      <Td align="right">{formatNumber(r.missedOutlets)}</Td>
+                      <Td align="center">
+                        <Badge tier={ADHERENCE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
+                      </Td>
+                    </tr>
+                  ))}
+                  <TotalRow>
+                    <Td>Total</Td>
+                    <Td>—</Td>
+                    <Td>—</Td>
+                    <Td>—</Td>
+                    <Td align="right">{formatNumber(data.planAdherence.kpis.plannedOutlets)}</Td>
+                    <Td align="right">{formatNumber(data.planAdherence.kpis.visitedOutlets)}</Td>
+                    <Td align="center">
+                      <Badge tier={productivityTier(data.planAdherence.kpis.planAdherencePct)}>{data.planAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
+                    </Td>
+                    <Td align="right">{formatNumber(data.planAdherence.kpis.plannedOutlets - data.planAdherence.kpis.visitedOutlets)}</Td>
+                    <Td align="center">—</Td>
+                  </TotalRow>
+                </tbody>
+              </TableWrap>
+            </div>
+          </>
+        )}
+      </SectionCard>
+
       {!hasData ? (
         <EmptyState
           icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
@@ -392,7 +485,10 @@ export default function JpAdherencePage() {
         />
       ) : (
         <>
-          <SectionCard title="PJP Ownership Adherence">
+          <SectionCard
+            title="PJP Ownership Adherence"
+            action={<span className="text-xs text-muted">Territory alignment: are today's visits to outlets you own? Not tied to a specific planned day.</span>}
+          >
             <KpiGrid>
               <KpiCard accent="coverage" label="Timestamp Visits" value={<AnimatedValue value={data.kpis.outletsPlanned} format={formatNumber} />} />
               <KpiCard accent="coverage" label="PJP-aligned Visits" value={<AnimatedValue value={data.kpis.outletsVisited} format={formatNumber} />} />

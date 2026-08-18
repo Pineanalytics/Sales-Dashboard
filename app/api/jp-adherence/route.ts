@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { getJpAdherenceSummaryCached, getAvailablePlanMonths, getMonthlyCoverageRollup, monthWindow, type JpAdherenceFilters, type SalesRoleFilter } from "@/lib/jpAdherence";
+import {
+  getJpAdherenceSummaryCached,
+  getAvailablePlanMonths,
+  getMonthlyCoverageRollup,
+  getJourneyPlanAdherenceSummary,
+  monthWindow,
+  type JpAdherenceFilters,
+  type SalesRoleFilter,
+} from "@/lib/jpAdherence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,12 +83,13 @@ export async function GET(req: NextRequest) {
   try {
     const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
     const range = fromParam && toParam ? { start: fromParam, end: toParam } : monthWindow(monthParam.year, monthParam.monthIndex);
-    const [summary, availableMonths, monthlyCoverage] = await Promise.all([
+    const [summary, availableMonths, monthlyCoverage, planAdherence] = await Promise.all([
       getJpAdherenceSummaryCached(range, scope, filters),
       getAvailablePlanMonths(scope),
       getMonthlyCoverageRollup(scope),
+      getJourneyPlanAdherenceSummary(range, scope, filters),
     ]);
-    return NextResponse.json({ ...summary, availableMonths, monthlyCoverage });
+    return NextResponse.json({ ...summary, availableMonths, monthlyCoverage, planAdherence });
   } catch (err) {
     console.error("Failed to load JP Adherence data", err);
     return NextResponse.json({ error: "Failed to load JP Adherence data." }, { status: 500 });

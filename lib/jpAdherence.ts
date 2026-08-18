@@ -50,6 +50,41 @@ export interface JpRepDaySummaryRow {
   status: "Excellent" | "Good" | "Below Target";
 }
 
+/** True, day-specific Journey Plan adherence — JourneyPlanRow (the real
+ *  uploaded plan: one row per rep/outlet/date scheduled to be visited) LEFT
+ *  JOIN RepCall on the exact same day. Deliberately distinct from
+ *  JpRepDaySummaryRow/JpAdherenceKpis above, which despite this page's
+ *  historical "PJP Ownership Adherence" naming actually measures ownership
+ *  alignment (are today's calls to outlets you own, per ActiveOutlet's
+ *  static pjpEmployeeCode assignment) — a genuinely different, still-useful
+ *  metric, just not "was today's specific plan followed." */
+export interface JpPlanAdherenceKpis {
+  plannedOutlets: number;
+  visitedOutlets: number;
+  planAdherencePct: number;
+  /** RepCall visits with no matching JourneyPlanRow row for that exact
+   *  rep/outlet/date — visited, but not what the plan said for that day. */
+  unplannedVisits: number;
+}
+
+export interface JpPlanRepRow {
+  employeeCode: string;
+  employeeName: string;
+  teamLeader: string;
+  principal: string;
+  salesRole: string;
+  plannedOutlets: number;
+  visitedOutlets: number;
+  planAdherencePct: number;
+  missedOutlets: number;
+  status: "Excellent" | "Good" | "Below Target";
+}
+
+export interface JpPlanAdherenceSummary {
+  kpis: JpPlanAdherenceKpis;
+  repRows: JpPlanRepRow[];
+}
+
 export interface JpMonthlyCoverageRow {
   year: string;
   monthIndex: number;
@@ -315,6 +350,120 @@ function aggregateKpis(repDaySummary: JpRepDaySummaryRow[]): JpAdherenceKpis {
     productiveOutlets,
     strikeRatePct: outletsVisited > 0 ? round1((productiveOutlets / outletsVisited) * 100) : 0,
     plannedNotVisited: outletsPlanned - outletsVisited,
+  };
+}
+
+interface PlanAdherenceRawRow {
+  employeeCode: string;
+  employeeName: string;
+  teamLeader: string | null;
+  principal: string | null;
+  salesRole: string | null;
+  plannedOutlets: bigint | number;
+  visitedOutlets: bigint | number;
+}
+
+/** True, day-specific plan adherence: JourneyPlanRow (the real uploaded
+ *  plan) LEFT JOIN RepCall on the exact same rep/outlet/date. Filters by
+ *  the rep's own EmployeeMaster.salesRole (not JourneyPlanRow.salesRole, a
+ *  per-upload-row tag carrying the same disagreement risk RepCall.salesRole
+ *  had — see getRepDayRows's own comment) so a role filter behaves
+ *  identically to the Ownership report above. */
+async function getPlanAdherenceRows(
+  range: { start: Date; end: Date },
+  scope: TeamLeaderScope | null,
+  filters: JpAdherenceFilters
+): Promise<JpPlanRepRow[]> {
+  const principalKey = filters.principalKey ? normalizePrincipalKey(filters.principalKey) : null;
+  const codes = await resolveEmployeeCodeFilter(scope, principalKey, filters.employeeCode, filters.teamLeader);
+  const roleClause = filters.roleFilter === "all" ? EMPTY_SQL : Prisma.sql`AND e."salesRole" = ${filters.roleFilter}`;
+  const dateClause = filters.date
+    ? Prisma.sql`AND jp.date >= ${filters.date} AND jp.date < ${new Date(filters.date.getTime() + 86400000)}`
+    : EMPTY_SQL;
+  const dayClause = filters.dayNames && filters.dayNames.length > 0 ? Prisma.sql`AND jp.day = ANY(${filters.dayNames})` : EMPTY_SQL;
+
+  const rows = await prisma.$queryRaw<PlanAdherenceRawRow[]>(Prisma.sql`
+    SELECT
+      jp."employeeCode" AS "employeeCode",
+      MAX(COALESCE(e."pineName", jp."employeeName")) AS "employeeName",
+      MAX(e."teamLeader") AS "teamLeader",
+      MAX(e."absolutePrincipal") AS "principal",
+      MAX(e."salesRole") AS "salesRole",
+      COUNT(*)::int AS "plannedOutlets",
+      COUNT(r."outletId")::int AS "visitedOutlets"
+    FROM "JourneyPlanRow" jp
+    LEFT JOIN "EmployeeMaster" e ON e."employeeCode" = jp."employeeCode"
+    LEFT JOIN "RepCall" r
+      ON r."employeeCode" = jp."employeeCode" AND r."outletId" = jp."customerId" AND r.date = jp.date
+    WHERE jp.date >= ${range.start} AND jp.date < ${range.end}
+    ${employeeCodeClause(Prisma.sql`jp."employeeCode"`, codes)}
+    ${roleClause}
+    ${dateClause}
+    ${dayClause}
+    GROUP BY jp."employeeCode"
+  `);
+
+  return rows
+    .map((r) => {
+      const plannedOutlets = Number(r.plannedOutlets);
+      const visitedOutlets = Number(r.visitedOutlets);
+      const planAdherencePct = plannedOutlets > 0 ? round1((visitedOutlets / plannedOutlets) * 100) : 0;
+      return {
+        employeeCode: r.employeeCode,
+        employeeName: r.employeeName,
+        teamLeader: r.teamLeader ?? "Unassigned",
+        principal: r.principal ?? "Unassigned",
+        salesRole: r.salesRole ?? "Unassigned",
+        plannedOutlets,
+        visitedOutlets,
+        planAdherencePct,
+        missedOutlets: plannedOutlets - visitedOutlets,
+        status: statusFor(planAdherencePct),
+      };
+    })
+    .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+}
+
+/** RepCall visits with no matching JourneyPlanRow row for that exact
+ *  rep/outlet/date — a visit that wasn't on that day's plan. Company/scope-
+ *  level only (not broken out per rep) to keep this a single cheap query
+ *  rather than a second full join. */
+async function getUnplannedVisitsCount(range: { start: Date; end: Date }, scope: TeamLeaderScope | null): Promise<number> {
+  const scopeClause = scope
+    ? scope.employeeCodes.length > 0
+      ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`
+      : Prisma.sql`AND false`
+    : EMPTY_SQL;
+  const rows = await prisma.$queryRaw<{ count: bigint | number }[]>(Prisma.sql`
+    SELECT COUNT(DISTINCT (r."employeeCode", r.date, r."outletId"))::int AS count
+    FROM "RepCall" r
+    LEFT JOIN "JourneyPlanRow" jp
+      ON jp."employeeCode" = r."employeeCode" AND jp."customerId" = r."outletId" AND jp.date = r.date
+    WHERE r.date >= ${range.start} AND r.date < ${range.end} AND jp.id IS NULL
+    ${scopeClause}
+  `);
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function getJourneyPlanAdherenceSummary(
+  range: { start: Date; end: Date },
+  scope: TeamLeaderScope | null,
+  filters: JpAdherenceFilters
+): Promise<JpPlanAdherenceSummary> {
+  const [repRows, unplannedVisits] = await Promise.all([
+    getPlanAdherenceRows(range, scope, filters),
+    getUnplannedVisitsCount(range, scope),
+  ]);
+  const plannedOutlets = repRows.reduce((s, r) => s + r.plannedOutlets, 0);
+  const visitedOutlets = repRows.reduce((s, r) => s + r.visitedOutlets, 0);
+  return {
+    kpis: {
+      plannedOutlets,
+      visitedOutlets,
+      planAdherencePct: plannedOutlets > 0 ? round1((visitedOutlets / plannedOutlets) * 100) : 0,
+      unplannedVisits,
+    },
+    repRows,
   };
 }
 
