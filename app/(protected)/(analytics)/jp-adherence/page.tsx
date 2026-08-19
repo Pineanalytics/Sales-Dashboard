@@ -81,6 +81,7 @@ interface JpPatternRepRow {
   plannedOutlets: number;
   visitedOutlets: number;
   planAdherencePct: number;
+  strikeRatePct: number;
   missedOutlets: number;
   status: string;
 }
@@ -96,7 +97,7 @@ interface JpPatternAdherence {
   repRows: JpPatternRepRow[];
 }
 
-const STRIKE_TARGET_PCT = 75;
+const STRIKE_TARGET_PCT = 90;
 const STRIKE_STATUS_TIER: Record<string, Tier> = { "Met Target": "good", "Below Target": "bad" };
 
 interface JpAdherenceResponse {
@@ -445,6 +446,7 @@ export default function JpAdherencePage() {
                   <Th align="right">Planned (Visited)</Th>
                   <Th align="right">Productive</Th>
                   <Th align="center">Adherence %</Th>
+                  <Th align="center">Strike Rate %</Th>
                   <Th align="right">Non-productive</Th>
                   <Th align="center">Status</Th>
                 </Thead>
@@ -460,6 +462,9 @@ export default function JpAdherencePage() {
                       <Td align="center">
                         <Badge tier={productivityTier(r.planAdherencePct)}>{r.planAdherencePct.toFixed(1)}%</Badge>
                       </Td>
+                      <Td align="center">
+                        <Badge tier={productivityTier(r.strikeRatePct)}>{r.strikeRatePct.toFixed(1)}%</Badge>
+                      </Td>
                       <Td align="right">{formatNumber(r.missedOutlets)}</Td>
                       <Td align="center">
                         <Badge tier={STRIKE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
@@ -473,6 +478,9 @@ export default function JpAdherencePage() {
                     <Td>—</Td>
                     <Td align="right">{formatNumber(data.patternAdherence.kpis.plannedOutlets)}</Td>
                     <Td align="right">{formatNumber(data.patternAdherence.kpis.visitedOutlets)}</Td>
+                    <Td align="center">
+                      <Badge tier={productivityTier(data.patternAdherence.kpis.planAdherencePct)}>{data.patternAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
+                    </Td>
                     <Td align="center">
                       <Badge tier={productivityTier(data.patternAdherence.kpis.planAdherencePct)}>{data.patternAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
                     </Td>

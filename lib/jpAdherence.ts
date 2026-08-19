@@ -56,14 +56,19 @@ export interface JpRepDaySummaryRow {
  *  history for both). Per direct request: every outlet a rep actually
  *  visited in the period IS "the plan" (plannedOutlets = total distinct
  *  outlets called); "visited" for adherence purposes means productive
- *  (Sale-outcome) — so JP Adherence % = productive ÷ total visited. Status
- *  is a flat pass/fail against a fixed 75% productivity target, not a
- *  three-tier scale — Strike is met or it isn't. Deliberately distinct from
- *  JpRepDaySummaryRow/JpAdherenceKpis above (this page's original "PJP
- *  Ownership Adherence"), which measures ownership alignment against
- *  ActiveOutlet's static pjpEmployeeCode assignment — kept as its own
- *  section since it answers a different question. */
-export const STRIKE_TARGET_PCT = 75;
+ *  (Sale-outcome) — so JP Adherence % = productive ÷ total visited. Strike
+ *  Rate is the same ratio (productive ÷ total visited), shown as its own
+ *  column for parity with the older Ownership Adherence Report's naming —
+ *  a distinct field in code (strikeRatePct) even though it's numerically
+ *  identical to planAdherencePct, so neither the intent nor the duplication
+ *  is ambiguous to a future reader. Status is a flat pass/fail against a
+ *  fixed 90% productivity target, not a three-tier scale — Strike is met or
+ *  it isn't. Deliberately distinct from JpRepDaySummaryRow/JpAdherenceKpis
+ *  above (this page's original "PJP Ownership Adherence"), which measures
+ *  ownership alignment against ActiveOutlet's static pjpEmployeeCode
+ *  assignment — kept as its own section since it answers a different
+ *  question. */
+export const STRIKE_TARGET_PCT = 90;
 
 export interface JpPatternAdherenceKpis {
   plannedOutlets: number;
@@ -82,6 +87,7 @@ export interface JpPatternRepRow {
   plannedOutlets: number;
   visitedOutlets: number;
   planAdherencePct: number;
+  strikeRatePct: number;
   missedOutlets: number;
   status: "Met Target" | "Below Target";
 }
@@ -418,6 +424,7 @@ export async function getPatternAdherenceSummary(
         plannedOutlets,
         visitedOutlets,
         planAdherencePct,
+        strikeRatePct: planAdherencePct,
         missedOutlets: plannedOutlets - visitedOutlets,
         status: (planAdherencePct >= STRIKE_TARGET_PCT ? "Met Target" : "Below Target") as "Met Target" | "Below Target",
       };
