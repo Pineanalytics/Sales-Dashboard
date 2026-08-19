@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { allMetricsFor, sectionsFor } from "@/lib/performanceTracker/definitions";
 import { autoPopulateActuals } from "@/lib/performanceTracker/autoPopulate";
+import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,9 @@ async function findOrCreateTracker(type: "HOD" | "TEAM_LEADER", periodMonth: str
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  if (!canAccessPerformanceTracker(session.user.role)) {
+    return NextResponse.json({ error: "The Performance Tracker is still being built — admin-only for now." }, { status: 403 });
+  }
 
   const type = req.nextUrl.searchParams.get("type");
   const period = req.nextUrl.searchParams.get("period");
@@ -114,6 +118,9 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  if (!canAccessPerformanceTracker(session.user.role)) {
+    return NextResponse.json({ error: "The Performance Tracker is still being built — admin-only for now." }, { status: 403 });
+  }
   const role = session.user.role;
 
   const body = await req.json().catch(() => null);

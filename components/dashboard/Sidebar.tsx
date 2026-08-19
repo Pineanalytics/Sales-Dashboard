@@ -27,6 +27,7 @@ import {
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
 import { pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
   href: string;
@@ -77,8 +78,8 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const isHod = user?.role === "HOD";
   const isDirector = user?.role === "DIRECTOR";
   const canAccessCoaching = isAdmin || isTeamLeader || isSupervisor;
-  const canAccessHodReview = isAdmin || isHod || isDirector;
-  const canAccessTlReview = isAdmin || isTeamLeader || isSupervisor;
+  const canAccessHodReview = (isAdmin || isHod || isDirector) && canAccessPerformanceTracker(user?.role ?? "");
+  const canAccessTlReview = (isAdmin || isTeamLeader || isSupervisor) && canAccessPerformanceTracker(user?.role ?? "");
   // Admins always see every report; a viewer only sees the pages their admin granted.
   const visibleNavItems = isAdmin
     ? NAV_ITEMS

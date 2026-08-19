@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Only the owning Team Leader (or ADMIN) can write Rep Scorecard rows — a
  *  Supervisor reviewing the tracker sees the same rows read-only via the
- *  main GET /api/performance-tracker response, no separate read path here. */
+ *  main GET /api/performance-tracker response, no separate read path here.
+ *  canAccessPerformanceTracker's admin-only-while-building gate applies here
+ *  too (see lib/performanceTracker/access.ts). */
 async function assertCanEdit(trackerId: string, user: { role: string; teamLeaderId: string | null }): Promise<boolean> {
+  if (!canAccessPerformanceTracker(user.role)) return false;
   const tracker = await prisma.performanceTracker.findUnique({ where: { id: trackerId } });
   if (!tracker || tracker.type !== "TEAM_LEADER" || !tracker.teamLeaderId) return false;
   if (user.role === "ADMIN") return true;

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 import TlTrackerClient from "./TlTrackerClient";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +12,12 @@ export const dynamic = "force-dynamic";
 // Leader per period. TEAM_LEADER fills their own; their own SUPERVISOR
 // (TeamLeaderAssignment.supervisorId, the same scope every other page here
 // uses) reviews it — see app/api/performance-tracker/route.ts for where that
-// permission is actually enforced.
+// permission is actually enforced. Currently ADMIN-only while the module is
+// still being built — see lib/performanceTracker/access.ts's own comment for
+// how to open it up.
 export default async function TlReviewPage({ searchParams }: { searchParams: Promise<{ teamLeaderId?: string }> }) {
   const session = await auth();
-  if (!session?.user || !["TEAM_LEADER", "SUPERVISOR", "ADMIN"].includes(session.user.role)) {
+  if (!session?.user || !["TEAM_LEADER", "SUPERVISOR", "ADMIN"].includes(session.user.role) || !canAccessPerformanceTracker(session.user.role)) {
     redirect("/");
   }
   const role = session.user.role;
