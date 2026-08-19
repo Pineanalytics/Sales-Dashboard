@@ -90,12 +90,14 @@ interface JpPatternAdherence {
     plannedOutlets: number;
     visitedOutlets: number;
     planAdherencePct: number;
-    unplannedVisits: number;
-    repsWithNoHistory: number;
+    repsAboveTarget: number;
+    repsBelowTarget: number;
   };
   repRows: JpPatternRepRow[];
-  planWindowLabel: string;
 }
+
+const STRIKE_TARGET_PCT = 75;
+const STRIKE_STATUS_TIER: Record<string, Tier> = { "Met Target": "good", "Below Target": "bad" };
 
 interface JpAdherenceResponse {
   kpis: JpKpis;
@@ -411,32 +413,27 @@ export default function JpAdherencePage() {
       </SectionCard>
 
       <SectionCard
-        title="Historical Pattern Adherence"
-        action={
-          <span className="text-xs text-muted">
-            Target = each rep's own outlets from {data.patternAdherence.planWindowLabel} on that weekday · vs actually revisited the rest of the month
-          </span>
-        }
+        title="JP Adherence"
+        action={<span className="text-xs text-muted">Planned = every outlet visited · Adherence = productive (Sale) visits ÷ all visits · target {STRIKE_TARGET_PCT}%</span>}
       >
         {data.patternAdherence.repRows.length === 0 ? (
           <EmptyState
             icon={<CalendarCheckmark20Regular className="h-10 w-10" />}
-            title="No first-two-weeks pattern to compare against yet"
-            description={`Needs Timestamp visit history from ${data.patternAdherence.planWindowLabel} to build each rep's usual weekday outlets, then at least one day past that window to measure. Wait for the 15th, pick a completed month, or check the live sync.`}
+            title="No Timestamp visits for this period"
+            description="JP Adherence is calculated straight from live Timestamp calls — choose a period with call activity or check the live sync."
           />
         ) : (
           <>
             <p className="mb-3 text-xs text-muted">
-              The "plan" here isn't an uploaded file or last month — it's each rep's own outlets from this month's first two weeks
-              ({data.patternAdherence.planWindowLabel}) on the matching weekday (every Monday's targets come from this month's first
-              two Mondays, etc.), re-applied to the rest of the month.
+              Every outlet a rep visited counts as "planned." Adherence % is how many of those visits were productive
+              (a Sale outcome) — the target is {STRIKE_TARGET_PCT}% productivity out of all visits.
             </p>
             <KpiGrid>
-              <KpiCard accent="coverage" label="Targeted Outlets" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} sublabel={`From ${data.patternAdherence.planWindowLabel}'s same-weekday visits`} />
-              <KpiCard accent="coverage" label="Revisited" value={<AnimatedValue value={data.patternAdherence.kpis.visitedOutlets} format={formatNumber} />} />
-              <KpiCard accent="growth" label="Pattern Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} />
-              <KpiCard accent="revenue" label="Off-pattern Visits" value={<AnimatedValue value={data.patternAdherence.kpis.unplannedVisits} format={formatNumber} />} sublabel="Visited, but not a usual outlet for that weekday" />
-              <KpiCard accent="quarter" label="No History Yet" value={<AnimatedValue value={data.patternAdherence.kpis.repsWithNoHistory} format={formatNumber} />} sublabel={`Active after ${data.patternAdherence.planWindowLabel}, nothing in that window to compare`} />
+              <KpiCard accent="coverage" label="Planned (All Visits)" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} />
+              <KpiCard accent="coverage" label="Productive Visits" value={<AnimatedValue value={data.patternAdherence.kpis.visitedOutlets} format={formatNumber} />} />
+              <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} sublabel={`Target ${STRIKE_TARGET_PCT}%`} />
+              <KpiCard accent="revenue" label="Reps Below Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsBelowTarget} format={formatNumber} />} sublabel={`Under ${STRIKE_TARGET_PCT}% productivity`} />
+              <KpiCard accent="quarter" label="Reps Met Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsAboveTarget} format={formatNumber} />} sublabel={`At or above ${STRIKE_TARGET_PCT}%`} />
             </KpiGrid>
             <div className="mt-4">
               <TableWrap>
@@ -445,10 +442,10 @@ export default function JpAdherencePage() {
                   <Th>Team Leader</Th>
                   <Th>Principal</Th>
                   <Th>Sales Role</Th>
-                  <Th align="right">Targeted</Th>
-                  <Th align="right">Revisited</Th>
+                  <Th align="right">Planned (Visited)</Th>
+                  <Th align="right">Productive</Th>
                   <Th align="center">Adherence %</Th>
-                  <Th align="right">Missed</Th>
+                  <Th align="right">Non-productive</Th>
                   <Th align="center">Status</Th>
                 </Thead>
                 <tbody>
@@ -465,7 +462,7 @@ export default function JpAdherencePage() {
                       </Td>
                       <Td align="right">{formatNumber(r.missedOutlets)}</Td>
                       <Td align="center">
-                        <Badge tier={ADHERENCE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
+                        <Badge tier={STRIKE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
                       </Td>
                     </tr>
                   ))}
