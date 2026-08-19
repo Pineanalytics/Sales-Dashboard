@@ -30,6 +30,17 @@ enum Role {
   // same CRUD breadth ADMIN has on /admin/team-leaders, just scoped. Introduced for
   // the Sales Supervisor tier — see lib/teamLeaderScope.ts's loadSupervisorScope.
   SUPERVISOR
+  // Head of Sales — fills their own company-wide PerformanceTracker (type=HOD)
+  // each period. Company-wide by design (no linked entity, unlike TEAM_LEADER/
+  // SUPERVISOR): there's one HOD tracker per period, not one per person.
+  // Unscoped like ADMIN — resolveScopeForSession only special-cases SUPERVISOR/
+  // TEAM_LEADER/VIEWER, so HOD (and DIRECTOR) already fall through to null
+  // (unrestricted) with no changes needed there.
+  HOD
+  // Reviews/views every HOD tracker (read + reviewComments/status only, never
+  // fills KPI values themselves) — the MD/Director tier the HOD tracker was
+  // built to be presented to. Also company-wide/unscoped, same reasoning as HOD.
+  DIRECTOR
 }
 
 enum UserStatus {
@@ -129,6 +140,7 @@ model TeamLeader {
 
   coveringReliefs TeamLeaderRelief[] @relation("CoveringReliefs")
   coveredReliefs  TeamLeaderRelief[] @relation("CoveredReliefs")
+  performanceTrackers PerformanceTracker[]
 }
 
 // "Benson relieves Calvince" / "Benson holds fort for Calvince" — a peer Team
@@ -190,6 +202,102 @@ model Manager {
   id        String   @id @default(cuid())
   name      String   @unique
   createdAt DateTime @default(now())
+}
+
+enum PerformanceTrackerType {
+  HOD
+  TEAM_LEADER
+}
+
+// Built from two real review workbooks, transcribed field-for-field: HEAD OF
+// SALES REVIEW-Suntory.xlsx's "MD Performance Review" sheet (HOD type) and
+// Sales Perfomance Tracker-Suntory.xlsx's "Monthly KPIs" + "Rep Scorecard"
+// sheets (TEAM_LEADER type). One row per (type, period, teamLeaderId-or-null):
+// the HOD tracker is company-wide (teamLeaderId null, one per period, filled
+// by the HOD role, reviewed by DIRECTOR); the Team Leader tracker is one per
+// Team Leader per period (filled by TEAM_LEADER, reviewed by their own
+// SUPERVISOR via TeamLeaderAssignment.supervisorId — the same scope already
+// used everywhere else). See lib/performanceTracker/definitions.ts for the
+// per-type section/metric list (labels, weights, which metrics auto-populate
+// from live data vs stay manual-only for other departments to fill in) and
+// lib/performanceTracker/scoring.ts for the weighted-score/grade formulas,
+// both transcribed from those workbooks' own Instructions tabs.
+model PerformanceTracker {
+  id        String   @id @default(cuid())
+  type      PerformanceTrackerType
+  periodMonth String // "2026-08"
+  teamLeaderId String? // null for HOD; required for TEAM_LEADER
+  teamLeader   TeamLeader? @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
+  reviewedByName String? // free text — matches the Excel form's "Reviewed by" field
+  // HOD only — the MD's 0-5% qualitative addition (Instructions: "MD assigns
+  // 0-5% based on qualitative assessment. Not in formula - add manually to
+  // score if desired"). Genuinely not derivable from any metric.
+  mdDiscretionaryPct Float?
+  status         String   @default("draft") // draft | submitted | reviewed
+  reviewComments String?
+  createdByUserId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  metrics PerformanceTrackerMetric[]
+  repRows PerformanceTrackerRepRow[]
+
+  @@unique([type, periodMonth, teamLeaderId])
+  @@index([type, periodMonth])
+}
+
+// One row per KPI line within a tracker. metricKey matches a key in
+// lib/performanceTracker/definitions.ts's per-type metric list; target/actual
+// are null until filled in — manually, or by the auto-populate pass for
+// whichever metrics have a live source (see that file's `autoSource` field).
+// Deliberately rows-not-columns (unlike most models in this schema) because
+// both source workbooks are themselves just growing lists of KPI/Target/
+// Actual lines — "add relevant fields... add additional if need be" needs no
+// migration this way, only a definitions.ts edit.
+model PerformanceTrackerMetric {
+  id        String   @id @default(cuid())
+  trackerId String
+  tracker   PerformanceTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+  metricKey String
+  target    Float?
+  actual    Float?
+  updatedAt DateTime @updatedAt
+
+  @@unique([trackerId, metricKey])
+}
+
+// Team Leader tracker only — one row per sales rep on that Team Leader's team
+// for the period, mirroring "Rep Scorecard"'s per-rep grid: Volume, Revenue,
+// LPPC (a distribution-breadth proxy — see that sheet's own weighting),
+// Calls/Strike Rate, and a lightweight OOS aggregate (audited/instances,
+// rather than the source workbook's full outlet×SKU audit log, which was
+// scoped out of this first pass). Weighted score/grade are computed on read
+// from these fields (lib/performanceTracker/scoring.ts's computeRepScore),
+// never stored, so they always reflect the latest inputs.
+model PerformanceTrackerRepRow {
+  id              String   @id @default(cuid())
+  trackerId       String
+  tracker         PerformanceTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+  employeeCode    String? // links to EmployeeMaster where resolvable; free-text repName always shown regardless
+  repName         String
+  territory       String?
+  channel         String?
+  volumeTarget    Float?
+  volumeActual    Float?
+  revenueTarget   Float?
+  revenueActual   Float?
+  lppcTarget      Float?
+  lppcActual      Float?
+  callsPlanned    Float?
+  callsMade       Float?
+  productiveCalls Float?
+  oosAudited      Float? // outlets audited this period — denominator for OOS Rate
+  oosInstances    Float? // of those, how many were found out-of-stock
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([trackerId])
 }
 
 // The "fact table" driving Weekly Targets: which reps, selling which principals,

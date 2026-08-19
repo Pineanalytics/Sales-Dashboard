@@ -196,6 +196,8 @@ export default async function AdminUsersPage({
                 <option value="ADMIN">Admin — can upload new snapshots</option>
                 <option value="TEAM_LEADER">Team Leader — enters their own Weekly Targets</option>
                 <option value="SUPERVISOR">Sales Supervisor — manages their whole Team Leader group's roster/targets</option>
+                <option value="HOD">Head of Sales — fills the company-wide HOD Performance Tracker</option>
+                <option value="DIRECTOR">Director — reviews the HOD Performance Tracker</option>
               </select>
             </div>
             <div className="flex flex-col gap-2">
@@ -356,6 +358,8 @@ export default async function AdminUsersPage({
                         <option value="ADMIN">Admin</option>
                         <option value="TEAM_LEADER">Team Leader</option>
                         <option value="SUPERVISOR">Sales Supervisor</option>
+                        <option value="HOD">Head of Sales</option>
+                        <option value="DIRECTOR">Director</option>
                       </select>
                     </div>
                     <div className="flex flex-col gap-1.5">

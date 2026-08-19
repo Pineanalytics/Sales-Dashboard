@@ -74,7 +74,11 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const isAdmin = user?.role === "ADMIN";
   const isTeamLeader = user?.role === "TEAM_LEADER";
   const isSupervisor = user?.role === "SUPERVISOR";
+  const isHod = user?.role === "HOD";
+  const isDirector = user?.role === "DIRECTOR";
   const canAccessCoaching = isAdmin || isTeamLeader || isSupervisor;
+  const canAccessHodReview = isAdmin || isHod || isDirector;
+  const canAccessTlReview = isAdmin || isTeamLeader || isSupervisor;
   // Admins always see every report; a viewer only sees the pages their admin granted.
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
@@ -245,6 +249,52 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
                     <PeopleTeam20Regular />
                   </span>
                   <span className={expanded ? "" : "md:hidden"}>My Rep Roster</span>
+                </Link>
+              ) : null}
+            </nav>
+          </>
+        ) : null}
+
+        {canAccessHodReview || canAccessTlReview ? (
+          <>
+            <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Performance Review</div>
+            <nav className="px-3 pt-2 flex flex-col gap-1">
+              {canAccessHodReview ? (
+                <Link
+                  href="/hod-review"
+                  title="HOD Performance Tracker"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                    expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                  } ${
+                    pathname?.startsWith("/hod-review")
+                      ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                      : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                  }`}
+                >
+                  <span className={pathname?.startsWith("/hod-review") ? "text-white" : "text-secondary-blue"}>
+                    <TargetArrow20Regular />
+                  </span>
+                  <span className={expanded ? "" : "md:hidden"}>HOD Performance Tracker</span>
+                </Link>
+              ) : null}
+              {canAccessTlReview ? (
+                <Link
+                  href="/tl-review"
+                  title="TL Performance Tracker"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                    expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                  } ${
+                    pathname?.startsWith("/tl-review")
+                      ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                      : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                  }`}
+                >
+                  <span className={pathname?.startsWith("/tl-review") ? "text-white" : "text-secondary-blue"}>
+                    <Table20Regular />
+                  </span>
+                  <span className={expanded ? "" : "md:hidden"}>TL Performance Tracker</span>
                 </Link>
               ) : null}
             </nav>

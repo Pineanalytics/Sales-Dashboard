@@ -33,11 +33,11 @@ async function assertNotLastAdminDemotion(userId: string, currentUser: { id: str
   }
 }
 
-type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR";
+type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR";
 
 function readRole(formData: FormData): UserRole {
   const raw = formData.get("role");
-  if (raw === "ADMIN" || raw === "TEAM_LEADER" || raw === "SUPERVISOR") return raw;
+  if (raw === "ADMIN" || raw === "TEAM_LEADER" || raw === "SUPERVISOR" || raw === "HOD" || raw === "DIRECTOR") return raw;
   return "VIEWER";
 }
 
@@ -156,7 +156,13 @@ export async function updateUserRoleAction(formData: FormData) {
     );
   }
 
-  const roleLabel = role === "ADMIN" ? "an administrator" : role === "TEAM_LEADER" ? "a team leader" : role === "SUPERVISOR" ? "a sales supervisor" : "a viewer";
+  const roleLabel =
+    role === "ADMIN" ? "an administrator" :
+    role === "TEAM_LEADER" ? "a team leader" :
+    role === "SUPERVISOR" ? "a sales supervisor" :
+    role === "HOD" ? "a Head of Sales" :
+    role === "DIRECTOR" ? "a director" :
+    "a viewer";
   redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${roleLabel}.`));
 }
 
