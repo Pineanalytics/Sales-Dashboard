@@ -30,6 +30,16 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/** SAP normally returns numeric quantity and pack-size values, but an empty or
+ * non-numeric quantity can otherwise turn one aggregate into NaN and reject the
+ * entire server-side sync. Preserve revenue and record zero cases in that rare
+ * malformed-source situation rather than blocking all downstream actuals. */
+function casesFrom(qtySold: unknown, packSize: unknown): number {
+  const qty = typeof qtySold === "number" && Number.isFinite(qtySold) ? qtySold : 0;
+  const pack = typeof packSize === "number" && Number.isFinite(packSize) && packSize > 0 ? packSize : null;
+  return pack ? qty / pack : 0;
+}
+
 interface ResolvedRep {
   employeeCode: string | null;
   employeeName: string | null;
@@ -113,7 +123,7 @@ export function buildMonthlyRepSales(
       cogs: 0,
       grossProfit: 0,
     };
-    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
+    existing.cases += casesFrom(row.qtySold, row.packSize);
     existing.revenue += row.salesAmount;
     existing.cogs += row.cogs;
     existing.grossProfit += row.grossMargin;
@@ -153,7 +163,7 @@ export function buildDailyRepSales(
       cogs: 0,
       grossProfit: 0,
     };
-    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
+    existing.cases += casesFrom(row.qtySold, row.packSize);
     existing.revenue += row.salesAmount;
     existing.cogs += row.cogs;
     existing.grossProfit += row.grossMargin;
@@ -225,7 +235,7 @@ export function buildMonthlyCustomerSales(
       revenue: 0,
       grossProfit: 0,
     };
-    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
+    existing.cases += casesFrom(row.qtySold, row.packSize);
     existing.revenue += row.salesAmount;
     existing.grossProfit += row.grossMargin;
     byKey.set(key, existing);
@@ -260,7 +270,7 @@ export function buildDailyCustomerSales(
       revenue: 0,
       grossProfit: 0,
     };
-    existing.cases += row.packSize ? row.qtySold / row.packSize : 0;
+    existing.cases += casesFrom(row.qtySold, row.packSize);
     existing.revenue += row.salesAmount;
     existing.grossProfit += row.grossMargin;
     byKey.set(key, existing);
