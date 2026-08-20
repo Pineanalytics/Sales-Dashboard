@@ -227,11 +227,15 @@ async function main() {
   });
   const repBody = await repResponse.json();
   if (!repResponse.ok) {
-    throw new Error(`Rep-level upload rejected (HTTP ${repResponse.status}): ${JSON.stringify(repBody)}`);
+    // Rep-level data is an enrichment. Do not let one malformed rep row block
+    // the canonical Customer & Brands refresh (or the derived target refresh)
+    // after principal-level sales and daily actuals have already succeeded.
+    console.error(`[sales-sync] Rep-level upload rejected (HTTP ${repResponse.status}); continuing with customer/brand sync: ${JSON.stringify(repBody)}`);
+  } else {
+    console.log(
+      `[sales-sync] Rep-level upload succeeded. Saved ${repBody.monthlyRows} monthly and ${repBody.dailyRows} daily rows; ${repBody.unmatchedMonthlyRows} monthly rows remain unmatched to Employee Roaster.`
+    );
   }
-  console.log(
-    `[sales-sync] Rep-level upload succeeded. Saved ${repBody.monthlyRows} monthly and ${repBody.dailyRows} daily rows; ${repBody.unmatchedMonthlyRows} monthly rows remain unmatched to Employee Roaster.`
-  );
 
   console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
   const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {

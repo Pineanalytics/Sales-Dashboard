@@ -75,6 +75,42 @@ function isDailyRow(value: unknown): value is DailyRepSalesUploadRow {
   );
 }
 
+function invalidMonthlyFields(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) return ["row"];
+  const row = value as Record<string, unknown>;
+  return [
+    !isText(row.year) && "year",
+    !isText(row.month) && "month",
+    !Number.isInteger(row.monthIndex) && "monthIndex",
+    !isText(row.location) && "location",
+    !isText(row.principal) && "principal",
+    !isText(row.sapName) && "sapName",
+    !isNullableText(row.employeeCode) && "employeeCode",
+    !isNullableText(row.employeeName) && "employeeName",
+    !isNumber(row.cases) && "cases",
+    !isNumber(row.revenue) && "revenue",
+    !isNumber(row.cogs) && "cogs",
+    !isNumber(row.grossProfit) && "grossProfit",
+  ].filter(Boolean) as string[];
+}
+
+function invalidDailyFields(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) return ["row"];
+  const row = value as Record<string, unknown>;
+  return [
+    !isText(row.date) && "date",
+    !isText(row.location) && "location",
+    !isText(row.principal) && "principal",
+    !isText(row.sapName) && "sapName",
+    !isNullableText(row.employeeCode) && "employeeCode",
+    !isNullableText(row.employeeName) && "employeeName",
+    !isNumber(row.cases) && "cases",
+    !isNumber(row.revenue) && "revenue",
+    !isNumber(row.cogs) && "cogs",
+    !isNumber(row.grossProfit) && "grossProfit",
+  ].filter(Boolean) as string[];
+}
+
 async function upsertMonthlyChunk(rows: MonthlyRepSalesUploadRow[]) {
   const values = rows.map(
     (row) =>
@@ -130,8 +166,17 @@ export async function POST(req: NextRequest) {
 
   const monthlyRows = (body as { monthlyRows?: unknown })?.monthlyRows;
   const dailyRows = (body as { dailyRows?: unknown })?.dailyRows;
-  if (!Array.isArray(monthlyRows) || !Array.isArray(dailyRows) || !monthlyRows.every(isMonthlyRow) || !dailyRows.every(isDailyRow)) {
-    return NextResponse.json({ error: "One or more rep-level SAP sales rows are invalid." }, { status: 400 });
+  if (!Array.isArray(monthlyRows) || !Array.isArray(dailyRows)) {
+    return NextResponse.json({ error: 'Expected JSON with "monthlyRows" and "dailyRows" arrays.' }, { status: 400 });
+  }
+  const invalidMonthly = monthlyRows.findIndex((row) => !isMonthlyRow(row));
+  const invalidDaily = dailyRows.findIndex((row) => !isDailyRow(row));
+  if (invalidMonthly >= 0 || invalidDaily >= 0) {
+    return NextResponse.json({
+      error: "One or more rep-level SAP sales rows are invalid.",
+      invalidMonthly: invalidMonthly >= 0 ? { index: invalidMonthly, fields: invalidMonthlyFields(monthlyRows[invalidMonthly]) } : null,
+      invalidDaily: invalidDaily >= 0 ? { index: invalidDaily, fields: invalidDailyFields(dailyRows[invalidDaily]) } : null,
+    }, { status: 400 });
   }
 
   try {
