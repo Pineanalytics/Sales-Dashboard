@@ -650,15 +650,15 @@ export function summarizeBrandCustomerByPrincipal(
  *  WeeklyTarget. Computed directly from `date` rather than searched out of a
  *  single month's week list, since the week containing today can have its
  *  Monday in the *previous* month (e.g. the 1st of the month is a Wednesday). */
-function mondayOf(date: Date): Date {
+function sundayOf(date: Date): Date {
   const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = d.getUTCDay(); // 0=Sun..6=Sat
-  const diff = day === 0 ? -6 : 1 - day;
-  return new Date(d.getTime() + diff * 86400000);
+  return new Date(d.getTime() - d.getUTCDay() * 86400000);
 }
 
 export interface BrandCustomerWeekSummary {
   weekStartDate: Date;
+  year: string;
+  monthLabel: string;
   /** "<Mon> Week <n>" — matches WeeklyTarget.weekLabel's own numbering exactly
    *  (via getWeeksInMonth, resolved against whichever month this week's Monday
    *  actually falls in), so this can be joined against a WeeklyTarget fetch for
@@ -679,10 +679,12 @@ export interface BrandCustomerWeekSummary {
  *  which is correct: there's no way to recover a historical month's true
  *  within-month weekly split without real day-level source data. */
 export function summarizeBrandCustomerForCurrentWeek(dataset: Dataset, principalKey: string | null, today: Date = new Date()): BrandCustomerWeekSummary {
-  const monday = mondayOf(today);
-  const weekEnd = new Date(monday.getTime() + 6 * 86400000);
-  const weeksInMondaysMonth = getWeeksInMonth(monday.getUTCFullYear(), monday.getUTCMonth());
-  const matched = weeksInMondaysMonth.find((w) => w.weekStartDate.getTime() === monday.getTime());
+  const sunday = sundayOf(today);
+  const weekEnd = new Date(sunday.getTime() + 6 * 86400000);
+  const year = String(today.getUTCFullYear());
+  const monthLabel = CANONICAL_MONTHS[today.getUTCMonth()];
+  const weeksInMonth = getWeeksInMonth(today.getUTCFullYear(), today.getUTCMonth());
+  const matched = weeksInMonth.find((w) => w.weekStartDate.getTime() === sunday.getTime());
 
   let revenue = 0;
   let cases = 0;
@@ -690,13 +692,13 @@ export function summarizeBrandCustomerForCurrentWeek(dataset: Dataset, principal
   for (const r of dataset.monthlyBrandCustomer) {
     if (principalKey && r.principal !== principalKey) continue;
     const d = new Date(`${r.date}T00:00:00Z`).getTime();
-    if (d >= monday.getTime() && d <= weekEnd.getTime()) {
+    if (d >= sunday.getTime() && d <= weekEnd.getTime()) {
       revenue += r.revenue;
       cases += r.cases;
       grossProfit += r.grossProfit;
     }
   }
-  return { weekStartDate: monday, weekLabel: matched?.weekLabel ?? "", revenue, cases, grossProfit };
+  return { weekStartDate: sunday, year, monthLabel, weekLabel: matched?.weekLabel ?? "", revenue, cases, grossProfit };
 }
 
 // ---------------------------------------------------------------------------

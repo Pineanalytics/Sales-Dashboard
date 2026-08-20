@@ -28,14 +28,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
 
-  const rows = await prisma.dailySalesActual.findMany({
+  const rows = await prisma.dailyBrandCustomerActual.groupBy({
+    by: ["date", "principal"],
     where: {
       date: { gte: new Date(from), lte: new Date(to) },
       ...(principal ? { principal } : scope ? { principal: { in: scope.principals } } : {}),
     },
-    select: { date: true, principal: true, revenue: true, cogs: true, grossProfit: true },
     orderBy: { date: "asc" },
+    _sum: { revenue: true, grossProfit: true },
   });
 
-  return NextResponse.json({ rows });
+  return NextResponse.json({
+    rows: rows.map((row) => {
+      const revenue = row._sum.revenue ?? 0;
+      const grossProfit = row._sum.grossProfit ?? 0;
+      return { date: row.date, principal: row.principal, revenue, grossProfit, cogs: revenue - grossProfit };
+    }),
+  });
 }

@@ -131,7 +131,9 @@ export function WeekDailyActuals({
   const weekCards = weeks.map((w, i) => {
     const weekStart = w.weekStartDate;
     const weekEnd = new Date(weekStart.getTime() + 6 * 86400000);
-    const projection = weeklyTargets.filter((wt) => wt.weekLabel === w.weekLabel).reduce((s, wt) => s + wt.targetValue, 0);
+    const projection = weeklyTargets
+      .filter((wt) => toDateKey(new Date(wt.weekStartDate)) === toDateKey(w.weekStartDate))
+      .reduce((s, wt) => s + wt.targetValue, 0);
     let actual = 0;
     for (const [dateKey, revenue] of revenueByDate) {
       const d = new Date(`${dateKey}T00:00:00Z`);

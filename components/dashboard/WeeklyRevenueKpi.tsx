@@ -5,11 +5,12 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { AchievementBadge } from "@/components/ui/Badge";
 import { formatCompact } from "@/lib/format";
-import { summarizeBrandCustomerForCurrentWeek, CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { summarizeBrandCustomerForCurrentWeek } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
 
 interface WeeklyTargetRow {
   weekLabel: string;
+  weekStartDate: string;
   principal: string;
   targetValue: number;
 }
@@ -34,15 +35,18 @@ export function WeeklyRevenueKpi({ dataset, principalKey }: { dataset: Dataset; 
     }
     (async () => {
       try {
-        const year = String(week.weekStartDate.getUTCFullYear());
-        const monthLabel = CANONICAL_MONTHS[week.weekStartDate.getUTCMonth()];
+        const year = week.year;
+        const monthLabel = week.monthLabel;
         const url = `/api/dashboard/targets?year=${year}&monthLabel=${encodeURIComponent(monthLabel)}${principalKey ? `&principal=${encodeURIComponent(principalKey)}` : ""}`;
         const res = await fetch(url, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || "Failed to load Weekly Target.");
         if (!cancelled) {
           const weeklyTargets: WeeklyTargetRow[] = body.weeklyTargets ?? [];
-          const sum = weeklyTargets.filter((wt) => wt.weekLabel === week.weekLabel).reduce((s, wt) => s + wt.targetValue, 0);
+          const weekStart = week.weekStartDate.toISOString().slice(0, 10);
+          const sum = weeklyTargets
+            .filter((wt) => new Date(wt.weekStartDate).toISOString().slice(0, 10) === weekStart)
+            .reduce((s, wt) => s + wt.targetValue, 0);
           setTarget(sum);
         }
       } catch {

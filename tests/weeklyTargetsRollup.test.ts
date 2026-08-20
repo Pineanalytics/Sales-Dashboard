@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  getMondaysInMonth,
+  getWeekStartsInMonth,
   getWeeksInMonth,
   diffMissingGridRows,
   sumWeeklyTargetsByPrincipalMonth,
@@ -13,13 +13,13 @@ describe("getMondaysInMonth / getWeeksInMonth", () => {
   it("returns every real Monday in the month, not a fixed count", () => {
     // April 2026: Mondays fall on 6, 13, 20, 27 — exactly 4, not the source
     // workbook's hardcoded 5.
-    const mondays = getMondaysInMonth(2026, 3);
-    expect(mondays.map((d) => d.getUTCDate())).toEqual([6, 13, 20, 27]);
+    const starts = getWeekStartsInMonth(2026, 3);
+    expect(starts.map((d) => d.toISOString().slice(0, 10))).toEqual(["2026-03-29", "2026-04-05", "2026-04-12", "2026-04-19", "2026-04-26"]);
   });
 
   it("labels weeks sequentially with the month abbreviation", () => {
     const weeks = getWeeksInMonth(2026, 3);
-    expect(weeks.map((w) => w.weekLabel)).toEqual(["Apr Week 1", "Apr Week 2", "Apr Week 3", "Apr Week 4"]);
+    expect(weeks.map((w) => w.weekLabel)).toEqual(["Apr Week 1", "Apr Week 2", "Apr Week 3", "Apr Week 4", "Apr Week 5"]);
     expect(weeks[0].monthLabel).toBe("April");
     expect(weeks[0].year).toBe("2026");
   });

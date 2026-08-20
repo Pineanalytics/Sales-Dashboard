@@ -19,11 +19,11 @@ export interface DateMatchedGrowth {
 }
 
 /** Loads the compact daily SAP aggregate for fair partial-month comparisons. */
-export function useDateAwareGrowth(period: PeriodSelection, selectedPrincipalKey: string | null) {
+export function useDateAwareGrowth(period: PeriodSelection | null, selectedPrincipalKey: string | null) {
   const [data, setData] = useState<DateMatchedGrowth | null>(null);
-  const [loading, setLoading] = useState(Boolean(period.month));
+  const [loading, setLoading] = useState(Boolean(period?.month));
   useEffect(() => {
-    const month = period.month ? CANONICAL_MONTHS.indexOf(period.month) + 1 : 0;
+    const month = period?.month ? CANONICAL_MONTHS.indexOf(period.month) + 1 : 0;
     if (!month) {
       setData(null);
       setLoading(false);
@@ -32,7 +32,7 @@ export function useDateAwareGrowth(period: PeriodSelection, selectedPrincipalKey
     const controller = new AbortController();
     setData(null);
     setLoading(true);
-    const params = new URLSearchParams({ year: period.year, month: String(month) });
+    const params = new URLSearchParams({ year: period!.year, month: String(month) });
     if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
     fetch(`/api/dashboard/date-aware-growth?${params}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Growth comparison unavailable"))))
@@ -44,6 +44,6 @@ export function useDateAwareGrowth(period: PeriodSelection, selectedPrincipalKey
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [period.year, period.month, selectedPrincipalKey]);
+  }, [period?.year, period?.month, selectedPrincipalKey]);
   return { data, loading };
 }

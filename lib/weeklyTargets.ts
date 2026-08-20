@@ -18,20 +18,21 @@ function toUtcMidnight(y: number, m: number, d: number): Date {
   return new Date(Date.UTC(y, m, d));
 }
 
-export function getMondaysInMonth(year: number, monthIndex: number): Date[] {
+export function getWeekStartsInMonth(year: number, monthIndex: number): Date[] {
   const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-  const mondays: Date[] = [];
+  const weekStarts = new Map<number, Date>();
   for (let d = 1; d <= daysInMonth; d++) {
     const date = toUtcMidnight(year, monthIndex, d);
-    if (date.getUTCDay() === 1) mondays.push(date);
+    const sunday = toUtcMidnight(year, monthIndex, d - date.getUTCDay());
+    weekStarts.set(sunday.getTime(), sunday);
   }
-  return mondays;
+  return Array.from(weekStarts.values()).sort((a, b) => a.getTime() - b.getTime());
 }
 
 export function getWeeksInMonth(year: number, monthIndex: number): WeekInfo[] {
   const monthLabel = CANONICAL_MONTHS[monthIndex];
   const abbrev = monthLabel.slice(0, 3);
-  return getMondaysInMonth(year, monthIndex).map((weekStartDate, i) => ({
+  return getWeekStartsInMonth(year, monthIndex).map((weekStartDate, i) => ({
     year: String(year),
     monthLabel,
     weekLabel: `${abbrev} Week ${i + 1}`,
@@ -49,7 +50,8 @@ export function getWeeksInRange(windowStart: Date, windowEnd: Date): WeekInfo[] 
   const endM = windowEnd.getUTCMonth();
   while (y < endY || (y === endY && m <= endM)) {
     for (const w of getWeeksInMonth(y, m)) {
-      if (w.weekStartDate >= windowStart && w.weekStartDate <= windowEnd) weeks.push(w);
+      const weekEnd = new Date(w.weekStartDate.getTime() + 6 * 86400000);
+      if (weekEnd >= windowStart && w.weekStartDate <= windowEnd) weeks.push(w);
     }
     m += 1;
     if (m > 11) {
@@ -121,7 +123,7 @@ export async function ensureWeeklyTargetGrid(pairs: AssignmentPair[]): Promise<v
 
   const existing = await prisma.weeklyTarget.findMany({
     where: {
-      weekStartDate: { gte: start, lte: end },
+      weekStartDate: { gte: new Date(start.getTime() - 6 * 86400000), lte: end },
       OR: pairs.map((p) => ({ teamLeaderId: p.teamLeaderId, principal: p.principal })),
     },
     select: { teamLeaderId: true, principal: true, weekStartDate: true },

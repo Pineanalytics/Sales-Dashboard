@@ -47,7 +47,12 @@ export async function GET(req: NextRequest) {
   const principalWhere = principal ? { principal } : scope ? { principal: { in: scope.principals } } : {};
   const monthStart = utcDate(year, month, 1);
   const nextMonthStart = utcDate(year, month === 12 ? 1 : month + 1, 1);
-  const latest = await prisma.dailySalesActual.findFirst({
+  const latestCustomerActual = await prisma.dailyBrandCustomerActual.findFirst({
+    where: { ...principalWhere, date: { gte: monthStart, lt: nextMonthStart } },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  const latest = latestCustomerActual ?? await prisma.dailySalesActual.findFirst({
     where: { ...principalWhere, date: { gte: monthStart, lt: nextMonthStart } },
     orderBy: { date: "desc" },
     select: { date: true },
@@ -69,13 +74,23 @@ export async function GET(req: NextRequest) {
   };
 
   const totals = await Promise.all(
-    Object.values(windows).map((window) =>
-      prisma.dailySalesActual.aggregate({
+    Object.values(windows).map(async (window) => {
+      const canonical = await prisma.dailyBrandCustomerActual.aggregate({
         where: { ...principalWhere, date: { gte: window.from, lt: dayAfter(window.through) } },
         _sum: { revenue: true },
         _count: { id: true },
-      })
-    )
+      });
+      // Customer & Brands is canonical whenever it exists. Historical daily
+      // snapshots predate that feed, so retain DailySalesActual only as a
+      // date-matched comparison fallback (not as a live-month source).
+      return canonical._count.id > 0
+        ? canonical
+        : prisma.dailySalesActual.aggregate({
+            where: { ...principalWhere, date: { gte: window.from, lt: dayAfter(window.through) } },
+            _sum: { revenue: true },
+            _count: { id: true },
+          });
+    })
   );
   const result = (["current", "mom", "yoy"] as const).reduce((acc, key, index) => {
     const total = totals[index];

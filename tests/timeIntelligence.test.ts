@@ -481,7 +481,7 @@ describe("summarizeBrandCustomerForCurrentWeek", () => {
     expect(result.revenue).toBe(300);
     expect(result.cases).toBe(30);
     expect(result.grossProfit).toBe(60);
-    expect(result.weekLabel).toBe("Aug Week 1");
+    expect(result.weekLabel).toBe("Aug Week 2");
   });
 
   it("filters by principal when a principalKey is given", () => {
@@ -503,7 +503,7 @@ describe("summarizeBrandCustomerForCurrentWeek", () => {
       monthlyBrandCustomer: [brandCustomerRow({ date: "2026-06-29", revenue: 700 })],
     });
     const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-07-01T00:00:00Z"));
-    expect(result.weekLabel).toBe("Jun Week 5");
+    expect(result.weekLabel).toBe("Jul Week 1");
     expect(result.revenue).toBe(700);
   });
 
@@ -513,7 +513,7 @@ describe("summarizeBrandCustomerForCurrentWeek", () => {
     });
     const result = summarizeBrandCustomerForCurrentWeek(dataset, null, new Date("2026-08-05T00:00:00Z"));
     expect(result.revenue).toBe(0);
-    expect(result.weekLabel).toBe("Aug Week 1");
+    expect(result.weekLabel).toBe("Aug Week 2");
   });
 });
 

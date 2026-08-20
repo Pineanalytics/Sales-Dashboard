@@ -11,6 +11,7 @@ import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars"
 import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { DashboardControls, type DashboardView } from "@/components/dashboard/DashboardControls";
+import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { formatCompact } from "@/lib/format";
@@ -43,6 +44,7 @@ export default function DashboardPage() {
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const [tab, setTab] = useState<DashboardView>("mtd");
   const [coverageRole, setCoverageRole] = useState<Extract<RoleCategory, "primary" | "secondary">>("primary");
+  const dateMatchedGrowth = useDateAwareGrowth(dataset ? getCurrentMonthPeriod(dataset) : null, selectedPrincipalKey).data;
 
   if (!dataset) return null;
 
@@ -69,6 +71,11 @@ export default function DashboardPage() {
   const momPct =
     previousMonthSummary && previousMonthSummary.revenue > 0
       ? ((mtdSummary.revenue - previousMonthSummary.revenue) / previousMonthSummary.revenue) * 100
+      : null;
+  const dateMatchedMomPct =
+    dateMatchedGrowth?.available && dateMatchedGrowth.current?.revenue !== null && dateMatchedGrowth.current?.revenue !== undefined &&
+    dateMatchedGrowth.mom?.revenue !== null && dateMatchedGrowth.mom?.revenue !== undefined && dateMatchedGrowth.mom.revenue > 0
+      ? ((dateMatchedGrowth.current.revenue - dateMatchedGrowth.mom.revenue) / dateMatchedGrowth.mom.revenue) * 100
       : null;
   const mtdBalance = mtdSummary.target !== null ? mtdSummary.target - mtdSummary.revenue : null;
 
@@ -105,8 +112,8 @@ export default function DashboardPage() {
                     />
                     <Row
                       label="MoM"
-                      value={momPct !== null ? `${momPct >= 0 ? "+" : ""}${momPct.toFixed(0)}%` : "N/A"}
-                      negative={momPct !== null && momPct < 0}
+                      value={(dateMatchedMomPct ?? momPct) !== null ? `${(dateMatchedMomPct ?? momPct)! >= 0 ? "+" : ""}${(dateMatchedMomPct ?? momPct)!.toFixed(0)}%` : "N/A"}
+                      negative={(dateMatchedMomPct ?? momPct) !== null && (dateMatchedMomPct ?? momPct)! < 0}
                     />
                   </div>
                 </SectionCard>

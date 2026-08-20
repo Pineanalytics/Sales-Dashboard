@@ -45,10 +45,51 @@ export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSum
  *  principal/month combo) is appended as a new row with target: null. Runs
  *  BEFORE overlayTargets so the target merge operates on the final sales rows. */
 async function overlaySales(dataset: Dataset): Promise<Dataset> {
-  const records = await prisma.salesRecord.findMany();
-  if (records.length === 0) return dataset;
+  const now = new Date();
+  const currentYear = String(now.getUTCFullYear());
+  const currentMonthIndex = now.getUTCMonth();
+  const currentMonth = CANONICAL_MONTHS[currentMonthIndex];
+  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), currentMonthIndex, 1));
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), currentMonthIndex + 1, 1));
+
+  // For an open month, Customer & Brands has the freshest daily corrections.
+  // Aggregate it to the cockpit's principal/month grain so both views use the
+  // same canonical revenue rather than diverging after an intraday correction.
+  const [records, liveCurrentMonth] = await Promise.all([
+    prisma.salesRecord.findMany(),
+    prisma.dailyBrandCustomerActual.groupBy({
+      by: ["principal"],
+      where: { date: { gte: currentMonthStart, lt: nextMonthStart } },
+      _sum: { revenue: true, grossProfit: true },
+    }),
+  ]);
+  if (records.length === 0 && liveCurrentMonth.length === 0) return dataset;
 
   const byKey = new Map(records.map((r) => [`${r.year}|${r.month}|${r.principal}`, r]));
+  const snapshotLocationByPrincipal = new Map(
+    dataset.monthlySales
+      .filter((row) => row.year === currentYear && row.monthIndex === currentMonthIndex)
+      .map((row) => [row.principal, row.location])
+  );
+  for (const row of liveCurrentMonth) {
+    const revenue = row._sum.revenue ?? 0;
+    const grossProfit = row._sum.grossProfit ?? 0;
+    const key = `${currentYear}|${currentMonth}|${row.principal}`;
+    const existing = byKey.get(key);
+    byKey.set(key, {
+      id: existing?.id ?? "live-brand-customer",
+      year: currentYear,
+      month: currentMonth,
+      monthIndex: currentMonthIndex,
+      principal: row.principal,
+      location: existing?.location ?? snapshotLocationByPrincipal.get(row.principal) ?? "Unassigned",
+      revenue,
+      grossProfit,
+      cogs: revenue - grossProfit,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
   const matchedKeys = new Set<string>();
 
   const merged: MonthlySalesRow[] = dataset.monthlySales.map((row) => {
