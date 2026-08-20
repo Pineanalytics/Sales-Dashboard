@@ -60,7 +60,14 @@ async function main() {
     const response = await fetch(`${appUrl}/api/coverage/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-      body: JSON.stringify({ year: range.year, monthIndex: range.monthIndex, rows: monthRows }),
+      body: JSON.stringify({
+        year: range.year,
+        monthIndex: range.monthIndex,
+        // buildCoverage also carries presentation-only principalKey and
+        // productivityPct fields; the persisted table stores its raw inputs
+        // and the dashboard recomputes the percentage from those inputs.
+        rows: monthRows.map(({ principalKey: _principalKey, productivityPct: _productivityPct, ...row }) => row),
+      }),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(`Coverage upload rejected for ${range.year}-${range.monthIndex + 1} (HTTP ${response.status}): ${JSON.stringify(body)}`);
