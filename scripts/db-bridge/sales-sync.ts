@@ -53,6 +53,7 @@ import {
   buildMonthlyRepSales,
   dailyRowsToMonthlyInput,
 } from "./transform/buildRepSales";
+import { replacementPeriodsFromDailyWindows, replacementPeriodsFromMonthlyRows } from "@/lib/salesReplacement";
 
 const isBackfill = process.argv.includes("--backfill");
 const isComparisonBackfill = process.argv.includes("--comparison-backfill");
@@ -140,6 +141,8 @@ async function main() {
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
   const monthlyCustomerSales = buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
   const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
+  const monthlyReplacePeriods = replacementPeriodsFromMonthlyRows(monthlyCustomerSales);
+  const dailyReplacePeriods = replacementPeriodsFromDailyWindows(dailyWindowsToRead);
   console.log(
     `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, and ${dailyCustomerSales.length} customer-day rows.`
   );
@@ -234,7 +237,12 @@ async function main() {
   const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-    body: JSON.stringify({ monthlyRows: monthlyCustomerSales, dailyRows: dailyCustomerSales }),
+    body: JSON.stringify({
+      monthlyRows: monthlyCustomerSales,
+      dailyRows: dailyCustomerSales,
+      monthlyReplacePeriods,
+      dailyReplacePeriods,
+    }),
   });
   const brandCustomerBody = await brandCustomerResponse.json();
   if (!brandCustomerResponse.ok) {
