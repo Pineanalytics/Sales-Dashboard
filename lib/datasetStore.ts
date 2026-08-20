@@ -149,8 +149,29 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
   // merged in right alongside Pine's — same row shape, same merge-by-key
   // logic below, so Coverage & Productivity picks it up wherever an EABL
   // principal is selected with zero further changes to this function.
-  const [pineRows, eablRows] = await Promise.all([getMonthlyCoverageRollup(null), getEablMonthlyCoverageRollup()]);
-  const rollupRows = [...pineRows, ...eablRows];
+  const [directRows, pineRows, eablRows] = await Promise.all([
+    prisma.coverageActual.findMany(),
+    getMonthlyCoverageRollup(null),
+    getEablMonthlyCoverageRollup(),
+  ]);
+  // A persisted direct month is authoritative for Pine coverage. RepCall stays
+  // as a live fallback only until that month has been validated and saved;
+  // EABL is a separate principal feed and is merged alongside either source.
+  const directMonths = new Set(directRows.map((row) => `${row.year}|${row.monthIndex}`));
+  const rollupRows = [
+    ...directRows.map((row) => ({
+      year: row.year,
+      monthIndex: row.monthIndex,
+      principalKey: normalizePrincipalKey(row.principal),
+      principal: row.principal,
+      salesRole: row.salesRole,
+      employeeName: row.employeeName,
+      coverage: row.coverage,
+      productive: row.productiveCalls,
+    })),
+    ...pineRows.filter((row) => !directMonths.has(`${row.year}|${row.monthIndex}`)),
+    ...eablRows,
+  ];
   if (rollupRows.length === 0) return dataset;
 
   interface Agg {

@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "eabl" | "eabl-customers" | "active-outlets" | "sales" | "pl" | "stock";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "sales" | "pl" | "stock";
 
 interface JobDefinition {
   name: JobName;
@@ -18,6 +18,9 @@ interface JobDefinition {
 
 const jobs: Record<JobName, JobDefinition> = {
   timestamps: { name: "timestamps", entry: "scripts/db-bridge/timestamps/run.ts", intervalEnv: "TIMESTAMPS_INTERVAL_SECONDS", defaultSeconds: 30 },
+  // Current-month Pine coverage uses the same business rules as the workbook's
+  // Calls & Productivity query, but is persisted directly to Postgres.
+  coverage: { name: "coverage", entry: "scripts/db-bridge/coverage/sync.ts", intervalEnv: "COVERAGE_INTERVAL_SECONDS", defaultSeconds: 1800 },
   eabl: { name: "eabl", entry: "scripts/db-bridge/eabl-call-performance/run.ts", intervalEnv: "EABL_INTERVAL_SECONDS", defaultSeconds: 60 },
   // Reference/master data, not a live call feed - the source table barely
   // changes day to day (confirmed live: ~800-1000 rows total), so this runs

@@ -567,6 +567,28 @@ model StockSyncRun {
   @@index([completedAt])
 }
 
+// Canonical Calls & Productivity rows sourced directly from Pine.  The bridge
+// uses the same cost-centre attribution rules as the former workbook query,
+// but stores one immutable business grain (month/principal/role/rep) instead
+// of requiring a refreshed Excel snapshot to serve coverage history.
+model CoverageActual {
+  id              String   @id @default(cuid())
+  year            String
+  month           String
+  monthIndex      Int
+  salesRole       String
+  employeeName    String
+  principal       String
+  coverage        Int
+  productiveCalls Int
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([year, monthIndex, salesRole, employeeName, principal])
+  @@index([year, monthIndex])
+  @@index([principal, year, monthIndex])
+}
+
 // Canonical employee master imported from the Employee Roaster workbook. Pine's
 // Sales Rep Name and SAP's Sales Rep Name are intentionally both retained: Pine
 // drives operational activity (coverage, productivity, JPA, timestamps), while

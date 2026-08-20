@@ -103,9 +103,10 @@ services:
       # Next server under concurrent worker writes.
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       EABL_CALL_APP_URL: https://pinefrostdb.com
-      CONTINUOUS_SYNC_JOBS: timestamps,eabl,eabl-customers
+      CONTINUOUS_SYNC_JOBS: timestamps,coverage,eabl,eabl-customers
       TIMESTAMPS_INTERVAL_SECONDS: 30
       TIMESTAMPS_BATCH_SIZE: 250
+      COVERAGE_INTERVAL_SECONDS: 1800
       EABL_INTERVAL_SECONDS: 60
     cpus: 0.75
     mem_limit: 512m
