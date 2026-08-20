@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
 
       for (let index = 0; index < monthlyRows.length; index += CHUNK_SIZE) await upsertMonthlyChunk(tx, monthlyRows.slice(index, index + CHUNK_SIZE));
       for (let index = 0; index < dailyRows.length; index += CHUNK_SIZE) await upsertDailyChunk(tx, dailyRows.slice(index, index + CHUNK_SIZE));
-    });
+    }, { timeout: 120_000 });
     invalidateDatasetCache();
     return NextResponse.json({ monthlyRows: monthlyRows.length, dailyRows: dailyRows.length }, { status: 200 });
   } catch (err) {
