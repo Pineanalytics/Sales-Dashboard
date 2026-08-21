@@ -49,23 +49,23 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  name         String?
-  passwordHash String
-  role         Role       @default(VIEWER)
-  status       UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
-  allowedPages String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
-  teamLeaderId String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER
-  supervisorId String?    @unique // links a SUPERVISOR-role login to their Supervisor row; unused otherwise, mirrors teamLeaderId
+  id                String     @id @default(cuid())
+  email             String     @unique
+  name              String?
+  passwordHash      String
+  role              Role       @default(VIEWER)
+  status            UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
+  allowedPages      String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
+  teamLeaderId      String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER
+  supervisorId      String?    @unique // links a SUPERVISOR-role login to their Supervisor row; unused otherwise, mirrors teamLeaderId
   // Restricts a VIEWER-role login to specific principals (Cost Centres) across the whole
   // app — dataset, every Prisma-backed dashboard/report route, and Frost — the same
   // scoping mechanism a TEAM_LEADER already gets via teamLeaderId, just principal-only
   // (no rep/employeeCode identity of their own). Empty = unrestricted, matching this
   // project's "default-all-pages on approval" convention: an existing VIEWER's access
   // never narrows just because this field shipped. Unused for ADMIN/TEAM_LEADER.
-  allowedPrincipals String[] @default([])
-  createdAt    DateTime   @default(now())
+  allowedPrincipals String[]   @default([])
+  createdAt         DateTime   @default(now())
 }
 
 // Admin-editable content for automated emails (currently just the new-modules
@@ -138,8 +138,8 @@ model TeamLeader {
   supervisorId String?
   createdAt    DateTime @default(now())
 
-  coveringReliefs TeamLeaderRelief[] @relation("CoveringReliefs")
-  coveredReliefs  TeamLeaderRelief[] @relation("CoveredReliefs")
+  coveringReliefs     TeamLeaderRelief[]   @relation("CoveringReliefs")
+  coveredReliefs      TeamLeaderRelief[]   @relation("CoveredReliefs")
   performanceTrackers PerformanceTracker[]
 }
 
@@ -223,21 +223,21 @@ enum PerformanceTrackerType {
 // lib/performanceTracker/scoring.ts for the weighted-score/grade formulas,
 // both transcribed from those workbooks' own Instructions tabs.
 model PerformanceTracker {
-  id        String   @id @default(cuid())
-  type      PerformanceTrackerType
-  periodMonth String // "2026-08"
-  teamLeaderId String? // null for HOD; required for TEAM_LEADER
-  teamLeader   TeamLeader? @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
-  reviewedByName String? // free text — matches the Excel form's "Reviewed by" field
+  id                 String                 @id @default(cuid())
+  type               PerformanceTrackerType
+  periodMonth        String // "2026-08"
+  teamLeaderId       String? // null for HOD; required for TEAM_LEADER
+  teamLeader         TeamLeader?            @relation(fields: [teamLeaderId], references: [id], onDelete: Cascade)
+  reviewedByName     String? // free text — matches the Excel form's "Reviewed by" field
   // HOD only — the MD's 0-5% qualitative addition (Instructions: "MD assigns
   // 0-5% based on qualitative assessment. Not in formula - add manually to
   // score if desired"). Genuinely not derivable from any metric.
   mdDiscretionaryPct Float?
-  status         String   @default("draft") // draft | submitted | reviewed
-  reviewComments String?
-  createdByUserId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  status             String                 @default("draft") // draft | submitted | reviewed
+  reviewComments     String?
+  createdByUserId    String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   metrics PerformanceTrackerMetric[]
   repRows PerformanceTrackerRepRow[]
@@ -255,13 +255,13 @@ model PerformanceTracker {
 // Actual lines — "add relevant fields... add additional if need be" needs no
 // migration this way, only a definitions.ts edit.
 model PerformanceTrackerMetric {
-  id        String   @id @default(cuid())
+  id        String             @id @default(cuid())
   trackerId String
   tracker   PerformanceTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
   metricKey String
   target    Float?
   actual    Float?
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime           @updatedAt
 
   @@unique([trackerId, metricKey])
 }
@@ -275,7 +275,7 @@ model PerformanceTrackerMetric {
 // from these fields (lib/performanceTracker/scoring.ts's computeRepScore),
 // never stored, so they always reflect the latest inputs.
 model PerformanceTrackerRepRow {
-  id              String   @id @default(cuid())
+  id              String             @id @default(cuid())
   trackerId       String
   tracker         PerformanceTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
   employeeCode    String? // links to EmployeeMaster where resolvable; free-text repName always shown regardless
@@ -293,9 +293,9 @@ model PerformanceTrackerRepRow {
   productiveCalls Float?
   oosAudited      Float? // outlets audited this period — denominator for OOS Rate
   oosInstances    Float? // of those, how many were found out-of-stock
-  sortOrder       Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  sortOrder       Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@index([trackerId])
 }
@@ -307,30 +307,30 @@ model PerformanceTrackerRepRow {
 // (teamLeaderId, principal) pairs get a Weekly Target grid, and which reps are
 // eligible for that principal's RepContribution split.
 model TeamLeaderAssignment {
-  id              String   @id @default(cuid())
-  teamLeaderId    String
-  employeeCode    String
-  employeeName    String
-  principal       String
+  id                    String   @id @default(cuid())
+  teamLeaderId          String
+  employeeCode          String
+  employeeName          String
+  principal             String
   // Below: ported from Target_Management_System.xlsm's Roster sheet.
-  channel         String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
+  channel               String? // free text, e.g. "KA" — matches the workbook's free-text Channel column
   // The Roster's "SAP Name" column — the rep's name as it appears in SAP, distinct from
   // employeeName (the "Employee (Sales Edge Name)" column, the Pine-side name). This is the
   // actual join key for matching rep-level revenue from the Excel-sourced Brand&Customer sheet
   // (MonthlyBrandCustomerRow.salesEmployee is a SAP-side name string) back to a Team Leader —
   // the Pine/SAP name-mismatch problem this project has hit before. Read from the source
   // workbook on the original Roster import but not persisted until now.
-  sapName         String?
+  sapName               String?
   // Admin-declared allocation %, distinct from RepContribution.sharePct (which is computed from
   // actual trailing revenue). Null = not yet declared for this rep/principal — falls back to the
   // computed share. When set, must sum to ~100% across active reps per principal (validated in
   // the admin UI, not enforced at the DB level).
-  contributionPct Float?
+  contributionPct       Float?
   // Soft-remove flag — the normal way to take a rep off a principal (preserves WeeklyTarget/
   // DailyTarget/RepContribution history and this row's own audit trail). Hard delete still
   // exists for genuine mistakes.
-  active          Boolean  @default(true)
-  salesRole       String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
+  active                Boolean  @default(true)
+  salesRole             String   @default("PRIMARY") // "PRIMARY" | "SECONDARY" — everyone PRIMARY for now
   // Below: ported from the updated Target_Management_System.xlsm's Roster sheet
   // (2026-08-03 refresh — 21 columns, up from the original 12-column import).
   // region/subRegion are Team-Leader-editable (their own reps only, see
@@ -360,8 +360,8 @@ model TeamLeaderAssignment {
   supervisorId          String?
   managerId             String?
   stockPoint            String?
-  updatedAt       DateTime @updatedAt
-  createdAt       DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdAt             DateTime @default(now())
 
   @@unique([teamLeaderId, employeeCode, principal])
   @@index([teamLeaderId])
@@ -410,7 +410,7 @@ model PrincipalKpiPeriod {
   id         String   @id @default(cuid())
   principal  String
   fiscalYear String
-  periodKey  String   // P01 … P13
+  periodKey  String // P01 … P13
   periodNo   Int
   startDate  DateTime
   endDate    DateTime
@@ -422,16 +422,16 @@ model PrincipalKpiPeriod {
 }
 
 model PrincipalKpiProduct {
-  id            String   @id @default(cuid())
-  principal     String
-  itemNo        String
-  itemName      String
-  packSize      Float?
-  brand         String?
+  id             String   @id @default(cuid())
+  principal      String
+  itemNo         String
+  itemName       String
+  packSize       Float?
+  brand          String?
   classification String?
-  ssuConversion Float?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  ssuConversion  Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([principal, itemNo])
   @@index([principal, brand])
@@ -441,19 +441,19 @@ model PrincipalKpiProduct {
 // roster view (FSR, seller type and active days), not a replacement for the
 // company-wide HR/Pine/SAP identity master.
 model PrincipalKpiRoster {
-  id           String   @id @default(cuid())
-  principal    String
-  employeeCode String
-  employeeName String
+  id            String   @id @default(cuid())
+  principal     String
+  employeeCode  String
+  employeeName  String
   employeeGroup String?
-  location     String?
-  teamLeader   String?
-  fsr          String?
-  sellerType   String?
-  activeDays   Int?
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  location      String?
+  teamLeader    String?
+  fsr           String?
+  sellerType    String?
+  activeDays    Int?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([principal, employeeCode])
   @@index([principal, sellerType])
@@ -484,20 +484,43 @@ model PrincipalKpiTarget {
   @@index([principal, fiscalYear, periodNo])
 }
 
+// Productive Report is a separate, SKU-level target model supplied by Mars.
+// It is deliberately not folded into the sales-value target: its target is
+// the number of productive outlet/SKU combinations expected from each rep.
+model PrincipalKpiProductiveTarget {
+  id            String   @id @default(cuid())
+  principal     String
+  employeeCode  String
+  employeeName  String?
+  employeeGroup String?
+  location      String?
+  fsr           String?
+  itemName      String
+  brand         String?
+  universe      Float?
+  targetRate    Float?
+  targetOutlets Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([principal, employeeCode, itemName])
+  @@index([principal, location, employeeGroup])
+}
+
 // Absolute route-to-market customer assignment.  Unlike a sales line, this
 // also retains customers with no activity, which is required for the RTM
 // universe, coverage and conversion KPIs in the Mars template.
 model PrincipalKpiRtmCustomer {
-  id          String   @id @default(cuid())
-  principal   String
-  customerId  String
+  id           String   @id @default(cuid())
+  principal    String
+  customerId   String
   customerName String?
-  location    String?
-  territory   String?
-  rtmType     String?
-  assignedRep String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  location     String?
+  territory    String?
+  rtmType      String?
+  assignedRep  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([principal, customerId])
   @@index([principal, location, rtmType])
@@ -508,48 +531,48 @@ model PrincipalKpiRtmCustomer {
 // The `sourceKey` is deterministic on import/sync, making replacement feeds
 // safe to retry without double-counting.
 model PrincipalKpiSaleLine {
-  id             String   @id @default(cuid())
-  principal      String
+  id              String   @id @default(cuid())
+  principal       String
   // Workbook imports remain a recoverable baseline while a direct principal
   // feed is being established.  The dashboard only reads PINE after a full
   // FY25/FY26 backfill has completed, so an interrupted source job cannot
   // produce a half-live scorecard.
-  source         String   @default("WORKBOOK")
-  sourceKey      String
+  source          String   @default("WORKBOOK")
+  sourceKey       String
   // Mirrors the Mars raw extract: sales/orders and their returns must remain
   // separately traceable so SSU can be reported net while productivity only
   // counts positive, sellable activity.
-  transactionType String  @default("sale")
-  saleType        String  @default("Actual")
-  isReturn        Boolean @default(false)
-  fiscalYear     String
-  periodKey      String
-  periodNo       Int
-  date           DateTime
-  employeeCode   String?
-  employeeName   String?
-  employeeGroup  String?
-  location       String?
-  teamLeader     String?
-  fsr            String?
-  sellerType     String?
-  customerId     String
-  customerName   String?
-  channel        String?
-  rtmType        String?
-  rtmOwner       String?
-  territory      String?
-  itemNo         String?
-  itemName       String?
-  brand          String?
-  classification String?
-  qty            Float
-  cases          Float
-  ssu            Float
-  revenue        Float
-  invoiceNo      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  transactionType String   @default("sale")
+  saleType        String   @default("Actual")
+  isReturn        Boolean  @default(false)
+  fiscalYear      String
+  periodKey       String
+  periodNo        Int
+  date            DateTime
+  employeeCode    String?
+  employeeName    String?
+  employeeGroup   String?
+  location        String?
+  teamLeader      String?
+  fsr             String?
+  sellerType      String?
+  customerId      String
+  customerName    String?
+  channel         String?
+  rtmType         String?
+  rtmOwner        String?
+  territory       String?
+  itemNo          String?
+  itemName        String?
+  brand           String?
+  classification  String?
+  qty             Float
+  cases           Float
+  ssu             Float
+  revenue         Float
+  invoiceNo       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([principal, sourceKey])
   @@index([principal, fiscalYear, periodNo])
@@ -661,20 +684,20 @@ model DailySalesActual {
 // while the direct feed is reconciled, so a partial or materially different SAP
 // result can never overwrite the user-visible stock position.
 model StockActual {
-  id             String   @id @default(cuid())
-  sourceDate     DateTime
-  principal      String
-  item           String
-  itemCode       String
-  openingVolume  Float
-  openingPcs     Float
-  openingValue   Float
-  rrWeekValue    Float
-  rrWeekVolume   Float
-  daysCover      Float
-  action         String
-  updatedAt      DateTime @updatedAt
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  sourceDate    DateTime
+  principal     String
+  item          String
+  itemCode      String
+  openingVolume Float
+  openingPcs    Float
+  openingValue  Float
+  rrWeekValue   Float
+  rrWeekVolume  Float
+  daysCover     Float
+  action        String
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
 
   @@unique([principal, item])
   @@index([sourceDate])
@@ -991,29 +1014,29 @@ model ActiveOutlet {
 // already resolved and sent, so the ledger needs to be self-contained for
 // the derivation query below to produce a complete ActiveOutlet row.
 model ActiveOutletEvent {
-  id         String   @id @default(cuid())
-  year       String
-  principal  String
-  customerId String
-  docId      String // pine.sales/orders doc id
-  isOrder    Boolean
-  date       DateTime
-  sales      Float
-  qty        Float
-  salesRole  String // "Primary Sales" | "Secondary Sales" — this event's own role
-  outletName String
-  channel    String
-  subChannel String
-  territory  String
-  latitude  Float?
-  longitude Float?
+  id              String   @id @default(cuid())
+  year            String
+  principal       String
+  customerId      String
+  docId           String // pine.sales/orders doc id
+  isOrder         Boolean
+  date            DateTime
+  sales           Float
+  qty             Float
+  salesRole       String // "Primary Sales" | "Secondary Sales" — this event's own role
+  outletName      String
+  channel         String
+  subChannel      String
+  territory       String
+  latitude        Float?
+  longitude       Float?
   pjpEmployeeCode String?
   pjpRepName      String?
   pjpRepGroup     String?
   pjpRegion       String?
-  repName    String?
-  repGroup   String?
-  createdAt  DateTime @default(now())
+  repName         String?
+  repGroup        String?
+  createdAt       DateTime @default(now())
 
   @@unique([year, principal, customerId, docId, isOrder])
   @@index([year, principal, customerId])
@@ -1107,35 +1130,35 @@ model RepCall {
 // be combined with RepCall: the two sources have different identities,
 // timekeeping fields and sales definitions.
 model EablCall {
-  id                    String   @id @default(cuid())
-  sourceCallKey         String   @unique
-  callDate              DateTime
-  salesman              String
-  agent                 String?
+  id                   String    @id @default(cuid())
+  sourceCallKey        String    @unique
+  callDate             DateTime
+  salesman             String
+  agent                String?
   // SAP MasterData.Customers.DMSCustomerCode — confirmed live as a 100%
   // reliable join key against DSR_Calls.CustomerCode (817/817 matched).
   // Nullable: historical rows synced before this field existed never had it
   // selected, and it's never used to gate anything — customerName remains
   // the call's own identity, this is purely an optional join key onto
   // EablCustomerMaster for whoever wants richer outlet detail.
-  customerCode          String?
-  customerName          String
-  customerType          String?
-  segment               String?
-  timeIn                DateTime?
-  timeOut               DateTime?
-  durationMinutes       Int?
-  firstCallOfDay        DateTime?
-  lastCallOfDay         DateTime?
-  callsInDay            Int
-  productiveCallsInDay  Int
-  dayStrikeRatePct      Float?
-  cashSales             Float
-  creditSales           Float
-  discounts             Float
-  netSales              Float
-  isProductive          Boolean
-  createdAt             DateTime @default(now())
+  customerCode         String?
+  customerName         String
+  customerType         String?
+  segment              String?
+  timeIn               DateTime?
+  timeOut              DateTime?
+  durationMinutes      Int?
+  firstCallOfDay       DateTime?
+  lastCallOfDay        DateTime?
+  callsInDay           Int
+  productiveCallsInDay Int
+  dayStrikeRatePct     Float?
+  cashSales            Float
+  creditSales          Float
+  discounts            Float
+  netSales             Float
+  isProductive         Boolean
+  createdAt            DateTime  @default(now())
 
   @@index([callDate])
   @@index([salesman, callDate])
@@ -1155,27 +1178,27 @@ model EablCall {
 // (MasterData.OutletActivityAccess looked like a candidate but is empty and
 // is visit-frequency tracking, not ownership) - not fabricated here.
 model EablCustomerMaster {
-  id           String   @id @default(cuid())
-  customerId   String   @unique // DMSCustomerCode
+  id         String   @id @default(cuid())
+  customerId String   @unique // DMSCustomerCode
   // "EABL-Nyeri" / "EABL-Nyahururu" derived from the source Territory field,
   // matching EablCall's own scope naming. "EABL-General" is the honest
   // fallback for a real third territory (Othaya) with no named principal to
   // map onto - never silently dropped or guessed onto the nearest one.
-  principal    String
-  outletName   String
-  channel      String?
-  subChannel   String?
-  territory    String?
+  principal  String
+  outletName String
+  channel    String?
+  subChannel String?
+  territory  String?
   // Source SAP `Route` field (e.g. "EABL-Kiganjo") - finer-grained than
   // territory, prefixed to avoid colliding with a same-named Pine route
   // once synced into Field Forms' coaching_routes. Null when the source
   // route is genuinely unset ("NA - Unknown").
-  route        String?
-  latitude     Float?
-  longitude    Float?
-  status       String // "ACTIVE" | "INACTIVE" (source CustomerStatus)
-  updatedAt    DateTime @updatedAt
-  createdAt    DateTime @default(now())
+  route      String?
+  latitude   Float?
+  longitude  Float?
+  status     String // "ACTIVE" | "INACTIVE" (source CustomerStatus)
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
 
   @@index([principal])
   @@index([status])
@@ -1189,7 +1212,7 @@ model EablCustomerMaster {
 // the trailing 3 months; a daily 18:30 sync then tops up only that day's rows
 // (scripts/db-bridge/order-360/run.ts), same incremental philosophy as RepCall.
 model OrderRecord {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   orderDate     DateTime // so.Creation_Date, date-truncated
   erpNumber     String // so.DocNum - natural key
   invoiceNumber String? // so.Reference_No
@@ -1202,9 +1225,9 @@ model OrderRecord {
   cleared     Boolean
   clearedDate DateTime?
 
-  picker    String?
-  picked    Boolean
-  pickDate  DateTime?
+  picker   String?
+  picked   Boolean
+  pickDate DateTime?
 
   dispatcher   String?
   dispatched   Boolean

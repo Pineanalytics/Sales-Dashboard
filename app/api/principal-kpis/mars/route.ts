@@ -15,6 +15,7 @@ interface PeriodRow { fiscalYear: string; periodKey: string; periodNo: number; s
 interface ProductRow { itemNo: string; itemName: string; packSize: number | null; brand: NullableText; classification: NullableText; ssuConversion: number | null }
 interface RosterRow { employeeCode: string; employeeName: string; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; activeDays: number | null; active: boolean }
 interface TargetRow { fiscalYear: string; periodKey: string; periodNo: number; employeeCode: string; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; volumeTarget: number | null; valueTarget: number | null; universeTarget: number | null; coverageTarget: number | null; ssuTarget: number | null }
+interface ProductiveTargetRow { employeeCode: string; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; fsr: NullableText; itemName: string; brand: NullableText; universe: number | null; targetRate: number | null; targetOutlets: number | null }
 interface RtmCustomerRow { customerId: string; customerName: NullableText; location: NullableText; territory: NullableText; rtmType: NullableText; assignedRep: NullableText }
 interface SaleLineRow { sourceKey: string; fiscalYear: string; periodKey: string; periodNo: number; date: string; employeeCode: NullableText; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; customerId: string; customerName: NullableText; channel: NullableText; territory: NullableText; itemNo: NullableText; itemName: NullableText; brand: NullableText; classification: NullableText; qty: number; cases: number; ssu: number; revenue: number; invoiceNo: NullableText }
 
@@ -36,6 +37,7 @@ function isPeriod(row: unknown): row is PeriodRow { if (!row || typeof row !== "
 function isProduct(row: unknown): row is ProductRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.itemNo) && text(r.itemName) && nullableNumber(r.packSize) && nullableText(r.brand) && nullableText(r.classification) && nullableNumber(r.ssuConversion); }
 function isRoster(row: unknown): row is RosterRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.employeeCode) && text(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && nullableNumber(r.activeDays) && typeof r.active === "boolean"; }
 function isTarget(row: unknown): row is TargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.fiscalYear) && periodKey(r.periodKey) && whole(r.periodNo) && text(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && nullableNumber(r.volumeTarget) && nullableNumber(r.valueTarget) && nullableNumber(r.universeTarget) && nullableNumber(r.coverageTarget) && nullableNumber(r.ssuTarget); }
+function isProductiveTarget(row: unknown): row is ProductiveTargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.fsr) && text(r.itemName) && nullableText(r.brand) && nullableNumber(r.universe) && nullableNumber(r.targetRate) && nullableNumber(r.targetOutlets); }
 function isRtmCustomer(row: unknown): row is RtmCustomerRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.customerId) && nullableText(r.customerName) && nullableText(r.location) && nullableText(r.territory) && nullableText(r.rtmType) && nullableText(r.assignedRep); }
 function isSaleLine(row: unknown): row is SaleLineRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.sourceKey) && text(r.fiscalYear) && periodKey(r.periodKey) && whole(r.periodNo) && text(r.date) && nullableText(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && text(r.customerId) && nullableText(r.customerName) && nullableText(r.channel) && nullableText(r.territory) && nullableText(r.itemNo) && nullableText(r.itemName) && nullableText(r.brand) && nullableText(r.classification) && number(r.qty) && number(r.cases) && number(r.ssu) && number(r.revenue) && nullableText(r.invoiceNo); }
 
@@ -49,8 +51,8 @@ export async function POST(req: NextRequest) {
   const kind = body.kind;
   try {
     if (kind === "reference") {
-      const periods = body.periods, products = body.products, roster = body.roster, targets = body.targets, rtmCustomers = body.rtmCustomers ?? [];
-      if (!Array.isArray(periods) || !Array.isArray(products) || !Array.isArray(roster) || !Array.isArray(targets) || !Array.isArray(rtmCustomers) || !periods.every(isPeriod) || !products.every(isProduct) || !roster.every(isRoster) || !targets.every(isTarget) || !rtmCustomers.every(isRtmCustomer)) return NextResponse.json({ error: "Invalid Mars reference payload." }, { status: 400 });
+      const periods = body.periods, products = body.products, roster = body.roster, targets = body.targets, productiveTargets = body.productiveTargets ?? [], rtmCustomers = body.rtmCustomers ?? [];
+      if (!Array.isArray(periods) || !Array.isArray(products) || !Array.isArray(roster) || !Array.isArray(targets) || !Array.isArray(productiveTargets) || !Array.isArray(rtmCustomers) || !periods.every(isPeriod) || !products.every(isProduct) || !roster.every(isRoster) || !targets.every(isTarget) || !productiveTargets.every(isProductiveTarget) || !rtmCustomers.every(isRtmCustomer)) return NextResponse.json({ error: "Invalid Mars reference payload." }, { status: 400 });
       await prisma.$transaction(async (tx) => {
         for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
         for (const row of products as ProductRow[]) await tx.principalKpiProduct.upsert({ where: { principal_itemNo: { principal: PRINCIPAL, itemNo: row.itemNo } }, update: row, create: { ...row, principal: PRINCIPAL } });
@@ -66,7 +68,13 @@ export async function POST(req: NextRequest) {
           prisma.principalKpiRtmCustomer.createMany({ data: (rtmCustomers as RtmCustomerRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
         ]);
       }
-      return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, rtmCustomers: rtmCustomers.length });
+      if ((productiveTargets as ProductiveTargetRow[]).length > 0) {
+        await prisma.$transaction([
+          prisma.principalKpiProductiveTarget.deleteMany({ where: { principal: PRINCIPAL } }),
+          prisma.principalKpiProductiveTarget.createMany({ data: (productiveTargets as ProductiveTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
+        ]);
+      }
+      return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, productiveTargets: productiveTargets.length, rtmCustomers: rtmCustomers.length });
     }
     if (kind === "actuals") {
       const rows = body.rows;
@@ -127,7 +135,7 @@ export async function GET(req: NextRequest) {
   // not use a completed LY P09 and make growth look artificially weak.
   const priorAsOf = currentAsOf._max.date ? new Date(currentAsOf._max.date.getTime() - 364 * 86_400_000) : null;
   const priorAsOfFilter = priorAsOf ? Prisma.sql`AND ("fiscalYear" <> ${priorYear} OR "date" <= ${priorAsOf})` : Prisma.empty;
-  const [actualRows, targetRows, periods, byPeriod, bySeller, byBrand, roster, rtmPerformance, rtmUniverse] = await Promise.all([
+  const [actualRows, targetRows, periods, byPeriod, bySeller, byBrand, roster, rtmPerformance, rtmUniverse, locationActuals, locationTargets, productiveTargets, repProductivity] = await Promise.all([
     prisma.$queryRaw<{ fiscalYear: string; ptdSsu: number; ytdSsu: number; ptdCases: number; ytdCases: number; ptdRevenue: number; ytdRevenue: number; ptdOutlets: number; ytdOutlets: number; ptdProductive: number; ytdProductive: number; ptdReturns: number; ytdReturns: number }[]>(Prisma.sql`
       SELECT "fiscalYear",
         COALESCE(SUM(ssu) FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsu",
@@ -160,7 +168,7 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod} AND qty > 0 AND NOT "isReturn")::int AS "ptdProductive"
       FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" <= ${selectedPeriod} GROUP BY 1 ORDER BY "ptdSsu" DESC`),
     prisma.$queryRaw<{ name: string; ssu: number; revenue: number }[]>(Prisma.sql`SELECT COALESCE(NULLIF(brand,''),'Unspecified') AS name, COALESCE(SUM(ssu),0)::double precision AS ssu, COALESCE(SUM(revenue),0)::double precision AS revenue FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" <= ${selectedPeriod} GROUP BY 1 ORDER BY ssu DESC LIMIT 12`),
-    prisma.principalKpiRoster.findMany({ where: { principal: PRINCIPAL }, select: { employeeGroup: true, sellerType: true, location: true, teamLeader: true, fsr: true } }),
+    prisma.principalKpiRoster.findMany({ where: { principal: PRINCIPAL }, select: { employeeCode: true, employeeGroup: true, sellerType: true, location: true, teamLeader: true, fsr: true } }),
     prisma.$queryRaw<{ name: string; ptdSsu: number; ptdRevenue: number; ptdVisits: number; ptdProductive: number }[]>(Prisma.sql`
       SELECT COALESCE(NULLIF("rtmType",''),'Unclassified') AS name,
         COALESCE(SUM(ssu) FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsu",
@@ -169,6 +177,23 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod} AND qty > 0 AND NOT "isReturn")::int AS "ptdProductive"
       FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" <= ${selectedPeriod} GROUP BY 1 ORDER BY "ptdSsu" DESC`),
     prisma.principalKpiRtmCustomer.groupBy({ by: ["rtmType"], where: { principal: PRINCIPAL, ...(text(req.nextUrl.searchParams.get("location")) ? { location: req.nextUrl.searchParams.get("location")!.trim() } : {}) }, _count: { customerId: true } }),
+    prisma.$queryRaw<{ fiscalYear: string; location: string; sellerType: string; ssu: number; visits: number; productive: number }[]>(Prisma.sql`
+      SELECT "fiscalYear", COALESCE(NULLIF(location,''),'Unassigned') AS location, COALESCE(NULLIF("sellerType",''),'Unspecified') AS "sellerType",
+        COALESCE(SUM(ssu),0)::double precision AS ssu, COUNT(DISTINCT "customerId")::int AS visits,
+        COUNT(DISTINCT "customerId") FILTER (WHERE qty > 0 AND NOT "isReturn")::int AS productive
+      FROM "PrincipalKpiSaleLine" WHERE ${actualBase} AND "periodNo" = ${selectedPeriod} ${priorAsOfFilter}
+      GROUP BY "fiscalYear", 2, 3 ORDER BY 2, 3`),
+    prisma.$queryRaw<{ location: string; sellerType: string; fullSsuTarget: number; ptdSsuTarget: number; universeTarget: number }[]>(Prisma.sql`
+      SELECT COALESCE(NULLIF(location,''),'Unassigned') AS location, COALESCE(NULLIF("sellerType",''),'Unspecified') AS "sellerType",
+        COALESCE(SUM("ssuTarget"),0)::double precision AS "fullSsuTarget", COALESCE(SUM("ssuTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsuTarget",
+        COALESCE(SUM("universeTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "universeTarget"
+      FROM "PrincipalKpiTarget" WHERE ${targetBase} AND "fiscalYear" = ${fiscalYear} GROUP BY 1, 2 ORDER BY 1, 2`),
+    prisma.principalKpiProductiveTarget.findMany({ where: { principal: PRINCIPAL }, select: { employeeCode: true, employeeName: true, employeeGroup: true, location: true, fsr: true, targetOutlets: true } }),
+    prisma.$queryRaw<{ employeeCode: string; employeeName: string; location: string; productive: number }[]>(Prisma.sql`
+      SELECT COALESCE(NULLIF("employeeCode",''),'Unassigned') AS "employeeCode", COALESCE(NULLIF("employeeName",''),'Unassigned') AS "employeeName", COALESCE(NULLIF(location,''),'Unassigned') AS location,
+        COUNT(DISTINCT ("customerId", "itemName")) FILTER (WHERE qty > 0 AND NOT "isReturn")::int AS productive
+      FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" = ${selectedPeriod}
+      GROUP BY 1, 2, 3 ORDER BY productive DESC`),
   ]);
   const actual = new Map(actualRows.map((row) => [row.fiscalYear, row]));
   const rawTarget = targetRows[0] ?? { ptdSsuTarget: 0, ytdSsuTarget: 0, fullSsuTarget: 0, ptdValueTarget: 0, ytdValueTarget: 0, fullValueTarget: 0, ptdUniverseTarget: 0, ytdCoverageTarget: 0 };
@@ -187,5 +212,20 @@ export async function GET(req: NextRequest) {
     sellerTypes: [...new Set(roster.map((row) => row.sellerType).filter(text))].sort(), employeeGroups: [...new Set(roster.map((row) => row.employeeGroup).filter(text))].sort(),
     locations: [...new Set(roster.map((row) => row.location).filter(text))].sort(), teamLeaders: [...new Set(roster.map((row) => row.teamLeader).filter(text))].sort(), fsrs: [...new Set(roster.map((row) => row.fsr).filter(text))].sort(),
   };
-  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, periods, source, priorSource, asOf: currentAsOf._max.date?.toISOString() ?? null, priorAsOf: priorAsOf?.toISOString() ?? null, filterOptions, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget), ptdStrikeRate: pct(current.ptdProductive, current.ptdOutlets), ptdConversion: pct(current.ptdProductive, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand, rtmPerformance, rtmUniverse: rtmUniverse.map((row) => ({ name: row.rtmType ?? "Unclassified", customers: row._count.customerId })) });
+  const stream = (sellerType: string) => sellerType === "Wholesale" ? "Primary / Wholesale" : sellerType === "Retail Sales" ? "Secondary / Retail" : sellerType;
+  const targetByLocation = new Map(locationTargets.map((row) => [`${row.location}|${row.sellerType}`, row]));
+  const locationScorecards = [...new Set([...locationActuals.map((row) => `${row.location}|${row.sellerType}`), ...locationTargets.map((row) => `${row.location}|${row.sellerType}`)])].map((key) => {
+    const [location, sellerType] = key.split("|"); const targetRow = targetByLocation.get(key); const currentRow = locationActuals.find((row) => row.fiscalYear === fiscalYear && row.location === location && row.sellerType === sellerType); const priorRow = locationActuals.find((row) => row.fiscalYear === priorYear && row.location === location && row.sellerType === sellerType);
+    return { location, sellerType, stream: stream(sellerType), fullSsuTarget: targetRow?.fullSsuTarget ?? 0, ptdSsuTarget: (targetRow?.ptdSsuTarget ?? 0) * pacing, ptdSsu: currentRow?.ssu ?? 0, lyspSsu: priorRow?.ssu ?? 0, universeTarget: targetRow?.universeTarget ?? 0, visits: currentRow?.visits ?? 0, lyspVisits: priorRow?.visits ?? 0, productive: currentRow?.productive ?? 0, lyspProductive: priorRow?.productive ?? 0 };
+  }).sort((a, b) => a.stream.localeCompare(b.stream) || a.location.localeCompare(b.location));
+  const rosterByCode = new Map(roster.map((row) => [row.employeeCode, row]));
+  const productiveTargetByRep = new Map<string, { employeeName: string | null; location: string | null; target: number }>();
+  for (const row of productiveTargets) {
+    const rosterRow = rosterByCode.get(row.employeeCode);
+    if ((text(req.nextUrl.searchParams.get("sellerType")) && rosterRow?.sellerType !== req.nextUrl.searchParams.get("sellerType")) || (text(req.nextUrl.searchParams.get("employeeGroup")) && row.employeeGroup !== req.nextUrl.searchParams.get("employeeGroup")) || (text(req.nextUrl.searchParams.get("location")) && row.location !== req.nextUrl.searchParams.get("location")) || (text(req.nextUrl.searchParams.get("teamLeader")) && rosterRow?.teamLeader !== req.nextUrl.searchParams.get("teamLeader")) || (text(req.nextUrl.searchParams.get("fsr")) && row.fsr !== req.nextUrl.searchParams.get("fsr"))) continue;
+    const existing = productiveTargetByRep.get(row.employeeCode) ?? { employeeName: row.employeeName, location: row.location, target: 0 }; existing.target += row.targetOutlets ?? 0; productiveTargetByRep.set(row.employeeCode, existing);
+  }
+  const productiveActualByRep = new Map(repProductivity.map((row) => [row.employeeCode, row]));
+  const repProductivityScorecards = [...new Set([...productiveTargetByRep.keys(), ...productiveActualByRep.keys()])].map((employeeCode) => { const targetRow = productiveTargetByRep.get(employeeCode); const actualRow = productiveActualByRep.get(employeeCode); return { employeeCode, employeeName: targetRow?.employeeName ?? actualRow?.employeeName ?? employeeCode, location: targetRow?.location ?? actualRow?.location ?? "Unassigned", target: targetRow?.target ?? 0, productive: actualRow?.productive ?? 0 }; }).sort((a, b) => b.productive - a.productive);
+  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, periods, source, priorSource, asOf: currentAsOf._max.date?.toISOString() ?? null, priorAsOf: priorAsOf?.toISOString() ?? null, filterOptions, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget), ptdStrikeRate: pct(current.ptdProductive, current.ptdOutlets), ptdConversion: pct(current.ptdProductive, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand, rtmPerformance, rtmUniverse: rtmUniverse.map((row) => ({ name: row.rtmType ?? "Unclassified", customers: row._count.customerId })), locationScorecards, repProductivityScorecards });
 }

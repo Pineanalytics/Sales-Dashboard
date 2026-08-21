@@ -79,6 +79,28 @@ function buildRtmCustomers(workbook: XLSX.WorkBook) {
     rtmType: nullable(field(row, "Type")), assignedRep: nullable(field(row, "User Name", "Assigned Rep")),
   }));
 }
+function buildProductiveTargets(workbook: XLSX.WorkBook) {
+  // Mars's Productive Report is SKU-level.  Keeping its expected productive
+  // outlet count separate lets the dashboard compare rep productivity without
+  // incorrectly mixing it into the SSU/value target.
+  const combined = new Map<string, { employeeCode: string; employeeName: string | null; employeeGroup: string | null; location: string | null; fsr: string | null; itemName: string; brand: string | null; universe: number | null; targetRate: number | null; targetOutlets: number | null }>();
+  for (const row of rows(workbook, "Productive Report")) {
+    const employeeCode = string(field(row, "Employee Code", "UserID", "User ID"));
+    const itemName = string(field(row, "ItemName", "Item Name"));
+    if (!employeeCode || !itemName) continue;
+    const universe = nullableNumber(field(row, "MBSR Universe", "Universe"));
+    const targetRate = nullableNumber(field(row, "Target", "Target Rate"));
+    const mapped = { employeeCode, employeeName: nullable(field(row, "Employee Name", "Employee")), employeeGroup: nullable(field(row, "Employee Group", "Group")), location: nullable(field(row, "Location")), fsr: nullable(field(row, "FSR")), itemName, brand: nullable(field(row, "Brand")), universe, targetRate, targetOutlets: universe === null || targetRate === null ? null : universe * targetRate };
+    const key = `${employeeCode}|${itemName}`;
+    const existing = combined.get(key);
+    if (!existing) combined.set(key, mapped);
+    else {
+      existing.universe = (existing.universe ?? 0) + (mapped.universe ?? 0);
+      existing.targetOutlets = (existing.targetOutlets ?? 0) + (mapped.targetOutlets ?? 0);
+    }
+  }
+  return [...combined.values()];
+}
 function targetRow(row: Row, rowNumber: number) {
   const employeeCode = string(field(row, "Employee Code", "UserID", "User ID"));
   if (!employeeCode) throw new Error(`Targets row ${rowNumber} has no Employee Code.`);
@@ -229,8 +251,8 @@ async function main() {
   const targets = read(`${dir}\\Productive Target.xlsx`);
   const products = read(`${dir}\\ProductMasterData.xlsx`);
   const rawPath = `${dir}\\Mars Raw Data_PTD.xlsx`;
-  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
-  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} targets, ${reference.rtmCustomers.length} RTM customers.`);
+  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
+  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers.`);
   await post(appUrl, apiKey, reference);
   if (process.argv.includes("--reference-only")) {
     console.log("[mars-kpis] Reference import complete; workbook actuals were intentionally not replaced.");

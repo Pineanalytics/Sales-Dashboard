@@ -19,7 +19,7 @@ type Summary = {
   ptdAchievement: number | null; ytdAchievement: number | null; fullYearAchievement: number | null; ptdGrowth: number | null; ytdGrowth: number | null; ptdCoverage: number | null; ptdStrikeRate: number | null; ptdConversion: number | null;
 };
 type FilterKey = "sellerType" | "employeeGroup" | "location" | "teamLeader" | "fsr";
-interface MarsData { principal: string; available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; source?: "PINE" | "WORKBOOK"; priorSource?: "PINE" | "WORKBOOK"; asOf?: string | null; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; filterOptions?: { sellerTypes: string[]; employeeGroups: string[]; locations: string[]; teamLeaders: string[]; fsrs: string[] }; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdVisits: number; ptdProductive: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; rtmPerformance?: { name: string; ptdSsu: number; ptdRevenue: number; ptdVisits: number; ptdProductive: number }[]; rtmUniverse?: { name: string; customers: number }[]; }
+interface MarsData { principal: string; available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; source?: "PINE" | "WORKBOOK"; priorSource?: "PINE" | "WORKBOOK"; asOf?: string | null; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; filterOptions?: { sellerTypes: string[]; employeeGroups: string[]; locations: string[]; teamLeaders: string[]; fsrs: string[] }; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdVisits: number; ptdProductive: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; rtmPerformance?: { name: string; ptdSsu: number; ptdRevenue: number; ptdVisits: number; ptdProductive: number }[]; rtmUniverse?: { name: string; customers: number }[]; locationScorecards?: { location: string; sellerType: string; stream: string; fullSsuTarget: number; ptdSsuTarget: number; ptdSsu: number; lyspSsu: number; universeTarget: number; visits: number; lyspVisits: number; productive: number; lyspProductive: number }[]; repProductivityScorecards?: { employeeCode: string; employeeName: string; location: string; target: number; productive: number }[]; }
 
 export default function PrincipalKpisPage() {
   const [data, setData] = useState<MarsData | null>(null);
@@ -42,10 +42,11 @@ export default function PrincipalKpisPage() {
   if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the Mars reference import may need attention." />;
   if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Mars KPI data is being prepared" description="The Mars fiscal calendar, targets, roster and Pine sales ledger are not loaded yet." />;
 
-  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], rtmPerformance = [], rtmUniverse = [], source, priorSource, asOf, filterOptions } = data;
+  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], rtmPerformance = [], rtmUniverse = [], locationScorecards = [], repProductivityScorecards = [], source, priorSource, asOf, filterOptions } = data;
   const selected = periods.find((item) => item.periodNo === selectedPeriod);
   const periodLabel = selected ? `${selected.periodKey} · ${new Date(selected.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(selected.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : `P${String(selectedPeriod).padStart(2, "0")}`;
   const sellerData = bySeller.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }));
+  const commercialStreams = ["Primary / Wholesale", "Secondary / Retail", "KAM", "MDSR"];
 
   return <div className="flex flex-col gap-6">
     <SectionCard title="Principal KPI workspace" action={<span className="text-xs text-muted">Mars is the first configured principal. Additional principal scorecards will appear here when their KPI models are approved.</span>}>
@@ -93,6 +94,27 @@ export default function PrincipalKpisPage() {
         <ResponsiveContainer width="100%" height={300}><BarChart data={sellerData} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} /><XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} /><YAxis type="category" dataKey="name" width={95} stroke={CHART_AXIS_COLOR} fontSize={11} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatNumber(Number(value))} /><Bar dataKey="ytdSsu" name="YTD SSU" radius={[0, 6, 6, 0]}>{sellerData.map((item, index) => <Cell key={`${item.name}-${index}`} fill={item.fill} />)}</Bar></BarChart></ResponsiveContainer>
       </SectionCard>
     </ChartGrid>
+
+    <SectionCard title="Commercial scorecards by location" action={<span className="text-xs text-muted">Primary = Wholesale; Secondary = Retail. PTD targets are paced to fiscal days elapsed, while full targets remain the annual plan.</span>}>
+      <div className="grid gap-5">
+        {commercialStreams.map((stream) => {
+          const rows = locationScorecards.filter((row) => row.stream === stream);
+          if (rows.length === 0) return null;
+          return <div key={stream} className="overflow-hidden rounded-xl border border-border">
+            <div className="border-b border-border bg-background-elevated px-4 py-3 text-sm font-bold text-foreground">{stream} performance — {selected?.periodKey ?? `P${String(selectedPeriod).padStart(2, "0")}`}</div>
+            <TableWrap><Thead><Th>Location / sub-region</Th><Th align="right">Full target</Th><Th align="right">PTD target</Th><Th align="right">SSU sold PTD</Th><Th align="right">vs target</Th><Th align="right">SSU sold LYSP</Th><Th align="right">vs LYSP</Th><Th align="right">Universe</Th><Th align="right">Visits</Th><Th align="right">Coverage</Th><Th align="right">Productive</Th><Th align="right">Strike</Th><Th align="right">Conversion</Th></Thead><tbody>{rows.map((row) => <tr key={`${stream}-${row.location}`}>
+              <Td>{row.location}</Td><Td align="right">{formatNumber(row.fullSsuTarget)}</Td><Td align="right">{formatNumber(row.ptdSsuTarget)}</Td><Td align="right">{formatNumber(row.ptdSsu)}</Td><Td align="right">{row.ptdSsuTarget > 0 ? formatPercent(row.ptdSsu / row.ptdSsuTarget) : "—"}</Td><Td align="right">{formatNumber(row.lyspSsu)}</Td><Td align="right">{row.lyspSsu > 0 ? formatPercent((row.ptdSsu / row.lyspSsu) - 1) : "—"}</Td><Td align="right">{formatNumber(row.universeTarget)}</Td><Td align="right">{formatNumber(row.visits)}</Td><Td align="right">{row.universeTarget > 0 ? formatPercent(row.visits / row.universeTarget) : "—"}</Td><Td align="right">{formatNumber(row.productive)}</Td><Td align="right">{row.visits > 0 ? formatPercent(row.productive / row.visits) : "—"}</Td><Td align="right">{row.universeTarget > 0 ? formatPercent(row.productive / row.universeTarget) : "—"}</Td>
+            </tr>)}</tbody></TableWrap>
+          </div>;
+        })}
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Productive target — rep scorecard" action={<span className="text-xs text-muted">SKU-level productive outlet targets from the Mars Productive Report, reconciled to positive, non-return customer/SKU lines.</span>}>
+      <TableWrap><Thead><Th>Location</Th><Th>FSR / employee</Th><Th align="right">Productive target</Th><Th align="right">Actual productive</Th><Th align="right">Achievement</Th></Thead><tbody>{repProductivityScorecards.map((row) => <tr key={row.employeeCode}>
+        <Td>{row.location}</Td><Td>{row.employeeName} <span className="text-xs text-muted">({row.employeeCode})</span></Td><Td align="right">{formatNumber(row.target)}</Td><Td align="right">{formatNumber(row.productive)}</Td><Td align="right">{row.target > 0 ? formatPercent(row.productive / row.target) : "—"}</Td>
+      </tr>)}</tbody></TableWrap>
+    </SectionCard>
 
     <SectionCard title="RTM performance" action={<span className="text-xs text-muted">Absolute customer universe from the Mars RTM list; activity is shown for the selected fiscal period.</span>}><TableWrap><Thead><Th>RTM classification</Th><Th align="right">Universe</Th><Th align="right">PTD visits</Th><Th align="right">Productive</Th><Th align="right">Strike rate</Th><Th align="right">Net PTD SSU</Th><Th align="right">PTD revenue</Th></Thead><tbody>{rtmPerformance.map((row) => <tr key={row.name}>
       <Td>{row.name}</Td><Td align="right">{formatNumber(rtmUniverse.find((item) => item.name === row.name)?.customers ?? 0)}</Td><Td align="right">{formatNumber(row.ptdVisits)}</Td><Td align="right">{formatNumber(row.ptdProductive)}</Td><Td align="right">{row.ptdVisits > 0 ? formatPercent(row.ptdProductive / row.ptdVisits) : "—"}</Td><Td align="right">{formatNumber(row.ptdSsu)}</Td><Td align="right">{formatCompact(row.ptdRevenue)}</Td>
