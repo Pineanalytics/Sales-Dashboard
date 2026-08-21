@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const DEFAULT_DIR = "D:\\Mars Update";
 const BATCH_SIZE = 750;
+const MAX_CONCURRENT_UPLOADS = 4;
 type Row = Record<string, unknown>;
 
 function string(value: unknown): string { return String(value ?? "").trim(); }
@@ -154,15 +155,25 @@ async function uploadActuals(path: string, appUrl: string, apiKey: string) {
   let batch: ReturnType<typeof actualRow>[] = [];
   let uploaded = 0;
   let reset = true;
+  const inFlight = new Set<Promise<void>>();
   const uploadBatch = async () => {
     if (batch.length === 0) return;
     const payload = batch;
     const isReset = reset;
     batch = [];
     reset = false;
-    await post(appUrl, apiKey, { kind: "actuals", rows: payload, reset: isReset });
-    uploaded += payload.length;
-    if (uploaded === payload.length || uploaded % (BATCH_SIZE * 25) === 0) console.log(`[mars-kpis] Actuals: ${uploaded} uploaded.`);
+    const save = async () => {
+      await post(appUrl, apiKey, { kind: "actuals", rows: payload, reset: isReset });
+      uploaded += payload.length;
+      if (uploaded === payload.length || uploaded % (BATCH_SIZE * 25) === 0) console.log(`[mars-kpis] Actuals: ${uploaded} uploaded.`);
+    };
+    // The initial replacement has to complete before any concurrent insert is
+    // admitted. Every later source key is idempotent, so four bounded uploads
+    // safely shorten a multi-gigabyte historical backfill without unbounded RAM.
+    if (isReset) { await save(); return; }
+    const task = save().finally(() => inFlight.delete(task));
+    inFlight.add(task);
+    if (inFlight.size >= MAX_CONCURRENT_UPLOADS) await Promise.race(inFlight);
   };
   for (const sheetName of sheets) await streamXlsxEntry(path, sheetName, async (text, final) => {
     let buffer = (buffers.get(sheetName) ?? "") + text;
@@ -191,6 +202,7 @@ async function uploadActuals(path: string, appUrl: string, apiKey: string) {
     if (final && buffer.includes("<row")) throw new Error(`Mars raw sheet ${sheetName} ended with an incomplete row.`);
   });
   await uploadBatch();
+  await Promise.all(inFlight);
   if (uploaded === 0) throw new Error("No Mars actual sales lines were found in the YTD/LYTD sheets.");
   return uploaded;
 }
