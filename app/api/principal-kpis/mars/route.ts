@@ -56,8 +56,16 @@ export async function POST(req: NextRequest) {
         for (const row of products as ProductRow[]) await tx.principalKpiProduct.upsert({ where: { principal_itemNo: { principal: PRINCIPAL, itemNo: row.itemNo } }, update: row, create: { ...row, principal: PRINCIPAL } });
         for (const row of roster as RosterRow[]) await tx.principalKpiRoster.upsert({ where: { principal_employeeCode: { principal: PRINCIPAL, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: PRINCIPAL } });
         for (const row of targets as TargetRow[]) await tx.principalKpiTarget.upsert({ where: { principal_fiscalYear_periodKey_employeeCode: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: PRINCIPAL } });
-        for (const row of rtmCustomers as RtmCustomerRow[]) await tx.principalKpiRtmCustomer.upsert({ where: { principal_customerId: { principal: PRINCIPAL, customerId: row.customerId } }, update: row, create: { ...row, principal: PRINCIPAL } });
       });
+      // RTM is an absolute reference list, not a user-edited transaction
+      // table. A replace + bulk insert is both atomic and avoids holding an
+      // interactive transaction open for thousands of individual upserts.
+      if ((rtmCustomers as RtmCustomerRow[]).length > 0) {
+        await prisma.$transaction([
+          prisma.principalKpiRtmCustomer.deleteMany({ where: { principal: PRINCIPAL } }),
+          prisma.principalKpiRtmCustomer.createMany({ data: (rtmCustomers as RtmCustomerRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
+        ]);
+      }
       return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, rtmCustomers: rtmCustomers.length });
     }
     if (kind === "actuals") {

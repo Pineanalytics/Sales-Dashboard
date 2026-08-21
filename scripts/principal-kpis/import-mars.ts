@@ -232,6 +232,10 @@ async function main() {
   const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
   console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} targets, ${reference.rtmCustomers.length} RTM customers.`);
   await post(appUrl, apiKey, reference);
+  if (process.argv.includes("--reference-only")) {
+    console.log("[mars-kpis] Reference import complete; workbook actuals were intentionally not replaced.");
+    return;
+  }
   console.log(`[mars-kpis] Reading and uploading raw YTD/LYTD sales lines in ${BATCH_SIZE}-row batches…`);
   const imported = await uploadActuals(rawPath, appUrl, apiKey);
   console.log(`[mars-kpis] Completed Mars source import: ${imported} actual sales lines.`);
