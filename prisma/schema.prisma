@@ -491,6 +491,11 @@ model PrincipalKpiTarget {
 model PrincipalKpiSaleLine {
   id             String   @id @default(cuid())
   principal      String
+  // Workbook imports remain a recoverable baseline while a direct principal
+  // feed is being established.  The dashboard only reads PINE after a full
+  // FY25/FY26 backfill has completed, so an interrupted source job cannot
+  // produce a half-live scorecard.
+  source         String   @default("WORKBOOK")
   sourceKey      String
   fiscalYear     String
   periodKey      String
@@ -521,6 +526,7 @@ model PrincipalKpiSaleLine {
 
   @@unique([principal, sourceKey])
   @@index([principal, fiscalYear, periodNo])
+  @@index([principal, source, fiscalYear, periodNo])
   @@index([principal, fiscalYear, customerId])
   @@index([principal, fiscalYear, brand])
 }

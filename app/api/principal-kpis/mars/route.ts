@@ -80,14 +80,25 @@ export async function GET(req: NextRequest) {
   const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
   if (scope && !scope.principals.some((p) => p.trim().toLowerCase().includes("mars"))) return NextResponse.json({ error: "Mars isn't one of your assigned principals." }, { status: 403 });
 
+  // The workbook stays visible until the direct Pine bridge has completed a
+  // full comparable FY25/FY26 snapshot.  This makes a source interruption a
+  // safe fallback instead of a partially refreshed production KPI page.
+  const liveState = await prisma.syncWatermark.findUnique({ where: { bridge: "mars-kpis-pine" }, select: { lastFullResyncAt: true } });
+  const source = liveState?.lastFullResyncAt ? "PINE" : "WORKBOOK";
   const requestedYear = req.nextUrl.searchParams.get("year");
-  const latest = requestedYear ? null : await prisma.principalKpiSaleLine.findFirst({ where: { principal: PRINCIPAL }, orderBy: [{ fiscalYear: "desc" }, { periodNo: "desc" }], select: { fiscalYear: true, periodNo: true } });
+  const latest = requestedYear ? null : await prisma.principalKpiSaleLine.findFirst({ where: { principal: PRINCIPAL, source }, orderBy: [{ fiscalYear: "desc" }, { periodNo: "desc" }, { date: "desc" }], select: { fiscalYear: true, periodNo: true } });
   const fiscalYear = requestedYear ?? latest?.fiscalYear;
   if (!fiscalYear) return NextResponse.json({ principal: PRINCIPAL, available: false });
   const requestedPeriod = Number(req.nextUrl.searchParams.get("period"));
   const selectedPeriod = Number.isInteger(requestedPeriod) && requestedPeriod >= 1 && requestedPeriod <= 13 ? requestedPeriod : latest?.fiscalYear === fiscalYear ? latest.periodNo : 13;
   const priorYear = String(Number(fiscalYear) - 1);
-  const base = Prisma.sql`"principal" = ${PRINCIPAL}`;
+  const base = Prisma.sql`"principal" = ${PRINCIPAL} AND "source" = ${source}`;
+  const currentAsOf = await prisma.principalKpiSaleLine.aggregate({ where: { principal: PRINCIPAL, source, fiscalYear, periodNo: { lte: selectedPeriod } }, _max: { date: true } });
+  // Mars operates a 52-week (364-day) calendar.  When P09 is still in
+  // progress, prior-year comparisons must stop on the equivalent fiscal day,
+  // not use a completed LY P09 and make growth look artificially weak.
+  const priorAsOf = currentAsOf._max.date ? new Date(currentAsOf._max.date.getTime() - 364 * 86_400_000) : null;
+  const priorAsOfFilter = priorAsOf ? Prisma.sql`AND ("fiscalYear" <> ${priorYear} OR "date" <= ${priorAsOf})` : Prisma.empty;
   const [actualRows, targetRows, periods, byPeriod, bySeller, byBrand] = await Promise.all([
     prisma.$queryRaw<{ fiscalYear: string; ptdSsu: number; ytdSsu: number; ptdCases: number; ytdCases: number; ptdRevenue: number; ytdRevenue: number; ptdOutlets: number; ytdOutlets: number }[]>(Prisma.sql`
       SELECT "fiscalYear",
@@ -99,7 +110,7 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(revenue) FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdRevenue",
         COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod})::int AS "ptdOutlets",
         COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" <= ${selectedPeriod})::int AS "ytdOutlets"
-      FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" IN (${fiscalYear}, ${priorYear}) GROUP BY "fiscalYear"
+      FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" IN (${fiscalYear}, ${priorYear}) ${priorAsOfFilter} GROUP BY "fiscalYear"
     `),
     prisma.$queryRaw<{ fiscalYear: string; ptdSsuTarget: number; ytdSsuTarget: number; fullSsuTarget: number; ptdValueTarget: number; ytdValueTarget: number; fullValueTarget: number; ptdUniverseTarget: number; ytdCoverageTarget: number }[]>(Prisma.sql`
       SELECT "fiscalYear", COALESCE(SUM("ssuTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsuTarget", COALESCE(SUM("ssuTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdSsuTarget", COALESCE(SUM("ssuTarget"),0)::double precision AS "fullSsuTarget", COALESCE(SUM("valueTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdValueTarget", COALESCE(SUM("valueTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdValueTarget", COALESCE(SUM("valueTarget"),0)::double precision AS "fullValueTarget", COALESCE(SUM("universeTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdUniverseTarget", COALESCE(SUM("coverageTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdCoverageTarget"
@@ -114,5 +125,5 @@ export async function GET(req: NextRequest) {
   const target = targetRows[0] ?? { ptdSsuTarget: 0, ytdSsuTarget: 0, fullSsuTarget: 0, ptdValueTarget: 0, ytdValueTarget: 0, fullValueTarget: 0, ptdUniverseTarget: 0, ytdCoverageTarget: 0 };
   const current = actual.get(fiscalYear) ?? { ptdSsu: 0, ytdSsu: 0, ptdCases: 0, ytdCases: 0, ptdRevenue: 0, ytdRevenue: 0, ptdOutlets: 0, ytdOutlets: 0 };
   const prior = actual.get(priorYear) ?? { ptdSsu: 0, ytdSsu: 0, ptdCases: 0, ytdCases: 0, ptdRevenue: 0, ytdRevenue: 0, ptdOutlets: 0, ytdOutlets: 0 };
-  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, periods, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand });
+  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, periods, source, asOf: currentAsOf._max.date?.toISOString() ?? null, priorAsOf: priorAsOf?.toISOString() ?? null, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand });
 }

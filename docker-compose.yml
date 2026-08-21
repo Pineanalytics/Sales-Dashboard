@@ -141,6 +141,34 @@ services:
     cpus: 0.75
     mem_limit: 1024m
 
+  # Mars product/SSU KPIs read Pine directly.  It is deliberately separate
+  # from outlet aggregation: a full comparable fiscal refresh must never
+  # delay either live timestamps or the outlet overnight run.
+  mars-kpis-sync-worker:
+    build:
+      context: .
+      target: sync-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_started
+    env_file:
+      - .sync.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
+      CONTINUOUS_SYNC_JOBS: mars-kpis
+      MARS_KPIS_INTERVAL_SECONDS: 900
+      MARS_KPIS_RUN_ON_START: "false"
+      MARS_KPIS_FULL_RESYNC_AFTER_HOURS: 22
+      TZ: Africa/Nairobi
+    cpus: 0.75
+    mem_limit: 1024m
+
   # SAP is reachable only through the office-originated reverse tunnel bound
   # to the VPS loopback interface. Host networking allows this container to
   # consume that private listener without publishing SAP to the internet.

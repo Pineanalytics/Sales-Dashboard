@@ -18,7 +18,7 @@ type Summary = {
   target: { ptdSsuTarget: number; ytdSsuTarget: number; fullSsuTarget: number; ptdValueTarget: number; ytdValueTarget: number; fullValueTarget: number; ptdUniverseTarget: number; ytdCoverageTarget: number };
   ptdAchievement: number | null; ytdAchievement: number | null; fullYearAchievement: number | null; ptdGrowth: number | null; ytdGrowth: number | null; ptdCoverage: number | null;
 };
-interface MarsData { principal: string; available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ssu: number; revenue: number; outlets: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; }
+interface MarsData { principal: string; available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; source?: "PINE" | "WORKBOOK"; asOf?: string | null; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ssu: number; revenue: number; outlets: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; }
 
 export default function PrincipalKpisPage() {
   const [data, setData] = useState<MarsData | null>(null);
@@ -40,7 +40,7 @@ export default function PrincipalKpisPage() {
   if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the Mars reference import may need attention." />;
   if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Mars KPI data is being prepared" description="The Mars fiscal calendar, targets, roster and Pine sales ledger are not loaded yet." />;
 
-  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [] } = data;
+  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], source, asOf } = data;
   const selected = periods.find((item) => item.periodNo === selectedPeriod);
   const periodLabel = selected ? `${selected.periodKey} · ${new Date(selected.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${new Date(selected.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : `P${String(selectedPeriod).padStart(2, "0")}`;
   const sellerData = bySeller.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }));
@@ -56,7 +56,7 @@ export default function PrincipalKpisPage() {
             {periods.map((item) => <option value={item.periodNo} key={item.periodKey}>{item.periodKey} · {new Date(item.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {new Date(item.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</option>)}
           </select>
         </label>
-        <p className="pb-2 text-sm text-muted">FY {fiscalYear} through <span className="font-semibold text-foreground">{periodLabel}</span>, compared with FY {priorYear} through the same period.</p>
+        <p className="pb-2 text-sm text-muted">FY {fiscalYear} through <span className="font-semibold text-foreground">{periodLabel}</span>, compared with FY {priorYear} through the equivalent fiscal day. {source === "PINE" ? <span className="font-medium text-emerald-700">Live Pine actuals{asOf ? ` as of ${new Date(asOf).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}.</span> : <span>Workbook baseline while live Pine is being verified.</span>}</p>
       </div>
     </SectionCard>
 

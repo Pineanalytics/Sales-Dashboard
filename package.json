@@ -28,6 +28,7 @@
     "target-management:import": "tsx scripts/target-management/import.ts",
     "ai-insights:sync": "tsx scripts/ai-insights/trigger.ts"
     ,"principal-kpis:mars-import": "node --max-old-space-size=4096 --import tsx scripts/principal-kpis/import-mars.ts"
+    ,"principal-kpis:mars-sync": "tsx scripts/db-bridge/principal-kpis/mars-sync.ts"
   },
   "prisma": {
     "seed": "node prisma/seed.mjs"
