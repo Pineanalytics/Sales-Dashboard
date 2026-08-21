@@ -1,7 +1,7 @@
 // Direct Mars actuals bridge.  Pine remains the operational source for this
 // principal's SSU/cases/value KPIs; this worker normalises it to the approved
 // Mars product master and fiscal calendar instead of waiting for an Excel
-// export.  A full FY25/FY26 run is staged beside the workbook and activated
+// export.  A full FY26 run is staged beside the workbook and activated
 // only after every source window has uploaded successfully.
 if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 
@@ -119,12 +119,13 @@ async function main() {
     .filter((period) => today >= day(period.startDate) && today <= day(period.endDate))
     .sort((a, b) => Number(b.fiscalYear) - Number(a.fiscalYear))[0];
   if (!currentPeriod) throw new Error(`No Mars fiscal period covers ${today}. Refresh the approved Mars calendar before running this bridge.`);
-  const selectedPeriods = reference.periods.filter((period) =>
-    (period.fiscalYear === currentPeriod.fiscalYear || period.fiscalYear === String(Number(currentPeriod.fiscalYear) - 1)) && period.periodNo <= currentPeriod.periodNo
-  );
+  // Pine became Mars's SFA during FY25 P07. It is authoritative for live
+  // FY26 actuals, while the supplied template remains the comparable FY25
+  // baseline for the earlier transition periods.
+  const selectedPeriods = reference.periods.filter((period) => period.fiscalYear === currentPeriod.fiscalYear && period.periodNo <= currentPeriod.periodNo);
   const hoursSinceFull = reference.state.lastFullResyncAt ? (now.getTime() - new Date(reference.state.lastFullResyncAt).getTime()) / 3_600_000 : Infinity;
   const full = hoursSinceFull >= FULL_RESYNC_AFTER_HOURS;
-  const fetchPeriods = full ? selectedPeriods : selectedPeriods.filter((period) => period.fiscalYear === currentPeriod.fiscalYear && period.periodNo === currentPeriod.periodNo);
+  const fetchPeriods = full ? selectedPeriods : selectedPeriods.filter((period) => period.periodNo === currentPeriod.periodNo);
   if (fetchPeriods.length === 0) throw new Error("Mars calendar has no selected source periods.");
   if (full) await post(appUrl, apiKey, { action: "begin-full" });
 
