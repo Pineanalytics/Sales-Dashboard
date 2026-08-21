@@ -15,6 +15,7 @@ const MAX_BATCH = 750;
 type NullableText = string | null;
 interface SaleLineRow {
   sourceKey: string; fiscalYear: string; periodKey: string; periodNo: number; date: string;
+  transactionType: "sale" | "sale_return" | "order" | "order_return" | "no_sale"; saleType: "Actual" | "Offers" | "Returns" | "No sale"; isReturn: boolean;
   employeeCode: NullableText; employeeName: NullableText; employeeGroup: NullableText; location: NullableText;
   teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; customerId: string; customerName: NullableText;
   channel: NullableText; territory: NullableText; itemNo: NullableText; itemName: NullableText; brand: NullableText;
@@ -38,6 +39,7 @@ function isSaleLine(row: unknown): row is SaleLineRow {
   if (!row || typeof row !== "object") return false;
   const r = row as Record<string, unknown>;
   return text(r.sourceKey) && r.sourceKey.startsWith("pine/") && text(r.fiscalYear) && periodKey(r.periodKey) && periodNo(r.periodNo) && validDate(r.date)
+    && ["sale", "sale_return", "order", "order_return", "no_sale"].includes(String(r.transactionType)) && ["Actual", "Offers", "Returns", "No sale"].includes(String(r.saleType)) && typeof r.isReturn === "boolean"
     && nullableText(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location)
     && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && text(r.customerId) && nullableText(r.customerName)
     && nullableText(r.channel) && nullableText(r.territory) && nullableText(r.itemNo) && nullableText(r.itemName) && nullableText(r.brand)
@@ -46,14 +48,15 @@ function isSaleLine(row: unknown): row is SaleLineRow {
 
 export async function GET(req: NextRequest) {
   if (!validKey(req)) return NextResponse.json({ error: "Invalid or missing x-upload-api-key." }, { status: 401 });
-  const [periods, products, roster, state] = await Promise.all([
+  const [periods, products, roster, rtmCustomers, state] = await Promise.all([
     prisma.principalKpiPeriod.findMany({ where: { principal: PRINCIPAL }, orderBy: [{ fiscalYear: "asc" }, { periodNo: "asc" }], select: { fiscalYear: true, periodKey: true, periodNo: true, startDate: true, endDate: true } }),
     prisma.principalKpiProduct.findMany({ where: { principal: PRINCIPAL }, select: { itemNo: true, itemName: true, packSize: true, brand: true, classification: true, ssuConversion: true } }),
     prisma.principalKpiRoster.findMany({ where: { principal: PRINCIPAL }, select: { employeeCode: true, employeeName: true, employeeGroup: true, location: true, teamLeader: true, fsr: true, sellerType: true } }),
+    prisma.principalKpiRtmCustomer.findMany({ where: { principal: PRINCIPAL }, select: { customerId: true, rtmType: true, assignedRep: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: BRIDGE }, select: { lastIncrementalAt: true, lastFullResyncAt: true } }),
   ]);
   return NextResponse.json({
-    periods, products, roster,
+    periods, products, roster, rtmCustomers,
     state: { lastIncrementalAt: state?.lastIncrementalAt?.toISOString() ?? null, lastFullResyncAt: state?.lastFullResyncAt?.toISOString() ?? null },
   });
 }

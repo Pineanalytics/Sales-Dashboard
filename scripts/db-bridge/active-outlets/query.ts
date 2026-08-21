@@ -41,6 +41,8 @@ export interface ProductRow {
 export interface FactLineRow {
   docId: string;
   isOrder: boolean;
+  /** Pine document family. Returns intentionally carry negative quantity/value. */
+  transactionType?: "sale" | "sale_return" | "order" | "order_return";
   purchaseTime: Date;
   userId: string;
   customerId: string;
@@ -190,6 +192,7 @@ function idBatches(ids: string[]): string[][] {
 
 const SQL_SALE_LINES = `
   SELECT
+      'sale'        AS transaction_type,
       s.s_id         AS doc_id,
       s.s_date       AS purchase_time,
       s.s_uid        AS user_id,
@@ -203,11 +206,29 @@ const SQL_SALE_LINES = `
     AND s.s_date < ?
     AND s.s_name NOT LIKE '%test %'
     AND sd.sd_quantity > 0
-    AND sd.sd_price > 0
+
+  UNION ALL
+
+  SELECT
+      'sale_return' AS transaction_type,
+      s.s_id         AS doc_id,
+      s.s_date       AS purchase_time,
+      s.s_uid        AS user_id,
+      s.s_cid        AS customer_id,
+      refund.sd_itemid AS item_id,
+      -refund.sd_quantity AS qty,
+      refund.sd_price AS unit_price
+  FROM pine.sales s
+  INNER JOIN pine.salesdetailsrefund refund ON s.s_id = refund.sd_sid
+  WHERE s.s_date >= ?
+    AND s.s_date < ?
+    AND s.s_name NOT LIKE '%test %'
+    AND refund.sd_quantity > 0
 `;
 
 const SQL_ORDER_LINES = `
   SELECT
+      'order'        AS transaction_type,
       ode.ode_id      AS doc_id,
       ode.ode_date    AS purchase_time,
       ode.ode_uid     AS user_id,
@@ -221,7 +242,24 @@ const SQL_ORDER_LINES = `
     AND ode.ode_date < ?
     AND ode.ode_name NOT LIKE '%test %'
     AND det.od_quantity > 0
-    AND det.od_price > 0
+
+  UNION ALL
+
+  SELECT
+      'order_return' AS transaction_type,
+      ode.ode_id      AS doc_id,
+      ode.ode_date    AS purchase_time,
+      ode.ode_uid     AS user_id,
+      ode.ode_cid     AS customer_id,
+      refund.od_itemid AS item_id,
+      -refund.od_quantity AS qty,
+      refund.od_price AS unit_price
+  FROM pine.orders ode
+  INNER JOIN pine.ordersdetailsrefund refund ON ode.ode_id = refund.od_sid
+  WHERE ode.ode_date >= ?
+    AND ode.ode_date < ?
+    AND ode.ode_name NOT LIKE '%test %'
+    AND refund.od_quantity > 0
 `;
 
 export async function fetchOutlets(conn: Connection): Promise<OutletRow[]> {
@@ -305,20 +343,21 @@ export async function fetchProductsByIds(conn: Connection, ids: Iterable<string>
   return rows.flat().map((r) => ({ id: String(r.p_id), sapCode: r.p_skucode.trim().toUpperCase(), unitsPerCase: r.p_unitper && Number(r.p_unitper) > 0 ? Number(r.p_unitper) : null }));
 }
 
-async function fetchLines(conn: Connection, sql: string, isOrder: boolean, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
+async function fetchLines(conn: Connection, sql: string, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
   const start = formatPineLocalDate(startDate);
   // Full timestamp, not just a date — endDate is often "now" (or "today, end of day"),
   // and truncating it to a bare date turns `< end` into "< today's midnight," silently
   // excluding every sale/order made today. This was the root cause of today's data
   // never showing up as productive calls until the following day's sync.
   const end = formatPineLocalDateTime(endDate);
-  const [rows] = await conn.query<(RowDataPacket & { doc_id: number; purchase_time: Date; user_id: number; customer_id: number; item_id: number; qty: number; unit_price: number })[]>(
+  const [rows] = await conn.query<(RowDataPacket & { transaction_type: FactLineRow["transactionType"]; doc_id: number; purchase_time: Date; user_id: number; customer_id: number; item_id: number; qty: number; unit_price: number })[]>(
     sql,
-    [start, end]
+    [start, end, start, end]
   );
   return rows.map((r) => ({
     docId: String(r.doc_id),
-    isOrder,
+    isOrder: r.transaction_type === "order" || r.transaction_type === "order_return",
+    transactionType: r.transaction_type,
     purchaseTime: new Date(r.purchase_time),
     userId: String(r.user_id),
     customerId: String(r.customer_id),
@@ -332,8 +371,8 @@ async function fetchLines(conn: Connection, sql: string, isOrder: boolean, start
  *  purchase events happens downstream in transform.ts. */
 export async function fetchFactLines(conn: Connection, startDate: Date, endDate: Date): Promise<FactLineRow[]> {
   const [sales, orders] = await Promise.all([
-    fetchLines(conn, SQL_SALE_LINES, false, startDate, endDate),
-    fetchLines(conn, SQL_ORDER_LINES, true, startDate, endDate),
+    fetchLines(conn, SQL_SALE_LINES, startDate, endDate),
+    fetchLines(conn, SQL_ORDER_LINES, startDate, endDate),
   ]);
   return [...sales, ...orders];
 }

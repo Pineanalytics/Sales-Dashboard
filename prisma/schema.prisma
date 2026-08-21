@@ -484,6 +484,25 @@ model PrincipalKpiTarget {
   @@index([principal, fiscalYear, periodNo])
 }
 
+// Absolute route-to-market customer assignment.  Unlike a sales line, this
+// also retains customers with no activity, which is required for the RTM
+// universe, coverage and conversion KPIs in the Mars template.
+model PrincipalKpiRtmCustomer {
+  id          String   @id @default(cuid())
+  principal   String
+  customerId  String
+  customerName String?
+  location    String?
+  territory   String?
+  rtmType     String?
+  assignedRep String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([principal, customerId])
+  @@index([principal, location, rtmType])
+}
+
 // One source sales line.  It preserves the item, seller and fiscal-period
 // context that the general ActiveOutletEvent ledger intentionally collapses.
 // The `sourceKey` is deterministic on import/sync, making replacement feeds
@@ -497,6 +516,12 @@ model PrincipalKpiSaleLine {
   // produce a half-live scorecard.
   source         String   @default("WORKBOOK")
   sourceKey      String
+  // Mirrors the Mars raw extract: sales/orders and their returns must remain
+  // separately traceable so SSU can be reported net while productivity only
+  // counts positive, sellable activity.
+  transactionType String  @default("sale")
+  saleType        String  @default("Actual")
+  isReturn        Boolean @default(false)
   fiscalYear     String
   periodKey      String
   periodNo       Int
@@ -511,6 +536,8 @@ model PrincipalKpiSaleLine {
   customerId     String
   customerName   String?
   channel        String?
+  rtmType        String?
+  rtmOwner       String?
   territory      String?
   itemNo         String?
   itemName       String?
@@ -527,6 +554,7 @@ model PrincipalKpiSaleLine {
   @@unique([principal, sourceKey])
   @@index([principal, fiscalYear, periodNo])
   @@index([principal, source, fiscalYear, periodNo])
+  @@index([principal, source, fiscalYear, periodNo, sellerType])
   @@index([principal, fiscalYear, customerId])
   @@index([principal, fiscalYear, brand])
 }

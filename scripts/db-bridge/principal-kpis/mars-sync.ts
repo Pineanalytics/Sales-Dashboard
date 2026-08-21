@@ -5,11 +5,10 @@
 // only after every source window has uploaded successfully.
 if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 
-import { fetchFactLines, fetchOutlets, fetchProducts, fetchUsers, formatPineLocalDate, type FactLineRow } from "../active-outlets/query";
+import { fetchFactLines, fetchNoSaleVisits, fetchOutlets, fetchProducts, fetchUsers, formatPineLocalDate, resolveNoSalesColumns, type FactLineRow, type NoSaleVisitRow } from "../active-outlets/query";
 import { loadCoverageConfigFromEnv, withCoverageConnection } from "../coverage/mysql";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
-const BRIDGE = "mars-kpis-pine";
 const BATCH_SIZE = 500;
 const FULL_WINDOW_DAYS = 7;
 const FULL_RESYNC_AFTER_HOURS = Number(process.env.MARS_KPIS_FULL_RESYNC_AFTER_HOURS ?? "22");
@@ -18,14 +17,16 @@ type NullableText = string | null;
 interface Period { fiscalYear: string; periodKey: string; periodNo: number; startDate: string; endDate: string; }
 interface Product { itemNo: string; itemName: string; packSize: number | null; brand: NullableText; classification: NullableText; ssuConversion: number | null; }
 interface Roster { employeeCode: string; employeeName: string; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; }
+interface RtmCustomer { customerId: string; rtmType: NullableText; assignedRep: NullableText; }
 interface SyncState { lastIncrementalAt: string | null; lastFullResyncAt: string | null; }
-interface Reference { periods: Period[]; products: Product[]; roster: Roster[]; state: SyncState; }
+interface Reference { periods: Period[]; products: Product[]; roster: Roster[]; rtmCustomers: RtmCustomer[]; state: SyncState; }
 interface SaleLineRow {
   sourceKey: string; fiscalYear: string; periodKey: string; periodNo: number; date: string;
+  transactionType: "sale" | "sale_return" | "order" | "order_return" | "no_sale"; saleType: "Actual" | "Offers" | "Returns" | "No sale"; isReturn: boolean;
   employeeCode: NullableText; employeeName: NullableText; employeeGroup: NullableText; location: NullableText;
   teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; customerId: string; customerName: NullableText;
   channel: NullableText; territory: NullableText; itemNo: NullableText; itemName: NullableText; brand: NullableText;
-  classification: NullableText; qty: number; cases: number; ssu: number; revenue: number; invoiceNo: NullableText;
+  classification: NullableText; rtmType: NullableText; rtmOwner: NullableText; qty: number; cases: number; ssu: number; revenue: number; invoiceNo: NullableText;
 }
 
 function chunks<T>(values: T[], size: number): T[][] { const result: T[][] = []; for (let i = 0; i < values.length; i += size) result.push(values.slice(i, i + size)); return result; }
@@ -73,7 +74,7 @@ function periodForDate(periods: Period[], value: Date): Period | undefined {
 }
 
 function mapRows(
-  lines: FactLineRow[], periods: Period[], marsProducts: Map<string, Product>, outlets: Map<string, { name: string; subChannel: string; territory: string }>, users: Map<string, { employee: string }>, roster: Map<string, Roster>
+  lines: FactLineRow[], periods: Period[], marsProducts: Map<string, Product>, outlets: Map<string, { name: string; subChannel: string; territory: string }>, users: Map<string, { employee: string }>, roster: Map<string, Roster>, rtmCustomers: Map<string, RtmCustomer>
 ) {
   const result = new Map<string, SaleLineRow>();
   let matchingProductLines = 0;
@@ -83,8 +84,11 @@ function mapRows(
     const period = periodForDate(periods, line.purchaseTime);
     if (!period) continue;
     matchingProductLines += 1;
-    const sourceKey = `pine/${line.isOrder ? "order" : "sale"}/${line.docId}/${line.itemId}`;
+    const transactionType = line.transactionType ?? (line.isOrder ? "order" : "sale");
+    const sourceKey = `pine/${transactionType}/${line.docId}/${line.itemId}`;
     const qty = Number(line.qty);
+    const isReturn = transactionType === "sale_return" || transactionType === "order_return";
+    const saleType = isReturn ? "Returns" : Number(line.unitPrice) > 0 ? "Actual" : "Offers";
     const existing = result.get(sourceKey);
     if (existing) {
       existing.qty += qty;
@@ -96,16 +100,40 @@ function mapRows(
     const outlet = outlets.get(line.customerId);
     const rep = roster.get(line.userId);
     const sourceUser = users.get(line.userId);
+    const rtm = rtmCustomers.get(line.customerId);
     result.set(sourceKey, {
-      sourceKey, fiscalYear: period.fiscalYear, periodKey: period.periodKey, periodNo: period.periodNo, date: utcDate(day(line.purchaseTime)).toISOString(),
+      sourceKey, transactionType, saleType, isReturn, fiscalYear: period.fiscalYear, periodKey: period.periodKey, periodNo: period.periodNo, date: utcDate(day(line.purchaseTime)).toISOString(),
       employeeCode: rep?.employeeCode ?? line.userId, employeeName: rep?.employeeName ?? sourceUser?.employee ?? null,
       employeeGroup: rep?.employeeGroup ?? null, location: rep?.location ?? null, teamLeader: rep?.teamLeader ?? null, fsr: rep?.fsr ?? null, sellerType: rep?.sellerType ?? null,
-      customerId: line.customerId, customerName: outlet?.name ?? null, channel: outlet?.subChannel ?? null, territory: outlet?.territory ?? null,
+      customerId: line.customerId, customerName: outlet?.name ?? null, channel: outlet?.subChannel ?? null, rtmType: rtm?.rtmType ?? null, rtmOwner: rtm?.assignedRep ?? null, territory: outlet?.territory ?? null,
       itemNo: product.itemNo, itemName: product.itemName, brand: product.brand, classification: product.classification,
       qty, cases: product.packSize && product.packSize > 0 ? qty / product.packSize : 0, ssu: qty * (product.ssuConversion ?? 0), revenue: qty * Number(line.unitPrice), invoiceNo: line.docId,
     });
   }
   return { rows: [...result.values()], matchingProductLines };
+}
+
+function mapNoSaleRows(
+  visits: NoSaleVisitRow[], periods: Period[], outlets: Map<string, { name: string; subChannel: string; territory: string }>, users: Map<string, { employee: string }>, roster: Map<string, Roster>, rtmCustomers: Map<string, RtmCustomer>
+) {
+  const rows: SaleLineRow[] = [];
+  for (const visit of visits) {
+    const period = periodForDate(periods, visit.visitTime);
+    if (!period) continue;
+    const outlet = outlets.get(visit.customerId);
+    const rep = roster.get(key(visit.userId));
+    const sourceUser = users.get(visit.userId);
+    const rtm = rtmCustomers.get(visit.customerId);
+    rows.push({
+      sourceKey: `pine/no_sale/${visit.visitId}`, transactionType: "no_sale", saleType: "No sale", isReturn: false,
+      fiscalYear: period.fiscalYear, periodKey: period.periodKey, periodNo: period.periodNo, date: utcDate(day(visit.visitTime)).toISOString(),
+      employeeCode: rep?.employeeCode ?? visit.userId, employeeName: rep?.employeeName ?? sourceUser?.employee ?? null,
+      employeeGroup: rep?.employeeGroup ?? null, location: rep?.location ?? null, teamLeader: rep?.teamLeader ?? null, fsr: rep?.fsr ?? null, sellerType: rep?.sellerType ?? null,
+      customerId: visit.customerId, customerName: outlet?.name ?? null, channel: outlet?.subChannel ?? null, rtmType: rtm?.rtmType ?? null, rtmOwner: rtm?.assignedRep ?? null, territory: outlet?.territory ?? null,
+      itemNo: null, itemName: null, brand: null, classification: null, qty: 0, cases: 0, ssu: 0, revenue: 0, invoiceNo: visit.noSaleReason,
+    });
+  }
+  return rows;
 }
 
 async function main() {
@@ -135,13 +163,14 @@ async function main() {
   const outletMap = new Map<string, { name: string; subChannel: string; territory: string }>();
   const userMap = new Map<string, { employee: string }>();
   const rosterMap = new Map(reference.roster.map((rep) => [key(rep.employeeCode), rep]));
+  const rtmCustomerMap = new Map(reference.rtmCustomers.map((customer) => [customer.customerId, customer]));
   let sourceLines = 0;
   let matchingProductLines = 0;
   let uploadedRows = 0;
   let newest = now;
 
   await withCoverageConnection(config, async (conn) => {
-    const [outlets, users, products] = await Promise.all([fetchOutlets(conn), fetchUsers(conn), fetchProducts(conn)]);
+    const [outlets, users, products, noSaleColumns] = await Promise.all([fetchOutlets(conn), fetchUsers(conn), fetchProducts(conn), resolveNoSalesColumns(conn)]);
     for (const product of products) pineProducts.set(product.id, { sapCode: product.sapCode });
     for (const outlet of outlets) outletMap.set(outlet.id, { name: outlet.name, subChannel: outlet.subChannel, territory: outlet.territory });
     for (const user of users) userMap.set(user.id, { employee: user.employee });
@@ -153,15 +182,19 @@ async function main() {
       const end = period.fiscalYear === currentPeriod.fiscalYear && period.periodNo === currentPeriod.periodNo ? now : scheduledEnd;
       if (start >= end) continue;
       for (const window of windows(start, end)) {
-        const facts = await fetchFactLines(conn, window.start, window.end);
+        const [facts, noSaleVisits] = await Promise.all([
+          fetchFactLines(conn, window.start, window.end),
+          noSaleColumns ? fetchNoSaleVisits(conn, noSaleColumns, window.start, window.end) : Promise.resolve([]),
+        ]);
         sourceLines += facts.length;
         // Pine fact rows use numeric p_id; resolve that to p_skucode before
         // matching the Mars Product Master (Item No.).
         const marsFacts = facts.map((line) => ({ ...line, itemId: pineProducts.get(line.itemId)?.sapCode ?? "" }));
-        const mapped = mapRows(marsFacts, fetchPeriods, productMap, outletMap, userMap, rosterMap);
+        const mapped = mapRows(marsFacts, fetchPeriods, productMap, outletMap, userMap, rosterMap, rtmCustomerMap);
         matchingProductLines += mapped.matchingProductLines;
         for (const line of facts) if (line.purchaseTime > newest) newest = line.purchaseTime;
-        for (const batch of chunks(mapped.rows, BATCH_SIZE)) {
+        const rows = [...mapped.rows, ...mapNoSaleRows(noSaleVisits, fetchPeriods, outletMap, userMap, rosterMap, rtmCustomerMap)];
+        for (const batch of chunks(rows, BATCH_SIZE)) {
           await post(appUrl, apiKey, { action: "rows", rows: batch });
           uploadedRows += batch.length;
         }

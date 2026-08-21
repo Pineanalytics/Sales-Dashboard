@@ -34,7 +34,6 @@ function rows(workbook: XLSX.WorkBook, name: string): Row[] { const sheet = work
 // Sheets map).  Keep the standard sparse representation; the Node heap cap in
 // package.json's import command still leaves ample headroom for the raw file.
 function read(path: string) { return XLSX.readFile(path, { cellDates: false }); }
-function chunks<T>(values: T[]): T[][] { const result: T[][] = []; for (let i = 0; i < values.length; i += BATCH_SIZE) result.push(values.slice(i, i + BATCH_SIZE)); return result; }
 
 async function post(appUrl: string, apiKey: string, body: unknown) {
   const response = await fetch(`${appUrl}/api/principal-kpis/mars`, { method: "POST", headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey }, body: JSON.stringify(body), signal: AbortSignal.timeout(90_000) });
@@ -72,6 +71,13 @@ function buildTargets(workbook: XLSX.WorkBook) {
     }
   }
   return [...combined.values()];
+}
+function buildRtmCustomers(workbook: XLSX.WorkBook) {
+  return rows(workbook, "RTM").filter((row) => string(field(row, "CustomerID", "Customer Id"))).map((row) => ({
+    customerId: string(field(row, "CustomerID", "Customer Id")), customerName: nullable(field(row, "CustomerName", "Customer Name")),
+    location: nullable(field(row, "Region", "Location")), territory: nullable(field(row, "Territory")),
+    rtmType: nullable(field(row, "Type")), assignedRep: nullable(field(row, "User Name", "Assigned Rep")),
+  }));
 }
 function targetRow(row: Row, rowNumber: number) {
   const employeeCode = string(field(row, "Employee Code", "UserID", "User ID"));
@@ -223,8 +229,8 @@ async function main() {
   const targets = read(`${dir}\\Productive Target.xlsx`);
   const products = read(`${dir}\\ProductMasterData.xlsx`);
   const rawPath = `${dir}\\Mars Raw Data_PTD.xlsx`;
-  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets) };
-  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} targets.`);
+  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
+  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} targets, ${reference.rtmCustomers.length} RTM customers.`);
   await post(appUrl, apiKey, reference);
   console.log(`[mars-kpis] Reading and uploading raw YTD/LYTD sales lines in ${BATCH_SIZE}-row batches…`);
   const imported = await uploadActuals(rawPath, appUrl, apiKey);
