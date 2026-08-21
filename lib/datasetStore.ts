@@ -1,4 +1,3 @@
-import { unstable_cache, revalidateTag } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
@@ -17,7 +16,12 @@ import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyC
 // mutation paths below runs (a rare, manual/scheduled event) — a 5-minute cache
 // with on-demand invalidation removes the redundant work without sacrificing
 // freshness in practice. See invalidateDatasetCache().
-const DATASET_CACHE_TAG = "dataset";
+// Next's persistent data cache refuses the current 100MB+ Dataset value.
+// Retain it in this single production process instead; every writer below
+// already calls invalidateDatasetCache(), and the TTL is a safety net.
+const DATASET_MEMORY_TTL_MS = 5 * 60_000;
+let latestSnapshotMemory: { value: Dataset | null; expiresAt: number } | null = null;
+let latestSnapshotInFlight: Promise<Dataset | null> | null = null;
 
 export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSummary> {
   const snapshot = await prisma.snapshot.create({
@@ -460,7 +464,7 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
 }
 
 // Only fires on a loadLatestSnapshot cache MISS (getLatestSnapshot's
-// unstable_cache wrapper skips this entirely on a hit) — every 30min-ish
+// process-memory wrapper skips this entirely on a hit) — every five minutes
 // routine sync invalidation, not per-request, so this can't spam the logs.
 // Cheap diagnostic for exactly the kind of regression this file already had
 // once (a bare findMany() on a 300k+-row table): if one leg's duration jumps,
@@ -560,20 +564,24 @@ async function loadLatestSnapshot(): Promise<Dataset | null> {
   return overlayAdminData(decodeDataset(snapshot.data));
 }
 
-export const getLatestSnapshot = unstable_cache(loadLatestSnapshot, ["latest-snapshot"], {
-  tags: [DATASET_CACHE_TAG],
-  revalidate: 300, // safety-net TTL — normal path is the explicit invalidateDatasetCache() below
-});
+export async function getLatestSnapshot(): Promise<Dataset | null> {
+  if (latestSnapshotMemory && latestSnapshotMemory.expiresAt > Date.now()) return latestSnapshotMemory.value;
+  if (latestSnapshotInFlight) return latestSnapshotInFlight;
+  latestSnapshotInFlight = loadLatestSnapshot()
+    .then((value) => {
+      latestSnapshotMemory = { value, expiresAt: Date.now() + DATASET_MEMORY_TTL_MS };
+      return value;
+    })
+    .finally(() => { latestSnapshotInFlight = null; });
+  return latestSnapshotInFlight;
+}
 
 /** Called by every route that writes Snapshot/SalesRecord/Target/PLEntry data —
  *  Excel upload, the SAP/PL bridge syncs, and Target CRUD/upload — so the next
  *  getLatestSnapshot() call reflects the change immediately instead of waiting
  *  out the 5-minute TTL. */
 export function invalidateDatasetCache() {
-  // Next.js 16's revalidateTag() requires a cache-life profile as its 2nd arg (used
-  // by its newer "use cache" system) even though this tag is written by the classic
-  // unstable_cache() above — an empty profile is the documented no-op default.
-  revalidateTag(DATASET_CACHE_TAG, {});
+  latestSnapshotMemory = null;
 }
 
 export async function getSnapshotById(id: string): Promise<Dataset | null> {

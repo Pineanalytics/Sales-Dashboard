@@ -34,7 +34,11 @@ export function AnalyticsShell({
   const storeDataset = useDashboardStore((s) => s.dataset);
   const status = useDashboardStore((s) => s.status);
   const setDataset = useDashboardStore((s) => s.setDataset);
+  const fetchLatest = useDashboardStore((s) => s.fetchLatest);
   const pathname = usePathname();
+  // Principal KPIs and Coaching have compact, source-specific APIs. They must
+  // never make the shell hydrate the portfolio-sized workbook dataset first.
+  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis");
 
   // Same fallback pattern as the old DashboardShell: the store starts empty
   // client-side, so render the SSR-provided dataset until the hydration
@@ -49,9 +53,12 @@ export function AnalyticsShell({
   const pageAllowed = isAdmin || !requiredPage || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {
-    if (initialDataset) setDataset(initialDataset);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (initialDataset) {
+      setDataset(initialDataset);
+      return;
+    }
+    if (requiresDataset && !storeDataset && status === "idle") void fetchLatest();
+  }, [fetchLatest, initialDataset, requiresDataset, setDataset, status, storeDataset]);
 
   // Auto-refresh on pane navigation: client-side <Link> navigation between
   // routes under this shared layout never re-runs the layout's own SSR fetch
@@ -64,15 +71,13 @@ export function AnalyticsShell({
   // Do not re-fetch the complete portfolio snapshot during navigation. It is
   // large enough to starve interactions; live pages use their own small feeds.
 
-  const requiresDataset = !pathname?.startsWith("/coaching");
-
   return (
     <UserProvider value={user}>
       <div className="flex flex-1 min-h-0">
         <Sidebar user={user} />
         <div className="flex-1 flex flex-col min-w-0">
           <Header user={user} />
-          {!pathname?.startsWith("/coaching") ? <GlobalFilterBar /> : null}
+          {requiresDataset ? <GlobalFilterBar /> : null}
           <main className="flex-1 p-3 md:p-4 flex flex-col gap-4">
             {requiresDataset && status === "loading" && !dataset ? (
               <FullPageSpinner label="Processing workbook…" />
