@@ -50,6 +50,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
   { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/order-360", label: "Order 360", icon: VehicleTruck20Regular },
+  { href: "/principal-kpis", label: "Principal KPIs", icon: TargetArrow20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
 ];
 

@@ -400,6 +400,131 @@ model Product {
   createdAt      DateTime @default(now())
 }
 
+// Principal KPI workspace — an additive, fiscal-calendar-aware layer for
+// principal-specific scorecards.  The company-wide `Target`, `Product`, and
+// `EmployeeMaster` tables intentionally remain the shared sources for the
+// standard dashboards; these tables retain the source dimensions and targets
+// required where a principal (beginning with Mars) operates to a different
+// period calendar and KPI definition.
+model PrincipalKpiPeriod {
+  id         String   @id @default(cuid())
+  principal  String
+  fiscalYear String
+  periodKey  String   // P01 … P13
+  periodNo   Int
+  startDate  DateTime
+  endDate    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([principal, fiscalYear, periodKey])
+  @@index([principal, fiscalYear, periodNo])
+}
+
+model PrincipalKpiProduct {
+  id            String   @id @default(cuid())
+  principal     String
+  itemNo        String
+  itemName      String
+  packSize      Float?
+  brand         String?
+  classification String?
+  ssuConversion Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([principal, itemNo])
+  @@index([principal, brand])
+}
+
+// Kept separate from EmployeeMaster because this is a principal's commercial
+// roster view (FSR, seller type and active days), not a replacement for the
+// company-wide HR/Pine/SAP identity master.
+model PrincipalKpiRoster {
+  id           String   @id @default(cuid())
+  principal    String
+  employeeCode String
+  employeeName String
+  employeeGroup String?
+  location     String?
+  teamLeader   String?
+  fsr          String?
+  sellerType   String?
+  activeDays   Int?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([principal, employeeCode])
+  @@index([principal, sellerType])
+}
+
+model PrincipalKpiTarget {
+  id             String   @id @default(cuid())
+  principal      String
+  fiscalYear     String
+  periodKey      String
+  periodNo       Int
+  employeeCode   String
+  employeeName   String?
+  employeeGroup  String?
+  location       String?
+  teamLeader     String?
+  fsr            String?
+  sellerType     String?
+  volumeTarget   Float?
+  valueTarget    Float?
+  universeTarget Float?
+  coverageTarget Float?
+  ssuTarget      Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([principal, fiscalYear, periodKey, employeeCode])
+  @@index([principal, fiscalYear, periodNo])
+}
+
+// One source sales line.  It preserves the item, seller and fiscal-period
+// context that the general ActiveOutletEvent ledger intentionally collapses.
+// The `sourceKey` is deterministic on import/sync, making replacement feeds
+// safe to retry without double-counting.
+model PrincipalKpiSaleLine {
+  id             String   @id @default(cuid())
+  principal      String
+  sourceKey      String
+  fiscalYear     String
+  periodKey      String
+  periodNo       Int
+  date           DateTime
+  employeeCode   String?
+  employeeName   String?
+  employeeGroup  String?
+  location       String?
+  teamLeader     String?
+  fsr            String?
+  sellerType     String?
+  customerId     String
+  customerName   String?
+  channel        String?
+  territory      String?
+  itemNo         String?
+  itemName       String?
+  brand          String?
+  classification String?
+  qty            Float
+  cases          Float
+  ssu            Float
+  revenue        Float
+  invoiceNo      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([principal, sourceKey])
+  @@index([principal, fiscalYear, periodNo])
+  @@index([principal, fiscalYear, customerId])
+  @@index([principal, fiscalYear, brand])
+}
+
 // Admin-editable reference data (rarely changes), consumed by scripts/db-bridge
 // as the warehouse->location join for the SQL bridge.
 model Warehouse {
