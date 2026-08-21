@@ -177,9 +177,10 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod} AND qty > 0 AND NOT "isReturn")::int AS "ptdProductive"
       FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" <= ${selectedPeriod} GROUP BY 1 ORDER BY "ptdSsu" DESC`),
     prisma.principalKpiRtmCustomer.groupBy({ by: ["rtmType"], where: { principal: PRINCIPAL, ...(text(req.nextUrl.searchParams.get("location")) ? { location: req.nextUrl.searchParams.get("location")!.trim() } : {}) }, _count: { customerId: true } }),
-    prisma.$queryRaw<{ fiscalYear: string; location: string; sellerType: string; ssu: number; visits: number; productive: number }[]>(Prisma.sql`
+    prisma.$queryRaw<{ fiscalYear: string; location: string; sellerType: string; ssu: number; qty: number; lines: number; visits: number; productive: number }[]>(Prisma.sql`
       SELECT "fiscalYear", COALESCE(NULLIF(location,''),'Unassigned') AS location, COALESCE(NULLIF("sellerType",''),'Unspecified') AS "sellerType",
-        COALESCE(SUM(ssu),0)::double precision AS ssu, COUNT(DISTINCT "customerId")::int AS visits,
+        COALESCE(SUM(ssu),0)::double precision AS ssu, COALESCE(SUM(qty) FILTER (WHERE qty > 0 AND NOT "isReturn"),0)::double precision AS qty,
+        COUNT(*) FILTER (WHERE qty > 0 AND NOT "isReturn")::int AS lines, COUNT(DISTINCT "customerId")::int AS visits,
         COUNT(DISTINCT "customerId") FILTER (WHERE qty > 0 AND NOT "isReturn")::int AS productive
       FROM "PrincipalKpiSaleLine" WHERE ${actualBase} AND "periodNo" = ${selectedPeriod} ${priorAsOfFilter}
       GROUP BY "fiscalYear", 2, 3 ORDER BY 2, 3`),
@@ -216,7 +217,7 @@ export async function GET(req: NextRequest) {
   const targetByLocation = new Map(locationTargets.map((row) => [`${row.location}|${row.sellerType}`, row]));
   const locationScorecards = [...new Set([...locationActuals.map((row) => `${row.location}|${row.sellerType}`), ...locationTargets.map((row) => `${row.location}|${row.sellerType}`)])].map((key) => {
     const [location, sellerType] = key.split("|"); const targetRow = targetByLocation.get(key); const currentRow = locationActuals.find((row) => row.fiscalYear === fiscalYear && row.location === location && row.sellerType === sellerType); const priorRow = locationActuals.find((row) => row.fiscalYear === priorYear && row.location === location && row.sellerType === sellerType);
-    return { location, sellerType, stream: stream(sellerType), fullSsuTarget: targetRow?.fullSsuTarget ?? 0, ptdSsuTarget: (targetRow?.ptdSsuTarget ?? 0) * pacing, ptdSsu: currentRow?.ssu ?? 0, lyspSsu: priorRow?.ssu ?? 0, universeTarget: targetRow?.universeTarget ?? 0, visits: currentRow?.visits ?? 0, lyspVisits: priorRow?.visits ?? 0, productive: currentRow?.productive ?? 0, lyspProductive: priorRow?.productive ?? 0 };
+    return { location, sellerType, stream: stream(sellerType), fullSsuTarget: targetRow?.fullSsuTarget ?? 0, ptdSsuTarget: (targetRow?.ptdSsuTarget ?? 0) * pacing, ptdSsu: currentRow?.ssu ?? 0, lyspSsu: priorRow?.ssu ?? 0, universeTarget: targetRow?.universeTarget ?? 0, visits: currentRow?.visits ?? 0, lyspVisits: priorRow?.visits ?? 0, productive: currentRow?.productive ?? 0, lyspProductive: priorRow?.productive ?? 0, lppc: currentRow && currentRow.productive > 0 ? currentRow.lines / currentRow.productive : null, dropSize: currentRow && currentRow.productive > 0 ? currentRow.qty / currentRow.productive : null };
   }).sort((a, b) => a.stream.localeCompare(b.stream) || a.location.localeCompare(b.location));
   const rosterByCode = new Map(roster.map((row) => [row.employeeCode, row]));
   const productiveTargetByRep = new Map<string, { employeeName: string | null; location: string | null; target: number }>();
