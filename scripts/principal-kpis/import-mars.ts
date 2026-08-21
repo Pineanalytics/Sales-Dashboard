@@ -247,14 +247,15 @@ async function main() {
   const apiKey = process.env.UPLOAD_API_KEY;
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY in .env.");
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
-  const dir = process.argv[2] || DEFAULT_DIR;
+  const args = process.argv.slice(2);
+  const dir = args.find((arg) => !arg.startsWith("--")) || DEFAULT_DIR;
   const targets = read(`${dir}\\Productive Target.xlsx`);
   const products = read(`${dir}\\ProductMasterData.xlsx`);
   const rawPath = `${dir}\\Mars Raw Data_PTD.xlsx`;
   const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
   console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers.`);
   await post(appUrl, apiKey, reference);
-  if (process.argv.includes("--reference-only")) {
+  if (args.includes("--reference-only")) {
     console.log("[mars-kpis] Reference import complete; workbook actuals were intentionally not replaced.");
     return;
   }
