@@ -47,15 +47,21 @@ function pct(formData: FormData, name: string): number | null {
   return Number.isFinite(n) ? n / 100 : null; // form takes a whole-number percent, stored as a fraction
 }
 
-// Carries the active Team-Leader/Employee filter (see the filter bar on the page) through an
-// edit/deactivate/delete round-trip, so acting on a row while filtered doesn't dump the admin
-// back into the unfiltered 119-row list.
+// Carries the active hierarchy and roster filters through an edit/deactivate/delete round-trip,
+// so acting on a row never drops the administrator back into the full assignment list.
 function filterSuffix(formData: FormData): string {
-  const filterTeamLeader = str(formData, "filterTeamLeader");
-  const filterEmployee = str(formData, "filterEmployee");
+  const filters = [
+    "filterTeamLeader",
+    "filterPrincipal",
+    "filterSupervisor",
+    "filterManager",
+    "filterEmployee",
+  ] as const;
   let suffix = "";
-  if (filterTeamLeader) suffix += `&filterTeamLeader=${encodeURIComponent(filterTeamLeader)}`;
-  if (filterEmployee) suffix += `&filterEmployee=${encodeURIComponent(filterEmployee)}`;
+  for (const filter of filters) {
+    const value = str(formData, filter);
+    if (value) suffix += `&${filter}=${encodeURIComponent(value)}`;
+  }
   return suffix;
 }
 

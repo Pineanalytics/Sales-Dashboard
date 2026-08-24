@@ -30,6 +30,11 @@ function str(formData: FormData, name: string): string {
   return String(formData.get(name) || "").trim();
 }
 
+function filterSuffix(formData: FormData): string {
+  const principal = str(formData, "filterPrincipal");
+  return principal ? `&filterPrincipal=${encodeURIComponent(principal)}` : "";
+}
+
 // Mirrors the source Target_Per_Principal_System.xlsm workbook's AuditTrail sheet —
 // one row per row-level Add/Edit/Delete form submission (not written by the bulk
 // upload path). `changes` only holds the fields that actually moved.
@@ -183,10 +188,11 @@ export async function updateTargetAction(formData: FormData) {
   const user = await requireAdmin();
   const id = str(formData, "targetId");
   const year = str(formData, "year");
+  const suffix = filterSuffix(formData);
 
   const existing = await prisma.target.findUnique({ where: { id } });
   if (!existing) {
-    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Target not found."));
+    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Target not found.") + suffix);
   }
 
   const values = {
@@ -205,7 +211,7 @@ export async function updateTargetAction(formData: FormData) {
       },
     });
   } catch {
-    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Failed to update the target."));
+    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Failed to update the target.") + suffix);
   }
 
   await logTargetAudit(
@@ -224,7 +230,8 @@ export async function updateTargetAction(formData: FormData) {
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +
-      encodeURIComponent(`Updated ${existing.principal} — ${existing.month} ${existing.year}.`)
+      encodeURIComponent(`Updated ${existing.principal} — ${existing.month} ${existing.year}.`) +
+      suffix
   );
 }
 
@@ -232,10 +239,11 @@ export async function deleteTargetAction(formData: FormData) {
   const user = await requireAdmin();
   const id = String(formData.get("targetId") || "");
   const year = String(formData.get("year") || "");
+  const suffix = filterSuffix(formData);
 
   const target = await prisma.target.findUnique({ where: { id } });
   if (!target) {
-    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Target not found."));
+    redirect(`/admin/targets?year=${encodeURIComponent(year)}&error=` + encodeURIComponent("Target not found.") + suffix);
   }
 
   await prisma.target.delete({ where: { id } });
@@ -256,6 +264,7 @@ export async function deleteTargetAction(formData: FormData) {
 
   redirect(
     `/admin/targets?year=${encodeURIComponent(year)}&success=` +
-      encodeURIComponent(`Removed ${target.principal} — ${target.month} ${target.year}.`)
+      encodeURIComponent(`Removed ${target.principal} — ${target.month} ${target.year}.`) +
+      suffix
   );
 }

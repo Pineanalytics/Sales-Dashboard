@@ -30,14 +30,14 @@ function fieldLabel(field: string): string {
 export default async function AdminTargetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; year?: string; edit?: string; principal?: string; mainPrincipal?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; year?: string; edit?: string; principal?: string; mainPrincipal?: string; filterPrincipal?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, year: yearParam, edit, principal: lastPrincipal, mainPrincipal: lastMainPrincipal } = await searchParams;
+  const { error, success, year: yearParam, edit, principal: lastPrincipal, mainPrincipal: lastMainPrincipal, filterPrincipal } = await searchParams;
 
   const distinctYears = await prisma.target.findMany({
     select: { year: true },
@@ -52,7 +52,7 @@ export default async function AdminTargetsPage({
   const yearOptions = Array.from(new Set([...years, realYear, String(Number(realYear) + 1)])).sort((a, b) => Number(b) - Number(a));
 
   const targets = await prisma.target.findMany({
-    where: { year },
+    where: { year, ...(filterPrincipal ? { principal: filterPrincipal } : {}) },
     orderBy: [{ monthIndex: "asc" }, { principal: "asc" }],
   });
   const editing = edit ? targets.find((t) => t.id === edit) : undefined;
@@ -193,21 +193,33 @@ export default async function AdminTargetsPage({
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold text-primary-blue">Targets ({targets.length})</h2>
-            {years.length > 1 ? (
-              <div className="flex items-center gap-2 text-[13px]">
-                {years.map((y) => (
+            <div className="flex flex-wrap items-center gap-2 text-[13px]">
+              <form method="get" className="flex items-center gap-2">
+                <input type="hidden" name="year" value={year} />
+                <label className="sr-only" htmlFor="target-principal-filter">Filter targets by principal</label>
+                <select id="target-principal-filter" name="filterPrincipal" defaultValue={filterPrincipal ?? ""} className={inputClass}>
+                  <option value="">All principals</option>
+                  {knownPrincipals.map((principal) => (
+                    <option key={principal} value={principal}>{principal}</option>
+                  ))}
+                </select>
+                <button type="submit" className="rounded-full bg-background-elevated px-3 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Filter</button>
+                {filterPrincipal ? <Link href={`/admin/targets?year=${encodeURIComponent(year)}`} className="text-xs font-medium text-muted-strong hover:text-primary-blue">Clear</Link> : null}
+              </form>
+              {years.length > 1 ? (
+                years.map((y) => (
                   <Link
                     key={y}
-                    href={`/admin/targets?year=${encodeURIComponent(y)}`}
+                    href={`/admin/targets?year=${encodeURIComponent(y)}${filterPrincipal ? `&filterPrincipal=${encodeURIComponent(filterPrincipal)}` : ""}`}
                     className={`rounded-full px-3 py-1.5 font-medium transition-colors ${
                       y === year ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white" : "bg-background-elevated text-muted-strong hover:bg-accent-blue-soft"
                     }`}
                   >
                     {y}
                   </Link>
-                ))}
-              </div>
-            ) : null}
+                ))
+              ) : null}
+            </div>
           </div>
           <div className="overflow-x-auto mt-4">
             <table className="w-full text-sm border-collapse">
@@ -230,6 +242,7 @@ export default async function AdminTargetsPage({
                         <form action={updateTargetAction} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                           <input type="hidden" name="targetId" value={t.id} />
                           <input type="hidden" name="year" value={year} />
+                          {filterPrincipal ? <input type="hidden" name="filterPrincipal" value={filterPrincipal} /> : null}
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Month</label>
                             <input value={t.month} disabled className={inputClass + " opacity-60"} />
@@ -263,7 +276,7 @@ export default async function AdminTargetsPage({
                             <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
                               Save
                             </button>
-                            <Link href={`/admin/targets?year=${encodeURIComponent(year)}`} className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                            <Link href={`/admin/targets?year=${encodeURIComponent(year)}${filterPrincipal ? `&filterPrincipal=${encodeURIComponent(filterPrincipal)}` : ""}`} className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
                               Cancel
                             </Link>
                           </div>
@@ -280,7 +293,7 @@ export default async function AdminTargetsPage({
                       <td className="px-6 py-3 border-b border-border/60 text-right">{t.productivityTarget ?? "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
                         <Link
-                          href={`/admin/targets?year=${encodeURIComponent(year)}&edit=${t.id}`}
+                          href={`/admin/targets?year=${encodeURIComponent(year)}&edit=${t.id}${filterPrincipal ? `&filterPrincipal=${encodeURIComponent(filterPrincipal)}` : ""}`}
                           className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
                         >
                           Edit
@@ -288,6 +301,7 @@ export default async function AdminTargetsPage({
                         <form action={deleteTargetAction} className="inline">
                           <input type="hidden" name="targetId" value={t.id} />
                           <input type="hidden" name="year" value={year} />
+                          {filterPrincipal ? <input type="hidden" name="filterPrincipal" value={filterPrincipal} /> : null}
                           <button
                             type="submit"
                             className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"

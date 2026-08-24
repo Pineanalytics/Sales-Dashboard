@@ -39,6 +39,9 @@ export default async function AdminTeamLeadersPage({
     principal?: string;
     filterTeamLeader?: string;
     filterEmployee?: string;
+    filterPrincipal?: string;
+    filterSupervisor?: string;
+    filterManager?: string;
   }>;
 }) {
   const session = await auth();
@@ -57,6 +60,9 @@ export default async function AdminTeamLeadersPage({
     principal: lastPrincipal,
     filterTeamLeader,
     filterEmployee,
+    filterPrincipal,
+    filterSupervisor,
+    filterManager,
   } = await searchParams;
 
   const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, reliefs] = await Promise.all([
@@ -85,6 +91,19 @@ export default async function AdminTeamLeadersPage({
   const contributionWarnings = validateContributionTotals(assignments);
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
+  const teamLeaderById = new Map(teamLeaders.map((tl) => [tl.id, tl]));
+  const supervisorById = new Map(supervisors.map((supervisor) => [supervisor.id, supervisor]));
+  const managerById = new Map(managers.map((manager) => [manager.id, manager]));
+  const supervisorIdForAssignment = (assignment: (typeof assignments)[number]) =>
+    assignment.supervisorId ?? teamLeaderById.get(assignment.teamLeaderId)?.supervisorId ?? "";
+  const managerIdForAssignment = (assignment: (typeof assignments)[number]) => {
+    const supervisorId = supervisorIdForAssignment(assignment);
+    return assignment.managerId ?? supervisorById.get(supervisorId)?.managerId ?? "";
+  };
+  const availableSupervisorIds = new Set(assignments.map(supervisorIdForAssignment).filter(Boolean));
+  const availableManagerIds = new Set(assignments.map(managerIdForAssignment).filter(Boolean));
+  const visibleSupervisors = supervisors.filter((supervisor) => availableSupervisorIds.has(supervisor.id));
+  const visibleManagers = managers.filter((manager) => availableManagerIds.has(manager.id));
   const assignmentsByTeamLeader = new Map<string, typeof assignments>();
   for (const a of assignments) {
     const list = assignmentsByTeamLeader.get(a.teamLeaderId) ?? [];
@@ -96,16 +115,38 @@ export default async function AdminTeamLeadersPage({
   // across every Principal/Team Leader they're on — the same query-param-driven pattern the
   // page already uses for edit/rename, just filtering what's already fetched.
   const employeeNeedle = filterEmployee?.trim().toLowerCase();
+  const selectedPrincipal = filterPrincipal?.trim() ?? "";
+  const selectedSupervisor = filterSupervisor?.trim() ?? "";
+  const selectedManager = filterManager?.trim() ?? "";
   const visibleAssignments = assignments.filter((a) => {
     if (filterTeamLeader && a.teamLeaderId !== filterTeamLeader) return false;
+    if (selectedPrincipal && a.principal !== selectedPrincipal) return false;
+    if (selectedSupervisor && supervisorIdForAssignment(a) !== selectedSupervisor) return false;
+    if (selectedManager && managerIdForAssignment(a) !== selectedManager) return false;
     if (employeeNeedle && !a.employeeCode.toLowerCase().includes(employeeNeedle) && !a.employeeName.toLowerCase().includes(employeeNeedle))
       return false;
     return true;
   });
-  const isFiltered = Boolean(filterTeamLeader || employeeNeedle);
-  const filterQuery = `${filterTeamLeader ? `&filterTeamLeader=${encodeURIComponent(filterTeamLeader)}` : ""}${
-    filterEmployee ? `&filterEmployee=${encodeURIComponent(filterEmployee)}` : ""
-  }`;
+  const isFiltered = Boolean(filterTeamLeader || selectedPrincipal || selectedSupervisor || selectedManager || employeeNeedle);
+  const filterQuery = new URLSearchParams(
+    Object.entries({
+      filterTeamLeader: filterTeamLeader ?? "",
+      filterPrincipal: selectedPrincipal,
+      filterSupervisor: selectedSupervisor,
+      filterManager: selectedManager,
+      filterEmployee: filterEmployee ?? "",
+    }).filter(([, value]) => Boolean(value))
+  ).toString();
+  const filterSuffix = filterQuery ? `&${filterQuery}` : "";
+  const FilterFields = () => (
+    <>
+      {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
+      {selectedPrincipal ? <input type="hidden" name="filterPrincipal" value={selectedPrincipal} /> : null}
+      {selectedSupervisor ? <input type="hidden" name="filterSupervisor" value={selectedSupervisor} /> : null}
+      {selectedManager ? <input type="hidden" name="filterManager" value={selectedManager} /> : null}
+      {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -479,6 +520,30 @@ export default async function AdminTeamLeadersPage({
                   </option>
                 ))}
               </select>
+              <select name="filterPrincipal" defaultValue={selectedPrincipal} className={inputClass}>
+                <option value="">All Principals</option>
+                {knownPrincipals.map((principal) => (
+                  <option key={principal} value={principal}>
+                    {principal}
+                  </option>
+                ))}
+              </select>
+              <select name="filterSupervisor" defaultValue={selectedSupervisor} className={inputClass}>
+                <option value="">All Supervisors</option>
+                {visibleSupervisors.map((supervisor) => (
+                  <option key={supervisor.id} value={supervisor.id}>
+                    {supervisor.name}
+                  </option>
+                ))}
+              </select>
+              <select name="filterManager" defaultValue={selectedManager} className={inputClass}>
+                <option value="">All Managers</option>
+                {visibleManagers.map((manager) => (
+                  <option key={manager.id} value={manager.id}>
+                    {manager.name}
+                  </option>
+                ))}
+              </select>
               <input
                 name="filterEmployee"
                 defaultValue={filterEmployee ?? ""}
@@ -517,8 +582,7 @@ export default async function AdminTeamLeadersPage({
                       <td className="px-6 py-3 border-b border-border/60" colSpan={8}>
                         <form action={updateAssignmentAction} className="flex flex-wrap items-end gap-3">
                           <input type="hidden" name="assignmentId" value={a.id} />
-                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
-                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
+                          <FilterFields />
                           <span className="text-sm font-medium text-foreground">
                             {a.employeeName} ({a.employeeCode}) — {a.principal}
                           </span>
@@ -549,7 +613,7 @@ export default async function AdminTeamLeadersPage({
                             Save
                           </button>
                           <Link
-                            href={`/admin/team-leaders?${filterQuery.replace(/^&/, "")}`}
+                            href={`/admin/team-leaders?${filterQuery}`}
                             className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated"
                           >
                             Cancel
@@ -578,15 +642,14 @@ export default async function AdminTeamLeadersPage({
                       </td>
                       <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
                         <Link
-                          href={`/admin/team-leaders?edit=${a.id}${filterQuery}`}
+                          href={`/admin/team-leaders?edit=${a.id}${filterSuffix}`}
                           className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
                         >
                           Edit
                         </Link>
                         <form action={deactivateAssignmentAction} className="inline">
                           <input type="hidden" name="assignmentId" value={a.id} />
-                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
-                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
+                          <FilterFields />
                           <button
                             type="submit"
                             className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft transition-colors duration-300"
@@ -596,8 +659,7 @@ export default async function AdminTeamLeadersPage({
                         </form>
                         <form action={deleteAssignmentAction} className="inline">
                           <input type="hidden" name="assignmentId" value={a.id} />
-                          {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
-                          {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
+                          <FilterFields />
                           <button
                             type="submit"
                             className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
