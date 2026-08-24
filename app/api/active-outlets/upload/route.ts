@@ -314,7 +314,7 @@ async function deriveForFullYear(year: string, calendarMonthsElapsed: number) {
       SUM(sales) AS sales
     FROM "ActiveOutletEvent"
     WHERE year = ${year}
-    GROUP BY year, EXTRACT(MONTH FROM date), principal, "salesRole"
+    GROUP BY year, to_char(date, 'FMMonth'), EXTRACT(MONTH FROM date), principal, "salesRole"
   `;
   for (let i = 0; i < monthlyRows.length; i += CHUNK_SIZE) {
     await upsertMonthlyChunk(
