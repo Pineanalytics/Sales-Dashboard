@@ -6,6 +6,7 @@ import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 import { ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "@/lib/email";
 import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
+import { UserAccessToolbar } from "@/components/admin/UserAccessToolbar";
 import {
   createUserAction,
   deleteUserAction,
@@ -91,6 +92,10 @@ export default async function AdminUsersPage({
             {success}
           </p>
         ) : null}
+
+        <UserAccessToolbar
+          users={approved.map((user) => ({ id: user.id, name: user.name, email: user.email, role: user.role }))}
+        />
 
         {pending.length > 0 ? (
           <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -317,13 +322,29 @@ export default async function AdminUsersPage({
           </form>
         </div>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+        <div id="user-directory" className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="p-6 pb-0">
             <h2 className="text-lg font-semibold text-primary-blue">Users ({approved.length})</h2>
           </div>
           <div className="flex flex-col divide-y divide-border/60 mt-4">
             {approved.map((u) => (
-              <div key={u.id} className="p-6 flex flex-col gap-4">
+              <details
+                key={u.id}
+                id={`user-${u.id}`}
+                data-user-row
+                data-user-search={`${u.name ?? ""} ${u.email}`.toLowerCase()}
+                data-user-role={u.role}
+                className="group scroll-mt-40 border-b border-border/60 last:border-b-0"
+              >
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-6 py-4 hover:bg-background-elevated [&::-webkit-details-marker]:hidden">
+                  <span>
+                    <span className="block font-semibold text-foreground">{u.name || u.email}</span>
+                    <span className="mt-0.5 block text-xs text-muted">{u.email} · {u.role.replace("_", " ")}</span>
+                  </span>
+                  <span className="rounded-full bg-accent-blue-soft px-3 py-1.5 text-xs font-semibold text-primary-blue group-open:hidden">Manage access</span>
+                  <span className="hidden rounded-full bg-background px-3 py-1.5 text-xs font-semibold text-muted-strong group-open:inline">Hide settings</span>
+                </summary>
+                <div className="flex flex-col gap-4 border-t border-border/60 p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-foreground">{u.name || u.email}</div>
@@ -541,7 +562,8 @@ export default async function AdminUsersPage({
                     </div>
                   </div>
                 ) : null}
-              </div>
+                </div>
+              </details>
             ))}
           </div>
         </div>
