@@ -5,9 +5,9 @@ import { CANONICAL_MONTHS } from "./timeIntelligence";
 
 export interface TargetsOverviewFilters {
   year: string;
-  month?: string; // omitted/"" = every month in the year
-  principal?: string;
-  teamLeaderId?: string;
+  month?: string[]; // omitted/empty = every month in the year
+  principal?: string[];
+  teamLeaderIds?: string[];
   employeeCode?: string;
   region?: string;
 }
@@ -70,8 +70,8 @@ export interface TargetsOverviewResult {
 export async function getTargetsOverview(filters: TargetsOverviewFilters, scope: TeamLeaderScope | null): Promise<TargetsOverviewResult> {
   const conditions: Prisma.TeamLeaderAssignmentWhereInput[] = [{ active: true }];
   if (scope) conditions.push({ employeeCode: { in: scope.employeeCodes } });
-  if (filters.principal) conditions.push({ principal: filters.principal });
-  if (filters.teamLeaderId) conditions.push({ teamLeaderId: filters.teamLeaderId });
+  if (filters.principal?.length) conditions.push({ principal: { in: filters.principal } });
+  if (filters.teamLeaderIds?.length) conditions.push({ teamLeaderId: { in: filters.teamLeaderIds } });
   if (filters.employeeCode) conditions.push({ employeeCode: filters.employeeCode });
   if (filters.region) conditions.push({ region: filters.region });
 
@@ -94,7 +94,7 @@ export async function getTargetsOverview(filters: TargetsOverviewFilters, scope:
   }
 
   const principalsNeeded = Array.from(new Set(assignments.map((a) => a.principal)));
-  const monthsNeeded = filters.month ? [filters.month] : CANONICAL_MONTHS;
+  const monthsNeeded = filters.month?.length ? filters.month : CANONICAL_MONTHS;
 
   const targets = principalsNeeded.length
     ? await prisma.target.findMany({ where: { year: filters.year, month: { in: monthsNeeded }, principal: { in: principalsNeeded } } })
@@ -124,7 +124,7 @@ export async function getTargetsOverview(filters: TargetsOverviewFilters, scope:
   // Pro-rata only makes sense against a single month's Target (a roster row
   // has no month dimension of its own) — computed only when exactly one
   // month is selected.
-  const singleMonth = filters.month ?? null;
+  const singleMonth = filters.month?.length === 1 ? filters.month[0] : null;
   const rosterRows: TargetsOverviewRosterRow[] = assignments.map((a) => {
     const target = singleMonth ? targetByKey.get(`${filters.year}|${singleMonth}|${a.principal}`) ?? null : null;
     const employeeProRataValue = target?.valueTarget != null && a.contributionPct != null ? target.valueTarget * a.contributionPct : null;

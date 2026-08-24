@@ -59,9 +59,18 @@ export function AiInsightsCard() {
   const [insight, setInsight] = useState<AiInsightRecord | null>(null);
   const period = useDashboardStore((s) => s.selectedPeriod);
   const principalKey = useDashboardStore((s) => s.selectedPrincipalKey);
+  const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
 
   useEffect(() => {
     if (!period.year) return; // store not hydrated yet — this effect re-runs once it is
+    // The AI digest cache is intentionally keyed to a single principal or the
+    // whole portfolio. A multi-principal dashboard scope must not silently
+    // show an unfiltered digest and imply that it describes the selection.
+    if (selectedPrincipalKeys.length > 1) {
+      setInsight(null);
+      setStatus("idle");
+      return;
+    }
     let cancelled = false;
     setStatus("loading");
     (async () => {
@@ -80,7 +89,7 @@ export function AiInsightsCard() {
     return () => {
       cancelled = true;
     };
-  }, [period, principalKey]);
+  }, [period, principalKey, selectedPrincipalKeys.length]);
 
   if (status === "loading") {
     return (
@@ -95,7 +104,7 @@ export function AiInsightsCard() {
   if (status === "error" || !insight) {
     return (
       <SectionCard title="Insights" action={<Sparkle20Regular className="h-4 w-4 text-muted" />}>
-        <p className="px-1 py-2 text-xs text-muted">{status === "error" ? "Couldn't generate a digest for this selection." : "No digest available."}</p>
+        <p className="px-1 py-2 text-xs text-muted">{status === "error" ? "Couldn't generate a digest for this selection." : selectedPrincipalKeys.length > 1 ? "AI insights are available for one principal at a time; the rest of the dashboard remains filtered to your selection." : "No digest available."}</p>
       </SectionCard>
     );
   }

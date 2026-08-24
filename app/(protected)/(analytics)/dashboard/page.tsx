@@ -10,7 +10,7 @@ import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBar
 import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars";
 import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
-import { DashboardControls, type DashboardView } from "@/components/dashboard/DashboardControls";
+import { DashboardControlsMulti, type DashboardView } from "@/components/dashboard/DashboardControlsMulti";
 import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
@@ -96,7 +96,7 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-4 md:gap-5">
       <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} />
-      <DashboardControls view={tab} onViewChange={setTab} />
+      <DashboardControlsMulti view={tab} onViewChange={setTab} />
 
       {tab === "mtd" ? (
         <div className="flex flex-col gap-4 md:gap-5">

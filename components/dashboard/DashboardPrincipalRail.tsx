@@ -9,9 +9,9 @@ import { principalsByRevenueDesc } from "@/lib/selectors";
  *  always-visible GlobalFilterBar on every other page) is untouched. Reads/writes
  *  the same store field, so switching a principal here stays in sync everywhere. */
 export function DashboardPrincipalRail() {
-  const dataset = useDashboardStore((s) => s.dataset);
-  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
-  const selectPrincipal = useDashboardStore((s) => s.selectPrincipal);
+  const dataset = useDashboardStore((s) => s.sourceDataset);
+  const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
+  const setPrincipalSelection = useDashboardStore((s) => s.setPrincipalSelection);
   const period = useDashboardStore((s) => s.selectedPeriod);
 
   if (!dataset) return null;
@@ -23,19 +23,19 @@ export function DashboardPrincipalRail() {
       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Principal</span>
       <div className="grid max-h-64 grid-cols-2 gap-1.5 overflow-y-auto pr-1">
         <button
-          onClick={() => selectPrincipal(null)}
+          onClick={() => setPrincipalSelection([])}
           className={`col-span-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors duration-200 ${
-            selectedPrincipalKey === null ? "bg-secondary-blue text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
+            selectedPrincipalKeys.length === 0 ? "bg-secondary-blue text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"
           }`}
         >
           All Principals
         </button>
         {principals.map((p) => {
-          const active = selectedPrincipalKey === p.principalKey;
+          const active = selectedPrincipalKeys.includes(p.principalKey);
           return (
             <button
               key={p.principalKey}
-              onClick={() => selectPrincipal(active ? null : p.principalKey)}
+              onClick={() => setPrincipalSelection(active ? selectedPrincipalKeys.filter((key) => key !== p.principalKey) : [...selectedPrincipalKeys, p.principalKey])}
               title={p.principal}
               className={`truncate rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors duration-200 ${
                 active ? "bg-secondary-blue text-white" : "bg-dark-navy text-white/90 hover:bg-primary-blue"

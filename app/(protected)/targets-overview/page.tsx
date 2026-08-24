@@ -36,9 +36,9 @@ export default async function TargetsOverviewPage({
     error?: string;
     success?: string;
     year?: string;
-    month?: string;
-    principal?: string;
-    teamLeaderId?: string;
+    month?: string | string[];
+    principal?: string | string[];
+    teamLeaderId?: string | string[];
     employeeCode?: string;
     region?: string;
     editTarget?: string; // "<principal>::<month>"
@@ -55,12 +55,16 @@ export default async function TargetsOverviewPage({
   const params = await searchParams;
   const now = new Date();
   const year = params.year || String(now.getFullYear());
-  const month = params.month ?? CANONICAL_MONTHS[now.getMonth()];
+  const list = (value: string | string[] | undefined) => (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean);
+  const selectedMonths = params.month === undefined ? [CANONICAL_MONTHS[now.getMonth()]] : list(params.month);
+  const selectedPrincipals = list(params.principal);
+  const selectedTeamLeaderIds = list(params.teamLeaderId);
+  const month = selectedMonths.length === 1 ? selectedMonths[0] : "";
   const filters = {
     year,
-    month: month || undefined,
-    principal: params.principal || undefined,
-    teamLeaderId: params.teamLeaderId || undefined,
+    month: selectedMonths.length ? selectedMonths : undefined,
+    principal: selectedPrincipals.length ? selectedPrincipals : undefined,
+    teamLeaderIds: selectedTeamLeaderIds.length ? selectedTeamLeaderIds : undefined,
     employeeCode: params.employeeCode || undefined,
     region: params.region || undefined,
   };
@@ -86,7 +90,7 @@ export default async function TargetsOverviewPage({
           where: {
             weekStartDate: { in: weeks.map((w) => w.weekStartDate) },
             principal: { in: principals },
-            teamLeaderId: params.teamLeaderId ? params.teamLeaderId : { in: weeklyTeamLeaderIds },
+            teamLeaderId: selectedTeamLeaderIds.length ? { in: selectedTeamLeaderIds } : { in: weeklyTeamLeaderIds },
           },
           select: { principal: true, weekLabel: true, weekStartDate: true, targetValue: true },
         })
@@ -111,7 +115,7 @@ export default async function TargetsOverviewPage({
     return { principal, cells, sum, monthlyValue, status };
   });
   const weeklyEditLink = `/weekly-targets?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}${
-    params.teamLeaderId ? `&teamLeader=${encodeURIComponent(params.teamLeaderId)}` : ""
+    selectedTeamLeaderIds.length === 1 ? `&teamLeader=${encodeURIComponent(selectedTeamLeaderIds[0])}` : ""
   }`;
 
   const editingTargetKey = params.editTarget;
@@ -122,18 +126,18 @@ export default async function TargetsOverviewPage({
   const filterHiddenFields = (
     <>
       <input type="hidden" name="filter_year" value={year} />
-      <input type="hidden" name="filter_month" value={month} />
-      {params.principal ? <input type="hidden" name="filter_principal" value={params.principal} /> : null}
-      {params.teamLeaderId ? <input type="hidden" name="filter_teamLeaderId" value={params.teamLeaderId} /> : null}
+      {selectedMonths.map((selectedMonth) => <input key={selectedMonth} type="hidden" name="filter_month" value={selectedMonth} />)}
+      {selectedPrincipals.map((principal) => <input key={principal} type="hidden" name="filter_principal" value={principal} />)}
+      {selectedTeamLeaderIds.map((teamLeaderId) => <input key={teamLeaderId} type="hidden" name="filter_teamLeaderId" value={teamLeaderId} />)}
       {params.employeeCode ? <input type="hidden" name="filter_employeeCode" value={params.employeeCode} /> : null}
       {params.region ? <input type="hidden" name="filter_region" value={params.region} /> : null}
     </>
   );
   const filterQueryString = [
     `year=${encodeURIComponent(year)}`,
-    month ? `month=${encodeURIComponent(month)}` : "",
-    params.principal ? `principal=${encodeURIComponent(params.principal)}` : "",
-    params.teamLeaderId ? `teamLeaderId=${encodeURIComponent(params.teamLeaderId)}` : "",
+    ...selectedMonths.map((value) => `month=${encodeURIComponent(value)}`),
+    ...selectedPrincipals.map((value) => `principal=${encodeURIComponent(value)}`),
+    ...selectedTeamLeaderIds.map((value) => `teamLeaderId=${encodeURIComponent(value)}`),
     params.employeeCode ? `employeeCode=${encodeURIComponent(params.employeeCode)}` : "",
     params.region ? `region=${encodeURIComponent(params.region)}` : "",
   ]
@@ -181,9 +185,8 @@ export default async function TargetsOverviewPage({
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Month</label>
-              <select name="month" defaultValue={month} className={inputClass}>
-                <option value="">All months</option>
+              <label className={labelClass}>Months (select one or more)</label>
+              <select name="month" multiple defaultValue={selectedMonths} className={`${inputClass} min-h-28`}>
                 {CANONICAL_MONTHS.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -192,9 +195,8 @@ export default async function TargetsOverviewPage({
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Principal</label>
-              <select name="principal" defaultValue={params.principal ?? ""} className={inputClass}>
-                <option value="">All principals</option>
+              <label className={labelClass}>Principals (select one or more)</label>
+              <select name="principal" multiple defaultValue={selectedPrincipals} className={`${inputClass} min-h-28`}>
                 {principals.map((p) => (
                   <option key={p} value={p}>
                     {p}
@@ -203,9 +205,8 @@ export default async function TargetsOverviewPage({
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Team Leader</label>
-              <select name="teamLeaderId" defaultValue={params.teamLeaderId ?? ""} className={inputClass}>
-                <option value="">All Team Leaders</option>
+              <label className={labelClass}>Team Leaders (select one or more)</label>
+              <select name="teamLeaderId" multiple defaultValue={selectedTeamLeaderIds} className={`${inputClass} min-h-28`}>
                 {teamLeaders.map((tl) => (
                   <option key={tl.id} value={tl.id}>
                     {tl.name}

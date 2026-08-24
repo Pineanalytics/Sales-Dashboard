@@ -1,12 +1,17 @@
 import { create } from "zustand";
 import type { Dataset, DatasetSnapshotSummary } from "./types";
 import { getDefaultPeriod, type PeriodSelection } from "./timeIntelligence";
+import { filterDatasetToPrincipals } from "./datasetFilters";
+import { normalizePrincipalKey } from "./normalize";
 
 interface DashboardState {
   dataset: Dataset | null;
+  /** The unfiltered snapshot. `dataset` is the active multi-principal scope. */
+  sourceDataset: Dataset | null;
   status: "idle" | "loading" | "error";
   error: string | null;
   selectedPrincipalKey: string | null; // normalized brand key, or null for "All Principals"
+  selectedPrincipalKeys: string[];
   selectedPeriod: PeriodSelection;
   // True once the user has actively touched the period slicer. While false, Overview
   // shows a broad YTD/H1/H2 summary instead of a single narrow period — matching "my
@@ -28,6 +33,7 @@ interface DashboardState {
 
   setDataset: (dataset: Dataset | null) => void;
   selectPrincipal: (key: string | null) => void;
+  setPrincipalSelection: (keys: string[]) => void;
   setPeriod: (period: PeriodSelection) => void;
   toggleDayName: (day: string) => void;
   clearAllFilters: () => void;
@@ -53,11 +59,21 @@ const EMPTY_PERIOD: PeriodSelection = { kind: "MTD", year: "" };
 export const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 export const ALL_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+function uniqueKeys(keys: string[]) {
+  return Array.from(new Set(keys.map((key) => key.trim()).filter(Boolean)));
+}
+
+function scopedDataset(dataset: Dataset | null, keys: string[]) {
+  return dataset && keys.length > 0 ? filterDatasetToPrincipals(dataset, new Set(keys.map(normalizePrincipalKey))) : dataset;
+}
+
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   dataset: null,
+  sourceDataset: null,
   status: "idle",
   error: null,
   selectedPrincipalKey: null,
+  selectedPrincipalKeys: [],
   selectedPeriod: EMPTY_PERIOD,
   hasUserSelectedPeriod: false,
   sidebarOpen: false,
@@ -67,13 +83,25 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   setDataset: (dataset) =>
     set({
-      dataset,
+      sourceDataset: dataset,
+      dataset: scopedDataset(dataset, get().selectedPrincipalKeys),
       status: "idle",
       error: null,
       selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
       hasUserSelectedPeriod: false,
     }),
-  selectPrincipal: (key) => set({ selectedPrincipalKey: key }),
+  selectPrincipal: (key) => {
+    const keys = key ? [key] : [];
+    set({ selectedPrincipalKey: key, selectedPrincipalKeys: keys, dataset: scopedDataset(get().sourceDataset, keys) });
+  },
+  setPrincipalSelection: (keys) => {
+    const selectedPrincipalKeys = uniqueKeys(keys);
+    set({
+      selectedPrincipalKeys,
+      selectedPrincipalKey: selectedPrincipalKeys.length === 1 ? selectedPrincipalKeys[0] : null,
+      dataset: scopedDataset(get().sourceDataset, selectedPrincipalKeys),
+    });
+  },
   setPeriod: (period) => set({ selectedPeriod: period, hasUserSelectedPeriod: true }),
   toggleDayName: (day) => {
     const current = new Set(get().selectedDayNames);
@@ -88,6 +116,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const { dataset } = get();
     set({
       selectedPrincipalKey: null,
+      selectedPrincipalKeys: [],
+      dataset: scopedDataset(get().sourceDataset, []),
       selectedPeriod: dataset ? getDefaultPeriod(dataset) : EMPTY_PERIOD,
       hasUserSelectedPeriod: false,
       selectedDayNames: new Set(ALL_DAY_NAMES),
@@ -107,8 +137,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const res = await fetch("/api/dataset", { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to load dataset.");
-      const dataset: Dataset = body.dataset;
-      set({ dataset, status: "idle", selectedPeriod: getDefaultPeriod(dataset), hasUserSelectedPeriod: false });
+      const sourceDataset: Dataset = body.dataset;
+      set({ sourceDataset, dataset: scopedDataset(sourceDataset, get().selectedPrincipalKeys), status: "idle", selectedPeriod: getDefaultPeriod(sourceDataset), hasUserSelectedPeriod: false });
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load dataset." });
     }
@@ -119,8 +149,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const res = await fetch("/api/dataset", { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) return; // background refresh — fail silently, keep showing the current dataset
-      const dataset: Dataset | null = body.dataset;
-      if (dataset) set({ dataset, error: null });
+      const sourceDataset: Dataset | null = body.dataset;
+      if (sourceDataset) set({ sourceDataset, dataset: scopedDataset(sourceDataset, get().selectedPrincipalKeys), error: null });
     } catch {
       // background refresh — network hiccups shouldn't surface as an error banner
     }
@@ -134,9 +164,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       if (!res.ok) throw new Error(body.error || "Failed to load snapshot.");
       const dataset: Dataset = body.dataset;
       set({
+        sourceDataset: dataset,
         dataset,
         status: "idle",
         selectedPrincipalKey: null,
+        selectedPrincipalKeys: [],
         selectedPeriod: getDefaultPeriod(dataset),
         hasUserSelectedPeriod: false,
       });
@@ -168,10 +200,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
       const dataset: Dataset = body.dataset;
       set({
+        sourceDataset: dataset,
         dataset,
         status: "idle",
         error: null,
         selectedPrincipalKey: null,
+        selectedPrincipalKeys: [],
         selectedPeriod: getDefaultPeriod(dataset),
         hasUserSelectedPeriod: false,
       });

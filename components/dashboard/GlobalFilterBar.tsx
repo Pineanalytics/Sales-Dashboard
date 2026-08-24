@@ -12,7 +12,7 @@ import { PrincipalSelector } from "./PrincipalSelector";
 export function GlobalFilterBar() {
   const pathname = usePathname();
   const dataset = useDashboardStore((s) => s.dataset);
-  const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
+  const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
 
@@ -32,7 +32,7 @@ export function GlobalFilterBar() {
       </div>
       <button
         onClick={clearAllFilters}
-        disabled={!selectedPrincipalKey && !hasUserSelectedPeriod}
+        disabled={selectedPrincipalKeys.length === 0 && !hasUserSelectedPeriod}
         className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-strong hover:border-brand-orange hover:text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
       >
         <Broom20Regular className="h-3.5 w-3.5" /> Clear Filters

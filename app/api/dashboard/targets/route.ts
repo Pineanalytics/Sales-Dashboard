@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const year = searchParams.get("year");
   const monthLabel = searchParams.get("monthLabel");
-  const principal = searchParams.get("principal");
+  const principals = searchParams.getAll("principal").map((principal) => principal.trim()).filter(Boolean);
   if (!year || !monthLabel) {
     return NextResponse.json({ error: "\"year\" and \"monthLabel\" are required." }, { status: 400 });
   }
@@ -32,10 +32,10 @@ export async function GET(req: NextRequest) {
   const monthEnd = new Date(Date.UTC(Number(year), monthIndex + 1, 1));
 
   const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
-  if (scope && principal && !scope.principals.includes(principal)) {
+  if (scope && principals.some((principal) => !scope.principals.includes(principal))) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
-  const principalWhere = principal ? { principal } : scope ? { principal: { in: scope.principals } } : {};
+  const principalWhere = principals.length > 0 ? { principal: { in: principals } } : scope ? { principal: { in: scope.principals } } : {};
 
   // scope.teamLeaderIds is [] for a principal-restricted VIEWER (no team-leader
   // identity of their own) — only narrow by it when non-empty, otherwise

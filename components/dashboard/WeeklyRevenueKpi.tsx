@@ -7,6 +7,7 @@ import { AchievementBadge } from "@/components/ui/Badge";
 import { formatCompact } from "@/lib/format";
 import { summarizeBrandCustomerForCurrentWeek } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
+import { useDashboardStore } from "@/lib/store";
 
 interface WeeklyTargetRow {
   weekLabel: string;
@@ -24,7 +25,10 @@ interface WeeklyTargetRow {
  *  Ranking and WeekDailyActuals already use) and needs its own fetch, since the
  *  Zustand-held Dataset doesn't carry it. */
 export function WeeklyRevenueKpi({ dataset, principalKey }: { dataset: Dataset; principalKey: string | null }) {
-  const week = summarizeBrandCustomerForCurrentWeek(dataset, principalKey);
+  const selectedPrincipalKeys = useDashboardStore((state) => state.selectedPrincipalKeys);
+  // `dataset` is already scoped by the shared multi-principal filter. Avoid
+  // applying its legacy single-value prop a second time when several are set.
+  const week = summarizeBrandCustomerForCurrentWeek(dataset, selectedPrincipalKeys.length > 1 ? null : principalKey);
   const [target, setTarget] = useState<number | null>(null);
 
   useEffect(() => {
@@ -37,7 +41,10 @@ export function WeeklyRevenueKpi({ dataset, principalKey }: { dataset: Dataset; 
       try {
         const year = week.year;
         const monthLabel = week.monthLabel;
-        const url = `/api/dashboard/targets?year=${year}&monthLabel=${encodeURIComponent(monthLabel)}${principalKey ? `&principal=${encodeURIComponent(principalKey)}` : ""}`;
+        const params = new URLSearchParams({ year, monthLabel });
+        const principals = selectedPrincipalKeys.length > 0 ? selectedPrincipalKeys : principalKey ? [principalKey] : [];
+        for (const principal of principals) params.append("principal", principal);
+        const url = `/api/dashboard/targets?${params.toString()}`;
         const res = await fetch(url, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || "Failed to load Weekly Target.");
@@ -60,7 +67,7 @@ export function WeeklyRevenueKpi({ dataset, principalKey }: { dataset: Dataset; 
     // recomputes it fresh) — week.weekLabel alone already uniquely identifies the
     // week+month and only changes once a week, so it's the stable dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [week.weekLabel, principalKey]);
+  }, [week.weekLabel, principalKey, selectedPrincipalKeys]);
 
   const achievedPct = target !== null && target > 0 ? (week.revenue / target) * 100 : null;
 

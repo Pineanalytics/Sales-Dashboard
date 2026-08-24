@@ -47,8 +47,10 @@ const FILTER_KEYS = ["year", "month", "principal", "teamLeaderId", "employeeCode
 function filterSuffix(formData: FormData): string {
   let suffix = "";
   for (const key of FILTER_KEYS) {
-    const value = str(formData, `filter_${key}`);
-    if (value) suffix += `&${key}=${encodeURIComponent(value)}`;
+    for (const rawValue of formData.getAll(`filter_${key}`)) {
+      const value = String(rawValue || "").trim();
+      if (value) suffix += `&${key}=${encodeURIComponent(value)}`;
+    }
   }
   return suffix;
 }
