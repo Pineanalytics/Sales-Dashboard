@@ -1,4 +1,4 @@
-// Imports three sheets of the authoritative Target Management workbook from a
+// Imports the authoritative Target Management workbook from a
 // local source path and posts normalized rows to the production dashboard —
 // Roster (Team Leader × Employee × Principal, plus the region/HR-style
 // reference columns), Targets Per Principal (monthly company-wide targets),
@@ -8,8 +8,10 @@
 // a new workbook version is supplied — every upload route upserts
 // idempotently, so re-running never duplicates or loses rows. Roster is
 // uploaded first so every Team Leader named in Weekly already exists by the
-// time that upload runs. The source workbook is never copied into the web
-// container; the database holds the durable master.
+// time that upload runs. Pass --weekly-only to use just the Weekly sheet,
+// leaving Roster and Targets Per Principal untouched; --dry-run validates the
+// selected rows without calling the dashboard. The source workbook is never
+// copied into the web container; the database holds the durable master.
 process.loadEnvFile();
 
 import { readFileSync } from "node:fs";
@@ -281,9 +283,13 @@ async function run() {
   const apiKey = process.env.UPLOAD_API_KEY;
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY in .env.");
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
-  const workbookPath = process.argv[2] || DEFAULT_WORKBOOK_PATH;
+  const args = process.argv.slice(2);
+  const weeklyOnly = args.includes("--weekly-only");
+  const dryRun = args.includes("--dry-run");
+  const workbookPath = args.find((arg) => arg !== "--weekly-only" && arg !== "--dry-run") || DEFAULT_WORKBOOK_PATH;
 
   if (isCsvPath(workbookPath)) {
+    if (weeklyOnly) throw new Error("--weekly-only requires the full Target Management workbook, not a Roster CSV.");
     const { rows: roster, format } = parseRosterCsv(readFileSync(workbookPath));
     console.log(`[target-management] Read ${roster.length} Roster rows (format ${format}) from CSV ${workbookPath}.`);
     let rosterUploaded = 0;
@@ -299,28 +305,38 @@ async function run() {
   }
 
   const workbook = XLSX.readFile(workbookPath, { cellDates: false });
-  const roster = parseRoster(workbook);
-  const targets = parseTargets(workbook);
+  const roster = weeklyOnly ? [] : parseRoster(workbook);
+  const targets = weeklyOnly ? [] : parseTargets(workbook);
   const weekly = parseWeekly(workbook);
-  console.log(`[target-management] Read ${roster.length} Roster rows, ${targets.length} Target rows, ${weekly.length} Weekly rows from ${workbookPath}.`);
+  console.log(`[target-management] Read ${roster.length} Roster rows, ${targets.length} Target rows, ${weekly.length} Weekly rows from ${workbookPath}${weeklyOnly ? " (weekly-only mode)" : ""}.`);
+  if (dryRun) {
+    console.log("[target-management] Dry run complete; no dashboard data was changed.");
+    return;
+  }
 
-  // Roster first — every Team Leader named in Weekly must already exist.
+  // Roster first — every Team Leader named in Weekly must already exist. In
+  // weekly-only mode those Team Leaders are intentionally expected to have
+  // been imported already; the weekly upload route validates that invariant.
   let rosterUploaded = 0;
-  for (const batch of chunk(roster, BATCH_SIZE)) {
-    if (batch.length === 0) continue;
-    const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch });
-    if (!result.ok) throw new Error(`Roster batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
-    rosterUploaded += batch.length;
-    console.log(`[target-management] Roster: ${rosterUploaded}/${roster.length} uploaded.`);
+  if (!weeklyOnly) {
+    for (const batch of chunk(roster, BATCH_SIZE)) {
+      if (batch.length === 0) continue;
+      const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch });
+      if (!result.ok) throw new Error(`Roster batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
+      rosterUploaded += batch.length;
+      console.log(`[target-management] Roster: ${rosterUploaded}/${roster.length} uploaded.`);
+    }
   }
 
   let targetsUploaded = 0;
-  for (const batch of chunk(targets, BATCH_SIZE)) {
-    if (batch.length === 0) continue;
-    const result = await postJson(appUrl, apiKey, "/api/targets/upload", { rows: batch });
-    if (!result.ok) throw new Error(`Targets batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
-    targetsUploaded += batch.length;
-    console.log(`[target-management] Targets: ${targetsUploaded}/${targets.length} uploaded.`);
+  if (!weeklyOnly) {
+    for (const batch of chunk(targets, BATCH_SIZE)) {
+      if (batch.length === 0) continue;
+      const result = await postJson(appUrl, apiKey, "/api/targets/upload", { rows: batch });
+      if (!result.ok) throw new Error(`Targets batch rejected (HTTP ${result.status}): ${JSON.stringify(result.body)}`);
+      targetsUploaded += batch.length;
+      console.log(`[target-management] Targets: ${targetsUploaded}/${targets.length} uploaded.`);
+    }
   }
 
   let weeklyUploaded = 0;
