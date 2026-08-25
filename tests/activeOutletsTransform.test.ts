@@ -202,6 +202,22 @@ describe("Calls Made vs Productive Calls — Cost-Centre resolution must not gat
     expect(calls[0].productiveInDay).toBe(1);
     expect(calls[0].costCentresBought).toBe(""); // no resolvable Cost Centre, but still a real productive call
   });
+
+  it("retains the true day end when a rep revisits an outlet later in the day", () => {
+    const lines = [
+      factLine({ docId: "100", purchaseTime: new Date("2026-07-10T06:00:00Z") }),
+      factLine({ docId: "101", purchaseTime: new Date("2026-07-10T15:00:00Z") }),
+    ];
+    const { events } = collapseToPurchaseEvents(lines, outlets, users, [product({ id: "1", sapCode: "BIC12345" })], PRINCIPALS);
+    const calls = buildRepCalls(events, [], outlets, users);
+
+    // Metrics remain one call/outlet, while time management preserves the
+    // raw 9:00 AM–6:00 PM Africa/Nairobi working span.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].firstCallOfDay.toISOString()).toBe("2026-07-10T06:00:00.000Z");
+    expect(calls[0].lastCallOfDay.toISOString()).toBe("2026-07-10T15:00:00.000Z");
+    expect(calls[0].hoursInDay).toBe(9);
+  });
 });
 
 describe("buildActiveOutletEvents — one ledger row per resolvable purchase event", () => {

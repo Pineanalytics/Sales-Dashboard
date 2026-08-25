@@ -416,7 +416,9 @@ export function buildActiveOutletsMonthly(events: PurchaseEvent[]): ActiveOutlet
 }
 
 // ---------------------------------------------------------------------------
-// Rep Calls — one row per Rep x Outlet x Day (build_rep_outlet_calls).
+// Rep Calls — one row per Rep x Outlet x Day. Repeated raw activity at the
+// same outlet stays consolidated for call/outlet metrics, but its earliest
+// and latest timestamps remain available for an accurate rep-day span.
 // ---------------------------------------------------------------------------
 
 export interface RepCallRow {
@@ -464,6 +466,8 @@ export function buildRepCalls(
     customerId: string;
     saleTime: Date | null;
     noSaleTime: Date | null;
+    firstActivityTime: Date;
+    lastActivityTime: Date;
     documents: Set<string>;
     sales: number;
     qty: number;
@@ -490,6 +494,8 @@ export function buildRepCalls(
         customerId: e.customerId,
         saleTime: e.purchaseTime,
         noSaleTime: null,
+        firstActivityTime: e.purchaseTime,
+        lastActivityTime: e.purchaseTime,
         documents: new Set(),
         sales: 0,
         qty: 0,
@@ -501,6 +507,8 @@ export function buildRepCalls(
       byKey.set(k, agg);
     }
     if (!agg.saleTime || e.purchaseTime < agg.saleTime) agg.saleTime = e.purchaseTime;
+    if (e.purchaseTime < agg.firstActivityTime) agg.firstActivityTime = e.purchaseTime;
+    if (e.purchaseTime > agg.lastActivityTime) agg.lastActivityTime = e.purchaseTime;
     agg.documents.add(e.eventKey);
     agg.sales += e.revenue;
     agg.qty += e.qty;
@@ -521,6 +529,8 @@ export function buildRepCalls(
         customerId: v.customerId,
         saleTime: null,
         noSaleTime: v.visitTime,
+        firstActivityTime: v.visitTime,
+        lastActivityTime: v.visitTime,
         documents: new Set(),
         sales: 0,
         qty: 0,
@@ -534,6 +544,8 @@ export function buildRepCalls(
       agg.noSaleTime = v.visitTime;
       agg.noSaleReason = v.noSaleReason;
     }
+    if (v.visitTime < agg.firstActivityTime) agg.firstActivityTime = v.visitTime;
+    if (v.visitTime > agg.lastActivityTime) agg.lastActivityTime = v.visitTime;
   }
 
   // Group calls by Rep+Day to sequence them and compute day-level stats.
@@ -547,11 +559,11 @@ export function buildRepCalls(
   const rows: RepCallRow[] = [];
   for (const dayAggs of byRepDay.values()) {
     const withTime = dayAggs
-      .map((agg) => ({ agg, callTime: agg.saleTime && agg.noSaleTime ? (agg.saleTime < agg.noSaleTime ? agg.saleTime : agg.noSaleTime) : agg.saleTime ?? agg.noSaleTime! }))
+      .map((agg) => ({ agg, callTime: agg.firstActivityTime }))
       .sort((a, b) => a.callTime.getTime() - b.callTime.getTime());
 
-    const firstCallOfDay = withTime[0].callTime;
-    const lastCallOfDay = withTime[withTime.length - 1].callTime;
+    const firstCallOfDay = dayAggs.reduce((first, agg) => (agg.firstActivityTime < first ? agg.firstActivityTime : first), dayAggs[0].firstActivityTime);
+    const lastCallOfDay = dayAggs.reduce((last, agg) => (agg.lastActivityTime > last ? agg.lastActivityTime : last), dayAggs[0].lastActivityTime);
     const hoursInDay = Math.round(((lastCallOfDay.getTime() - firstCallOfDay.getTime()) / 3600000) * 100) / 100;
     const callsInDay = withTime.length;
     const productiveInDay = withTime.filter((w) => w.agg.documents.size > 0).length;

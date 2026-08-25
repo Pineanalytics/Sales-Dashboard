@@ -6,8 +6,8 @@
     Replaces the ad-hoc "SSH in and figure it out" process with one documented
     command. Packages exactly what's committed (git archive - no node_modules,
     .next, .git, or local .env), copies it over the VPS's /opt/pinefrost without
-    touching that machine's own .env, rebuilds the Docker images, and restarts
-    the app container.
+    touching that machine's own .env, rebuilds the dashboard and live-sync worker
+    images, and restarts both services.
 
     With -PushSchema, also runs `prisma db push` against the VPS's real Postgres
     (inside a throwaway pinefrost-builder container on the Compose network) -
@@ -108,8 +108,8 @@ try {
     Write-Host "==> Extracting the committed tree into $RemotePath..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && tar -xf /tmp/pinefrost-deploy.tar && rm /tmp/pinefrost-deploy.tar"
 
-    Write-Host "==> Rebuilding the app image..." -ForegroundColor Cyan
-    Invoke-Ssh "cd $RemotePath && docker compose build app"
+    Write-Host "==> Rebuilding the app and live-sync worker images..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && docker compose build app live-sync-worker"
 
     if ($PushSchema -or $BackfillLiveDataset) {
         Write-Host "==> Rebuilding pinefrost-builder (full node_modules, needed for the requested production operation)..." -ForegroundColor Cyan
@@ -127,8 +127,8 @@ try {
         Invoke-Ssh ($backfillBase + ' --apply')
     }
 
-    Write-Host "==> Restarting the app container..." -ForegroundColor Cyan
-    Invoke-Ssh "cd $RemotePath && docker compose up -d app"
+    Write-Host "==> Restarting the app and live-sync worker containers..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && docker compose up -d app live-sync-worker"
 
     if ($PushSchema) {
         Write-Host "==> Pushing prisma/schema.prisma to the VPS's production Postgres..." -ForegroundColor Cyan
