@@ -1451,3 +1451,51 @@ model FrostConversationMessage {
 
   @@index([conversationId, createdAt])
 }
+
+// Sales & Returns invoice-line detail, sourced from the field DMS (CASHMEMO/
+// CASHMEMO_DETAIL/DSR/POP/SKU tables — a separate SQL Server source from SAP
+// and PinefrostAnalytics), via scripts/db-bridge/sales-returns. One row per
+// Invoice x Material line; CASHMEMO_TYPE 01/06 are invoices, 18/19 are credit
+// notes for returns — both land here so returns can be netted against sales
+// by document type. deliveryDate (CM.DELV_DATE) is the field the source query
+// filters on and is what /api/sales-returns/upload uses for its window
+// delete-and-replace; invoiceDate (CM.DOC_DATE, the posting date shown on the
+// report) can differ from it.
+model SalesReturnLine {
+  id                String    @id @default(cuid())
+  // `${invoiceNo}|${sku}` — unique per the source query's grain (GROUP BY is
+  // per invoice + material, never split further by batch).
+  sourceRowKey      String    @unique
+  customerCode      String
+  salesRepCode      String
+  salesRepName      String
+  route             String?
+  routeName         String
+  invoiceNo         String
+  invoiceDate       DateTime?
+  deliveryDate      DateTime
+  documentType      String
+  documentTypeDesc  String
+  referenceDocument String?
+  referenceDocDate  DateTime?
+  hdmsOrderNo       String?
+  sku               String
+  skuDesc           String
+  storageLocation   String
+  piecesPerCase     Int?
+  listPricePerCase  Float?
+  saleQtyPieces     Float
+  freeQtyPieces     Float
+  grossSale         Float
+  netSale           Float
+  bonusDiscount     Float
+  tradeDiscount     Float
+  cashDiscount      Float
+  totalDiscount     Float
+  createdAt         DateTime  @default(now())
+
+  @@index([deliveryDate])
+  @@index([salesRepCode, deliveryDate])
+  @@index([customerCode])
+  @@index([documentType])
+}

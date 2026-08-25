@@ -112,6 +112,7 @@ All routes below require a signed-in session; `/api/upload`, `/api/pl/upload`, a
 - `POST /api/upload` — accepts `multipart/form-data` with a `file` field (`.xlsx`/`.xls`, ≤25MB), parses it, validates the workbook shape, and persists it as a new snapshot (Stock/Coverage/Brand & Customer). Returns `400` on a malformed workbook, `401`/`403` if unauthorized.
 - `POST /api/pl/upload` — accepts a P&L export workbook, overlaid onto `Dataset.monthlyPL` at read time (see `lib/datasetStore.ts`'s `overlayPL()`).
 - `POST /api/sales/upload` — used by `scripts/db-bridge/sales-sync.ts` (the scheduled Sales sync) to push freshly-transformed Sales rows sourced from the SAP SQL bridge, rather than from the Excel workbook.
+- `POST /api/sales-returns/upload` — used by `scripts/db-bridge/sales-returns/run.ts` (the scheduled `sales-returns:sync` job, wired into Task Scheduler via `scripts/sales-returns-sync.ps1`) to push Sales & Returns invoice-line detail sourced directly from the field DMS's SQL Server (CASHMEMO/DSR/POP/SKU tables — a source separate from both SAP and PinefrostAnalytics), replacing the `SalesReturnLine` table's rows for the fetched delivery-date window on each run. API-key-only (`x-upload-api-key`, same `UPLOAD_API_KEY` as the other bridges) — never session-authenticated.
 - `GET /api/dataset` — returns the latest snapshot, or a specific one via `?id=`.
 - `GET /api/snapshots` — returns the last 20 upload snapshots (id, title, timestamp) for the Reports page's history table.
 
@@ -152,6 +153,7 @@ scripts/db-bridge/    Direct SAP SQL bridge: Sales/Stock/Coverage transforms, re
 scripts/pl-bridge/    Direct SQL bridge for the P&L Statement view
 scripts/sales-sync.ps1   Windows Task Scheduler wrapper for the scheduled `sales:sync` job
 scripts/pl-sync.ps1   Windows Task Scheduler wrapper for the scheduled `pl:sync` job
+scripts/sales-returns-sync.ps1   Windows Task Scheduler wrapper for the scheduled `sales-returns:sync` job
 tests/                Vitest unit tests + fixture workbook builder
 ```
 
