@@ -52,9 +52,14 @@ async function main() {
   const { start, end } = dateWindow();
   console.log(`[sales-returns] Fetching Sales & Returns lines for delivery date ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}...`);
 
+  // A named instance (e.g. Data Source=.\sndpro) resolves its TCP port
+  // dynamically via the SQL Server Browser service (UDP 1434) rather than a
+  // fixed port — tedious/mssql handles that via options.instanceName, and
+  // port must be left unset when it's used.
+  const instanceName = process.env.SALES_RETURNS_SQL_INSTANCE || undefined;
   const pool = await new sql.ConnectionPool({
     server: required("SALES_RETURNS_SQL_SERVER"),
-    port: Number(process.env.SALES_RETURNS_SQL_PORT ?? 1433),
+    ...(instanceName ? {} : { port: Number(process.env.SALES_RETURNS_SQL_PORT ?? 1433) }),
     database: required("SALES_RETURNS_SQL_DATABASE"),
     user: required("SALES_RETURNS_SQL_USER"),
     password: required("SALES_RETURNS_SQL_PASSWORD"),
@@ -63,6 +68,7 @@ async function main() {
     options: {
       encrypt: (process.env.SALES_RETURNS_SQL_ENCRYPT ?? "false") === "true",
       trustServerCertificate: (process.env.SALES_RETURNS_SQL_TRUST_SERVER_CERT ?? "true") === "true",
+      ...(instanceName ? { instanceName } : {}),
     },
   }).connect();
 
