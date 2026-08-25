@@ -1125,6 +1125,78 @@ model RepCall {
   @@index([employeeCode, date])
 }
 
+// Upfield DataEdge SalesRawData — one row per invoice/item/document line,
+// uploaded by F:\UpfieldSalesRawData every five minutes. Kept separate from
+// RepCall and EablCall because this source is transaction-line activity rather
+// than a Pine outlet visit or an EABL DMS check-in/check-out call. The stable
+// sourceRecordId makes the scheduler's full-day replay genuinely idempotent.
+model UpfieldTransaction {
+  sourceRecordId    String   @id
+  type              String // "sale" | "return"
+  txnDate           DateTime
+  invoiceNo         String
+  docNo             String
+  custCode          String?
+  custName          String?
+  itemCode          String
+  itemDesc          String?
+  itemPrice         Float?
+  qty               Float?
+  saleExcl          Float?
+  disc              Float?
+  vat               Float?
+  saleIncl          Float?
+  fsr               String?
+  printedBy         String?
+  sourceFile        String?
+  lastSeenSyncRunId String
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+
+  @@index([txnDate])
+  @@index([fsr, txnDate])
+  @@index([custCode, txnDate])
+  @@index([lastSeenSyncRunId])
+}
+
+// One logical full-day scheduler cycle. A run is COMPLETE only after every
+// batch from 1 through the final batch is present; only then is the shared
+// SyncWatermark advanced for dashboard freshness reporting.
+model UpfieldSyncRun {
+  syncRunId        String    @id
+  source           String
+  windowStart      DateTime
+  windowEnd        DateTime
+  status           String    @default("IN_PROGRESS") // "IN_PROGRESS" | "COMPLETE"
+  lastBatchNumber  Int       @default(0)
+  finalBatchNumber Int?
+  recordCount      Int       @default(0)
+  completedAt      DateTime?
+  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+
+  batches UpfieldSyncBatch[]
+
+  @@index([windowEnd])
+  @@index([status, updatedAt])
+}
+
+// Batch receipt ledger prevents a network retry from being counted twice and
+// rejects reuse of the same syncRunId/batchNumber with different content.
+model UpfieldSyncBatch {
+  id          String   @id @default(cuid())
+  syncRunId   String
+  batchNumber Int
+  payloadHash String
+  recordCount Int
+  receivedAt  DateTime @default(now())
+
+  run UpfieldSyncRun @relation(fields: [syncRunId], references: [syncRunId], onDelete: Cascade)
+
+  @@unique([syncRunId, batchNumber])
+  @@index([syncRunId])
+}
+
 // EABL Call Performance — a separate call-level feed from the Pinefrost
 // Analytics SQL Server source for EABL-Nyeri and EABL-Nyahururu. It must not
 // be combined with RepCall: the two sources have different identities,
