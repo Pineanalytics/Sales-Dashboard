@@ -25,7 +25,7 @@ export default async function AdminDatasetPage() {
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Dataset</h1>
         <p className="mt-1 text-sm text-white/70">
-          Upload the monthly Excel export and browse or restore prior snapshots.
+          Monitor the server-to-server syncs. Previous Excel snapshots are retained only as an archive.
         </p>
       </div>
 

@@ -19,9 +19,17 @@
     against the real production database. Don't repoint a local .env at it;
     there's nothing to repoint it at from outside the VPS's own Docker network.
 
+    With -BackfillLiveDataset, runs the legacy-snapshot backfill inside that
+    same private network before restarting the app. This is the required
+    cutover order for retiring Snapshot as the dashboard's runtime source.
+
 .PARAMETER PushSchema
     Also run `prisma db push` against the VPS's production Postgres after the
     app container is back up.
+
+.PARAMETER BackfillLiveDataset
+    Before restarting the new app image, dry-run then apply the one-time
+    missing-row-only Snapshot-to-live-table backfill on production Postgres.
 
 .PARAMETER SshKey
     Path to the SSH private key. Defaults to ~/.ssh/pinefrost_hostinger.
@@ -39,9 +47,15 @@
 .EXAMPLE
     ./scripts/deploy.ps1 -PushSchema
     Ship code and sync prisma/schema.prisma to production.
+
+.EXAMPLE
+    ./scripts/deploy.ps1 -BackfillLiveDataset
+    Backfill legacy Snapshot facts, then switch the dashboard to the live
+    server-to-server data path without a historical-data gap.
 #>
 param(
     [switch]$PushSchema,
+    [switch]$BackfillLiveDataset,
     # Only needed when a schema change narrows or restructures an existing
     # constraint (e.g. widening a @@unique to add a column) - Prisma flags
     # this generically as "possible data loss" even when the change is
@@ -97,9 +111,20 @@ try {
     Write-Host "==> Rebuilding the app image..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && docker compose build app"
 
-    if ($PushSchema) {
-        Write-Host "==> Rebuilding pinefrost-builder (full node_modules, needed for the schema push)..." -ForegroundColor Cyan
+    if ($PushSchema -or $BackfillLiveDataset) {
+        Write-Host "==> Rebuilding pinefrost-builder (full node_modules, needed for the requested production operation)..." -ForegroundColor Cyan
         Invoke-Ssh "cd $RemotePath && docker build --target builder -t pinefrost-builder:latest ."
+    }
+
+    if ($BackfillLiveDataset) {
+        $backfillBase = 'source ' + $RemotePath + '/.env && docker run --rm --network pinefrost_default ' +
+            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-w /app pinefrost-builder:latest node --import tsx scripts/backfill-live-dataset.ts'
+        Write-Host "==> Dry-running the legacy Snapshot backfill on production Postgres..." -ForegroundColor Cyan
+        Invoke-Ssh $backfillBase
+        Write-Host "==> Applying missing legacy Snapshot facts to production Postgres..." -ForegroundColor Cyan
+        Invoke-Ssh ($backfillBase + ' --apply')
     }
 
     Write-Host "==> Restarting the app container..." -ForegroundColor Cyan

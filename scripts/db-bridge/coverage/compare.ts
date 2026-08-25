@@ -3,14 +3,14 @@
 // Productivity sheet today), using the SAME period-summarization code the app
 // itself uses (lib/timeIntelligence.ts) so there's no risk of the comparison
 // drifting from what users actually see. Read-only: reads the live dataset via
-// Prisma (lib/datasetStore.ts's getLatestSnapshot()), reads the latest local
+// Prisma (lib/datasetStore.ts's getLatestLegacySnapshot()), reads the latest archived
 // coverage-output-*.json (written by run.ts), never writes anything anywhere.
 // Run with: npm run db-bridge:coverage-compare
 process.loadEnvFile();
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLatestSnapshot } from "@/lib/datasetStore";
+import { getLatestLegacySnapshot } from "@/lib/datasetStore";
 import {
   CANONICAL_MONTHS,
   getCurrentMonthPeriod,
@@ -124,7 +124,7 @@ function printCoverageByRep(label: string, period: PeriodSelection, liveDataset:
 }
 
 async function main() {
-  const liveDataset = await getLatestSnapshot();
+  const liveDataset = await getLatestLegacySnapshot();
   if (!liveDataset) {
     throw new Error("No live snapshot found — upload a workbook via the app first.");
   }

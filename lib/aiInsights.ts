@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "./db";
-import { getLatestSnapshot } from "./datasetStore";
+import { getLiveDataset } from "./datasetStore";
 import { getSyncHealth } from "./syncHealth";
 import {
   summarizeSalesByPrincipal,
@@ -162,7 +162,9 @@ async function buildCustomerDormancySignal(dormantBrandKeys: Set<string>, princi
  *  has picked on the top PeriodSelector/PrincipalSelector — see
  *  app/api/ai-insights/route.ts. */
 async function buildContext(selection: PeriodSelection, principalKey: string | null): Promise<{ hasData: boolean; text: string }> {
-  const dataset = await getLatestSnapshot();
+  // Customer dormancy signals need the large customer/brand detail; normal
+  // dashboard loads intentionally omit it.
+  const dataset = await getLiveDataset({ includeBrandCustomer: true });
   const syncHealth = await getSyncHealth();
 
   if (!dataset) {

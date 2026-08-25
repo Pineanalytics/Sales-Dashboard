@@ -1,5 +1,5 @@
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import { getLatestSnapshot } from "../datasetStore";
+import { getLiveDataset } from "../datasetStore";
 import { getSyncHealth } from "../syncHealth";
 import { prisma } from "../db";
 import {
@@ -55,7 +55,7 @@ export const listPrincipalsTool = betaTool({
   description: "Lists every principal (brand/Cost Centre) name present in the current dataset, so you can match a user's brand name to the exact string other tools expect.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   run: async () => {
-    const dataset = await getLatestSnapshot();
+    const dataset = await getLiveDataset();
     if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
     const principals = Array.from(new Set(dataset.monthlySales.map((r) => r.principal))).sort();
     return JSON.stringify({ principals });
@@ -78,7 +78,7 @@ function makeSalesVsTargetTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
       const selection = resolveKeywordPeriod(args.period);
@@ -115,7 +115,7 @@ function makeCoverageByRepTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
       const selection = resolveKeywordPeriod(args.period);
@@ -144,7 +144,7 @@ function makePLSummaryTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
       const selection = resolveKeywordPeriod(args.period);
@@ -179,7 +179,7 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
 
@@ -223,7 +223,7 @@ function makeTlRankingTool(scope: TeamLeaderScope | null) {
  *  Returns null when there's no dataset or no current-month data (callers
  *  turn that into the tool's error JSON). */
 async function loadRankingInputs(principal: string | undefined) {
-  const dataset = await getLatestSnapshot();
+  const dataset = await getLiveDataset();
   if (!dataset) return null;
   const currentMonth = getCurrentMonthPeriod(dataset);
   if (!currentMonth.month) return null;
@@ -311,7 +311,7 @@ function makeWeeklyTargetTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
 
@@ -569,7 +569,7 @@ function makeComparePeriodsTool(scope: TeamLeaderScope | null) {
       additionalProperties: false,
     },
     run: async (args) => {
-      const dataset = await getLatestSnapshot();
+      const dataset = await getLiveDataset();
       if (!dataset) return JSON.stringify({ error: "No dataset uploaded yet." });
       if (scope && args.principal && !scope.principals.includes(args.principal)) return refusal(args.principal);
 

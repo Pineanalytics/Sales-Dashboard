@@ -40,6 +40,7 @@ function Row({ label, value, negative }: { label: string; value: string; negativ
 export default function DashboardPage() {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
+  const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const period = useDashboardStore((s) => s.selectedPeriod);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const [tab, setTab] = useState<DashboardView>("mtd");
@@ -58,6 +59,9 @@ export default function DashboardPage() {
   const principalRevenue = Array.from(summarizeSalesByPrincipal(dataset, currentMonth).values())
     .filter((r) => !selectedPrincipalKey || r.principalKey === selectedPrincipalKey)
     .map((r) => ({ principal: r.principal, revenue: r.revenue }));
+  const selectedPrincipalNames = selectedPrincipalKeys.map(
+    (key) => dataset.monthlySales.find((row) => row.principalKey === key)?.principal ?? key
+  );
 
   const h1Summary = summarizeSalesForPeriod(dataset, { kind: "H1", year: period.year }, selectedPrincipalKey);
   const h2Summary = summarizeSalesForPeriod(dataset, { kind: "H2", year: period.year }, selectedPrincipalKey);
@@ -144,11 +148,10 @@ export default function DashboardPage() {
           </details>
 
           <WeekDailyActuals
-            dataset={dataset}
             year={currentMonth.year}
             monthLabel={currentMonth.month ?? ""}
             monthIndex={currentMonthIndex}
-            principal={selectedPrincipalKey}
+            principals={selectedPrincipalNames}
             selectedDayNames={selectedDayNames}
           />
 

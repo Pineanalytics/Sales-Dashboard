@@ -7,21 +7,26 @@ import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
-// getLatestSnapshot() composes four separate queries (the Snapshot row itself —
-// which carries a multi-MB JSON blob — plus full SalesRecord/Target/PLEntry scans)
-// and used to re-run all of them, uncached, on every single page load AND on the
-// client's own /api/dataset poll (route-change + 3-minute interval). Under any DB
-// load that alone was enough to make every page feel slow, independent of anything
-// module-specific. The underlying data only actually changes when one of the four
-// mutation paths below runs (a rare, manual/scheduled event) — a 5-minute cache
-// with on-demand invalidation removes the redundant work without sacrificing
-// freshness in practice. See invalidateDatasetCache().
-// Next's persistent data cache refuses the current 100MB+ Dataset value.
-// Retain it in this single production process instead; every writer below
-// already calls invalidateDatasetCache(), and the TTL is a safety net.
+// The primary dashboard dataset is composed from tables written by the
+// server-to-server syncs. The legacy Snapshot blob is archive-only and is not
+// read on the normal request path.
 const DATASET_MEMORY_TTL_MS = 5 * 60_000;
-let latestSnapshotMemory: { value: Dataset | null; expiresAt: number } | null = null;
-let latestSnapshotInFlight: Promise<Dataset | null> | null = null;
+const liveDatasetMemory = new Map<boolean, { value: Dataset | null; expiresAt: number }>();
+const liveDatasetInFlight = new Map<boolean, Promise<Dataset | null>>();
+
+function emptyLiveDataset(): Dataset {
+  return {
+    monthlySales: [],
+    monthlyCoverage: [],
+    monthlyCoverageTargets: [],
+    monthlyBrandCustomer: [],
+    monthlyPL: [],
+    stockItems: [],
+    stockTotal: stockTotalFromItems([]),
+    reportMeta: { title: "Server-synchronized dashboard data", sheet: "Live data" },
+    uploadedAt: new Date().toISOString(),
+  };
+}
 
 export async function saveSnapshot(dataset: Dataset): Promise<DatasetSnapshotSummary> {
   const snapshot = await prisma.snapshot.create({
@@ -258,7 +263,6 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
 async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
   const now = new Date();
   const currentYear = String(now.getUTCFullYear());
-  const priorYear = String(now.getUTCFullYear() - 1);
   const currentMonthIndex = now.getUTCMonth();
   const currentMonthStart = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, "0")}-01`;
 
@@ -289,7 +293,6 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
     >(Prisma.sql`
       SELECT year, month, "monthIndex", principal, brand, "sapName", "customerName", cases, revenue, "grossProfit"
       FROM "BrandCustomerActual"
-      WHERE year IN (${currentYear}, ${priorYear})
     `),
     prisma.$queryRaw<
       { date: Date; principal: string; brand: string; sapName: string; customerName: string; cases: number; revenue: number; grossProfit: number }[]
@@ -359,30 +362,93 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
     });
   }
 
-  // Same two passes over byKey.values() as before (Set must be complete
-  // before the old-snapshot filter can run correctly), but each is now a
-  // cheap Set.add/array.push off an already-built object — no more
-  // recomputing principalKey or reallocating a second object shape.
-  const snapshotKeysCoveredByLiveData = new Set<string>();
-  for (const row of byKey.values()) {
-    snapshotKeysCoveredByLiveData.add(`${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`);
-  }
-  const merged: MonthlyBrandCustomerRow[] = dataset.monthlyBrandCustomer.filter(
-    (row) => !snapshotKeysCoveredByLiveData.has(`${row.date}|${row.principalKey}|${row.salesEmployee}|${row.customerName}`)
-  );
-
-  for (const row of byKey.values()) {
-    merged.push(row);
-  }
+  // Direct tables are the primary source. When an archived Snapshot is opened,
+  // live customer facts still take precedence rather than mixing both sources.
+  const merged: MonthlyBrandCustomerRow[] = [...byKey.values()];
 
   const mergeMs = Date.now() - mergeStart;
   if (fetchMs > 200 || mergeMs > 200) {
     console.warn(
-      `[datasetStore] overlayBrandCustomer: fetch ${fetchMs}ms (${monthlyRecords.length} monthly + ${dailyRecords.length} daily rows) / merge ${mergeMs}ms (${dataset.monthlyBrandCustomer.length} existing snapshot rows filtered) / total ${fetchMs + mergeMs}ms`
+      `[datasetStore] loadBrandCustomer: fetch ${fetchMs}ms (${monthlyRecords.length} monthly + ${dailyRecords.length} daily rows) / shape ${mergeMs}ms / total ${fetchMs + mergeMs}ms`
     );
   }
 
   return { ...dataset, monthlyBrandCustomer: merged };
+}
+
+/** Returns only the requested customer/brand periods for an on-demand view.
+ * This keeps the high-cardinality fact table out of the shared app payload. */
+export async function getLiveBrandCustomerRows(periods: { year: string; monthIndex: number }[]): Promise<MonthlyBrandCustomerRow[]> {
+  const requested = Array.from(new Map(
+    periods
+      .filter((period) => /^\d{4}$/.test(period.year) && Number.isInteger(period.monthIndex) && period.monthIndex >= 0 && period.monthIndex <= 11)
+      .map((period) => [`${period.year}|${period.monthIndex}`, period])
+  ).values());
+  if (requested.length === 0) return [];
+
+  const now = new Date();
+  const currentYear = String(now.getUTCFullYear());
+  const currentMonthIndex = now.getUTCMonth();
+  const currentPeriodRequested = requested.some((period) => period.year === currentYear && period.monthIndex === currentMonthIndex);
+  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), currentMonthIndex, 1));
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), currentMonthIndex + 1, 1));
+
+  const [monthlyRows, dailyRows] = await Promise.all([
+    prisma.brandCustomerActual.findMany({
+      where: { OR: requested.map((period) => ({ year: period.year, monthIndex: period.monthIndex })) },
+      select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+    }),
+    currentPeriodRequested
+      ? prisma.dailyBrandCustomerActual.findMany({
+        where: { date: { gte: currentMonthStart, lt: nextMonthStart } },
+        select: { date: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+      })
+      : Promise.resolve([]),
+  ]);
+
+  const rows = new Map<string, MonthlyBrandCustomerRow>();
+  for (const row of monthlyRows) {
+    if (currentPeriodRequested && row.year === currentYear && row.monthIndex === currentMonthIndex) continue;
+    const date = `${row.year}-${String(row.monthIndex + 1).padStart(2, "0")}-01`;
+    const principalKey = normalizePrincipalKey(row.principal);
+    const key = `${date}|${principalKey}|${row.brand}|${row.sapName}|${row.customerName}`;
+    rows.set(key, {
+      date,
+      year: row.year,
+      month: row.month,
+      monthIndex: row.monthIndex,
+      principal: row.principal,
+      principalKey,
+      brand: row.brand,
+      salesEmployee: row.sapName,
+      customerName: row.customerName,
+      cases: row.cases,
+      revenue: row.revenue,
+      grossProfit: row.grossProfit,
+      grossMarginPct: row.revenue > 0 ? Math.round((row.grossProfit / row.revenue) * 1000) / 10 : null,
+    });
+  }
+  for (const row of dailyRows) {
+    const date = row.date.toISOString().slice(0, 10);
+    const principalKey = normalizePrincipalKey(row.principal);
+    const key = `${date}|${principalKey}|${row.brand}|${row.sapName}|${row.customerName}`;
+    rows.set(key, {
+      date,
+      year: String(row.date.getUTCFullYear()),
+      month: CANONICAL_MONTHS[row.date.getUTCMonth()],
+      monthIndex: row.date.getUTCMonth(),
+      principal: row.principal,
+      principalKey,
+      brand: row.brand,
+      salesEmployee: row.sapName,
+      customerName: row.customerName,
+      cases: row.cases,
+      revenue: row.revenue,
+      grossProfit: row.grossProfit,
+      grossMarginPct: row.revenue > 0 ? Math.round((row.grossProfit / row.revenue) * 1000) / 10 : null,
+    });
+  }
+  return [...rows.values()];
 }
 
 /** Overlays admin-uploaded Target rows onto monthlySales[].target, keyed by
@@ -463,7 +529,7 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
   };
 }
 
-// Only fires on a loadLatestSnapshot cache MISS (getLatestSnapshot's
+// Only fires on a loadLiveDataset cache MISS (getLiveDataset's
 // process-memory wrapper skips this entirely on a hit) — every five minutes
 // routine sync invalidation, not per-request, so this can't spam the logs.
 // Cheap diagnostic for exactly the kind of regression this file already had
@@ -479,7 +545,7 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
+async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): Promise<Dataset> {
   const overallStart = Date.now();
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
@@ -488,7 +554,7 @@ async function overlayAdminData(dataset: Dataset): Promise<Dataset> {
     timed("targets", () => overlayTargets(withSales)),
     timed("pl", () => overlayPL(dataset)),
     timed("coverage", () => overlayCoverage(dataset)),
-    timed("brandCustomer", () => overlayBrandCustomer(dataset)),
+    includeBrandCustomer ? timed("brandCustomer", () => overlayBrandCustomer(dataset)) : Promise.resolve(dataset),
     timed("stock", () => overlayStock(dataset)),
   ]);
   console.log(`[datasetStore] overlayAdminData total: ${Date.now() - overallStart}ms`);
@@ -558,36 +624,46 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, stockTotal };
 }
 
-async function loadLatestSnapshot(): Promise<Dataset | null> {
-  const snapshot = await prisma.snapshot.findFirst({ orderBy: { uploadedAt: "desc" } });
-  if (!snapshot) return null;
-  return overlayAdminData(decodeDataset(snapshot.data));
+async function loadLiveDataset(includeBrandCustomer: boolean): Promise<Dataset | null> {
+  const dataset = await overlayAdminData(emptyLiveDataset(), includeBrandCustomer);
+  const hasLiveFacts = dataset.monthlySales.length > 0 || dataset.monthlyCoverage.length > 0 || dataset.monthlyBrandCustomer.length > 0 || dataset.monthlyPL.length > 0 || dataset.stockItems.length > 0;
+  return hasLiveFacts ? dataset : null;
 }
 
-export async function getLatestSnapshot(): Promise<Dataset | null> {
-  if (latestSnapshotMemory && latestSnapshotMemory.expiresAt > Date.now()) return latestSnapshotMemory.value;
-  if (latestSnapshotInFlight) return latestSnapshotInFlight;
-  latestSnapshotInFlight = loadLatestSnapshot()
+/** Primary analytics dataset: facts persisted by the server-to-server syncs.
+ * Legacy Excel snapshots are intentionally excluded from this path. */
+export async function getLiveDataset({ includeBrandCustomer = false }: { includeBrandCustomer?: boolean } = {}): Promise<Dataset | null> {
+  const cached = liveDatasetMemory.get(includeBrandCustomer);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = liveDatasetInFlight.get(includeBrandCustomer);
+  if (inFlight) return inFlight;
+  const request = loadLiveDataset(includeBrandCustomer)
     .then((value) => {
-      latestSnapshotMemory = { value, expiresAt: Date.now() + DATASET_MEMORY_TTL_MS };
+      liveDatasetMemory.set(includeBrandCustomer, { value, expiresAt: Date.now() + DATASET_MEMORY_TTL_MS });
       return value;
     })
-    .finally(() => { latestSnapshotInFlight = null; });
-  return latestSnapshotInFlight;
+    .finally(() => { liveDatasetInFlight.delete(includeBrandCustomer); });
+  liveDatasetInFlight.set(includeBrandCustomer, request);
+  return request;
 }
 
-/** Called by every route that writes Snapshot/SalesRecord/Target/PLEntry data —
- *  Excel upload, the SAP/PL bridge syncs, and Target CRUD/upload — so the next
- *  getLatestSnapshot() call reflects the change immediately instead of waiting
- *  out the 5-minute TTL. */
+/** Called by every synced-fact or admin-data writer so the next live dataset
+ * read reflects the change immediately instead of waiting out the TTL. */
 export function invalidateDatasetCache() {
-  latestSnapshotMemory = null;
+  liveDatasetMemory.clear();
 }
 
 export async function getSnapshotById(id: string): Promise<Dataset | null> {
   const snapshot = await prisma.snapshot.findUnique({ where: { id } });
   if (!snapshot) return null;
   return overlayAdminData(decodeDataset(snapshot.data));
+}
+
+/** Archive-only read used by the bridge comparison scripts. It intentionally
+ * returns the stored Excel-era baseline without applying live overlays. */
+export async function getLatestLegacySnapshot(): Promise<Dataset | null> {
+  const snapshot = await prisma.snapshot.findFirst({ orderBy: { uploadedAt: "desc" } });
+  return snapshot ? decodeDataset(snapshot.data) : null;
 }
 
 export async function listSnapshots(limit = 20): Promise<DatasetSnapshotSummary[]> {

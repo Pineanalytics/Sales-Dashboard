@@ -80,7 +80,7 @@ export function AnalyticsShell({
           {requiresDataset ? <GlobalFilterBar /> : null}
           <main className="flex-1 p-3 md:p-4 flex flex-col gap-4">
             {requiresDataset && status === "loading" && !dataset ? (
-              <FullPageSpinner label="Processing workbook…" />
+              <FullPageSpinner label="Loading dashboard data…" />
             ) : requiresDataset && !dataset ? (
               <EmptyState
                 icon={<DocumentTable20Regular className="h-10 w-10" />}

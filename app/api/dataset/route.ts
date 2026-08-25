@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLatestSnapshot, getSnapshotById, filterDatasetToPrincipals } from "@/lib/datasetStore";
+import { getLiveDataset, getSnapshotById, filterDatasetToPrincipals } from "@/lib/datasetStore";
 import { auth } from "@/auth";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { normalizePrincipalKey } from "@/lib/normalize";
@@ -24,10 +24,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: `No snapshot found with id "${id}".` }, { status: 404 });
       }
     } else {
-      dataset = await getLatestSnapshot();
+      dataset = await getLiveDataset();
     }
 
-    // The shared getLatestSnapshot()/getSnapshotById() cache stays company-wide and
+    // The shared getLiveDataset()/getSnapshotById() cache stays company-wide and
     // untouched here (ADMIN/VIEWER performance unaffected) — a TEAM_LEADER session
     // only gets a per-request filtered copy of the response, never an unscoped
     // Dataset over the wire. PrincipalSelector.tsx and every lib/timeIntelligence.ts
