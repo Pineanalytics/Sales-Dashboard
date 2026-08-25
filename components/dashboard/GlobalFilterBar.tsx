@@ -1,6 +1,6 @@
 "use client";
 
-import { Broom20Regular, Filter20Regular } from "@fluentui/react-icons";
+import { Broom20Regular } from "@fluentui/react-icons";
 import { usePathname } from "next/navigation";
 import { useDashboardStore } from "@/lib/store";
 import { PeriodSelector } from "./PeriodSelector";
@@ -25,16 +25,15 @@ export function GlobalFilterBar() {
   if (!dataset || pathname?.startsWith("/timestamps") || pathname === "/dashboard") return null;
 
   return (
-    <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur md:px-8">
+    <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="hidden items-center gap-1.5 pr-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted lg:inline-flex"><Filter20Regular className="h-3.5 w-3.5" /> View</span>
         <PeriodSelector />
         <PrincipalSelector />
       </div>
       <button
         onClick={clearAllFilters}
         disabled={selectedPrincipalKeys.length === 0 && !hasUserSelectedPeriod}
-        className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-2 text-xs font-semibold text-muted-strong hover:border-brand-orange hover:text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
+        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-strong hover:border-brand-orange hover:text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-300"
       >
         <Broom20Regular className="h-3.5 w-3.5" /> Clear Filters
       </button>

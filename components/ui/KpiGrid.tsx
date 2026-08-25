@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** Responsive KPI card grid: 1-col below 560px, 2-col below 768px, more on desktop. 12px card gutters. */
 export function KpiGrid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 min-[560px]:grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">{children}</div>;
+  return <div className="grid grid-cols-1 min-[560px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">{children}</div>;
 }
 
 export type CardAccent = "blue" | "green" | "red" | "amber" | "purple" | "navy";
@@ -54,10 +54,10 @@ export function SectionCard({
   }
 
   return (
-    <div className="rounded-2xl border border-border border-t-2 border-t-primary-blue bg-surface p-5 shadow-[0_2px_4px_rgba(11,61,53,0.03),0_12px_28px_rgba(11,61,53,0.04)] transition-all duration-300 hover:shadow-[0_12px_30px_rgba(11,61,53,0.1)] hover:-translate-y-0.5">
+    <div className="rounded-xl border-t-2 border-t-primary-blue bg-surface p-4 shadow-[0_1px_3px_rgba(11,61,53,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(11,61,53,0.12)] hover:-translate-y-0.5">
       {title || action ? (
         <div className="mb-2.5 flex items-center justify-between gap-2">
-          {title ? <h3 className="text-base font-bold tracking-[-0.02em] text-brand-navy">{title}</h3> : <span />}
+          {title ? <h3 className="text-[15px] font-semibold text-primary-blue">{title}</h3> : <span />}
           {action}
         </div>
       ) : null}
