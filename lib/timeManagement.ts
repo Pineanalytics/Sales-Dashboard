@@ -6,6 +6,13 @@ export type ClosingStatus = "closed-on-time" | "closed-early" | "day-in-progress
 
 const ON_TIME_CUTOFF_MINUTES = 9 * 60 + 30;
 const CLOSE_OF_TRADE_CUTOFF_MINUTES = 16 * 60;
+const NAIROBI_UTC_OFFSET_MINUTES = 3 * 60;
+const NAIROBI_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Nairobi",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 
 /** How many trailing calendar months RepCall keeps before the upload route's
  * retainFrom purge drops them. Shared by the live sync (what it's allowed to
@@ -28,11 +35,16 @@ export function recentMonthOptions(now: Date, count = TIMESTAMPS_RETENTION_MONTH
 export function nairobiMinutesAfterMidnight(iso: string): number | null {
   const value = new Date(iso);
   if (Number.isNaN(value.getTime())) return null;
-  // Pine's MySQL datetime columns carry Nairobi wall-clock values. They are
-  // persisted in RepCall as UTC-shaped values (09:30 local is 09:30Z), so a
-  // date boundary stays stable. Adding three hours here made every live call
-  // look three hours later than it really was.
-  return value.getUTCHours() * 60 + value.getUTCMinutes();
+  // RepCall's source timestamps are UTC instants. Convert them explicitly so
+  // both status rules and monthly averages use the same Kenya wall-clock time
+  // shown in the dashboard, irrespective of the browser or server timezone.
+  const parts = Object.fromEntries(
+    NAIROBI_CLOCK_FORMATTER
+      .formatToParts(value)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return Number(parts.hour) * 60 + Number(parts.minute);
 }
 
 export function firstCallStatus(firstCall: string): TimeManagementStatus {
@@ -77,13 +89,12 @@ export function averageMinutes(minutesList: number[]): number | null {
   return minutesList.reduce((sum, m) => sum + m, 0) / minutesList.length;
 }
 
-/** Inverse of nairobiMinutesAfterMidnight: builds the UTC-shaped timestamp
- * carrying a stored Pine/Nairobi wall-clock time, for monthly averages. */
+/** Inverse of nairobiMinutesAfterMidnight: builds the UTC instant carrying a
+ * Nairobi clock time, for monthly averages. Africa/Nairobi has no DST. */
 export function isoFromNairobiMinutes(minutes: number, base = new Date()): string {
-  const utcMinutesTotal = ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60);
-  const result = new Date(base);
-  result.setUTCHours(Math.floor(utcMinutesTotal / 60), utcMinutesTotal % 60, 0, 0);
-  return result.toISOString();
+  const nairobiMinutesTotal = ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const utcMidnight = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate());
+  return new Date(utcMidnight + (nairobiMinutesTotal - NAIROBI_UTC_OFFSET_MINUTES) * 60_000).toISOString();
 }
 
 /** Same closed-early/closed-on-time threshold closingStatus uses, but without

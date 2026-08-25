@@ -306,10 +306,9 @@ function selectedRoleClause(filters: TimestampFilters, salesRole: Prisma.Sql): P
 function chartBucket(granularity: TimestampChartGranularity): Prisma.Sql {
   if (granularity === "Daily") return Prisma.sql`to_char(r.date, 'YYYY-MM-DD')`;
   if (granularity === "Weekly") return Prisma.sql`CEIL(EXTRACT(DAY FROM r.date)::numeric / 7)::integer`;
-  // RepCall holds Pine's Nairobi wall-clock value in a UTC-shaped timestamp
-  // (09:30 Nairobi is stored as 09:30Z). Group on the stored hour directly;
-  // adding three hours puts live calls into a future noon bucket.
-  return Prisma.sql`EXTRACT(HOUR FROM r."callTime")::integer`;
+  // RepCall holds UTC instants. The hourly chart is labelled Africa/Nairobi,
+  // so shift the source hour to Kenya time before returning its bucket.
+  return Prisma.sql`((EXTRACT(HOUR FROM r."callTime")::integer + 3) % 24)`;
 }
 
 function emptyStats(): TimestampRoleStats {

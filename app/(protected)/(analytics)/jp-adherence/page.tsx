@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useDashboardStore } from "@/lib/store";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
@@ -21,7 +21,6 @@ interface JpKpis {
   outletsVisited: number;
   jpAdherencePct: number;
   productiveOutlets: number;
-  strikeRatePct: number;
   plannedNotVisited: number;
 }
 
@@ -36,7 +35,6 @@ interface JpRepDaySummaryRow {
   outletsVisited: number;
   jpAdherencePct: number;
   productiveOutlets: number;
-  strikeRatePct: number;
   plannedNotVisited: number;
   status: string;
 }
@@ -51,7 +49,6 @@ interface JpRepSummaryRow {
   outletsVisited: number;
   jpAdherencePct: number;
   productiveOutlets: number;
-  strikeRatePct: number;
   plannedNotVisited: number;
   status: string;
 }
@@ -81,7 +78,6 @@ interface JpPatternRepRow {
   plannedOutlets: number;
   visitedOutlets: number;
   planAdherencePct: number;
-  strikeRatePct: number;
   missedOutlets: number;
   status: string;
 }
@@ -97,8 +93,8 @@ interface JpPatternAdherence {
   repRows: JpPatternRepRow[];
 }
 
-const STRIKE_TARGET_PCT = 90;
-const STRIKE_STATUS_TIER: Record<string, Tier> = { "Met Target": "good", "Below Target": "bad" };
+const PRODUCTIVITY_TARGET_PCT = 90;
+const PRODUCTIVITY_STATUS_TIER: Record<string, Tier> = { "Met Target": "good", "Below Target": "bad" };
 
 interface JpAdherenceResponse {
   kpis: JpKpis;
@@ -167,7 +163,6 @@ function rollUpByRep(rows: JpRepDaySummaryRow[]): JpRepSummaryRow[] {
         outletsVisited: r.outletsVisited,
         jpAdherencePct: 0,
         productiveOutlets: r.productiveOutlets,
-        strikeRatePct: 0,
         plannedNotVisited: 0,
         status: "",
       });
@@ -179,7 +174,6 @@ function rollUpByRep(rows: JpRepDaySummaryRow[]): JpRepSummaryRow[] {
       return {
         ...r,
         jpAdherencePct,
-        strikeRatePct: r.outletsVisited > 0 ? round1((r.productiveOutlets / r.outletsVisited) * 100) : 0,
         plannedNotVisited: r.outletsPlanned - r.outletsVisited,
         status: statusFor(jpAdherencePct),
       };
@@ -260,13 +254,12 @@ export default function JpAdherencePage() {
 
   // Trend by date — re-aggregated (sum(visited)/sum(planned)) rather than a naive
   // average of daily percentages, avoiding the "average of ratios" distortion.
-  const byDate = new Map<string, { planned: number; visited: number; productive: number }>();
+  const byDate = new Map<string, { planned: number; visited: number }>();
   for (const r of data.repDaySummary) {
     const k = dateKey(r.date);
-    const acc = byDate.get(k) ?? { planned: 0, visited: 0, productive: 0 };
+    const acc = byDate.get(k) ?? { planned: 0, visited: 0 };
     acc.planned += r.outletsPlanned;
     acc.visited += r.outletsVisited;
-    acc.productive += r.productiveOutlets;
     byDate.set(k, acc);
   }
   const trendData = Array.from(byDate.entries())
@@ -274,7 +267,6 @@ export default function JpAdherencePage() {
     .map(([date, acc]) => ({
       name: formatDateLabel(date),
       "PJP Adherence %": acc.planned > 0 ? Math.round((acc.visited / acc.planned) * 1000) / 10 : 0,
-      "PJP Strike Rate %": acc.visited > 0 ? Math.round((acc.productive / acc.visited) * 1000) / 10 : 0,
     }));
 
   // Monthly Coverage is a broader multi-month view (RepCall's own retention),
@@ -415,7 +407,7 @@ export default function JpAdherencePage() {
 
       <SectionCard
         title="JP Adherence"
-        action={<span className="text-xs text-muted">Planned = every outlet visited · Adherence = productive (Sale) visits ÷ all visits · target {STRIKE_TARGET_PCT}%</span>}
+        action={<span className="text-xs text-muted">Planned = every outlet visited · Adherence = productive (Sale) visits ÷ all visits · target {PRODUCTIVITY_TARGET_PCT}%</span>}
       >
         {data.patternAdherence.repRows.length === 0 ? (
           <EmptyState
@@ -427,14 +419,14 @@ export default function JpAdherencePage() {
           <>
             <p className="mb-3 text-xs text-muted">
               Every outlet a rep visited counts as "planned." Adherence % is how many of those visits were productive
-              (a Sale outcome) — the target is {STRIKE_TARGET_PCT}% productivity out of all visits.
+              (a Sale outcome) — the target is {PRODUCTIVITY_TARGET_PCT}% productivity out of all visits.
             </p>
             <KpiGrid>
               <KpiCard accent="coverage" label="Planned (All Visits)" value={<AnimatedValue value={data.patternAdherence.kpis.plannedOutlets} format={formatNumber} />} />
               <KpiCard accent="coverage" label="Productive Visits" value={<AnimatedValue value={data.patternAdherence.kpis.visitedOutlets} format={formatNumber} />} />
-              <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} sublabel={`Target ${STRIKE_TARGET_PCT}%`} />
-              <KpiCard accent="revenue" label="Reps Below Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsBelowTarget} format={formatNumber} />} sublabel={`Under ${STRIKE_TARGET_PCT}% productivity`} />
-              <KpiCard accent="quarter" label="Reps Met Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsAboveTarget} format={formatNumber} />} sublabel={`At or above ${STRIKE_TARGET_PCT}%`} />
+              <KpiCard accent="growth" label="JP Adherence" value={<span className={tierTextClass[productivityTier(data.patternAdherence.kpis.planAdherencePct)]}>{formatPercent(data.patternAdherence.kpis.planAdherencePct)}</span>} sublabel={`Target ${PRODUCTIVITY_TARGET_PCT}%`} />
+              <KpiCard accent="revenue" label="Reps Below Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsBelowTarget} format={formatNumber} />} sublabel={`Under ${PRODUCTIVITY_TARGET_PCT}% productivity`} />
+              <KpiCard accent="quarter" label="Reps Met Target" value={<AnimatedValue value={data.patternAdherence.kpis.repsAboveTarget} format={formatNumber} />} sublabel={`At or above ${PRODUCTIVITY_TARGET_PCT}%`} />
             </KpiGrid>
             <div className="mt-4">
               <TableWrap>
@@ -446,7 +438,6 @@ export default function JpAdherencePage() {
                   <Th align="right">Planned (Visited)</Th>
                   <Th align="right">Productive</Th>
                   <Th align="center">Adherence %</Th>
-                  <Th align="center">Strike Rate %</Th>
                   <Th align="right">Non-productive</Th>
                   <Th align="center">Status</Th>
                 </Thead>
@@ -462,12 +453,9 @@ export default function JpAdherencePage() {
                       <Td align="center">
                         <Badge tier={productivityTier(r.planAdherencePct)}>{r.planAdherencePct.toFixed(1)}%</Badge>
                       </Td>
-                      <Td align="center">
-                        <Badge tier={productivityTier(r.strikeRatePct)}>{r.strikeRatePct.toFixed(1)}%</Badge>
-                      </Td>
                       <Td align="right">{formatNumber(r.missedOutlets)}</Td>
                       <Td align="center">
-                        <Badge tier={STRIKE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
+                        <Badge tier={PRODUCTIVITY_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
                       </Td>
                     </tr>
                   ))}
@@ -478,9 +466,6 @@ export default function JpAdherencePage() {
                     <Td>—</Td>
                     <Td align="right">{formatNumber(data.patternAdherence.kpis.plannedOutlets)}</Td>
                     <Td align="right">{formatNumber(data.patternAdherence.kpis.visitedOutlets)}</Td>
-                    <Td align="center">
-                      <Badge tier={productivityTier(data.patternAdherence.kpis.planAdherencePct)}>{data.patternAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
-                    </Td>
                     <Td align="center">
                       <Badge tier={productivityTier(data.patternAdherence.kpis.planAdherencePct)}>{data.patternAdherence.kpis.planAdherencePct.toFixed(1)}%</Badge>
                     </Td>
@@ -510,22 +495,19 @@ export default function JpAdherencePage() {
               <KpiCard accent="coverage" label="Timestamp Visits" value={<AnimatedValue value={data.kpis.outletsPlanned} format={formatNumber} />} />
               <KpiCard accent="coverage" label="PJP-aligned Visits" value={<AnimatedValue value={data.kpis.outletsVisited} format={formatNumber} />} />
               <KpiCard accent="growth" label="PJP Ownership Adherence" value={<span className={tierTextClass[productivityTier(data.kpis.jpAdherencePct)]}>{formatPercent(data.kpis.jpAdherencePct)}</span>} />
-              <KpiCard accent="quarter" label="PJP Strike Rate" value={<span className={tierTextClass[productivityTier(data.kpis.strikeRatePct)]}>{formatPercent(data.kpis.strikeRatePct)}</span>} />
               <KpiCard accent="revenue" label="Outside PJP" value={<AnimatedValue value={data.kpis.plannedNotVisited} format={formatNumber} />} />
               <KpiCard accent="coverage" label="Productive Days" value={<AnimatedValue value={productiveDaysCount} format={formatNumber} />} sublabel="Days with ≥1 productive visit" />
             </KpiGrid>
           </SectionCard>
 
-          <SectionCard title="PJP Ownership Trend" action={<span className="text-xs text-muted">Ownership adherence % vs PJP strike rate %</span>}>
+          <SectionCard title="PJP Ownership Trend" action={<span className="text-xs text-muted">Ownership adherence by day</span>}>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
                 <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} axisLine={false} tickLine={false} />
                 <YAxis stroke={CHART_AXIS_COLOR} fontSize={10} unit="%" axisLine={false} tickLine={false} width={32} />
                 <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-                <Legend verticalAlign="top" align="right" height={20} wrapperStyle={{ fontSize: 11, top: -6 }} />
                 <Line type="monotone" dataKey="PJP Adherence %" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="PJP Strike Rate %" stroke={CHART_COLORS[1]} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </SectionCard>
@@ -551,7 +533,6 @@ export default function JpAdherencePage() {
                 <Th align="right">PJP-aligned</Th>
                 <Th align="center">Adherence %</Th>
                 <Th align="right">Productive</Th>
-                <Th align="center">Strike Rate</Th>
                 <Th align="right">Outside PJP</Th>
                 <Th align="center">Status</Th>
               </Thead>
@@ -568,9 +549,6 @@ export default function JpAdherencePage() {
                       <Badge tier={productivityTier(r.jpAdherencePct)}>{r.jpAdherencePct.toFixed(1)}%</Badge>
                     </Td>
                     <Td align="right">{formatNumber(r.productiveOutlets)}</Td>
-                    <Td align="center">
-                      <Badge tier={productivityTier(r.strikeRatePct)}>{r.strikeRatePct.toFixed(1)}%</Badge>
-                    </Td>
                     <Td align="right">{formatNumber(r.plannedNotVisited)}</Td>
                     <Td align="center">
                       <Badge tier={ADHERENCE_STATUS_TIER[r.status] ?? "neutral"}>{r.status}</Badge>
@@ -588,9 +566,6 @@ export default function JpAdherencePage() {
                     <Badge tier={productivityTier(data.kpis.jpAdherencePct)}>{data.kpis.jpAdherencePct.toFixed(1)}%</Badge>
                   </Td>
                   <Td align="right">{formatNumber(data.kpis.productiveOutlets)}</Td>
-                  <Td align="center">
-                    <Badge tier={productivityTier(data.kpis.strikeRatePct)}>{data.kpis.strikeRatePct.toFixed(1)}%</Badge>
-                  </Td>
                   <Td align="right">{formatNumber(data.kpis.plannedNotVisited)}</Td>
                   <Td align="center">—</Td>
                 </TotalRow>

@@ -10,27 +10,27 @@ import {
 } from "../lib/timeManagement";
 
 describe("first-call time-management policy", () => {
-  it("uses Pine's stored Nairobi wall-clock value rather than the browser timezone", () => {
-    expect(nairobiMinutesAfterMidnight("2026-07-30T09:00:00.000Z")).toBe(9 * 60);
+  it("converts the UTC source timestamp to Nairobi wall-clock time", () => {
+    expect(nairobiMinutesAfterMidnight("2026-07-30T06:00:00.000Z")).toBe(9 * 60);
   });
 
   it("recognizes 09:30 and earlier as on time", () => {
-    expect(firstCallStatus("2026-07-30T08:59:00.000Z")).toBe("on-time");
-    expect(firstCallStatus("2026-07-30T09:00:00.000Z")).toBe("on-time");
-    expect(firstCallStatus("2026-07-30T09:30:00.000Z")).toBe("on-time");
+    expect(firstCallStatus("2026-07-30T05:59:00.000Z")).toBe("on-time");
+    expect(firstCallStatus("2026-07-30T06:00:00.000Z")).toBe("on-time");
+    expect(firstCallStatus("2026-07-30T06:30:00.000Z")).toBe("on-time");
   });
 
   it("marks only starts after 09:30 as needing attention", () => {
-    expect(firstCallStatus("2026-07-30T09:31:00.000Z")).toBe("late");
+    expect(firstCallStatus("2026-07-30T06:31:00.000Z")).toBe("late");
   });
 
   it("sorts latest late starters first and on-time reps at the bottom", () => {
     const rows = [
-      { salesRep: "On time", firstCall: "2026-07-30T08:50:00.000Z" },
-      { salesRep: "Late at 10", firstCall: "2026-07-30T10:00:00.000Z" },
-      { salesRep: "Grace", firstCall: "2026-07-30T09:15:00.000Z" },
-      { salesRep: "Late at 9:31", firstCall: "2026-07-30T09:31:00.000Z" },
-      { salesRep: "Early", firstCall: "2026-07-30T08:30:00.000Z" },
+      { salesRep: "On time", firstCall: "2026-07-30T05:50:00.000Z" },
+      { salesRep: "Late at 10", firstCall: "2026-07-30T07:00:00.000Z" },
+      { salesRep: "Grace", firstCall: "2026-07-30T06:15:00.000Z" },
+      { salesRep: "Late at 9:31", firstCall: "2026-07-30T06:31:00.000Z" },
+      { salesRep: "Early", firstCall: "2026-07-30T05:30:00.000Z" },
     ];
 
     expect(rows.sort(compareTimeManagementRows).map((row) => row.salesRep)).toEqual(["Late at 10", "Late at 9:31", "Early", "On time", "Grace"]);
@@ -41,16 +41,16 @@ describe("last-call closing policy", () => {
   const middayNairobi = new Date("2026-07-31T09:00:00.000Z");
 
   it("marks elapsed days closed before 4:00 PM as early", () => {
-    expect(closingStatus("2026-07-30", "2026-07-30T15:59:00.000Z", middayNairobi)).toBe("closed-early");
+    expect(closingStatus("2026-07-30", "2026-07-30T12:59:00.000Z", middayNairobi)).toBe("closed-early");
   });
 
   it("accepts a 4:00 PM or later last call on elapsed days", () => {
-    expect(closingStatus("2026-07-30", "2026-07-30T16:00:00.000Z", middayNairobi)).toBe("closed-on-time");
+    expect(closingStatus("2026-07-30", "2026-07-30T13:00:00.000Z", middayNairobi)).toBe("closed-on-time");
   });
 
   it("does not assess the current or a future day before it has elapsed", () => {
-    expect(closingStatus("2026-07-31", "2026-07-31T08:00:00.000Z", middayNairobi)).toBe("day-in-progress");
-    expect(closingStatus("2026-08-01", "2026-08-01T08:00:00.000Z", middayNairobi)).toBe("not-due");
+    expect(closingStatus("2026-07-31", "2026-07-31T05:00:00.000Z", middayNairobi)).toBe("day-in-progress");
+    expect(closingStatus("2026-08-01", "2026-08-01T05:00:00.000Z", middayNairobi)).toBe("not-due");
   });
 });
 
