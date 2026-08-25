@@ -142,10 +142,11 @@ type TimestampSlide = "overview" | "reps" | "time";
 const SUMMARY_PAGE_SIZE = 50;
 
 function formatTime12h(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", { timeZone: "Africa/Nairobi", hour: "numeric", minute: "2-digit", hour12: true });
+  return new Date(iso).toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
-/** Both the sync watermark and RepCall timestamps are UTC instants. */
+/** The sync watermark is a genuine UTC instant; RepCall timestamps are
+ * UTC-shaped Nairobi wall-clock values and use formatTime12h above. */
 function formatInstantTime12h(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", { timeZone: "Africa/Nairobi", hour: "numeric", minute: "2-digit", hour12: true });
 }
