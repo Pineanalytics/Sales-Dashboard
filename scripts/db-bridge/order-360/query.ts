@@ -61,7 +61,11 @@ export interface OrderRow {
   returnedBy: string | null;
 
   podStatus: string | null;
+  paymentModes: string | null;
   stk: boolean;
+  stkPushStatus: string | null;
+  stkPaymentRef: string | null;
+  stkAmountPaid: number | null;
   paymentRef: string | null;
   amountPaid: number | null;
 }
@@ -122,11 +126,11 @@ const QUERY = `
       CASE WHEN so.Doc_Type = 'Credit Note' THEN so.Created_By END AS returned_by,
 
       pay.pod_list                         AS pod_status,
-      CASE
-          WHEN pay.pod_list IS NOT NULL AND pay.pod_list <> '' THEN 1
-          WHEN pay.ref_list IS NOT NULL AND pay.ref_list <> '' THEN 1
-          ELSE 0
-      END                                   AS stk,
+      pay.mode_list                        AS payment_modes,
+      CASE WHEN stk.push_status = 'confirmed' THEN 1 ELSE 0 END AS stk,
+      stk.push_status                       AS stk_push_status,
+      stk.ref_list                          AS stk_payment_ref,
+      stk.amount_paid                       AS stk_amount_paid,
       pay.ref_list                         AS payment_ref,
       pay.total_paid                       AS amount_paid
 
@@ -162,21 +166,41 @@ const QUERY = `
       UNION ALL SELECT 'joseph.wamai',     'Babayo',         'KDU 963P'
   ) drv ON drv.uname COLLATE utf8mb4_unicode_ci = LOWER(CONVERT(dr.username USING utf8mb4) COLLATE utf8mb4_unicode_ci)
 
-  -- Payments pre-aggregated to one row per order (pay_status = 1 = confirmed
-  -- only) before joining - the fix for both the duplicate-order-row bug and
-  -- "Amount Paid" only reflecting one of several split payments.
+  -- Confirmed payments pre-aggregated to one row per order. Keeping every
+  -- payment mode exposes actual payment options; it also prevents split
+  -- payments from fanning an order out into duplicate rows.
   LEFT JOIN (
       SELECT
           pay_sid,
           SUM(pay_amount)                                            AS total_paid,
           MAX(pay_date)                                              AS delivery_date,
           GROUP_CONCAT(DISTINCT pay_reference ORDER BY pay_reference SEPARATOR ', ') AS ref_list,
-          GROUP_CONCAT(DISTINCT pay_pod       ORDER BY pay_pod       SEPARATOR ', ') AS pod_list
+          GROUP_CONCAT(DISTINCT pay_pod       ORDER BY pay_pod       SEPARATOR ', ') AS pod_list,
+          GROUP_CONCAT(DISTINCT pay_mode      ORDER BY pay_mode      SEPARATOR ' | ') AS mode_list
       FROM pine.payments
-      WHERE pay_type = 'orders'
+      WHERE pay_type IN ('order', 'orders')
         AND pay_status = 1
       GROUP BY pay_sid
   ) pay ON pay.pay_sid = so.id
+
+  -- STK Push is a payment mode with its own lifecycle. Do not classify an
+  -- order as STK merely because it has a POD or a generic payment reference.
+  LEFT JOIN (
+      SELECT
+          pay_sid,
+          CASE
+              WHEN SUM(CASE WHEN pay_status = 1 THEN 1 ELSE 0 END) > 0 THEN 'confirmed'
+              WHEN SUM(CASE WHEN pay_status = 0 THEN 1 ELSE 0 END) > 0 THEN 'pending'
+              WHEN SUM(CASE WHEN pay_status = -1 THEN 1 ELSE 0 END) > 0 THEN 'failed'
+              ELSE NULL
+          END AS push_status,
+          SUM(CASE WHEN pay_status = 1 THEN pay_amount ELSE 0 END) AS amount_paid,
+          GROUP_CONCAT(DISTINCT CASE WHEN pay_status = 1 THEN pay_reference END ORDER BY pay_reference SEPARATOR ', ') AS ref_list
+      FROM pine.payments
+      WHERE pay_type IN ('order', 'orders')
+        AND pay_mode = 'mpesa_stk_checkout'
+      GROUP BY pay_sid
+  ) stk ON stk.pay_sid = so.id
 
   WHERE so.Creation_Date >= CAST(? AS DATE)
     AND so.Creation_Date < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)
@@ -210,7 +234,11 @@ interface RawOrderRow extends RowDataPacket {
   return_doc_type: string | null;
   returned_by: string | null;
   pod_status: string | null;
+  payment_modes: string | null;
   stk: number;
+  stk_push_status: string | null;
+  stk_payment_ref: string | null;
+  stk_amount_paid: number | null;
   payment_ref: string | null;
   amount_paid: number | null;
 }
@@ -256,7 +284,11 @@ function mapRow(r: RawOrderRow): OrderRow {
     returnedBy: blankToNull(r.returned_by),
 
     podStatus: blankToNull(r.pod_status),
+    paymentModes: blankToNull(r.payment_modes),
     stk: r.stk === 1,
+    stkPushStatus: blankToNull(r.stk_push_status),
+    stkPaymentRef: blankToNull(r.stk_payment_ref),
+    stkAmountPaid: r.stk_amount_paid === null ? null : Number(r.stk_amount_paid),
     paymentRef: blankToNull(r.payment_ref),
     amountPaid: r.amount_paid === null ? null : Number(r.amount_paid),
   };

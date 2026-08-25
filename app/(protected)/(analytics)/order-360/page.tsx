@@ -25,9 +25,9 @@ interface DeliveryDriver {
   returnsCount: number;
   returnsValue: number;
 }
-interface RespBacklogRow { ref: string; date: string; customer: string; fsr: string; amount: number; age: number; owner: string; returned?: boolean; returnType?: string | null }
+interface RespBacklogRow { ref: string; date: string; customer: string; fsr: string; amount: number; age: number; owner: string; erpPrefix?: string | null; principal?: string | null; returned?: boolean; returnType?: string | null }
 interface ReturnRow { ref: string; date: string; customer: string; fsr: string; type: "Full" | "Partial"; returnDate: string | null; amount: number; owner: string }
-interface PaymentRow { ref: string; date: string; customer: string; fsr: string; paymentRef: string; amount: number; amountPaid: number }
+interface PaymentRow { ref: string; date: string; customer: string; fsr: string; paymentRef: string; paymentModes: string[]; stkPushStatus: "confirmed" | "pending" | "failed" | "not-requested"; amount: number; amountPaid: number }
 interface Mismatch extends PaymentRow { diff: number }
 interface VanStk { name: string; orders: number; value: number; totalOrders: number; stkPct: number }
 interface Spotlight { name: string; dispatched: number; delivered: number; pending: number; returns: number; returnsValue: number; pendingNonReturn: number }
@@ -38,7 +38,8 @@ interface Order360Response {
   perf: { clearance: PerfPerson[]; pick: PerfPerson[]; dispatch: PerfPerson[]; audit: PerfPerson[]; deliveryDrivers: DeliveryDriver[] };
   backlog: { clearance: RespBacklogRow[]; pick: RespBacklogRow[]; dispatch: RespBacklogRow[]; audit: RespBacklogRow[]; delivery: RespBacklogRow[] };
   returns: { totalCount: number; totalValue: number; byType: { type: "Full" | "Partial"; count: number; value: number }[]; people: PerfPerson[]; rows: ReturnRow[]; spotlight: Spotlight | null };
-  payments: { stkCount: number; noStkCount: number; stkValueOrdered: number; stkValuePaid: number; mismatchCount: number; mismatches: Mismatch[]; byFsr: PerfPerson[]; byVan: VanStk[]; rows: PaymentRow[] };
+  clearanceAllocation: { erpPrefix: string; principal: string; accountant: string; awaitingOrders: number; awaitingValue: number; clearedOrders: number; clearedValue: number }[];
+  payments: { stkCount: number; stkPendingCount: number; stkFailedCount: number; noStkCount: number; stkValueOrdered: number; stkValuePaid: number; mismatchCount: number; mismatches: Mismatch[]; byFsr: PerfPerson[]; byVan: VanStk[]; methods: { method: string; orders: number; value: number }[]; rows: PaymentRow[] };
   availableMonths: string[];
   availableWeeks: string[];
 }
@@ -47,7 +48,7 @@ type StageKey = "clearance" | "pick" | "dispatch" | "audit";
 type TabKey = "overview" | "action" | StageKey | "delivery" | "returns" | "payments";
 
 const STAGE_META: Record<StageKey | "delivery", { label: string; verb: string; gate: string; note: string }> = {
-  clearance: { label: "Clearance", verb: "Cleared", gate: "clearance approval", note: "Owned by the Clearance team — these orders have not been financially cleared yet, so no individual is assigned." },
+  clearance: { label: "Clearance", verb: "Cleared", gate: "clearance approval", note: "Assigned by the first three ERP digits to the responsible principal accountant." },
   pick: { label: "Picking", verb: "Picked", gate: "picking", note: "Owned by the Picking team — orders sit unassigned until a picker actions them." },
   dispatch: { label: "Dispatch", verb: "Dispatched", gate: "dispatch", note: "Owned by the Dispatch team — orders sit unassigned until a dispatcher actions them." },
   audit: { label: "Audit", verb: "Audited", gate: "audit", note: "Owned by the Audit team — orders sit unassigned until an auditor actions them." },
@@ -157,7 +158,7 @@ export default function Order360Page() {
   });
 
   const P = data.payments;
-  const paymentsTotalOrders = P.stkCount + P.noStkCount;
+  const paymentsTotalOrders = P.stkCount + P.stkPendingCount + P.stkFailedCount + P.noStkCount;
   const stkPct = paymentsTotalOrders ? Math.round((P.stkCount / paymentsTotalOrders) * 100) : 0;
 
   const drivers = [...data.perf.deliveryDrivers].sort((a, b) => b.pendingValue - a.pendingValue);
@@ -174,15 +175,15 @@ export default function Order360Page() {
   const filteredActionRows = actionFilter === "all" ? actionRows : actionRows.filter((r) => r.stage === actionFilter);
 
   return (
-    <div className="order360-scope rounded-3xl p-3 sm:p-5" style={{ background: `linear-gradient(180deg, ${O360.base}, #060a16)`, colorScheme: "dark" }}>
+    <div className="order360-scope rounded-2xl p-3 sm:p-5" style={{ background: `linear-gradient(180deg, ${O360.panelSoft}, ${O360.base})`, colorScheme: "dark" }}>
       {/* Header + filters */}
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <VehicleTruck20Regular className="text-white/70" />
-            <h1 className="text-lg font-bold text-white">Order 360</h1>
+          <div className="flex items-center gap-2.5">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: O360.accent, boxShadow: `0 0 0 5px ${O360.accent}22` }} />
+            <h1 className="text-xl font-bold tracking-tight text-white">Order Fulfillment Control Tower</h1>
           </div>
-          <p className={`mt-0.5 text-[12px] ${O360.textMuted}`}>{data.meta.range} &middot; {fmtNum(data.meta.totalOrders)} orders &middot; {fmtKES(data.meta.totalValue, true)}</p>
+          <p className={`mt-1 text-[12px] ${O360.textMuted}`}>Clearance → Pick → Dispatch → Audit → Delivery · live ownership and backlog tracking</p>
         </div>
         <div className="flex flex-wrap items-end gap-2.5">
           <FilterSelect label="Month" value={month ?? ""} onChange={(v) => { setMonth(v || null); setWeek(null); }}>
@@ -239,13 +240,13 @@ export default function Order360Page() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex flex-wrap gap-1 border-b border-white/10 pb-2">
+      <div className="mb-4 flex flex-wrap gap-1.5 border-b border-white/10 pb-3">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className="rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors"
-            style={tab === t.key ? { background: O360.accent, color: "#04141c" } : { color: "rgba(255,255,255,0.65)" }}
+            className="rounded-lg border px-3.5 py-2 text-[12px] font-semibold transition-colors"
+            style={tab === t.key ? { background: O360.accent, borderColor: O360.accent, color: "#06231F" } : { borderColor: "rgba(255,255,255,0.10)", background: O360.panel, color: "rgba(255,255,255,0.65)" }}
           >
             {t.label}
           </button>
@@ -273,8 +274,8 @@ export default function Order360Page() {
           </O360Panel>
 
           {paymentsTotalOrders > 0 ? (
-            <O360Panel title="STK payments" note={`${stkPct}% of orders in this window paid via STK — see the Payments tab for full detail`}>
-              <O360StatPair doneLabel="Paid via STK" doneCount={P.stkCount} doneValue={P.stkValuePaid} pendingLabel="Not Paid via STK" pendingCount={P.noStkCount} pendingValue={0} />
+          <O360Panel title="STK payments" note={`${stkPct}% of orders have a confirmed STK push — pending/failed requests are shown separately in Payments`}>
+              <O360StatPair doneLabel="STK confirmed" doneCount={P.stkCount} doneValue={P.stkValuePaid} pendingLabel="No confirmed STK" pendingCount={P.stkPendingCount + P.stkFailedCount + P.noStkCount} pendingValue={0} />
               <div className="mt-1 text-[12px] font-semibold text-white/80">STK usage frequency by van</div>
               <div className="mt-2">
                 <Leaderboard items={[...P.byVan].sort((a, b) => b.stkPct - a.stkPct).map((v) => ({ name: v.name, orders: v.orders, value: v.totalOrders }))} />
@@ -342,7 +343,7 @@ export default function Order360Page() {
       ) : null}
 
       {(["clearance", "pick", "dispatch", "audit"] as StageKey[]).includes(tab as StageKey) ? (
-        <StagePanel stageKey={tab as StageKey} backlog={data.backlog[tab as StageKey]} perf={data.perf[tab as StageKey]} />
+        <StagePanel stageKey={tab as StageKey} backlog={data.backlog[tab as StageKey]} perf={data.perf[tab as StageKey]} clearanceAllocation={tab === "clearance" ? data.clearanceAllocation : undefined} />
       ) : null}
 
       {tab === "delivery" ? (
@@ -428,13 +429,19 @@ export default function Order360Page() {
             <O360Panel title="Payments"><div className={`text-[12px] ${O360.textMuted}`}>No payment data in this window.</div></O360Panel>
           ) : (
             <>
-              <O360Panel title="Payments (STK Push)" note={`${fmtNum(P.stkCount)} of ${fmtNum(paymentsTotalOrders)} orders (${stkPct}%) have an STK payment logged`}>
+              <O360Panel title="Payments (STK Push)" note={`${fmtNum(P.stkCount)} confirmed STK pushes; pending and failed requests are kept separate`}>
                 <O360KpiGrid>
                   <O360KpiCard label="STK Paid" value={fmtNum(P.stkCount)} sub={`${fmtKES(P.stkValuePaid, true)} received`} accent="good" />
-                  <O360KpiCard label="No STK Yet" value={fmtNum(P.noStkCount)} sub={`${stkPct}% of orders paid via STK`} />
+                  <O360KpiCard label="STK Pending" value={fmtNum(P.stkPendingCount)} sub="awaiting customer completion" accent="warn" />
+                  <O360KpiCard label="STK Failed" value={fmtNum(P.stkFailedCount)} sub="requires a retry or another option" accent="bad" />
+                  <O360KpiCard label="No STK Request" value={fmtNum(P.noStkCount)} sub={`${stkPct}% of orders paid via STK`} />
                   <O360KpiCard label="Ordered vs Paid" value={fmtKES(P.stkValuePaid, true)} sub={`of ${fmtKES(P.stkValueOrdered, true)} ordered on STK orders`} />
                   <O360KpiCard label="Amount Mismatches" value={fmtNum(P.mismatchCount)} sub={`${fmtKES(Math.abs(P.stkValueOrdered - P.stkValuePaid), true)} net gap`} accent={P.mismatchCount > 0 ? "bad" : "good"} />
                 </O360KpiGrid>
+              </O360Panel>
+
+              <O360Panel title="Confirmed payment options" note="All confirmed payment methods recorded against the selected orders">
+                <Leaderboard items={P.methods.map((method) => ({ name: method.method.replaceAll("_", " "), orders: method.orders, value: method.value }))} />
               </O360Panel>
 
               <O360Panel title="STK collections by FSR">
@@ -533,7 +540,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StagePanel({ stageKey, backlog, perf }: { stageKey: StageKey; backlog: RespBacklogRow[]; perf: PerfPerson[] }) {
+function StagePanel({ stageKey, backlog, perf, clearanceAllocation }: { stageKey: StageKey; backlog: RespBacklogRow[]; perf: PerfPerson[]; clearanceAllocation?: Order360Response["clearanceAllocation"] }) {
   const meta = STAGE_META[stageKey];
   const doneCount = perf.reduce((s, p) => s + p.orders, 0);
   const doneValue = perf.reduce((s, p) => s + p.value, 0);
@@ -570,8 +577,19 @@ function StagePanel({ stageKey, backlog, perf }: { stageKey: StageKey; backlog: 
       </O360Panel>
 
       <O360Panel title={`Pending orders — ${meta.label.toLowerCase()}`}>
-        <BacklogTable rows={toBacklogRows(backlog)} />
+        <BacklogTable rows={toBacklogRows(backlog)} showClearanceAssignment={stageKey === "clearance"} />
       </O360Panel>
+
+      {clearanceAllocation ? (
+        <O360Panel title="Clearance allocation" note="ERP # prefix determines the principal and accountable accountant">
+          <div className="overflow-x-auto rounded-lg border border-white/10">
+            <table className="w-full min-w-[760px] text-left text-[12px]">
+              <thead><tr className="border-b border-white/10 bg-white/[0.04] text-white/60"><th className="px-3 py-2">ERP #</th><th className="px-3 py-2">Principal</th><th className="px-3 py-2">Accountant</th><th className="px-3 py-2 text-right">Awaiting</th><th className="px-3 py-2 text-right">Awaiting value</th><th className="px-3 py-2 text-right">Cleared</th></tr></thead>
+              <tbody>{clearanceAllocation.map((row) => <tr key={row.erpPrefix} className="border-b border-white/[0.06] last:border-0 text-white/80"><td className="px-3 py-2 font-mono">{row.erpPrefix}</td><td className="px-3 py-2">{row.principal}</td><td className="px-3 py-2 font-semibold">{row.accountant}</td><td className="px-3 py-2 text-right">{fmtNum(row.awaitingOrders)}</td><td className="px-3 py-2 text-right">{fmtKES(row.awaitingValue, true)}</td><td className="px-3 py-2 text-right">{fmtNum(row.clearedOrders)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </O360Panel>
+      ) : null}
     </div>
   );
 }

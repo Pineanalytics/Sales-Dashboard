@@ -1,19 +1,19 @@
-// Order 360 keeps a distinct dark workspace while using the same pine and leaf-green
-// visual language as the rest of Pinefrost Analytics.
+// Order 360 follows the supplied Fulfillment Control Tower reference: deep navy
+// surfaces, teal workflow accents, and reserved green/amber/red status colors.
 export const O360 = {
-  base: "#071f1b",
-  panel: "#0d312a",
-  panelSoft: "#0a2923",
+  base: "#0B1220",
+  panel: "#121A2B",
+  panelSoft: "#172339",
   border: "border-white/10",
   borderSoft: "border-white/[0.07]",
   text: "text-white/90",
   textMuted: "text-white/55",
   textFaint: "text-white/35",
-  accent: "#71b741",
-  gold: "#c29a42",
-  good: "#58b875",
-  warn: "#e0b355",
-  bad: "#dc7a61",
+  accent: "#3FD8C2",
+  gold: "#F2B84B",
+  good: "#4ADE80",
+  warn: "#FBBF24",
+  bad: "#FB6A6A",
 } as const;
 
 export function ageClass(age: number): "good" | "warn" | "bad" {

@@ -41,7 +41,11 @@ export interface OrderRecordUploadRow {
   returnedBy: string | null;
 
   podStatus: string | null;
+  paymentModes: string | null;
   stk: boolean;
+  stkPushStatus: string | null;
+  stkPaymentRef: string | null;
+  stkAmountPaid: number | null;
   paymentRef: string | null;
   amountPaid: number | null;
 }

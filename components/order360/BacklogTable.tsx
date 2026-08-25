@@ -12,6 +12,8 @@ export interface BacklogRow {
   amount: number;
   age: number;
   owner: string;
+  erpPrefix?: string | null;
+  principal?: string | null;
   stage?: string;
   returned?: boolean;
   returnType?: string | null;
@@ -26,7 +28,7 @@ interface Column {
  *  buildBacklogTable(), rebuilt as a real React component instead of innerHTML
  *  string assembly. Used for every stage's "pending orders" list plus the
  *  master Action Items view. */
-export function BacklogTable({ rows, showStage = false, showOwner = true, showReturnStatus = false, stageLabel }: { rows: BacklogRow[]; showStage?: boolean; showOwner?: boolean; showReturnStatus?: boolean; stageLabel?: (stage: string) => string }) {
+export function BacklogTable({ rows, showStage = false, showOwner = true, showReturnStatus = false, showClearanceAssignment = false, stageLabel }: { rows: BacklogRow[]; showStage?: boolean; showOwner?: boolean; showReturnStatus?: boolean; showClearanceAssignment?: boolean; stageLabel?: (stage: string) => string }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<keyof BacklogRow>("amount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -34,17 +36,18 @@ export function BacklogTable({ rows, showStage = false, showOwner = true, showRe
   const columns: Column[] = useMemo(() => {
     const cols: Column[] = [{ key: "ref", label: "Order Ref" }, { key: "date", label: "Order Date" }, { key: "customer", label: "Customer" }, { key: "fsr", label: "FSR" }];
     if (showStage) cols.push({ key: "stage", label: "Stuck At" });
+    if (showClearanceAssignment) cols.push({ key: "erpPrefix", label: "ERP #" }, { key: "principal", label: "Principal" });
     cols.push({ key: "amount", label: "Amount" }, { key: "age", label: "Age (days)" });
     if (showReturnStatus) cols.push({ key: "returned", label: "Status" });
     if (showOwner) cols.push({ key: "owner", label: "Responsible" });
     return cols;
-  }, [showStage, showOwner, showReturnStatus]);
+  }, [showStage, showOwner, showReturnStatus, showClearanceAssignment]);
 
   const filtered = useMemo(() => {
     let data = rows;
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      data = data.filter((r) => `${r.ref} ${r.customer} ${r.fsr} ${r.owner} ${r.stage ?? ""}`.toLowerCase().includes(q));
+      data = data.filter((r) => `${r.ref} ${r.customer} ${r.fsr} ${r.owner} ${r.principal ?? ""} ${r.erpPrefix ?? ""} ${r.stage ?? ""}`.toLowerCase().includes(q));
     }
     return [...data].sort((a, b) => {
       const av = a[sortKey];

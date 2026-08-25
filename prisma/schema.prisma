@@ -1251,7 +1251,14 @@ model OrderRecord {
   returnedBy    String?
 
   podStatus  String?
+  // Confirmed payment methods, joined from Pine payments (for example
+  // open_terms, cash, mpesa_on_delivery, cheque, mpesa_stk_checkout).
+  paymentModes String?
   stk        Boolean
+  // Explicit STK Push state; never inferred from a POD/reference alone.
+  stkPushStatus String?
+  stkPaymentRef String?
+  stkAmountPaid Float?
   paymentRef String?
   amountPaid Float?
 

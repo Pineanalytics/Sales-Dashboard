@@ -11,6 +11,8 @@ import { prisma } from "@/lib/db";
 import { dayNameFromDate } from "@/lib/jpAdherence";
 import { getWeeksInMonth } from "@/lib/weeklyTargets";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
+import { ORDER360_CLEARANCE_ASSIGNMENTS, order360ClearanceAssignment, order360ErpPrefix } from "@/lib/order360Clearance";
+import type { Order360ClearanceAssignment } from "@/lib/order360Clearance";
 import type { OrderRecord } from "@prisma/client";
 
 export interface Order360Filters {
@@ -77,6 +79,8 @@ export interface Order360BacklogRow {
   amount: number;
   age: number;
   owner: string;
+  erpPrefix?: string | null;
+  principal?: string | null;
   returned?: boolean;
   returnType?: string | null;
 }
@@ -98,6 +102,8 @@ export interface Order360PaymentRow {
   customer: string;
   fsr: string;
   paymentRef: string;
+  paymentModes: string[];
+  stkPushStatus: "confirmed" | "pending" | "failed" | "not-requested";
   amount: number;
   amountPaid: number;
 }
@@ -112,6 +118,19 @@ export interface Order360VanStk {
   value: number;
   totalOrders: number;
   stkPct: number;
+}
+
+export interface Order360PaymentMethod {
+  method: string;
+  orders: number;
+  value: number;
+}
+
+export interface Order360ClearanceAllocation extends Order360ClearanceAssignment {
+  awaitingOrders: number;
+  awaitingValue: number;
+  clearedOrders: number;
+  clearedValue: number;
 }
 
 export interface Order360Spotlight {
@@ -141,6 +160,7 @@ export interface Order360Summary {
     audit: Order360BacklogRow[];
     delivery: Order360BacklogRow[];
   };
+  clearanceAllocation: Order360ClearanceAllocation[];
   returns: {
     totalCount: number;
     totalValue: number;
@@ -151,6 +171,8 @@ export interface Order360Summary {
   };
   payments: {
     stkCount: number;
+    stkPendingCount: number;
+    stkFailedCount: number;
     noStkCount: number;
     stkValueOrdered: number;
     stkValuePaid: number;
@@ -158,6 +180,7 @@ export interface Order360Summary {
     mismatches: Order360Mismatch[];
     byFsr: Order360PerfPerson[];
     byVan: Order360VanStk[];
+    methods: Order360PaymentMethod[];
     rows: Order360PaymentRow[];
   };
   availableMonths: string[];
@@ -317,11 +340,22 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
   const { clearance: pendingClearance, pick: pendingPick, dispatch: pendingDispatch, audit: pendingAudit, delivery: pendingDelivery } = computePendingBacklogs(scopedRows);
 
   function toBacklogRow(r: OrderRecord, owner: string): Order360BacklogRow {
-    return { ref: r.erpNumber, date: ymd(r.orderDate), customer: r.customer, fsr: r.fsr, amount: r.amount, age: ageInDays(r.orderDate, now), owner };
+    const assignment = order360ClearanceAssignment(r.erpNumber);
+    return {
+      ref: r.erpNumber,
+      date: ymd(r.orderDate),
+      customer: r.customer,
+      fsr: r.fsr,
+      amount: r.amount,
+      age: ageInDays(r.orderDate, now),
+      owner,
+      erpPrefix: order360ErpPrefix(r.erpNumber),
+      principal: assignment?.principal ?? null,
+    };
   }
 
   const backlog = {
-    clearance: pendingClearance.map((r) => toBacklogRow(r, "Clearance Team")),
+    clearance: pendingClearance.map((r) => toBacklogRow(r, order360ClearanceAssignment(r.erpNumber)?.accountant ?? "Unassigned clearance")),
     pick: pendingPick.map((r) => toBacklogRow(r, "Picking Team")),
     dispatch: pendingDispatch.map((r) => toBacklogRow(r, "Dispatch Team")),
     audit: pendingAudit.map((r) => toBacklogRow(r, "Audit Team")),
@@ -331,6 +365,24 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
       returnType: r.isReturn ? returnTypeFor(r, scopedRows) : null,
     })),
   };
+
+  const allocationRows = new Map<string, Order360ClearanceAllocation>();
+  for (const assignment of ORDER360_CLEARANCE_ASSIGNMENTS) {
+    allocationRows.set(assignment.erpPrefix, { ...assignment, awaitingOrders: 0, awaitingValue: 0, clearedOrders: 0, clearedValue: 0 });
+  }
+  for (const row of scopedRows) {
+    const assignment = order360ClearanceAssignment(row.erpNumber);
+    if (!assignment) continue;
+    const allocation = allocationRows.get(assignment.erpPrefix)!;
+    if (row.cleared) {
+      allocation.clearedOrders += 1;
+      allocation.clearedValue += row.amount;
+    } else {
+      allocation.awaitingOrders += 1;
+      allocation.awaitingValue += row.amount;
+    }
+  }
+  const clearanceAllocation = Array.from(allocationRows.values()).sort((a, b) => b.awaitingValue - a.awaitingValue || a.principal.localeCompare(b.principal));
 
   // ---------- perf leaderboards ----------
   const perf = {
@@ -395,18 +447,22 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
 
   // ---------- payments (STK) ----------
   const stkRows = scopedRows.filter((r) => r.stk);
-  const noStkRows = scopedRows.filter((r) => !r.stk);
+  const stkPendingRows = scopedRows.filter((r) => r.stkPushStatus === "pending");
+  const stkFailedRows = scopedRows.filter((r) => r.stkPushStatus === "failed");
+  const noStkRows = scopedRows.filter((r) => !r.stk && r.stkPushStatus !== "pending" && r.stkPushStatus !== "failed");
   const mismatches: Order360Mismatch[] = stkRows
-    .filter((r) => r.amountPaid !== null && Math.abs(r.amount - (r.amountPaid ?? 0)) > 1)
+    .filter((r) => r.stkAmountPaid !== null && Math.abs(r.amount - (r.stkAmountPaid ?? 0)) > 1)
     .map((r) => ({
       ref: r.erpNumber,
       date: ymd(r.orderDate),
       customer: r.customer,
       fsr: r.fsr,
-      paymentRef: r.paymentRef ?? "",
+      paymentRef: r.stkPaymentRef ?? "",
+      paymentModes: r.paymentModes?.split("|").map((method) => method.trim()).filter(Boolean) ?? [],
+      stkPushStatus: "confirmed" as const,
       amount: r.amount,
-      amountPaid: r.amountPaid ?? 0,
-      diff: (r.amountPaid ?? 0) - r.amount,
+      amountPaid: r.stkAmountPaid ?? 0,
+      diff: (r.stkAmountPaid ?? 0) - r.amount,
     }))
     .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 
@@ -414,7 +470,7 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
   for (const r of stkRows) {
     const agg = byFsrMap.get(r.fsr) ?? { orders: 0, value: 0 };
     agg.orders += 1;
-    agg.value += r.amount;
+    agg.value += r.stkAmountPaid ?? 0;
     byFsrMap.set(r.fsr, agg);
   }
 
@@ -425,7 +481,7 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
     agg.totalOrders += 1;
     if (r.stk) {
       agg.stkOrders += 1;
-      agg.stkValue += r.amount;
+      agg.stkValue += r.stkAmountPaid ?? 0;
     }
     vanTotals.set(r.van, agg);
   }
@@ -437,19 +493,35 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
     stkPct: v.totalOrders ? Math.round((v.stkOrders / v.totalOrders) * 100) : 0,
   }));
 
+  const paymentMethodMap = new Map<string, { orders: number; value: number }>();
+  for (const row of scopedRows) {
+    const methods = row.paymentModes?.split("|").map((method) => method.trim()).filter(Boolean) ?? [];
+    for (const method of new Set(methods)) {
+      const aggregate = paymentMethodMap.get(method) ?? { orders: 0, value: 0 };
+      aggregate.orders += 1;
+      aggregate.value += row.amountPaid ?? 0;
+      paymentMethodMap.set(method, aggregate);
+    }
+  }
+
   const payments = {
     stkCount: stkRows.length,
+    stkPendingCount: stkPendingRows.length,
+    stkFailedCount: stkFailedRows.length,
     noStkCount: noStkRows.length,
     stkValueOrdered: stkRows.reduce((s, r) => s + r.amount, 0),
-    stkValuePaid: stkRows.reduce((s, r) => s + (r.amountPaid ?? 0), 0),
+    stkValuePaid: stkRows.reduce((s, r) => s + (r.stkAmountPaid ?? 0), 0),
     mismatchCount: mismatches.length,
     mismatches,
     byFsr: Array.from(byFsrMap.entries())
       .map(([name, v]) => ({ name, ...v }))
       .sort((a, b) => b.orders - a.orders),
     byVan: byVan.sort((a, b) => b.stkPct - a.stkPct),
+    methods: Array.from(paymentMethodMap.entries())
+      .map(([method, values]) => ({ method, ...values }))
+      .sort((a, b) => b.orders - a.orders || a.method.localeCompare(b.method)),
     rows: stkRows
-      .map((r) => ({ ref: r.erpNumber, date: ymd(r.orderDate), customer: r.customer, fsr: r.fsr, paymentRef: r.paymentRef ?? "", amount: r.amount, amountPaid: r.amountPaid ?? 0 }))
+      .map((r) => ({ ref: r.erpNumber, date: ymd(r.orderDate), customer: r.customer, fsr: r.fsr, paymentRef: r.stkPaymentRef ?? "", paymentModes: r.paymentModes?.split("|").map((method) => method.trim()).filter(Boolean) ?? [], stkPushStatus: "confirmed" as const, amount: r.amount, amountPaid: r.stkAmountPaid ?? 0 }))
       .sort((a, b) => b.amountPaid - a.amountPaid),
   };
 
@@ -458,6 +530,7 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
     funnel,
     perf,
     backlog,
+    clearanceAllocation,
     returns,
     payments,
     availableMonths,
