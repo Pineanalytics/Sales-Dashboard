@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
       customers: customers.map((row) => ({ ...row, activeDays: number(row.activeDays), reps: number(row.reps), invoices: number(row.invoices), lastTransaction: iso(row.lastTransaction) })),
       filters: { reps: filterReps.map((row) => row.rep), dates: filterDates.map((row) => day(row.date)) },
       freshness: { syncedAt: iso(watermark?.updatedAt), through: iso(watermark?.lastIncrementalAt), latestRunCompletedAt: iso(latestRun?.completedAt), latestRunRows: latestRun?.recordCount ?? null },
-      definitions: { coverage: "Unique customers with at least one positive sale in the selected period.", time: "First and last DataEdge sales/return transaction; this is not GPS check-in/check-out time." },
+      definitions: { coverage: "Unique customers with at least one positive sale in the selected period.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark." },
     });
   } catch (error) {
     console.error("Failed to load Upfield Timestamp and Coverage", error);
