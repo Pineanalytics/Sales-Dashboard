@@ -28,12 +28,13 @@ export interface SyncHealthRow {
  *  correct freshness signal now. PJP ownership adherence joins those
  *  ActiveOutlet owner fields to RepCall, so it shares their source freshness. */
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
+    prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
   ]);
 
   function row(key: string, label: string, cadenceLabel: string, lastUpdated: Date | null, staleAfterHours: number): SyncHealthRow {
@@ -47,6 +48,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
+    row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
   ];
 }
