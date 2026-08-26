@@ -1,14 +1,17 @@
 // Sales & Returns invoice-line bridge. Separate SQL Server source from both
 // SAP (SQLBRIDGE_SQL_*) and PinefrostAnalytics (EABL_CALL_SQL_*) — the field
-// DMS's CASHMEMO/DSR/POP/SKU tables (see query.ts's header comment). Wire this
-// into Windows Task Scheduler via scripts/sales-returns-sync.ps1, once daily
-// (the source report is a day-grain delivery-date extract, not a live feed).
+// DMS's CASHMEMO/DSR/POP/SKU tables (see query.ts's header comment).
 //
-// Default: fetches yesterday (Africa/Nairobi, no DST) — CM.DELV_DATE needs the
-// day fully closed out on the DMS side before the report is stable. Set
-// SALES_RETURNS_BACKFILL_FROM=YYYY-MM-DD to instead fetch from that date
-// through yesterday inclusive, for a one-off historical repair; never set it
-// for the routine scheduled run.
+// Wired into Windows Task Scheduler via scripts/sales-returns-sync.ps1 as
+// THREE separate daily runs (each replaces only its own delivery-date window,
+// so overlapping runs are safe and idempotent — see app/api/sales-returns/upload):
+//   - 20:00 -Window Today     same-day, necessarily partial (day isn't over yet)
+//   - 07:00 -Window Yesterday finalizes yesterday once the DMS day is fully closed
+//   - 12:00 -Window Catchup   yesterday+today, catches anything the other two missed
+// SALES_RETURNS_WINDOW selects which of the three; defaults to "yesterday" for
+// any ad-hoc/manual run. SALES_RETURNS_BACKFILL_FROM=YYYY-MM-DD overrides all of
+// the above for a one-off historical repair (from that date through yesterday) —
+// never set it for a routine scheduled run.
 process.loadEnvFile();
 
 import sql from "mssql";
@@ -31,12 +34,20 @@ function nairobiMidnight(daysAgo: number): Date {
 }
 
 function dateWindow(): { start: Date; end: Date } {
-  const yesterday = nairobiMidnight(1);
   const backfillFrom = process.env.SALES_RETURNS_BACKFILL_FROM;
-  if (!backfillFrom) return { start: yesterday, end: yesterday };
-  const start = new Date(`${backfillFrom}T00:00:00.000Z`);
-  if (Number.isNaN(start.getTime())) throw new Error("SALES_RETURNS_BACKFILL_FROM must be YYYY-MM-DD.");
-  return { start, end: yesterday };
+  if (backfillFrom) {
+    const start = new Date(`${backfillFrom}T00:00:00.000Z`);
+    if (Number.isNaN(start.getTime())) throw new Error("SALES_RETURNS_BACKFILL_FROM must be YYYY-MM-DD.");
+    return { start, end: nairobiMidnight(1) };
+  }
+
+  const window = (process.env.SALES_RETURNS_WINDOW ?? "yesterday").toLowerCase();
+  const today = nairobiMidnight(0);
+  const yesterday = nairobiMidnight(1);
+  if (window === "today") return { start: today, end: today };
+  if (window === "catchup") return { start: yesterday, end: today };
+  if (window === "yesterday") return { start: yesterday, end: yesterday };
+  throw new Error(`SALES_RETURNS_WINDOW must be "today", "yesterday", or "catchup" (got "${window}").`);
 }
 
 async function post(path: string, body: unknown) {
