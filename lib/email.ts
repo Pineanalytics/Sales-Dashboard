@@ -72,6 +72,54 @@ To see the new pages in your sidebar, please sign out and sign back in — this 
 
 If you don't see the new modules after signing back in, let your administrator know.`;
 
+/** Failure alert for the Windows-scheduled sync scripts (Sales & Returns bridge,
+ *  UKL CSV export puller) — they have no SMTP credentials of their own and
+ *  instead POST to /api/integrations/alerts/notify (UPLOAD_API_KEY-authed,
+ *  same key they already hold), which calls this. Recipients come from
+ *  OPS_ALERT_EMAIL_TO (comma-separated); a no-op (logged, not thrown) when
+ *  that or SMTP_USER/SMTP_PASSWORD aren't set, same pattern as the other
+ *  send*Email functions here. */
+export async function sendOpsAlertEmail(subject: string, message: string): Promise<{ sent: boolean; error?: string }> {
+  const user = process.env.SMTP_USER;
+  const password = process.env.SMTP_PASSWORD;
+  const recipients = (process.env.OPS_ALERT_EMAIL_TO ?? "")
+    .split(",")
+    .map((addr) => addr.trim())
+    .filter(Boolean);
+
+  if (!user || !password) {
+    console.warn(`[email] SMTP_USER/SMTP_PASSWORD not set — skipped ops alert: ${subject}`);
+    return { sent: false, error: "Email sending is not configured (SMTP_USER/SMTP_PASSWORD unset)." };
+  }
+  if (recipients.length === 0) {
+    console.warn(`[email] OPS_ALERT_EMAIL_TO not set — skipped ops alert: ${subject}`);
+    return { sent: false, error: "No recipients configured (OPS_ALERT_EMAIL_TO unset)." };
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Analytics";
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || DEFAULT_SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || DEFAULT_SMTP_PORT,
+      secure: true,
+      auth: { user, pass: password },
+    });
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${user}>`,
+      replyTo: REPLY_TO,
+      to: recipients,
+      subject: `[Pinefrost Ops Alert] ${subject}`,
+      text: `${message}\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
+      html: `<pre style="font-family:inherit;white-space:pre-wrap;">${escapeHtml(message)}</pre>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: err instanceof Error ? err.message : "Unknown error sending email." };
+  }
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
