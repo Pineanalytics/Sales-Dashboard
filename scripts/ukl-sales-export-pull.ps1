@@ -49,10 +49,17 @@ $ErrorActionPreference = "Stop"
 function Write-Log { param([string]$Message) Write-Output ("[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $Message) }
 
 # Never throws — a mail-sending hiccup must not turn a good pull into a
-# failed one (or mask a real failure). Skips silently if AlertKey isn't set.
+# failed one (or mask a real failure). Logs (doesn't throw) and skips if
+# AlertKey isn't set — logged rather than silent so "no email arrived" is
+# distinguishable from "the key isn't visible in this session yet" (a
+# machine-level env var set via [Environment]::SetEnvironmentVariable needs a
+# fresh PowerShell window before $env: picks it up here).
 function Send-PipelineAlert {
   param([string]$Status, [string]$Summary)
-  if (-not $AlertKey) { return }
+  if (-not $AlertKey) {
+    Write-Log "Pipeline alert email skipped: PIPELINE_ALERT_KEY is not set in this session."
+    return
+  }
   try {
     $payload = @{ task = "ukl-sales-export-pull ($Branch)"; machine = $env:COMPUTERNAME; status = $Status; summary = $Summary } | ConvertTo-Json
     Invoke-RestMethod -Uri "$AppUrl/api/pipeline-alerts" -Method Post -ContentType "application/json" `

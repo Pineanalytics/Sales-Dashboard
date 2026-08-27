@@ -65,7 +65,10 @@ async function post(path: string, body: unknown) {
  *  unset (e.g. before it's been provisioned on this machine) just skips it. */
 async function reportRun(status: "success" | "failure", summary: string) {
   const key = process.env.PIPELINE_ALERT_KEY;
-  if (!key) return;
+  if (!key) {
+    console.warn("[sales-returns] Pipeline alert email skipped: PIPELINE_ALERT_KEY is not set.");
+    return;
+  }
   try {
     const response = await fetch(`${APP_URL}/api/pipeline-alerts`, {
       method: "POST",
