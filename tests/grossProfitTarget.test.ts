@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { grossProfitTargetForPeriod, grossProfitTargetRate } from "../lib/grossProfitTarget";
+import { grossProfitTargetForPeriod, grossProfitTargetPerformance, grossProfitTargetRate } from "../lib/grossProfitTarget";
 import type { Dataset, MonthlySalesRow } from "../lib/types";
 
 function salesRow(principal: string, target: number | null): MonthlySalesRow {
@@ -55,5 +55,17 @@ describe("grossProfitTargetForPeriod", () => {
     const rows = dataset([salesRow("Mars-Nairobi", 200), salesRow("EABL-Nyeri", 100)]);
     expect(grossProfitTargetForPeriod(rows, { kind: "MONTH", year: "2026", month: "August" }, "Mars-Nairobi")).toBe(30);
     expect(grossProfitTargetForPeriod(dataset([salesRow("Mars-Nairobi", null)]), { kind: "MONTH", year: "2026", month: "August" }, null)).toBeNull();
+  });
+});
+
+describe("grossProfitTargetPerformance", () => {
+  it("returns GP attainment and the signed value variance", () => {
+    expect(grossProfitTargetPerformance(12, 10)).toEqual({ attainmentPct: 120, variance: 2 });
+    expect(grossProfitTargetPerformance(8, 10)).toEqual({ attainmentPct: 80, variance: -2 });
+  });
+
+  it("keeps attainment unavailable when no usable GP target exists", () => {
+    expect(grossProfitTargetPerformance(8, null)).toEqual({ attainmentPct: null, variance: null });
+    expect(grossProfitTargetPerformance(8, 0)).toEqual({ attainmentPct: null, variance: 8 });
   });
 });

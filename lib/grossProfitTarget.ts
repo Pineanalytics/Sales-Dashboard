@@ -28,3 +28,10 @@ export function grossProfitTargetForPeriod(
   if (rows.length === 0) return null;
   return rows.reduce((sum, row) => sum + row.target! * grossProfitTargetRate(row.principal), 0);
 }
+
+export function grossProfitTargetPerformance(grossProfit: number, grossProfitTarget: number | null) {
+  return {
+    attainmentPct: grossProfitTarget !== null && grossProfitTarget > 0 ? (grossProfit / grossProfitTarget) * 100 : null,
+    variance: grossProfitTarget !== null ? grossProfit - grossProfitTarget : null,
+  };
+}

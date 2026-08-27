@@ -1,11 +1,13 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { ChevronDown20Regular, ChevronRight20Regular } from "@fluentui/react-icons";
+import { ChevronDown20Regular, ChevronRight20Regular, FullScreenMaximize20Regular } from "@fluentui/react-icons";
+import { RankingDrilldown } from "@/components/dashboard/RankingDrilldown";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { AchievementBadge } from "@/components/ui/Badge";
 import { formatCompact } from "@/lib/format";
+import type { Dataset } from "@/lib/types";
 import type { PrincipalRevenueInput, TlRankingRow, SupervisorRankingResult, ManagerRankingResult, UnattributedPrincipal } from "@/lib/tlRanking";
 
 type TlRankingResponse =
@@ -87,11 +89,13 @@ export function TlRankingTable({
   principalFilter,
   year,
   monthLabel,
+  dataset,
 }: {
   principalRevenue: PrincipalRevenueInput[];
   principalFilter: string | null;
   year: string;
   monthLabel: string;
+  dataset: Dataset;
 }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [result, setResult] = useState<TlRankingResponse | null>(null);
@@ -99,6 +103,7 @@ export function TlRankingTable({
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [expandedManagers, setExpandedManagers] = useState<Set<string>>(new Set());
   const [unassignedSupervisorsExpanded, setUnassignedSupervisorsExpanded] = useState(false);
+  const [drillOpen, setDrillOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,9 +212,10 @@ export function TlRankingTable({
       title="Sales Supervisor Ranking"
       accent="blue"
       action={
-        managerRanking.rankings.length > 0 ? (
-          <div className="inline-flex gap-0.5 rounded-full bg-background-elevated p-0.5">
-            {(["supervisor", "manager"] as const).map((l) => (
+        <div className="flex items-center gap-2">
+          {managerRanking.rankings.length > 0 ? (
+            <div className="inline-flex gap-0.5 rounded-full bg-background-elevated p-0.5">
+              {(["supervisor", "manager"] as const).map((l) => (
               <button
                 key={l}
                 onClick={() => setLevel(l)}
@@ -217,9 +223,13 @@ export function TlRankingTable({
               >
                 {l === "supervisor" ? "By Supervisor" : "By Manager"}
               </button>
-            ))}
-          </div>
-        ) : undefined
+              ))}
+            </div>
+          ) : null}
+          <button onClick={() => setDrillOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-brand-navy hover:bg-background-elevated">
+            <FullScreenMaximize20Regular className="h-4 w-4" /> Full analysis
+          </button>
+        </div>
       }
     >
       <TableWrap>
@@ -345,6 +355,17 @@ export function TlRankingTable({
         </tbody>
       </TableWrap>
       <UnattributedNote unattributedPrincipals={result.unattributedPrincipals} />
+      {drillOpen ? (
+        <RankingDrilldown
+          dataset={dataset}
+          year={year}
+          monthLabel={monthLabel}
+          initialLevel={isManagerLevel ? "manager" : "supervisor"}
+          supervisorRanking={supervisorRanking}
+          managerRanking={managerRanking}
+          onClose={() => setDrillOpen(false)}
+        />
+      ) : null}
     </SectionCard>
   );
 }

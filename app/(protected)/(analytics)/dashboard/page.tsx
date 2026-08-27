@@ -157,6 +157,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
             <TlRankingTable
+              dataset={dataset}
               principalRevenue={principalRevenue}
               principalFilter={selectedPrincipalKey}
               year={currentMonth.year}

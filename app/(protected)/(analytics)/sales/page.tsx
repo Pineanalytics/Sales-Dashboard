@@ -17,7 +17,7 @@ import { CANONICAL_MONTHS, resolvePeriodMonths, summarizeSalesForPeriod } from "
 import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
-import { grossProfitTargetForPeriod } from "@/lib/grossProfitTarget";
+import { grossProfitTargetForPeriod, grossProfitTargetPerformance } from "@/lib/grossProfitTarget";
 import DashboardPage from "../dashboard/page";
 import TimeIntelligencePage from "../time-intelligence/page";
 import RepsPage from "../reps/page";
@@ -89,16 +89,20 @@ function SalesCockpit() {
   const monthlyRows = trendMonths.map(({ year, monthIndex }) => {
     const month = CANONICAL_MONTHS[monthIndex];
     const monthPeriod = { kind: "MONTH" as const, year, month };
+    const summary = summarizeSalesForPeriod(dataset, monthPeriod, selectedPrincipalKey);
+    const grossProfitTarget = grossProfitTargetForPeriod(dataset, monthPeriod, selectedPrincipalKey);
     return {
       key: `${year}-${monthIndex}`,
       month,
       label: includesMultipleYears ? `${month3(month)} ${year}` : month,
-      ...summarizeSalesForPeriod(dataset, monthPeriod, selectedPrincipalKey),
-      grossProfitTarget: grossProfitTargetForPeriod(dataset, monthPeriod, selectedPrincipalKey),
+      ...summary,
+      grossProfitTarget,
+      ...grossProfitTargetPerformance(summary.grossProfit, grossProfitTarget),
     };
   });
   const displayedSummary = summarizeSalesForPeriod(dataset, trendPeriod, selectedPrincipalKey);
   const displayedGrossProfitTarget = grossProfitTargetForPeriod(dataset, trendPeriod, selectedPrincipalKey);
+  const displayedGrossProfitPerformance = grossProfitTargetPerformance(displayedSummary.grossProfit, displayedGrossProfitTarget);
 
   const trendChartData = monthlyRows.map((r) => ({ name: includesMultipleYears ? r.label : month3(r.month), Revenue: r.revenue, Target: r.target ?? undefined }));
   const byPrincipalChartData = principals.slice(0, 12).map((p) => ({ name: p.principal, value: p.revenue }));
@@ -166,6 +170,8 @@ function SalesCockpit() {
             <Th align="right">Variance</Th>
             <Th align="right">Gross Profit</Th>
             <Th align="right">GP Target</Th>
+            <Th align="center">GP Attainment</Th>
+            <Th align="right">Attainment Variance</Th>
             <Th align="right">GP Margin</Th>
           </Thead>
           <tbody>
@@ -180,6 +186,8 @@ function SalesCockpit() {
                 <Td align="right" className={r.target !== null && r.revenue - r.target < 0 ? "text-red-600" : "text-emerald-700"}>{r.target !== null ? formatCompact(r.revenue - r.target) : "N/A"}</Td>
                 <Td align="right">{formatCompact(r.grossProfit)}</Td>
                 <Td align="right">{r.grossProfitTarget !== null ? formatCompact(r.grossProfitTarget) : "N/A"}</Td>
+                <Td align="center"><AchievementBadge pct={r.attainmentPct} /></Td>
+                <Td align="right" className={r.variance !== null && r.variance < 0 ? "text-red-600" : "text-emerald-700"}>{r.variance !== null ? formatCompact(r.variance) : "N/A"}</Td>
                 <Td align="right">{r.grossMarginPct !== null ? `${r.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
               </tr>
             ))}
@@ -193,6 +201,8 @@ function SalesCockpit() {
               <Td align="right">{displayedSummary.target !== null ? formatCompact(displayedSummary.revenue - displayedSummary.target) : "N/A"}</Td>
               <Td align="right">{formatCompact(displayedSummary.grossProfit)}</Td>
               <Td align="right">{displayedGrossProfitTarget !== null ? formatCompact(displayedGrossProfitTarget) : "N/A"}</Td>
+              <Td align="center"><AchievementBadge pct={displayedGrossProfitPerformance.attainmentPct} /></Td>
+              <Td align="right" className={displayedGrossProfitPerformance.variance !== null && displayedGrossProfitPerformance.variance < 0 ? "text-red-600" : "text-emerald-700"}>{displayedGrossProfitPerformance.variance !== null ? formatCompact(displayedGrossProfitPerformance.variance) : "N/A"}</Td>
               <Td align="right">{displayedSummary.grossMarginPct !== null ? `${displayedSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
             </TotalRow>
           </tbody>
