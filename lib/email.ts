@@ -137,3 +137,55 @@ export async function sendAnnouncementEmail(to: string, name: string | null, sub
     return { sent: false, error: err instanceof Error ? err.message : "Unknown error sending email." };
   }
 }
+
+/** Per-run status email for the standalone pipeline scripts that have no SMTP
+ *  credentials of their own — scripts/db-bridge/sales-returns/run.ts on the
+ *  Centegy machine, and scripts/ukl-sales-export-pull.ps1 on the
+ *  D:\UKL_INTEGRATION\UPLOADS server. Both POST a short report to
+ *  app/api/pipeline-alerts instead of emailing directly, same "credentials
+ *  never leave the VPS" pattern as UPLOAD_API_KEY/UKL_SALES_EXPORT_KEY. Fires
+ *  on every run, success or failure, per user request — this is deliberately
+ *  chattier than sendApprovalEmail/sendAnnouncementEmail. */
+export async function sendPipelineRunEmail(params: {
+  to: string;
+  task: string;
+  machine?: string;
+  status: "success" | "failure";
+  summary: string;
+}): Promise<{ sent: boolean; error?: string }> {
+  const { to, task, machine, status, summary } = params;
+  const user = process.env.SMTP_USER;
+  const password = process.env.SMTP_PASSWORD;
+  if (!user || !password) {
+    console.warn(`[email] SMTP_USER/SMTP_PASSWORD not set — skipped sending pipeline alert email for ${task}`);
+    return { sent: false, error: "Email sending is not configured (SMTP_USER/SMTP_PASSWORD unset)." };
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || "Pinefrost Analytics";
+  const statusLabel = status === "success" ? "SUCCESS" : "FAILURE";
+  const subject = `[Pinefrost Pipeline] ${task} — ${statusLabel}`;
+  const when = new Date().toISOString();
+  const machineLine = machine ? `Machine: ${machine}\n` : "";
+  const machineLineHtml = machine ? `<p>Machine: ${escapeHtml(machine)}</p>` : "";
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || DEFAULT_SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || DEFAULT_SMTP_PORT,
+      secure: true,
+      auth: { user, pass: password },
+    });
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${user}>`,
+      replyTo: REPLY_TO,
+      to,
+      subject,
+      text: `${task} — ${statusLabel}\n${machineLine}Time: ${when} (UTC)\n\n${summary}\n\n${SYSTEM_EMAIL_DISCLAIMER_TEXT}`,
+      html: `<p><strong>${escapeHtml(task)} — ${statusLabel}</strong></p>${machineLineHtml}<p>Time: ${when} (UTC)</p><p>${escapeHtml(summary)}</p>${SYSTEM_EMAIL_DISCLAIMER_HTML}`,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: err instanceof Error ? err.message : "Unknown error sending email." };
+  }
+}

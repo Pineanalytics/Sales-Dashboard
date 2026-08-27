@@ -59,6 +59,30 @@ async function post(path: string, body: unknown) {
   if (!response.ok) throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
 }
 
+/** Reports this run's outcome to app/api/pipeline-alerts so it goes out as an
+ *  email — never throws, so a mail-sending hiccup can't turn a good sync run
+ *  into a failed one (or mask a real failure). PIPELINE_ALERT_KEY is optional:
+ *  unset (e.g. before it's been provisioned on this machine) just skips it. */
+async function reportRun(status: "success" | "failure", summary: string) {
+  const key = process.env.PIPELINE_ALERT_KEY;
+  if (!key) return;
+  try {
+    const response = await fetch(`${APP_URL}/api/pipeline-alerts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-pipeline-alert-key": key },
+      body: JSON.stringify({
+        task: `sales-returns-sync (${process.env.SALES_RETURNS_WINDOW ?? "yesterday"})`,
+        machine: process.env.COMPUTERNAME,
+        status,
+        summary,
+      }),
+    });
+    if (!response.ok) console.warn(`[sales-returns] Pipeline alert email failed: ${response.status} ${await response.text()}`);
+  } catch (error) {
+    console.warn("[sales-returns] Could not send pipeline alert email:", error);
+  }
+}
+
 async function main() {
   const { start, end } = dateWindow();
   console.log(`[sales-returns] Fetching Sales & Returns lines for delivery date ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}...`);
@@ -102,13 +126,20 @@ async function main() {
     // still worth telling the app the window was checked, so re-run manually if that's wrong.
     if (lines.length === 0) await post("/api/sales-returns/upload", { lines: [], windowStart, windowEnd });
 
-    console.log(`[sales-returns] Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
+    const summary = `Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`;
+    console.log(`[sales-returns] ${summary}`);
+    return summary;
   } finally {
     await pool.close();
   }
 }
 
-main().catch((error) => {
-  console.error("[sales-returns] FAILED:", error);
-  process.exitCode = 1;
-});
+// Chained (not fire-and-forget) so the pipeline-alert POST's outstanding
+// request keeps the process alive until it settles, same as the rest of main().
+main()
+  .then((summary) => reportRun("success", summary))
+  .catch(async (error) => {
+    console.error("[sales-returns] FAILED:", error);
+    await reportRun("failure", error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });

@@ -25,6 +25,12 @@
   machine's own environment variable of the same name rather than storing it
   in the scheduled task definition in plain text.
 
+.PARAMETER AlertKey
+  The shared PIPELINE_ALERT_KEY, for the per-run status email (success or
+  failure) sent via app/api/pipeline-alerts. Defaults to this machine's own
+  environment variable of the same name; if that's unset, alerting is just
+  skipped — it never blocks or fails the actual pull.
+
 .EXAMPLE
   ./ukl-sales-export-pull.ps1
   Routine daily pull for yesterday, Nairobi branch.
@@ -35,11 +41,27 @@ param(
   [string]$AppUrl = "https://pinefrostdb.com",
   [string]$DestFolder = "D:\UKL_INTEGRATION\UPLOADS",
   [string]$ApiKey = $env:UKL_SALES_EXPORT_KEY,
-  [string]$Date = (Get-Date).ToUniversalTime().AddHours(3).AddDays(-1).ToString("yyyy-MM-dd")
+  [string]$Date = (Get-Date).ToUniversalTime().AddHours(3).AddDays(-1).ToString("yyyy-MM-dd"),
+  [string]$AlertKey = $env:PIPELINE_ALERT_KEY
 )
 
 $ErrorActionPreference = "Stop"
 function Write-Log { param([string]$Message) Write-Output ("[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $Message) }
+
+# Never throws — a mail-sending hiccup must not turn a good pull into a
+# failed one (or mask a real failure). Skips silently if AlertKey isn't set.
+function Send-PipelineAlert {
+  param([string]$Status, [string]$Summary)
+  if (-not $AlertKey) { return }
+  try {
+    $payload = @{ task = "ukl-sales-export-pull ($Branch)"; machine = $env:COMPUTERNAME; status = $Status; summary = $Summary } | ConvertTo-Json
+    Invoke-RestMethod -Uri "$AppUrl/api/pipeline-alerts" -Method Post -ContentType "application/json" `
+      -Headers @{ "x-pipeline-alert-key" = $AlertKey } -Body $payload | Out-Null
+  }
+  catch {
+    Write-Log "Could not send pipeline alert email: $($_.Exception.Message)"
+  }
+}
 
 if (-not $ApiKey) {
   throw "No API key provided. Pass -ApiKey, or set the UKL_SALES_EXPORT_KEY environment variable on this machine."
@@ -54,9 +76,12 @@ try {
   Invoke-WebRequest -Uri "$AppUrl/api/integrations/ukl/sales-export?date=$Date" `
     -Headers @{ "x-ukl-export-key" = $ApiKey } `
     -OutFile $destFile
-  Write-Log "Saved $((Get-Item $destFile).Length) bytes to $destFile"
+  $bytes = (Get-Item $destFile).Length
+  Write-Log "Saved $bytes bytes to $destFile"
+  Send-PipelineAlert -Status "success" -Summary "Saved $bytes bytes to $destFile for $Date."
 }
 catch {
   Write-Log "FAILED: $($_.Exception.Message)"
+  Send-PipelineAlert -Status "failure" -Summary "$($_.Exception.Message) (date $Date, branch $Branch)"
   throw
 }
