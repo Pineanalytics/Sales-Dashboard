@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getLiveBrandCustomerRows } from "@/lib/datasetStore";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { summarizeRankingDrill } from "@/lib/rankingDrill";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Provide at least one period in YYYY-MM format." }, { status: 400 });
   }
 
-  const requestedPrincipals = new Set(request.nextUrl.searchParams.getAll("principal").map(normalizePrincipalKey));
+  const requestedPrincipalNames = request.nextUrl.searchParams.getAll("principal");
+  const requestedPrincipals = new Set(requestedPrincipalNames.map(normalizePrincipalKey));
   const scope = await resolveScopeForSession(
     session.user.role,
     session.user.teamLeaderId,
@@ -37,10 +39,17 @@ export async function GET(request: NextRequest) {
   const allowedPrincipals = scope ? new Set(scope.principals.map(normalizePrincipalKey)) : null;
 
   try {
-    const rows = (await getLiveBrandCustomerRows(periods)).filter((row) =>
+    const rows = (await getLiveBrandCustomerRows(periods, requestedPrincipalNames)).filter((row) =>
       (!allowedPrincipals || allowedPrincipals.has(row.principalKey)) &&
       (requestedPrincipals.size === 0 || requestedPrincipals.has(row.principalKey))
     );
+
+    if (request.nextUrl.searchParams.get("summary") === "drill") {
+      return NextResponse.json(
+        { drill: summarizeRankingDrill(rows) },
+        { headers: { "Cache-Control": "private, no-store" } }
+      );
+    }
 
     if (request.nextUrl.searchParams.get("summary") === "daily") {
       const revenueByDate = new Map<string, number>();

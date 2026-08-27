@@ -1,19 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dismiss20Regular } from "@fluentui/react-icons";
 import { AchievementBadge, Badge } from "@/components/ui/Badge";
 import { StockStatusPill } from "@/components/ui/StockPill";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatCompact, stockActionTier } from "@/lib/format";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import {
-  summarizeBrandCustomerByBrand,
-  summarizeBrandCustomerByCustomer,
-  summarizeBrandCustomerByPrincipal,
-  summarizeBrandCustomerByRep,
-} from "@/lib/timeIntelligence";
-import type { Dataset, MonthlyBrandCustomerRow, StockItem } from "@/lib/types";
+import type { RankingDrillRow, RankingDrillSummary } from "@/lib/rankingDrill";
+import type { Dataset, StockItem } from "@/lib/types";
 import type { ManagerRankingResult, SupervisorRankingResult } from "@/lib/tlRanking";
 
 type Level = "supervisor" | "manager";
@@ -57,7 +53,7 @@ function AnalysisTable({
 }: {
   title: string;
   nameHeading: string;
-  rows: Array<{ name: string; revenue: number; grossProfit: number; grossMarginPct: number | null; cases: number }>;
+  rows: RankingDrillRow[];
   totalRevenue: number;
 }) {
   return (
@@ -100,8 +96,10 @@ export function RankingDrilldown({
 }) {
   const [level, setLevel] = useState<Level>(initialLevel);
   const [selectedId, setSelectedId] = useState("");
-  const [rows, setRows] = useState<MonthlyBrandCustomerRow[]>([]);
+  const [principalScope, setPrincipalScope] = useState("all");
+  const [summary, setSummary] = useState<RankingDrillSummary | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
+  const [mounted, setMounted] = useState(false);
 
   const entities = useMemo<DrillEntity[]>(() => {
     if (level === "manager") {
@@ -122,9 +120,17 @@ export function RankingDrilldown({
 
   useEffect(() => {
     setSelectedId(entities[0]?.id ?? "");
+    setPrincipalScope("all");
   }, [entities]);
 
   const selected = entities.find((entity) => entity.id === selectedId) ?? entities[0];
+  const effectivePrincipals = principalScope === "all" ? (selected?.principals ?? []) : [principalScope];
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (principalScope !== "all" && !selected?.principals.includes(principalScope)) setPrincipalScope("all");
+  }, [principalScope, selected]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -140,52 +146,56 @@ export function RankingDrilldown({
   }, [onClose]);
 
   useEffect(() => {
-    if (!selected || selected.principals.length === 0) {
-      setRows([]);
+    if (!selected || effectivePrincipals.length === 0) {
+      setSummary(null);
       setStatus("idle");
       return;
     }
     const controller = new AbortController();
     const params = new URLSearchParams({ period: `${year}-${String(new Date(`${monthLabel} 1, ${year}`).getMonth() + 1).padStart(2, "0")}` });
-    selected.principals.forEach((principal) => params.append("principal", principal));
+    params.set("summary", "drill");
+    effectivePrincipals.forEach((principal) => params.append("principal", principal));
+    setSummary(null);
     setStatus("loading");
     fetch(`/api/brand-customer?${params.toString()}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Unable to load SAP detail.");
-        return (body as { rows: MonthlyBrandCustomerRow[] }).rows;
+        return (body as { drill: RankingDrillSummary }).drill;
       })
       .then((body) => {
-        setRows(body);
+        setSummary(body);
         setStatus("idle");
       })
       .catch((error) => {
         if (error.name !== "AbortError") setStatus("error");
       });
     return () => controller.abort();
-  }, [monthLabel, selected, year]);
+  // A stable joined key prevents entity object identity from refetching the same scope.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthLabel, selected?.id, effectivePrincipals.join("|"), year]);
 
-  const period = { kind: "MONTH" as const, year, month: monthLabel };
-  const detailDataset = useMemo(() => ({ ...dataset, monthlyBrandCustomer: rows }), [dataset, rows]);
-  const customers = summarizeBrandCustomerByCustomer(detailDataset, period, null).sort((a, b) => b.revenue - a.revenue);
-  const reps = summarizeBrandCustomerByRep(detailDataset, period, null).sort((a, b) => b.revenue - a.revenue);
-  const brands = summarizeBrandCustomerByBrand(detailDataset, period, null).sort((a, b) => b.revenue - a.revenue);
-  const principals = summarizeBrandCustomerByPrincipal(detailDataset, period).sort((a, b) => b.revenue - a.revenue);
-  const totalRevenue = rows.reduce((sum, row) => sum + row.revenue, 0);
-  const totalGrossProfit = rows.reduce((sum, row) => sum + row.grossProfit, 0);
-  const totalCases = rows.reduce((sum, row) => sum + row.cases, 0);
-  const principalKeys = new Set((selected?.principals ?? []).map(normalizePrincipalKey));
+  const customers = summary?.customers ?? [];
+  const reps = summary?.reps ?? [];
+  const brands = summary?.brands ?? [];
+  const principals = summary?.principals ?? [];
+  const totalRevenue = summary?.totals.revenue ?? 0;
+  const totalGrossProfit = summary?.totals.grossProfit ?? 0;
+  const totalCases = summary?.totals.cases ?? 0;
+  const principalKeys = new Set(effectivePrincipals.map(normalizePrincipalKey));
   const stockItems = dataset.stockItems
     .filter((item) => principalKeys.has(normalizePrincipalKey(item.principal)))
     .sort((a, b) => stockRiskRank[stockActionTier(a.action).tier] - stockRiskRank[stockActionTier(b.action).tier] || a.item.localeCompare(b.item));
   const stockByProduct = new Map<string, StockItem[]>();
   stockItems.forEach((item) => stockByProduct.set(normalizedProduct(item.item), [...(stockByProduct.get(normalizedProduct(item.item)) ?? []), item]));
   const stockAlerts = stockItems.filter((item) => ["bad", "warn"].includes(stockActionTier(item.action).tier)).length;
-  const topFiveCustomerShare = customers.slice(0, 5).reduce((sum, row) => sum + row.revenue, 0);
+  const scopeLabel = principalScope === "all" ? `Combined portfolio (${effectivePrincipals.length} principal${effectivePrincipals.length === 1 ? "" : "s"})` : principalScope;
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-background" role="dialog" aria-modal="true" aria-label="Sales hierarchy full analysis">
-      <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 shadow-sm backdrop-blur md:px-7">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] h-screen overflow-y-auto bg-background" role="dialog" aria-modal="true" aria-label="Sales hierarchy full analysis">
+      <header className="sticky top-0 z-20 border-b border-border bg-surface px-4 py-3 shadow-sm md:px-7">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-primary-blue">SAP Sales Influence Drill</p>
@@ -210,8 +220,15 @@ export function RankingDrilldown({
               {entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
             </select>
           </label>
-          <div className="min-w-0 flex-1 text-xs text-muted-strong"><span className="font-semibold text-brand-navy">Principals:</span> {selected?.principals.join(", ") || "None assigned"}</div>
-          <AchievementBadge pct={selected?.achievedPct} />
+          <label className="min-w-[280px] text-[11px] font-semibold uppercase tracking-wide text-muted-strong">
+            Analysis scope
+            <select value={principalScope} onChange={(event) => setPrincipalScope(event.target.value)} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm normal-case text-foreground">
+              <option value="all">Combined portfolio ({selected?.principals.length ?? 0} principals)</option>
+              {selected?.principals.map((principal) => <option key={principal} value={principal}>{principal} only</option>)}
+            </select>
+          </label>
+          <div className="min-w-[180px] flex-1 text-xs text-muted-strong"><span className="font-semibold text-brand-navy">Scope:</span> {scopeLabel}</div>
+          <div className="flex items-center gap-2 text-xs text-muted"><span>Portfolio ranking attainment</span><AchievementBadge pct={selected?.achievedPct} /></div>
         </div>
       </header>
 
@@ -222,30 +239,30 @@ export function RankingDrilldown({
           <Metric label="Gross Profit" value={status === "loading" ? "…" : formatCompact(totalGrossProfit)} />
           <Metric label="GP Margin" value={totalRevenue > 0 ? `${((totalGrossProfit / totalRevenue) * 100).toFixed(1)}%` : "—"} />
           <Metric label="Cases" value={formatCompact(totalCases)} />
-          <Metric label="Customers" value={formatCompact(customers.length)} />
-          <Metric label="Sales Reps" value={formatCompact(reps.length)} />
-          <Metric label="Top 5 Customer Share" value={contribution(topFiveCustomerShare, totalRevenue)} note="Concentration" />
+          <Metric label="Customers" value={status === "loading" ? "…" : formatCompact(summary?.totals.customerCount ?? 0)} />
+          <Metric label="Sales Reps" value={status === "loading" ? "…" : formatCompact(summary?.totals.repCount ?? 0)} />
+          <Metric label="Top 5 Customer Share" value={summary?.totals.topFiveCustomerSharePct == null ? "—" : `${summary.totals.topFiveCustomerSharePct.toFixed(1)}%`} note="Concentration" />
           <Metric label="Stock Alerts" value={formatCompact(stockAlerts)} note="Current snapshot" />
         </div>
 
         <p className="text-xs text-muted-strong">SAP customer and product detail uses the selected month. Stock is the latest direct SAP snapshot{dataset.stockSource?.sourceDate ? ` as at ${dataset.stockSource.sourceDate}` : ""}; it is not a historical month-end balance.</p>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <AnalysisTable title="Top SAP Customers" nameHeading="Customer" totalRevenue={totalRevenue} rows={customers.map((row) => ({ ...row, name: row.customerName }))} />
-          <AnalysisTable title="Top SAP Sales Reps" nameHeading="Sales Rep" totalRevenue={totalRevenue} rows={reps.map((row) => ({ ...row, name: row.salesEmployee }))} />
+          <AnalysisTable title="Top SAP Customers" nameHeading="Customer" totalRevenue={totalRevenue} rows={customers} />
+          <AnalysisTable title="Top SAP Sales Reps" nameHeading="Sales Rep" totalRevenue={totalRevenue} rows={reps} />
         </div>
 
         <section className="rounded-xl border border-border bg-surface p-3">
           <h3 className="mb-2 text-sm font-semibold text-brand-navy">Principal Contribution</h3>
           <TableWrap><Thead><Th align="center">#</Th><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Contribution</Th><Th align="right">Gross Profit</Th><Th align="right">GP Margin</Th><Th align="right">Cases</Th></Thead>
-            <tbody>{principals.map((row, index) => <tr key={row.principal}><Td align="center">{index + 1}</Td><Td className="font-medium">{row.principal}</Td><Td align="right">{formatCompact(row.revenue)}</Td><Td align="right">{contribution(row.revenue, totalRevenue)}</Td><Td align="right">{formatCompact(row.grossProfit)}</Td><Td align="right">{row.grossMarginPct === null ? "—" : `${row.grossMarginPct.toFixed(1)}%`}</Td><Td align="right">{formatCompact(row.cases)}</Td></tr>)}</tbody>
+            <tbody>{principals.map((row, index) => <tr key={row.name}><Td align="center">{index + 1}</Td><Td className="font-medium">{row.name}</Td><Td align="right">{formatCompact(row.revenue)}</Td><Td align="right">{contribution(row.revenue, totalRevenue)}</Td><Td align="right">{formatCompact(row.grossProfit)}</Td><Td align="right">{row.grossMarginPct === null ? "—" : `${row.grossMarginPct.toFixed(1)}%`}</Td><Td align="right">{formatCompact(row.cases)}</Td></tr>)}</tbody>
           </TableWrap>
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-3">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-brand-navy">Top Brands / Products, Margin & Availability</h3><p className="text-xs text-muted">Availability uses an exact product-name match only.</p></div>
           <TableWrap><Thead><Th align="center">Rank</Th><Th>Brand / Product</Th><Th align="right">Revenue</Th><Th align="right">Contribution</Th><Th align="right">GP</Th><Th align="right">Margin</Th><Th align="right">Cases</Th><Th align="center">Current Stock</Th></Thead>
-            <tbody>{brands.slice(0, 25).map((row, index) => { const stock = worstStock(stockByProduct.get(normalizedProduct(row.brand)) ?? []); return <tr key={row.brand}><Td align="center">{index + 1}</Td><Td className="font-medium">{row.brand}</Td><Td align="right">{formatCompact(row.revenue)}</Td><Td align="right">{contribution(row.revenue, totalRevenue)}</Td><Td align="right">{formatCompact(row.grossProfit)}</Td><Td align="right">{row.grossMarginPct === null ? "—" : `${row.grossMarginPct.toFixed(1)}%`}</Td><Td align="right">{formatCompact(row.cases)}</Td><Td align="center">{stock ? <StockStatusPill action={stock.action} /> : <Badge tier="neutral">No stock match</Badge>}</Td></tr>; })}</tbody>
+            <tbody>{brands.map((row, index) => { const stock = worstStock(stockByProduct.get(normalizedProduct(row.name)) ?? []); return <tr key={row.name}><Td align="center">{index + 1}</Td><Td className="font-medium">{row.name}</Td><Td align="right">{formatCompact(row.revenue)}</Td><Td align="right">{contribution(row.revenue, totalRevenue)}</Td><Td align="right">{formatCompact(row.grossProfit)}</Td><Td align="right">{row.grossMarginPct === null ? "—" : `${row.grossMarginPct.toFixed(1)}%`}</Td><Td align="right">{formatCompact(row.cases)}</Td><Td align="center">{stock ? <StockStatusPill action={stock.action} /> : <Badge tier="neutral">No stock match</Badge>}</Td></tr>; })}</tbody>
           </TableWrap>
         </section>
 
@@ -256,6 +273,7 @@ export function RankingDrilldown({
           </TableWrap>
         </section>
       </main>
-    </div>
+    </div>,
+    document.body
   );
 }

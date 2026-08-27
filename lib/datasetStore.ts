@@ -378,7 +378,7 @@ async function overlayBrandCustomer(dataset: Dataset): Promise<Dataset> {
 
 /** Returns only the requested customer/brand periods for an on-demand view.
  * This keeps the high-cardinality fact table out of the shared app payload. */
-export async function getLiveBrandCustomerRows(periods: { year: string; monthIndex: number }[]): Promise<MonthlyBrandCustomerRow[]> {
+export async function getLiveBrandCustomerRows(periods: { year: string; monthIndex: number }[], principals: string[] = []): Promise<MonthlyBrandCustomerRow[]> {
   const requested = Array.from(new Map(
     periods
       .filter((period) => /^\d{4}$/.test(period.year) && Number.isInteger(period.monthIndex) && period.monthIndex >= 0 && period.monthIndex <= 11)
@@ -395,12 +395,18 @@ export async function getLiveBrandCustomerRows(periods: { year: string; monthInd
 
   const [monthlyRows, dailyRows] = await Promise.all([
     prisma.brandCustomerActual.findMany({
-      where: { OR: requested.map((period) => ({ year: period.year, monthIndex: period.monthIndex })) },
+        where: {
+          OR: requested.map((period) => ({ year: period.year, monthIndex: period.monthIndex })),
+          ...(principals.length > 0 ? { principal: { in: principals } } : {}),
+        },
       select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
     }),
     currentPeriodRequested
       ? prisma.dailyBrandCustomerActual.findMany({
-        where: { date: { gte: currentMonthStart, lt: nextMonthStart } },
+          where: {
+            date: { gte: currentMonthStart, lt: nextMonthStart },
+            ...(principals.length > 0 ? { principal: { in: principals } } : {}),
+          },
         select: { date: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
       })
       : Promise.resolve([]),
