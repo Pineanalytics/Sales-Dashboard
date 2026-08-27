@@ -17,6 +17,7 @@ import { CANONICAL_MONTHS, resolvePeriodMonths, summarizeSalesForPeriod } from "
 import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
+import { grossProfitTargetForPeriod } from "@/lib/grossProfitTarget";
 import DashboardPage from "../dashboard/page";
 import TimeIntelligencePage from "../time-intelligence/page";
 import RepsPage from "../reps/page";
@@ -87,13 +88,17 @@ function SalesCockpit() {
   const includesMultipleYears = new Set(trendMonths.map((month) => month.year)).size > 1;
   const monthlyRows = trendMonths.map(({ year, monthIndex }) => {
     const month = CANONICAL_MONTHS[monthIndex];
+    const monthPeriod = { kind: "MONTH" as const, year, month };
     return {
       key: `${year}-${monthIndex}`,
       month,
       label: includesMultipleYears ? `${month3(month)} ${year}` : month,
-      ...summarizeSalesForPeriod(dataset, { kind: "MONTH", year, month }, selectedPrincipalKey),
+      ...summarizeSalesForPeriod(dataset, monthPeriod, selectedPrincipalKey),
+      grossProfitTarget: grossProfitTargetForPeriod(dataset, monthPeriod, selectedPrincipalKey),
     };
   });
+  const displayedSummary = summarizeSalesForPeriod(dataset, trendPeriod, selectedPrincipalKey);
+  const displayedGrossProfitTarget = grossProfitTargetForPeriod(dataset, trendPeriod, selectedPrincipalKey);
 
   const trendChartData = monthlyRows.map((r) => ({ name: includesMultipleYears ? r.label : month3(r.month), Revenue: r.revenue, Target: r.target ?? undefined }));
   const byPrincipalChartData = principals.slice(0, 12).map((p) => ({ name: p.principal, value: p.revenue }));
@@ -160,6 +165,7 @@ function SalesCockpit() {
             <Th align="center">Achievement</Th>
             <Th align="right">Variance</Th>
             <Th align="right">Gross Profit</Th>
+            <Th align="right">GP Target</Th>
             <Th align="right">GP Margin</Th>
           </Thead>
           <tbody>
@@ -173,59 +179,21 @@ function SalesCockpit() {
                 </Td>
                 <Td align="right" className={r.target !== null && r.revenue - r.target < 0 ? "text-red-600" : "text-emerald-700"}>{r.target !== null ? formatCompact(r.revenue - r.target) : "N/A"}</Td>
                 <Td align="right">{formatCompact(r.grossProfit)}</Td>
+                <Td align="right">{r.grossProfitTarget !== null ? formatCompact(r.grossProfitTarget) : "N/A"}</Td>
                 <Td align="right">{r.grossMarginPct !== null ? `${r.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
               </tr>
             ))}
             <TotalRow>
               <Td>Total</Td>
-              <Td align="right">{formatCompact(currentSummary.revenue)}</Td>
-              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.target) : "N/A"}</Td>
+              <Td align="right">{formatCompact(displayedSummary.revenue)}</Td>
+              <Td align="right">{displayedSummary.target !== null ? formatCompact(displayedSummary.target) : "N/A"}</Td>
               <Td align="center">
-                <AchievementBadge pct={currentSummary.achievementPct} />
+                <AchievementBadge pct={displayedSummary.achievementPct} />
               </Td>
-              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.revenue - currentSummary.target) : "N/A"}</Td>
-              <Td align="right">{formatCompact(currentSummary.grossProfit)}</Td>
-              <Td align="right">{currentSummary.grossMarginPct !== null ? `${currentSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
-            </TotalRow>
-          </tbody>
-        </TableWrap>
-      </SectionCard>
-
-      <SectionCard title="Sales Performance by Principal">
-        <TableWrap>
-          <Thead>
-            <Th>Principal</Th>
-            <Th align="right">Revenue</Th>
-            <Th align="right">Target</Th>
-            <Th align="center">Achievement</Th>
-            <Th align="right">Variance</Th>
-            <Th align="right">Gross Profit</Th>
-            <Th align="right">GP Margin</Th>
-          </Thead>
-          <tbody>
-            {principals.map((p) => (
-              <tr key={p.principalKey} className={selectedPrincipalKey === p.principalKey ? "bg-accent-blue-soft" : ""}>
-                <Td>{p.principal}</Td>
-                <Td align="right">{formatCompact(p.revenue)}</Td>
-                <Td align="right">{p.target !== null ? formatCompact(p.target) : "N/A"}</Td>
-                <Td align="center">
-                  <AchievementBadge pct={p.achievementPct} />
-                </Td>
-                <Td align="right" className={p.target !== null && p.revenue - p.target < 0 ? "text-red-600" : "text-emerald-700"}>{p.target !== null ? formatCompact(p.revenue - p.target) : "N/A"}</Td>
-                <Td align="right">{formatCompact(p.grossProfit)}</Td>
-                <Td align="right">{p.grossMarginPct !== null ? `${p.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
-              </tr>
-            ))}
-            <TotalRow>
-              <Td>Total</Td>
-              <Td align="right">{formatCompact(currentSummary.revenue)}</Td>
-              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.target) : "N/A"}</Td>
-              <Td align="center">
-                <AchievementBadge pct={currentSummary.achievementPct} />
-              </Td>
-              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.revenue - currentSummary.target) : "N/A"}</Td>
-              <Td align="right">{formatCompact(currentSummary.grossProfit)}</Td>
-              <Td align="right">{currentSummary.grossMarginPct !== null ? `${currentSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
+              <Td align="right">{displayedSummary.target !== null ? formatCompact(displayedSummary.revenue - displayedSummary.target) : "N/A"}</Td>
+              <Td align="right">{formatCompact(displayedSummary.grossProfit)}</Td>
+              <Td align="right">{displayedGrossProfitTarget !== null ? formatCompact(displayedGrossProfitTarget) : "N/A"}</Td>
+              <Td align="right">{displayedSummary.grossMarginPct !== null ? `${displayedSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>

@@ -151,22 +151,21 @@ export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs, workingDay
 }
 
 /** Async wrapper: fetches this month's Target/assignment/contribution rows and
- *  runs the pure cascade above, capped at today's elapsed working days. No
- *  `principal` narrowing param - none of this function's 3 call sites have ever
- *  passed one (each Team Leader's full cross-principal target is always shown,
- *  regardless of any principal filter applied to the revenue side - see the
- *  matching comment in app/api/dashboard/tl-ranking/route.ts). */
-export async function getMtdTargetByTeamLeader(year: string, monthLabel: string): Promise<MtdTargetRow[]> {
+ *  runs the pure cascade above, capped at today's elapsed working days. An
+ *  explicit principal filter narrows all three inputs before attribution so a
+ *  filtered ranking cannot retain unrelated Team Leaders or portfolio targets. */
+export async function getMtdTargetByTeamLeader(year: string, monthLabel: string, principal?: string | null): Promise<MtdTargetRow[]> {
   const monthIndex = CANONICAL_MONTHS.indexOf(monthLabel);
   if (monthIndex < 0) return [];
+  const principalWhere = principal ? { principal } : {};
 
   const [principalTargets, assignments, contributions] = await Promise.all([
-    prisma.target.findMany({ where: { year, month: monthLabel }, select: { principal: true, valueTarget: true } }),
+    prisma.target.findMany({ where: { year, month: monthLabel, ...principalWhere }, select: { principal: true, valueTarget: true } }),
     prisma.teamLeaderAssignment.findMany({
-      where: { active: true, salesRole: "PRIMARY" },
+      where: { active: true, salesRole: "PRIMARY", ...principalWhere },
       select: { teamLeaderId: true, principal: true, employeeCode: true, contributionPct: true },
     }),
-    prisma.repContribution.findMany({ select: { principal: true, employeeCode: true, sharePct: true } }),
+    prisma.repContribution.findMany({ where: principalWhere, select: { principal: true, employeeCode: true, sharePct: true } }),
   ]);
 
   const workingDaysInMonth = countWorkingDaysInMonth(Number(year), monthIndex);
