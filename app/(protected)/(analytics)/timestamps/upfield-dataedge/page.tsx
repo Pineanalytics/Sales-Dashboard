@@ -5,7 +5,6 @@ import Link from "next/link";
 import { ArrowLeft20Regular, BuildingShop20Regular, Clock20Regular, Dismiss12Regular, Money20Regular, PeopleTeam20Regular, Receipt20Regular } from "@fluentui/react-icons";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
-import { SfaReportNavigator } from "@/components/timestamps/SfaReportNavigator";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { FullPageSpinner } from "@/components/ui/Spinner";
@@ -165,8 +164,7 @@ export default function UpfieldTimestampPage() {
   if (error || !summary) return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Upfield Timestamp and Coverage is unavailable" description="The DataEdge rows could not be loaded from Postgres. Refresh once the latest sync completes." />;
   const metrics = summary.metrics;
 
-  return <main className="mx-auto flex max-w-[1700px] flex-col gap-4 px-3 py-4 sm:px-5 lg:px-6">
-    <SfaReportNavigator current="Upfield" />
+  return <main className="flex w-full max-w-none flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Upfield DataEdge · Timestamp &amp; Coverage</h1><p className="mt-1 text-sm text-muted">First/last sales transaction monitoring and productive outlet coverage from the five-minute DataEdge sync.</p></div>
       <div className="flex flex-wrap gap-2"><span className="rounded-full bg-accent-green-soft px-3 py-1 text-xs font-semibold text-accent-green">Live every 5 minutes</span><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">Synced {syncLabel(summary.freshness.syncedAt)}</span></div>
