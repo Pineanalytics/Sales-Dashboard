@@ -13,7 +13,7 @@ function growthPct(current: number, prior: number): number | null {
 
 /** Revenue growth cards. A selected calendar month uses the daily SAP feed so
  * partial months are compared only with the equivalent completed days. */
-export function GrowthComparison({ dataset, selectedPrincipalKey, period }: { dataset: Dataset; selectedPrincipalKey: string | null; period: PeriodSelection }) {
+export function GrowthComparison({ dataset, selectedPrincipalKey, period, compact = false }: { dataset: Dataset; selectedPrincipalKey: string | null; period: PeriodSelection; compact?: boolean }) {
   const { data: dateMatched, loading } = useDateAwareGrowth(period, selectedPrincipalKey);
   const current = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
   const priorYearPeriod = getPriorYearPeriod(period);
@@ -31,12 +31,18 @@ export function GrowthComparison({ dataset, selectedPrincipalKey, period }: { da
   const dateMatchedYoy = useDateMatched && dateYoyRevenue !== null && dateYoyRevenue !== undefined ? growthPct(dateCurrentRevenue!, dateYoyRevenue) : null;
   const dateMatchedMom = useDateMatched && dateMomRevenue !== null && dateMomRevenue !== undefined ? growthPct(dateCurrentRevenue!, dateMomRevenue) : null;
 
+  const cards = (
+    <>
+      <KpiCard accent="revenue" label={useDateMatched ? `YoY through ${dateMatched?.asOf ?? "selected date"}` : `vs ${priorYearPeriod.year} (YoY)`} value={<span className={tierTextClass[trendTier(useDateMatched ? dateMatchedYoy : yoyPct)]}>{loading ? "…" : formatTrendPercent(useDateMatched ? dateMatchedYoy : yoyPct)}</span>} sublabel={useDateMatched ? (dateYoyRevenue !== null && dateYoyRevenue !== undefined ? `Was ${formatCompact(dateYoyRevenue)} through ${dateMatched?.yoy?.through ?? "the matching date"}` : "No matching prior-year daily data") : priorYear.revenue > 0 ? `Was ${formatCompact(priorYear.revenue)}` : "No prior-year data"} />
+      <KpiCard accent="growth" label={useDateMatched ? `MoM through ${dateMatched?.asOf ?? "selected date"}` : previousMonthPeriod ? `vs ${previousMonthPeriod.month} (MoM)` : "MoM"} value={<span className={tierTextClass[trendTier(useDateMatched ? dateMatchedMom : momPct)]}>{loading ? "…" : formatTrendPercent(useDateMatched ? dateMatchedMom : momPct)}</span>} sublabel={useDateMatched ? (dateMomRevenue !== null && dateMomRevenue !== undefined ? `Was ${formatCompact(dateMomRevenue)} through ${dateMatched?.mom?.through ?? "the matching date"}` : "No matching prior-month daily data") : previousMonth && previousMonth.revenue > 0 ? `Was ${formatCompact(previousMonth.revenue)}` : "No prior-month data"} />
+    </>
+  );
+
+  if (compact) return <div className="contents">{cards}</div>;
+
   return (
     <SectionCard title="Growth Comparison">
-      <KpiGrid>
-        <KpiCard accent="revenue" label={useDateMatched ? `YoY through ${dateMatched?.asOf ?? "selected date"}` : `vs ${priorYearPeriod.year} (YoY)`} value={<span className={tierTextClass[trendTier(useDateMatched ? dateMatchedYoy : yoyPct)]}>{loading ? "…" : formatTrendPercent(useDateMatched ? dateMatchedYoy : yoyPct)}</span>} sublabel={useDateMatched ? (dateYoyRevenue !== null && dateYoyRevenue !== undefined ? `Was ${formatCompact(dateYoyRevenue)} through ${dateMatched?.yoy?.through ?? "the matching date"}` : "No matching prior-year daily data") : priorYear.revenue > 0 ? `Was ${formatCompact(priorYear.revenue)}` : "No prior-year data"} />
-        <KpiCard accent="growth" label={useDateMatched ? `MoM through ${dateMatched?.asOf ?? "selected date"}` : previousMonthPeriod ? `vs ${previousMonthPeriod.month} (MoM)` : "MoM"} value={<span className={tierTextClass[trendTier(useDateMatched ? dateMatchedMom : momPct)]}>{loading ? "…" : formatTrendPercent(useDateMatched ? dateMatchedMom : momPct)}</span>} sublabel={useDateMatched ? (dateMomRevenue !== null && dateMomRevenue !== undefined ? `Was ${formatCompact(dateMomRevenue)} through ${dateMatched?.mom?.through ?? "the matching date"}` : "No matching prior-month daily data") : previousMonth && previousMonth.revenue > 0 ? `Was ${formatCompact(previousMonth.revenue)}` : "No prior-month data"} />
-      </KpiGrid>
+      <KpiGrid>{cards}</KpiGrid>
       {period.month && !loading && !useDateMatched ? <p className="mt-3 text-xs text-muted">Date-matched daily SAP history is not available for this selection yet; the comparison above uses the monthly sales history.</p> : null}
     </SectionCard>
   );

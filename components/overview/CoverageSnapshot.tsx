@@ -24,17 +24,20 @@ export function CoverageSnapshot({
 }) {
   const roleLabel = role === "primary" ? "Primary" : "Secondary";
   const summary = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, role);
-  const topReps = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, role)
+  const repSummaries = summarizeCoverageByRep(dataset, period, selectedPrincipalKey, role);
+  const topReps = repSummaries
     .sort((a, b) => b.coverage - a.coverage)
     .slice(0, 5);
+  const averageCoverage = repSummaries.length > 0 ? summary.coverage / repSummaries.length : 0;
 
   return (
     <SectionCard title="Coverage & Productivity Snapshot" action={<CoverageRoleToggle value={role} onChange={onRoleChange} />}>
       <div className="flex flex-col gap-4 p-1">
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(115px,1fr))] gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <KpiCard accent="coverage" label={`${roleLabel} Coverage`} value={<AnimatedValue value={summary.coverage} format={formatNumber} />} />
           <KpiCard accent="coverage" label="Productive Calls" value={<AnimatedValue value={summary.productiveCalls} format={formatNumber} />} />
           <KpiCard accent="coverage" label="Productivity %" value={formatPercent(summary.productivityPct)} />
+          <KpiCard accent="coverage" label="Active Reps" value={<AnimatedValue value={repSummaries.length} format={formatNumber} />} sublabel={`${formatNumber(averageCoverage)} avg coverage / rep`} />
         </div>
 
         {topReps.length > 0 ? (

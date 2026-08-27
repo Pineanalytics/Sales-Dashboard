@@ -37,7 +37,7 @@ function Row({ label, value, negative }: { label: string; value: string; negativ
   );
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ embedded = false }: { embedded?: boolean }) {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
@@ -98,12 +98,12 @@ export default function DashboardPage() {
   const q4Summary = summarizeSalesForPeriod(dataset, { kind: "Q4", year: period.year }, selectedPrincipalKey);
 
   return (
-    <div className="flex flex-col gap-4 md:gap-5">
-      <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} />
-      <DashboardControlsMulti view={tab} onViewChange={setTab} />
+    <div className="flex flex-col gap-3 md:gap-4">
+      {!embedded ? <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} /> : null}
+      <DashboardControlsMulti view={tab} onViewChange={setTab} compact={embedded} />
 
       {tab === "mtd" ? (
-        <div className="flex flex-col gap-4 md:gap-5">
+        <div className="flex flex-col gap-3 md:gap-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <SectionCard title="This Month Actuals" accent="green">
                   <div className="flex flex-col gap-1.5 text-sm">
@@ -166,7 +166,7 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 md:gap-5">
+        <div className="flex flex-col gap-3 md:gap-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <SectionCard title="Total YTD Revenue" accent="green">
                   <div className="flex flex-col gap-1.5">

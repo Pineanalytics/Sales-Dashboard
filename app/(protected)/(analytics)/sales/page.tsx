@@ -5,7 +5,7 @@ import { ArrowTrending20Regular, Board20Regular, ChartMultiple20Regular, DataLin
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useDashboardStore } from "@/lib/store";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
+import { SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { AchievementBadge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
@@ -13,7 +13,7 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { formatCompact } from "@/lib/format";
 import { principalsByRevenueDesc } from "@/lib/selectors";
-import { CANONICAL_MONTHS, getAvailableMonths, summarizeSalesForPeriod } from "@/lib/timeIntelligence";
+import { CANONICAL_MONTHS, resolvePeriodMonths, summarizeSalesForPeriod } from "@/lib/timeIntelligence";
 import { WeeklyRevenueKpi } from "@/components/dashboard/WeeklyRevenueKpi";
 import { CHART_COLORS, CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
@@ -42,18 +42,26 @@ export default function SalesPage() {
   const availableSections = SALES_SECTIONS.filter((section) => user?.role === "ADMIN" || (user?.allowedPages ?? []).includes(section.pageKey));
   const current = availableSections.some((section) => section.id === active) ? active : availableSections[0]?.id;
   return (
-    <div className="flex flex-col gap-4">
-      <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm md:p-5">
-        <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-secondary-blue">Commercial analysis</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">Sales Performance</h1><p className="mt-1 text-sm text-muted">One workspace for leadership, trends, reps and customers. Your global period and principal filters apply throughout.</p></div>
-          <p className="text-xs text-muted">One active view at a time · less scrolling</p>
+    <div className="flex flex-col gap-3 md:gap-4">
+      <section className="rounded-2xl border border-border bg-surface p-3 shadow-sm md:p-4">
+        <div className="grid items-center gap-3 xl:grid-cols-[minmax(230px,0.72fr)_minmax(0,3.28fr)]">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-blue">Commercial analysis</p>
+            <h1 className="mt-0.5 text-xl font-bold tracking-tight text-foreground">Sales Performance</h1>
+            <p className="mt-0.5 text-xs text-muted">Global period and principal filters apply to every view.</p>
+          </div>
+          <nav aria-label="Sales analysis sections" className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+            {availableSections.map(({ id, label, description, Icon }) => (
+              <button key={id} type="button" onClick={() => setActive(id)} className={`flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition ${current === id ? "border-primary-blue bg-accent-blue-soft shadow-sm" : "border-border bg-surface hover:border-secondary-blue/50 hover:bg-accent-blue-soft/40"}`}>
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg [&_svg]:h-4 [&_svg]:w-4 ${current === id ? "bg-primary-blue text-white" : "bg-accent-blue-soft text-secondary-blue"}`}><Icon /></span>
+                <span className="min-w-0"><span className="block truncate text-xs font-semibold text-foreground">{label}</span><span className="block truncate text-[10px] text-muted">{description}</span></span>
+              </button>
+            ))}
+          </nav>
         </div>
-        <nav aria-label="Sales analysis sections" className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
-          {availableSections.map(({ id, label, description, Icon }) => <button key={id} type="button" onClick={() => setActive(id)} className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-left transition ${current === id ? "border-primary-blue bg-accent-blue-soft shadow-sm" : "border-border bg-surface hover:border-secondary-blue/50 hover:bg-accent-blue-soft/40"}`}><span className={`rounded-lg p-2 ${current === id ? "bg-primary-blue text-white" : "bg-accent-blue-soft text-secondary-blue"}`}><Icon /></span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-foreground">{label}</span><span className="block truncate text-[11px] text-muted">{description}</span></span></button>)}
-        </nav>
       </section>
       {current === "cockpit" ? <SalesCockpit /> : null}
-      {current === "executive" ? <DashboardPage /> : null}
+      {current === "executive" ? <DashboardPage embedded /> : null}
       {current === "time" ? <TimeIntelligencePage /> : null}
       {current === "reps" ? <RepsPage /> : null}
       {current === "customers" ? <CustomersPage /> : null}
@@ -70,42 +78,54 @@ function SalesCockpit() {
   const currentSummary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
   const principals = principalsByRevenueDesc(dataset, period);
 
-  const monthsThisYear = getAvailableMonths(dataset, period.year);
-  const monthlyRows = CANONICAL_MONTHS.filter((m) => monthsThisYear.includes(m)).map((month) => ({
-    month,
-    ...summarizeSalesForPeriod(dataset, { kind: "MONTH", year: period.year, month }, selectedPrincipalKey),
-  }));
+  // Keep the trend contextual without displaying future, zero-actual months. A
+  // single-month selection still shows the year-to-date run-up to that month.
+  const trendPeriod = period.kind === "MTD" || period.kind === "MONTH"
+    ? { kind: "YTD" as const, year: period.year, month: period.month }
+    : period;
+  const trendMonths = resolvePeriodMonths(trendPeriod);
+  const includesMultipleYears = new Set(trendMonths.map((month) => month.year)).size > 1;
+  const monthlyRows = trendMonths.map(({ year, monthIndex }) => {
+    const month = CANONICAL_MONTHS[monthIndex];
+    return {
+      key: `${year}-${monthIndex}`,
+      month,
+      label: includesMultipleYears ? `${month3(month)} ${year}` : month,
+      ...summarizeSalesForPeriod(dataset, { kind: "MONTH", year, month }, selectedPrincipalKey),
+    };
+  });
 
-  const trendChartData = monthlyRows.map((r) => ({ name: month3(r.month), Revenue: r.revenue, Target: r.target ?? undefined }));
-  const byPrincipalChartData = principals.slice(0, 12).map((p, i) => ({ name: p.principal, value: p.revenue, fill: CHART_COLORS[i % CHART_COLORS.length] }));
+  const trendChartData = monthlyRows.map((r) => ({ name: includesMultipleYears ? r.label : month3(r.month), Revenue: r.revenue, Target: r.target ?? undefined }));
+  const byPrincipalChartData = principals.slice(0, 12).map((p) => ({ name: p.principal, value: p.revenue }));
+  const targetBalance = currentSummary.target !== null ? currentSummary.target - currentSummary.revenue : null;
 
   return (
     <>
-      <KpiGrid>
-        <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={<AnimatedValue value={currentSummary.revenue} format={formatCompact} />} />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(155px,1fr))] gap-3">
+        <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={<AnimatedValue value={currentSummary.revenue} format={formatCompact} />} sublabel={`${currentSummary.monthsIncluded} month${currentSummary.monthsIncluded === 1 ? "" : "s"} included`} />
         <KpiCard
           accent="mission"
           label={`${period.kind} Target`}
           value={currentSummary.target !== null ? <AnimatedValue value={currentSummary.target} format={formatCompact} /> : "N/A"}
+          sublabel={targetBalance !== null ? `${targetBalance >= 0 ? "Balance" : "Ahead by"} ${formatCompact(Math.abs(targetBalance))}` : "No target loaded"}
         />
         <KpiCard
           accent="mission"
           label="Achievement"
           value={
             <div className="flex w-full justify-center">
-              <AchievementGauge pct={currentSummary.achievementPct} size={72} />
+              <AchievementGauge pct={currentSummary.achievementPct} size={64} />
             </div>
           }
         />
-        <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} />
+        <KpiCard accent="revenue" label="Gross Profit" value={<AnimatedValue value={currentSummary.grossProfit} format={formatCompact} />} sublabel={currentSummary.grossMarginPct !== null ? `${currentSummary.grossMarginPct.toFixed(1)}% margin` : "Margin unavailable"} />
         <WeeklyRevenueKpi dataset={dataset} principalKey={selectedPrincipalKey} />
-      </KpiGrid>
-
-      <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+        <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} compact />
+      </div>
 
       <ChartGrid>
         <SectionCard title="Sales Trend">
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={260}>
             <LineChart data={trendChartData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
               <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} />
@@ -119,7 +139,7 @@ function SalesCockpit() {
         </SectionCard>
 
         <SectionCard title="Revenue by Principal">
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={byPrincipalChartData} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} />
               <XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
@@ -138,18 +158,22 @@ function SalesCockpit() {
             <Th align="right">Revenue</Th>
             <Th align="right">Target</Th>
             <Th align="center">Achievement</Th>
+            <Th align="right">Variance</Th>
             <Th align="right">Gross Profit</Th>
+            <Th align="right">GP Margin</Th>
           </Thead>
           <tbody>
             {monthlyRows.map((r) => (
-              <tr key={r.month}>
-                <Td>{r.month}</Td>
+              <tr key={r.key}>
+                <Td>{r.label}</Td>
                 <Td align="right">{formatCompact(r.revenue)}</Td>
                 <Td align="right">{r.target !== null ? formatCompact(r.target) : "N/A"}</Td>
                 <Td align="center">
                   <AchievementBadge pct={r.achievementPct} />
                 </Td>
+                <Td align="right" className={r.target !== null && r.revenue - r.target < 0 ? "text-red-600" : "text-emerald-700"}>{r.target !== null ? formatCompact(r.revenue - r.target) : "N/A"}</Td>
                 <Td align="right">{formatCompact(r.grossProfit)}</Td>
+                <Td align="right">{r.grossMarginPct !== null ? `${r.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
               </tr>
             ))}
             <TotalRow>
@@ -159,7 +183,9 @@ function SalesCockpit() {
               <Td align="center">
                 <AchievementBadge pct={currentSummary.achievementPct} />
               </Td>
+              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.revenue - currentSummary.target) : "N/A"}</Td>
               <Td align="right">{formatCompact(currentSummary.grossProfit)}</Td>
+              <Td align="right">{currentSummary.grossMarginPct !== null ? `${currentSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>
@@ -172,7 +198,9 @@ function SalesCockpit() {
             <Th align="right">Revenue</Th>
             <Th align="right">Target</Th>
             <Th align="center">Achievement</Th>
+            <Th align="right">Variance</Th>
             <Th align="right">Gross Profit</Th>
+            <Th align="right">GP Margin</Th>
           </Thead>
           <tbody>
             {principals.map((p) => (
@@ -183,7 +211,9 @@ function SalesCockpit() {
                 <Td align="center">
                   <AchievementBadge pct={p.achievementPct} />
                 </Td>
+                <Td align="right" className={p.target !== null && p.revenue - p.target < 0 ? "text-red-600" : "text-emerald-700"}>{p.target !== null ? formatCompact(p.revenue - p.target) : "N/A"}</Td>
                 <Td align="right">{formatCompact(p.grossProfit)}</Td>
+                <Td align="right">{p.grossMarginPct !== null ? `${p.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
               </tr>
             ))}
             <TotalRow>
@@ -193,7 +223,9 @@ function SalesCockpit() {
               <Td align="center">
                 <AchievementBadge pct={currentSummary.achievementPct} />
               </Td>
+              <Td align="right">{currentSummary.target !== null ? formatCompact(currentSummary.revenue - currentSummary.target) : "N/A"}</Td>
               <Td align="right">{formatCompact(currentSummary.grossProfit)}</Td>
+              <Td align="right">{currentSummary.grossMarginPct !== null ? `${currentSummary.grossMarginPct.toFixed(1)}%` : "N/A"}</Td>
             </TotalRow>
           </tbody>
         </TableWrap>
