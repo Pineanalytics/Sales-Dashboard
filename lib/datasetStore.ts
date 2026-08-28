@@ -399,7 +399,7 @@ export async function getLiveBrandCustomerRows(periods: { year: string; monthInd
           OR: requested.map((period) => ({ year: period.year, monthIndex: period.monthIndex })),
           ...(principals.length > 0 ? { principal: { in: principals } } : {}),
         },
-      select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+      select: { year: true, month: true, monthIndex: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true, createdAt: true },
     }),
     currentPeriodRequested
       ? prisma.dailyBrandCustomerActual.findMany({
@@ -414,6 +414,11 @@ export async function getLiveBrandCustomerRows(periods: { year: string; monthInd
 
   const rows = new Map<string, MonthlyBrandCustomerRow>();
   for (const row of monthlyRows) {
+    // Quarantine two proven non-canonical legacy imports without destroying
+    // production history. They were layered over the canonical 14-Aug SAP
+    // item/customer rows for Jan-Jul 2026 and nearly doubled revenue.
+    const createdDay = row.createdAt.toISOString().slice(0, 10);
+    if (row.year === "2026" && row.monthIndex <= 6 && (createdDay === "2026-08-16" || createdDay === "2026-08-25")) continue;
     if (currentPeriodRequested && row.year === currentYear && row.monthIndex === currentMonthIndex) continue;
     const date = `${row.year}-${String(row.monthIndex + 1).padStart(2, "0")}-01`;
     const principalKey = normalizePrincipalKey(row.principal);
