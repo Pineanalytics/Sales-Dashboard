@@ -1200,6 +1200,38 @@ model UpfieldSyncBatch {
   @@index([syncRunId])
 }
 
+// Upfield DataEdge Timestamp Report (Outlet Visit Detail) — one row per FSR
+// outlet visit (check-in/check-out), uploaded by F:\UpfieldSalesRawData 4x/day
+// (10:00/12:00/17:00/20:00 Africa/Nairobi). Kept separate from
+// UpfieldTransaction because this source is visit/timestamp activity rather
+// than sales transaction lines - shares UpfieldSyncRun/UpfieldSyncBatch via
+// source="upfield-visits" and its own SyncWatermark bridge="upfield-visits".
+//
+// Schema-only reconciliation (2026-08-29): copied as-is from the unmerged
+// origin/add-upfield-visits-route branch — see
+// [[sales-dashboard-shared-prod-schema-risk]] project memory.
+model UpfieldVisit {
+  sourceRecordId    String    @id
+  fsr               String
+  distributor       String?
+  pop               String
+  startTime         DateTime
+  endTime           DateTime?
+  timeInOutlet      String?
+  transitTime       String?
+  lppc              Float?
+  sale              Float?
+  sourceFile        String?
+  lastSeenSyncRunId String
+  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+
+  @@index([startTime])
+  @@index([fsr, startTime])
+  @@index([pop, startTime])
+  @@index([lastSeenSyncRunId])
+}
+
 // EABL Call Performance — a separate call-level feed from the Pinefrost
 // Analytics SQL Server source for EABL-Nyeri and EABL-Nyahururu. It must not
 // be combined with RepCall: the two sources have different identities,
