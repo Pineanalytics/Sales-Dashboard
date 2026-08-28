@@ -8,7 +8,6 @@ import { WeekDailyActuals } from "@/components/dashboard/WeekDailyActuals";
 import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
 import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars";
-import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { DashboardControlsMulti, type DashboardView } from "@/components/dashboard/DashboardControlsMulti";
 import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
@@ -104,55 +103,19 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
 
       {tab === "mtd" ? (
         <div className="flex flex-col gap-3 md:gap-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <SectionCard title="This Month Actuals" accent="green">
-                  <div className="flex flex-col gap-1.5 text-sm">
-                    <Row label="Total MTD Revenue" value={formatCompact(mtdSummary.revenue)} />
-                    <Row label="Monthly Mission" value={mtdSummary.target !== null ? formatCompact(mtdSummary.target) : "N/A"} />
-                    <Row
-                      label="vs Full Target"
-                      value={mtdSummary.achievementPct !== null ? `${mtdSummary.achievementPct.toFixed(0)}%` : "N/A"}
-                      negative={mtdSummary.achievementPct !== null && mtdSummary.achievementPct < 100}
-                    />
-                    <Row
-                      label="MoM"
-                      value={(dateMatchedMomPct ?? momPct) !== null ? `${(dateMatchedMomPct ?? momPct)! >= 0 ? "+" : ""}${(dateMatchedMomPct ?? momPct)!.toFixed(0)}%` : "N/A"}
-                      negative={(dateMatchedMomPct ?? momPct) !== null && (dateMatchedMomPct ?? momPct)! < 0}
-                    />
-                  </div>
-                </SectionCard>
-
-                <SectionCard title="MTD % Achieved" accent="red">
-                  <div className="flex items-center gap-4">
-                    <AchievementGauge pct={mtdSummary.achievementPct} size={84} />
-                    <div className="flex flex-1 flex-col gap-1.5 text-sm">
-                      <Row label="MTD Mission" value={mtdSummary.target !== null ? formatCompact(mtdSummary.target) : "N/A"} />
-                      <Row
-                        label="BOM (Balance)"
-                        value={mtdBalance !== null ? formatCompact(mtdBalance) : "N/A"}
-                        negative={mtdBalance !== null && mtdBalance > 0}
-                      />
-                    </div>
-                  </div>
-                </SectionCard>
-          </div>
-
-          <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(11,61,53,0.05)]">
-            <summary className="cursor-pointer text-xs font-semibold text-muted-strong marker:text-primary-blue">
-              Daily breakdown options
-              <span className="ml-2 font-normal text-muted">Filter the weekly and daily projection cards by weekday.</span>
-            </summary>
-            <div className="mt-3 max-w-md">
-              <DayNameFilter />
-            </div>
-          </details>
-
           <WeekDailyActuals
             year={currentMonth.year}
             monthLabel={currentMonth.month ?? ""}
             monthIndex={currentMonthIndex}
             principals={selectedPrincipalNames}
             selectedDayNames={selectedDayNames}
+            monthActuals={{
+              revenue: mtdSummary.revenue,
+              target: mtdSummary.target,
+              achievementPct: mtdSummary.achievementPct,
+              balance: mtdBalance,
+              momPct: dateMatchedMomPct ?? momPct,
+            }}
           />
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">

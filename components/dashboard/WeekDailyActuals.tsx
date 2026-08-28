@@ -1,7 +1,10 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { SectionCard } from "@/components/ui/KpiGrid";
+import { AchievementGauge } from "@/components/ui/AchievementGauge";
+import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { formatCompact } from "@/lib/format";
 import { getWeeksInMonth, type WeekInfo } from "@/lib/weeklyTargets";
 
@@ -51,12 +54,20 @@ export function WeekDailyActuals({
   monthIndex,
   principals,
   selectedDayNames,
+  monthActuals,
 }: {
   year: string;
   monthLabel: string;
   monthIndex: number;
   principals: string[];
   selectedDayNames: Set<string>;
+  monthActuals: {
+    revenue: number;
+    target: number | null;
+    achievementPct: number | null;
+    balance: number | null;
+    momPct: number | null;
+  };
 }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [weeklyTargets, setWeeklyTargets] = useState<WeeklyTargetRow[]>([]);
@@ -98,13 +109,6 @@ export function WeekDailyActuals({
     };
   }, [year, monthLabel, monthIndex, principalKey, principals]);
 
-  if (status === "loading") {
-    return <SectionCard title="Week & Daily Projection">Loading…</SectionCard>;
-  }
-  if (status === "error") {
-    return <SectionCard title="Week & Daily Projection">Couldn&apos;t load targets — the underlying feed may not have synced yet.</SectionCard>;
-  }
-
   // Only count days whose weekday is in the Day Name filter — the one place on the
   // page that filter actually changes anything (see DayNameFilter.tsx).
   const filteredSales = dailyActuals.filter((r) => selectedDayNames.has(dayNameOf(r.date)));
@@ -144,42 +148,72 @@ export function WeekDailyActuals({
   const todayProjection = targetByDate.get(todayKey) ?? 0;
   const todayActual = revenueByDate.get(todayKey) ?? 0;
   const todayVariance = todayActual - todayProjection;
+  const todayAchievedPct = todayProjection > 0 ? (todayActual / todayProjection) * 100 : null;
 
   const WEEK_ACCENTS = ["green", "amber", "purple", "blue"] as const;
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
-      <SectionCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} accent="navy">
-        <div className="flex flex-col gap-1.5 text-sm">
-          <Row label="Weeks Projection" value={formatCompact(currentWeek?.projection ?? 0)} />
-          <Row label="Actuals" value={formatCompact(currentWeek?.actual ?? 0)} />
-          <Row label="Variance" value={formatCompact(currentWeek?.variance ?? 0)} negative={(currentWeek?.variance ?? 0) < 0} />
-        </div>
-      </SectionCard>
+    <div className="flex flex-col gap-3 md:gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ProgressCard title="This Month Actuals" pct={monthActuals.achievementPct} accent="green">
+          <Row label="MTD Revenue" value={formatCompact(monthActuals.revenue)} />
+          <Row label="Monthly Mission" value={monthActuals.target !== null ? formatCompact(monthActuals.target) : "N/A"} />
+          <Row label="MoM" value={monthActuals.momPct !== null ? `${monthActuals.momPct >= 0 ? "+" : ""}${monthActuals.momPct.toFixed(0)}%` : "N/A"} negative={monthActuals.momPct !== null && monthActuals.momPct < 0} />
+        </ProgressCard>
+        <ProgressCard title="MTD % Achieved" pct={monthActuals.achievementPct} accent="red">
+          <Row label="MTD Mission" value={monthActuals.target !== null ? formatCompact(monthActuals.target) : "N/A"} />
+          <Row label="BOM Balance" value={monthActuals.balance !== null ? formatCompact(monthActuals.balance) : "N/A"} negative={monthActuals.balance !== null && monthActuals.balance > 0} />
+        </ProgressCard>
+        <ProgressCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} pct={currentWeek?.achievedPct ?? null} accent="navy" loading={status === "loading"}>
+          <Row label="Weekly Target" value={status === "loading" ? "…" : formatCompact(currentWeek?.projection ?? 0)} />
+          <Row label="Actual" value={status === "loading" ? "…" : formatCompact(currentWeek?.actual ?? 0)} />
+          <Row label="Variance" value={status === "loading" ? "…" : formatCompact(currentWeek?.variance ?? 0)} negative={(currentWeek?.variance ?? 0) < 0} />
+        </ProgressCard>
+        <ProgressCard title="Daily Projection vs Target" pct={todayAchievedPct} accent="navy" loading={status === "loading"}>
+          <Row label="Daily Target" value={status === "loading" ? "…" : formatCompact(todayProjection)} />
+          <Row label="Actual" value={status === "loading" ? "…" : formatCompact(todayActual)} />
+          <Row label="Variance" value={status === "loading" ? "…" : formatCompact(todayVariance)} negative={todayVariance < 0} />
+        </ProgressCard>
+      </div>
 
-      <SectionCard title="Daily Projection" accent="navy">
-        <div className="flex flex-col gap-1.5 text-sm">
-          <Row label="Daily Projection" value={formatCompact(todayProjection)} />
-          <Row label="Actuals" value={formatCompact(todayActual)} />
-          <Row label="Variance" value={formatCompact(todayVariance)} negative={todayVariance < 0} />
-        </div>
-      </SectionCard>
+      <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(11,61,53,0.05)]">
+        <summary className="cursor-pointer text-xs font-semibold text-muted-strong marker:text-primary-blue">
+          Daily breakdown options
+          <span className="ml-2 font-normal text-muted">Filter the weekly and daily projection cards by weekday.</span>
+        </summary>
+        <div className="mt-3 max-w-md"><DayNameFilter /></div>
+      </details>
 
-      {weekCards.map((w, i) => (
-        <SectionCard
-          key={w.label}
-          title={`Week ${w.index} (${w.range})${w.isCurrentWeek ? " — Current Week" : ""}`}
-          accent={w.isCurrentWeek ? "purple" : WEEK_ACCENTS[i % WEEK_ACCENTS.length]}
-        >
-          <div className="flex flex-col gap-1.5 text-sm">
-            <Row label="Projection" value={formatCompact(w.projection)} />
-            <Row label="Actual" value={formatCompact(w.actual)} />
-            <Row label="Variance" value={formatCompact(w.variance)} negative={w.variance < 0} />
-            <Row label="Achieved" value={w.achievedPct !== null ? `${w.achievedPct.toFixed(0)}%` : "N/A"} negative={w.achievedPct !== null && w.achievedPct < 100} />
-          </div>
-        </SectionCard>
-      ))}
+      {status === "error" ? (
+        <SectionCard title="Weekly Projections">Couldn&apos;t load targets — the underlying feed may not have synced yet.</SectionCard>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(235px,1fr))] gap-3">
+          {weekCards.map((w, i) => (
+            <SectionCard key={w.label} title={`Week ${w.index} (${w.range})${w.isCurrentWeek ? " — Current Week" : ""}`} accent={w.isCurrentWeek ? "purple" : WEEK_ACCENTS[i % WEEK_ACCENTS.length]}>
+              <div className="flex items-center gap-3">
+                <AchievementGauge pct={w.achievedPct} size={62} />
+                <div className="min-w-0 flex-1 space-y-1 text-sm">
+                  <Row label="Projection" value={formatCompact(w.projection)} />
+                  <Row label="Actual" value={formatCompact(w.actual)} />
+                  <Row label="Variance" value={formatCompact(w.variance)} negative={w.variance < 0} />
+                </div>
+              </div>
+            </SectionCard>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function ProgressCard({ title, pct, accent, loading = false, children }: { title: string; pct: number | null; accent: "green" | "red" | "navy"; loading?: boolean; children: ReactNode }) {
+  return (
+    <SectionCard title={title} accent={accent}>
+      <div className="flex items-center gap-3">
+        <AchievementGauge pct={loading ? null : pct} size={72} />
+        <div className="min-w-0 flex-1 space-y-1 text-sm">{children}</div>
+      </div>
+    </SectionCard>
   );
 }
 
