@@ -1206,10 +1206,6 @@ model UpfieldSyncBatch {
 // UpfieldTransaction because this source is visit/timestamp activity rather
 // than sales transaction lines - shares UpfieldSyncRun/UpfieldSyncBatch via
 // source="upfield-visits" and its own SyncWatermark bridge="upfield-visits".
-//
-// Schema-only reconciliation (2026-08-29): copied as-is from the unmerged
-// origin/add-upfield-visits-route branch — see
-// [[sales-dashboard-shared-prod-schema-risk]] project memory.
 model UpfieldVisit {
   sourceRecordId    String    @id
   fsr               String
