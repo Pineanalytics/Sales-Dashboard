@@ -23,6 +23,7 @@ import {
   Table20Regular,
   VehicleTruck20Regular,
   Archive20Regular,
+  ArrowSwap20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -51,6 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/order-360", label: "Order 360", icon: VehicleTruck20Regular },
   { href: "/principal-kpis", label: "Principal KPIs", icon: TargetArrow20Regular },
+  { href: "/sales-returns", label: "Sales & Returns", icon: ArrowSwap20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
 ];
 
