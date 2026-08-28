@@ -1640,3 +1640,37 @@ model OutletSkuDailySales {
   @@index([sku])
   @@index([pjp])
 }
+
+// PJP/DSR daily activity — a fourth report fed by the same Centegy SQL
+// Server bridge (scripts/db-bridge/sales-returns/run.ts), built from
+// CASHMEMO.DATE_ENTRY: the handheld device's actual capture timestamp,
+// confirmed (by sampling live data) to carry real time-of-day variation,
+// unlike DELV_DATE/DOC_DATE which always sit at exactly 00:00:00. Per-day
+// fact grain like OutletSkuDailySales — delete-and-replace by date window,
+// see app/api/pjp-dsr-daily-activity/upload.
+model PjpDsrDailyActivity {
+  id           String   @id @default(cuid())
+  // `${pjp}|${dsr}|${date}` — unique per the source query's grain.
+  sourceRowKey String   @unique
+  date         DateTime
+  pjp          String
+  route        String
+  dsr          String
+  dsrName      String
+  transactionCount          Int
+  outletsVisited            Int
+  // How many of transactionCount actually came from a handheld device
+  // (HHT_SRNO not null/'0') rather than manual/office entry — some PJPs
+  // consistently show 0 here, meaning their timestamps below don't reflect
+  // real field activity. Check this before trusting a given row's timing.
+  handheldTransactionCount  Int
+  firstEntryTime            DateTime?
+  lastEntryTime             DateTime?
+  activeSpanMinutes         Int?
+  avgGapMinutes             Float?
+  createdAt                 DateTime @default(now())
+
+  @@index([date])
+  @@index([pjp, date])
+  @@index([dsr, date])
+}
