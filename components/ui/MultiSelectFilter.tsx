@@ -29,7 +29,7 @@ export function MultiSelectFilter({
     const needle = query.trim().toLowerCase();
     return needle ? options.filter((option) => option.label.toLowerCase().includes(needle)) : options;
   }, [options, query]);
-  const summary = value.length === 0 ? allLabel : value.length === 1 ? options.find((option) => option.value === value[0])?.label ?? "1 selected" : `${value.length} selected`;
+  const summary = value.length === 0 || value.length === options.length ? allLabel : value.length === 1 ? options.find((option) => option.value === value[0])?.label ?? "1 selected" : `${value.length} selected`;
 
   function toggle(option: string) {
     onChange(selected.has(option) ? value.filter((item) => item !== option) : [...value, option]);

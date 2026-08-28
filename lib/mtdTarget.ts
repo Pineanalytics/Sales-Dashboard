@@ -154,10 +154,10 @@ export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs, workingDay
  *  runs the pure cascade above, capped at today's elapsed working days. An
  *  explicit principal filter narrows all three inputs before attribution so a
  *  filtered ranking cannot retain unrelated Team Leaders or portfolio targets. */
-export async function getMtdTargetByTeamLeader(year: string, monthLabel: string, principal?: string | null): Promise<MtdTargetRow[]> {
+export async function getMtdTargetByTeamLeader(year: string, monthLabel: string, principals: string[] = []): Promise<MtdTargetRow[]> {
   const monthIndex = CANONICAL_MONTHS.indexOf(monthLabel);
   if (monthIndex < 0) return [];
-  const principalWhere = principal ? { principal } : {};
+  const principalWhere = principals.length > 0 ? { principal: { in: principals } } : {};
 
   const [principalTargets, assignments, contributions] = await Promise.all([
     prisma.target.findMany({ where: { year, month: monthLabel, ...principalWhere }, select: { principal: true, valueTarget: true } }),

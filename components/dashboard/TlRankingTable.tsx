@@ -86,13 +86,13 @@ function RankRow({ row, depth, expandable, expanded, onToggle }: { row: RankRowS
  *  the Prisma-only half via /api/dashboard/tl-ranking. */
 export function TlRankingTable({
   principalRevenue,
-  principalFilter,
+  principalFilters,
   year,
   monthLabel,
   dataset,
 }: {
   principalRevenue: PrincipalRevenueInput[];
-  principalFilter: string | null;
+  principalFilters: string[];
   year: string;
   monthLabel: string;
   dataset: Dataset;
@@ -113,7 +113,7 @@ export function TlRankingTable({
         const res = await fetch("/api/dashboard/tl-ranking", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ principalRevenue, principalFilter, year, monthLabel }),
+          body: JSON.stringify({ principalRevenue, principalFilters, year, monthLabel }),
           cache: "no-store",
         });
         const body = await res.json();
@@ -132,7 +132,7 @@ export function TlRankingTable({
     // principalRevenue is recomputed fresh each render from the dataset — stringify so
     // the effect only re-fires when its actual contents change, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(principalRevenue), principalFilter, year, monthLabel]);
+  }, [JSON.stringify(principalRevenue), JSON.stringify(principalFilters), year, monthLabel]);
 
   if (status === "loading") return <SectionCard title="Sales Supervisor Ranking">Loading…</SectionCard>;
   if (status === "error" || !result) return <SectionCard title="Sales Supervisor Ranking">Couldn&apos;t load Sales Supervisor Ranking.</SectionCard>;

@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
-import { DayNameFilter } from "@/components/dashboard/DayNameFilter";
 import { formatCompact } from "@/lib/format";
 import { getWeeksInMonth, type WeekInfo } from "@/lib/weeklyTargets";
 
@@ -110,7 +109,7 @@ export function WeekDailyActuals({
   }, [year, monthLabel, monthIndex, principalKey, principals]);
 
   // Only count days whose weekday is in the Day Name filter — the one place on the
-  // page that filter actually changes anything (see DayNameFilter.tsx).
+  // page that the shared Daily breakdown filter actually changes.
   const filteredSales = dailyActuals.filter((r) => selectedDayNames.has(dayNameOf(r.date)));
   const filteredDailyTargets = dailyTargets.filter((r) => selectedDayNames.has(dayNameOf(toDateKey(new Date(r.date)))));
 
@@ -175,14 +174,6 @@ export function WeekDailyActuals({
           <Row label="Variance" value={status === "loading" ? "…" : formatCompact(todayVariance)} negative={todayVariance < 0} />
         </ProgressCard>
       </div>
-
-      <details className="group rounded-xl border border-border bg-surface px-4 py-2.5 shadow-[0_2px_8px_rgba(11,61,53,0.05)]">
-        <summary className="cursor-pointer text-xs font-semibold text-muted-strong marker:text-primary-blue">
-          Daily breakdown options
-          <span className="ml-2 font-normal text-muted">Filter the weekly and daily projection cards by weekday.</span>
-        </summary>
-        <div className="mt-3 max-w-md"><DayNameFilter /></div>
-      </details>
 
       {status === "error" ? (
         <SectionCard title="Weekly Projections">Couldn&apos;t load targets — the underlying feed may not have synced yet.</SectionCard>

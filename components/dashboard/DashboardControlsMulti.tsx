@@ -7,7 +7,7 @@ import { PrincipalSelector } from "./PrincipalSelector";
 
 export type DashboardView = "mtd" | "ytd";
 
-function ViewSwitch({ view, onViewChange }: { view: DashboardView; onViewChange: (view: DashboardView) => void }) {
+export function ExecutiveViewSwitch({ view, onViewChange }: { view: DashboardView; onViewChange: (view: DashboardView) => void }) {
   return (
     <div className="inline-flex shrink-0 rounded-lg bg-background-elevated p-1" aria-label="Executive summary view">
       {([ { key: "mtd", label: "MTD Sales" }, { key: "ytd", label: "YTD Summary" } ] as const).map((option) => (
@@ -32,7 +32,7 @@ export function DashboardControlsMulti({ view, onViewChange, compact = false }: 
       <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-[0_2px_8px_rgba(11,61,53,0.06)]">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-muted-strong">Executive view</span>
-          <ViewSwitch view={view} onViewChange={onViewChange} />
+          <ExecutiveViewSwitch view={view} onViewChange={onViewChange} />
         </div>
         <span className="text-[11px] text-muted">{view === "mtd" ? "Current calendar month" : "Year through selected month"}</span>
       </section>
@@ -43,7 +43,7 @@ export function DashboardControlsMulti({ view, onViewChange, compact = false }: 
     <section className="rounded-2xl border border-border bg-surface px-4 py-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)] md:px-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          <ViewSwitch view={view} onViewChange={onViewChange} />
+          <ExecutiveViewSwitch view={view} onViewChange={onViewChange} />
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 border-l-0 border-border pl-0 md:border-l md:pl-3">
             <Filter20Regular className="hidden h-4 w-4 shrink-0 text-primary-blue md:block" aria-hidden="true" />
             <PrincipalSelector />

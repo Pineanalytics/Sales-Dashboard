@@ -27,7 +27,7 @@ type TlRankingResponse =
  *  mean two sources of truth for the same numbers. This route only does the
  *  Prisma-only half: attributing that revenue to whichever Team Leader heads each
  *  principal (Principal.teamLeaderId — see lib/tlRanking.ts's buildTlRanking for why
- *  this replaced rep-name matching), summing their WeeklyTarget for the given month,
+ *  this replaced rep-name matching), resolving their prorated MTD targets,
  *  then rolling that up to Sales Supervisor (primary ranking level) and Manager
  *  (further rollup) — see lib/tlRanking.ts's buildSupervisorRanking/
  *  buildManagerRanking, which resolve the reporting hierarchy from
@@ -52,38 +52,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
   }
 
-  const { principalRevenue, principalFilter, year, monthLabel } = body as {
+  const { principalRevenue, principalFilters, year, monthLabel } = body as {
     principalRevenue?: PrincipalRevenueInput[];
-    principalFilter?: string | null;
+    principalFilters?: string[];
     year?: string;
     monthLabel?: string;
   };
-  if (!Array.isArray(principalRevenue) || !year || !monthLabel) {
+  if (!Array.isArray(principalRevenue) || !year || !monthLabel || (principalFilters !== undefined && !Array.isArray(principalFilters))) {
     return NextResponse.json({ error: "\"principalRevenue\", \"year\", and \"monthLabel\" are required." }, { status: 400 });
   }
 
   const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
-  if (scope && principalFilter && !scope.principals.includes(principalFilter)) {
+  const requestedPrincipals = Array.from(new Set((principalFilters ?? []).filter((principal): principal is string => typeof principal === "string" && principal.trim().length > 0)));
+  if (scope && requestedPrincipals.some((principal) => !scope.principals.includes(principal))) {
     return NextResponse.json({ error: "That principal isn't one of your assigned principals." }, { status: 403 });
   }
+  // An explicit dashboard selection wins; otherwise a scoped account still
+  // remains constrained to its permitted principals. Unrestricted accounts
+  // with no selection intentionally receive the full portfolio.
+  const effectivePrincipals = requestedPrincipals.length > 0 ? requestedPrincipals : (scope?.principals ?? []);
+  const principalWhere = effectivePrincipals.length > 0 ? { principal: { in: effectivePrincipals } } : {};
 
   const [principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
-    prisma.principal.findMany({ where: { status: "Active", ...(principalFilter ? { principal: principalFilter } : {}) }, select: { principal: true, teamLeaderId: true } }),
+    prisma.principal.findMany({ where: { status: "Active", ...principalWhere }, select: { principal: true, teamLeaderId: true } }),
     prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
     prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true } }),
     prisma.manager.findMany({ select: { id: true, name: true } }),
-    getMtdTargetByTeamLeader(year, monthLabel, principalFilter),
+    getMtdTargetByTeamLeader(year, monthLabel, effectivePrincipals),
   ]);
 
-  const baseResult = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
-  // When one principal is selected, every Team Leader returned by the
-  // principal-scoped target cascade belongs to that principal even though the
-  // Principal master has only one overall head. Label the drill-down at the
-  // same grain as its filtered target and keep manager/supervisor rollups from
-  // presenting an empty or portfolio-wide principal list.
-  const result = principalFilter
-    ? { ...baseResult, rankings: baseResult.rankings.map((row) => ({ ...row, principals: [principalFilter] })) }
-    : baseResult;
+  const result = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
 
   // TEAM_LEADER and a principal-scoped VIEWER keep today's flat shape — a single
   // Team Leader (or a flat multi-TL list with no meaningful supervisor grouping

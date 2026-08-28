@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ArrowTrending20Regular, Board20Regular, ChartMultiple20Regular, DataLine20Regular, PersonCircle20Regular } from "@fluentui/react-icons";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useDashboardStore } from "@/lib/store";
@@ -38,7 +37,8 @@ const SALES_SECTIONS: { id: SalesSection; pageKey: string; label: string; descri
 ];
 
 export default function SalesPage() {
-  const [active, setActive] = useState<SalesSection>("cockpit");
+  const active = useDashboardStore((state) => state.salesSection);
+  const setActive = useDashboardStore((state) => state.setSalesSection);
   const user = useCurrentUser();
   const availableSections = SALES_SECTIONS.filter((section) => user?.role === "ADMIN" || (user?.allowedPages ?? []).includes(section.pageKey));
   const current = availableSections.some((section) => section.id === active) ? active : availableSections[0]?.id;

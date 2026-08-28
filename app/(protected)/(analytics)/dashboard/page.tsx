@@ -9,7 +9,6 @@ import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
 import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
-import { DashboardControlsMulti, type DashboardView } from "@/components/dashboard/DashboardControlsMulti";
 import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
@@ -42,7 +41,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
   const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const period = useDashboardStore((s) => s.selectedPeriod);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
-  const [tab, setTab] = useState<DashboardView>("mtd");
+  const tab = useDashboardStore((s) => s.executiveView);
   const [coverageRole, setCoverageRole] = useState<Extract<RoleCategory, "primary" | "secondary">>("primary");
   const dateMatchedGrowth = useDateAwareGrowth(dataset ? getCurrentMonthPeriod(dataset) : null, selectedPrincipalKey).data;
 
@@ -58,9 +57,10 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
   const principalRevenue = Array.from(summarizeSalesByPrincipal(dataset, currentMonth).values())
     .filter((r) => !selectedPrincipalKey || r.principalKey === selectedPrincipalKey)
     .map((r) => ({ principal: r.principal, revenue: r.revenue }));
-  const selectedPrincipalNames = selectedPrincipalKeys.map(
-    (key) => dataset.monthlySales.find((row) => row.principalKey === key)?.principal ?? key
-  );
+  // PrincipalSelector stores the raw principal/location labels selected by the
+  // user. Pass that exact set to every executive API so multi-select scope is
+  // preserved rather than collapsing back to an all-principal request.
+  const selectedPrincipalNames = selectedPrincipalKeys;
 
   const h1Summary = summarizeSalesForPeriod(dataset, { kind: "H1", year: period.year }, selectedPrincipalKey);
   const h2Summary = summarizeSalesForPeriod(dataset, { kind: "H2", year: period.year }, selectedPrincipalKey);
@@ -99,8 +99,6 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
   return (
     <div className="flex flex-col gap-3 md:gap-4">
       {!embedded ? <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} /> : null}
-      <DashboardControlsMulti view={tab} onViewChange={setTab} compact={embedded} />
-
       {tab === "mtd" ? (
         <div className="flex flex-col gap-3 md:gap-4">
           <WeekDailyActuals
@@ -122,7 +120,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
             <TlRankingTable
               dataset={dataset}
               principalRevenue={principalRevenue}
-              principalFilter={selectedPrincipalKey}
+              principalFilters={selectedPrincipalNames}
               year={currentMonth.year}
               monthLabel={currentMonth.month ?? ""}
             />

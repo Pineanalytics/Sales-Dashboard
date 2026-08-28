@@ -30,12 +30,17 @@ interface DashboardState {
   // DayNameFilter.tsx). All 7 selected = no filtering; deliberately never empty,
   // since "filter out every day" isn't a meaningful state to be in.
   selectedDayNames: Set<string>;
+  executiveView: "mtd" | "ytd";
+  salesSection: "cockpit" | "executive" | "time" | "reps" | "customers";
 
   setDataset: (dataset: Dataset | null) => void;
   selectPrincipal: (key: string | null) => void;
   setPrincipalSelection: (keys: string[]) => void;
   setPeriod: (period: PeriodSelection) => void;
   toggleDayName: (day: string) => void;
+  setDayNames: (days: string[]) => void;
+  setExecutiveView: (view: "mtd" | "ytd") => void;
+  setSalesSection: (section: DashboardState["salesSection"]) => void;
   clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -80,6 +85,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   sidebarCollapsed: false,
   history: [],
   selectedDayNames: new Set(ALL_DAY_NAMES),
+  executiveView: "mtd",
+  salesSection: "cockpit",
 
   setDataset: (dataset) =>
     set({
@@ -112,6 +119,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     if (current.size === 0) return;
     set({ selectedDayNames: current });
   },
+  setDayNames: (days) => {
+    const valid = days.filter((day) => ALL_DAY_NAMES.includes(day));
+    set({ selectedDayNames: new Set(valid.length > 0 ? valid : ALL_DAY_NAMES) });
+  },
+  setExecutiveView: (executiveView) => set({ executiveView }),
+  setSalesSection: (salesSection) => set({ salesSection }),
   clearAllFilters: () => {
     const { dataset } = get();
     set({
