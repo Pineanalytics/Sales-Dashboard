@@ -1522,3 +1522,39 @@ model PjpSkuPerformance {
   @@unique([month, pjp, skuCode])
   @@index([month])
 }
+
+// Outlet x SKU net sales (sales netted against returns), per delivery day —
+// a third report fed by the same Centegy SQL Server bridge as
+// SalesReturnLine and PjpSkuPerformance (scripts/db-bridge/sales-returns/run.ts).
+// Per-day fact grain like SalesReturnLine (not a month-wide recompute like
+// PjpSkuPerformance) — delete-and-replace by date window on each run, see
+// app/api/outlet-sku-daily-sales/upload.
+model OutletSkuDailySales {
+  id              String   @id @default(cuid())
+  // `${distributor}|${pjp}|${dsrName}|${outletCode}|${sku}|${date}` — unique
+  // per the source query's grain.
+  sourceRowKey    String   @unique
+  distributor     String
+  distributorName String
+  pjp             String
+  dsrName         String
+  outletCode      String
+  outletName      String
+  date            DateTime
+  channel         String
+  category        String
+  brand           String
+  sku             String
+  skuDesc         String
+  pcs             Float
+  amount          Float
+  discount        Float
+  discountPercent Float?
+  netSales        Float
+  createdAt       DateTime @default(now())
+
+  @@index([date])
+  @@index([outletCode, date])
+  @@index([sku])
+  @@index([pjp])
+}

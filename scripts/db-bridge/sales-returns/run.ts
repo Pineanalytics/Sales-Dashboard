@@ -1,17 +1,21 @@
-// Sales & Returns bridge — TWO reports against the same Centegy SQL Server
+// Sales & Returns bridge — THREE reports against the same Centegy SQL Server
 // connection (separate source from both SAP's SQLBRIDGE_SQL_* and
 // PinefrostAnalytics' EABL_CALL_SQL_*): the field DMS's CASHMEMO/DSR/POP/SKU
 // tables.
 //   1. Invoice-line detail (query.ts) — per-day fact table, delete-and-replace
 //      by delivery-date window. Original purpose of this bridge.
-//   2. PJP x SKU month-to-date performance (pjpSkuQuery.ts) — a second report
-//      added later, piggybacking on this same run/connection rather than a
-//      separate scheduled task ("live along the sales_return instance", per
-//      user request) since it queries the same database. Always covers the
-//      whole current month through this run's own window-end; see that
-//      file's header comment. Any further reports against this same source
-//      should follow the same pattern: a new query file + a new fetch/post
-//      pair added to main() below, sharing this one connection.
+//   2. PJP x SKU month-to-date performance (pjpSkuQuery.ts) — always covers
+//      the whole current month through this run's own window-end; see that
+//      file's header comment.
+//   3. Outlet x SKU net daily sales (outletSkuNetSalesQuery.ts) — sales
+//      netted against returns, per delivery day. Per-day fact grain like #1,
+//      so it reuses the same [start, end] window/delete-and-replace scheme.
+// #2 and #3 were added later, piggybacking on this same run/connection
+// rather than separate scheduled tasks ("live along the sales_return
+// instance", per user request) since they query the same database. Any
+// further reports against this source should follow the same pattern: a new
+// query file + a new fetch/post pair added to main() below, sharing this one
+// connection.
 //
 // Wired into Windows Task Scheduler via scripts/sales-returns-sync.ps1 as
 // THREE separate daily runs (each replaces only its own delivery-date window,
@@ -28,6 +32,7 @@ process.loadEnvFile();
 import sql from "mssql";
 import { fetchSalesReturnLines } from "./query";
 import { fetchPjpSkuPerformance } from "./pjpSkuQuery";
+import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
 
 const APP_URL = process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com";
 const CHUNK_SIZE = 1000;
@@ -156,9 +161,18 @@ async function main() {
     console.log(`[sales-returns] Fetched ${pjpSkuRows.length} PJP x SKU performance rows for ${monthStart.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
     await post("/api/pjp-sku-performance/upload", { rows: pjpSkuRows, month: monthStart.toISOString() });
 
+    // Third report, same connection: Outlet x SKU net daily sales. Per-day
+    // fact grain like the invoice-line detail above, so it reuses this same
+    // [start, end] window/delete-and-replace scheme rather than the PJP x
+    // SKU report's month-wide one.
+    const outletSkuRows = await fetchOutletSkuDailySales(pool, start, end);
+    console.log(`[sales-returns] Fetched ${outletSkuRows.length} Outlet x SKU daily sales rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
+    await post("/api/outlet-sku-daily-sales/upload", { rows: outletSkuRows, windowStart, windowEnd });
+
     const summary =
       `Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}. ` +
-      `PJP x SKU: replaced ${pjpSkuRows.length} rows for month ${monthStart.toISOString().slice(0, 10)}.`;
+      `PJP x SKU: replaced ${pjpSkuRows.length} rows for month ${monthStart.toISOString().slice(0, 10)}. ` +
+      `Outlet x SKU: replaced ${outletSkuRows.length} rows for the same window.`;
     console.log(`[sales-returns] ${summary}`);
     return summary;
   } finally {
