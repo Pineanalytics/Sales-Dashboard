@@ -1,4 +1,4 @@
-// Sales & Returns bridge — THREE reports against the same Centegy SQL Server
+// Sales & Returns bridge — FOUR reports against the same Centegy SQL Server
 // connection (separate source from both SAP's SQLBRIDGE_SQL_* and
 // PinefrostAnalytics' EABL_CALL_SQL_*): the field DMS's CASHMEMO/DSR/POP/SKU
 // tables.
@@ -10,7 +10,13 @@
 //   3. Outlet x SKU net daily sales (outletSkuNetSalesQuery.ts) — sales
 //      netted against returns, per delivery day. Per-day fact grain like #1,
 //      so it reuses the same [start, end] window/delete-and-replace scheme.
-// #2 and #3 were added later, piggybacking on this same run/connection
+//   4. PJP/DSR daily activity (pjpDsrDailyActivityQuery.ts) — first/last
+//      handheld-entry time, active span, and average gap between visits per
+//      PJP/DSR/day, built from CASHMEMO.DATE_ENTRY (confirmed by sampling
+//      live data to be the only field here with real time-of-day
+//      granularity — DELV_DATE/DOC_DATE are always exactly 00:00:00). Same
+//      per-day window/delete-and-replace scheme as #1 and #3.
+// #2, #3, and #4 were added later, piggybacking on this same run/connection
 // rather than separate scheduled tasks ("live along the sales_return
 // instance", per user request) since they query the same database. Any
 // further reports against this source should follow the same pattern: a new
@@ -33,6 +39,7 @@ import sql from "mssql";
 import { fetchSalesReturnLines } from "./query";
 import { fetchPjpSkuPerformance } from "./pjpSkuQuery";
 import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
+import { fetchPjpDsrDailyActivity } from "./pjpDsrDailyActivityQuery";
 
 const APP_URL = process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com";
 const CHUNK_SIZE = 1000;
@@ -169,10 +176,20 @@ async function main() {
     console.log(`[sales-returns] Fetched ${outletSkuRows.length} Outlet x SKU daily sales rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
     await post("/api/outlet-sku-daily-sales/upload", { rows: outletSkuRows, windowStart, windowEnd });
 
+    // Fourth report, same connection: PJP/DSR daily activity, built from
+    // CASHMEMO.DATE_ENTRY (the handheld's real capture timestamp — confirmed
+    // by sampling live data to carry real time-of-day variation, unlike
+    // DELV_DATE/DOC_DATE which are always exactly 00:00:00). Per-day fact
+    // grain like the invoice-line detail, same window.
+    const activityRows = await fetchPjpDsrDailyActivity(pool, start, end);
+    console.log(`[sales-returns] Fetched ${activityRows.length} PJP/DSR daily activity rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
+    await post("/api/pjp-dsr-daily-activity/upload", { rows: activityRows, windowStart, windowEnd });
+
     const summary =
       `Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}. ` +
       `PJP x SKU: replaced ${pjpSkuRows.length} rows for month ${monthStart.toISOString().slice(0, 10)}. ` +
-      `Outlet x SKU: replaced ${outletSkuRows.length} rows for the same window.`;
+      `Outlet x SKU: replaced ${outletSkuRows.length} rows for the same window. ` +
+      `PJP/DSR activity: replaced ${activityRows.length} rows for the same window.`;
     console.log(`[sales-returns] ${summary}`);
     return summary;
   } finally {
