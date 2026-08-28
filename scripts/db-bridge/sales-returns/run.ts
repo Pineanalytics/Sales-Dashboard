@@ -1,6 +1,17 @@
-// Sales & Returns invoice-line bridge. Separate SQL Server source from both
-// SAP (SQLBRIDGE_SQL_*) and PinefrostAnalytics (EABL_CALL_SQL_*) — the field
-// DMS's CASHMEMO/DSR/POP/SKU tables (see query.ts's header comment).
+// Sales & Returns bridge — TWO reports against the same Centegy SQL Server
+// connection (separate source from both SAP's SQLBRIDGE_SQL_* and
+// PinefrostAnalytics' EABL_CALL_SQL_*): the field DMS's CASHMEMO/DSR/POP/SKU
+// tables.
+//   1. Invoice-line detail (query.ts) — per-day fact table, delete-and-replace
+//      by delivery-date window. Original purpose of this bridge.
+//   2. PJP x SKU month-to-date performance (pjpSkuQuery.ts) — a second report
+//      added later, piggybacking on this same run/connection rather than a
+//      separate scheduled task ("live along the sales_return instance", per
+//      user request) since it queries the same database. Always covers the
+//      whole current month through this run's own window-end; see that
+//      file's header comment. Any further reports against this same source
+//      should follow the same pattern: a new query file + a new fetch/post
+//      pair added to main() below, sharing this one connection.
 //
 // Wired into Windows Task Scheduler via scripts/sales-returns-sync.ps1 as
 // THREE separate daily runs (each replaces only its own delivery-date window,
@@ -16,6 +27,7 @@ process.loadEnvFile();
 
 import sql from "mssql";
 import { fetchSalesReturnLines } from "./query";
+import { fetchPjpSkuPerformance } from "./pjpSkuQuery";
 
 const APP_URL = process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com";
 const CHUNK_SIZE = 1000;
@@ -31,6 +43,13 @@ function nairobiMidnight(daysAgo: number): Date {
   const now = new Date(Date.now() + NAIROBI_OFFSET_MS);
   const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysAgo));
   return day;
+}
+
+/** First day of the given date's month (Africa/Nairobi) — the start bound for
+ *  the PJP x SKU month-to-date report, which always covers the whole current
+ *  month up to `date` rather than a single day. */
+function nairobiMonthStart(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
 
 function dateWindow(): { start: Date; end: Date } {
@@ -129,7 +148,17 @@ async function main() {
     // still worth telling the app the window was checked, so re-run manually if that's wrong.
     if (lines.length === 0) await post("/api/sales-returns/upload", { lines: [], windowStart, windowEnd });
 
-    const summary = `Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`;
+    // Second report, same connection: PJP x SKU month-to-date performance.
+    // Always the whole current month through this run's own window-end, not
+    // just [start, end] — see pjpSkuQuery.ts's header comment.
+    const monthStart = nairobiMonthStart(end);
+    const pjpSkuRows = await fetchPjpSkuPerformance(pool, monthStart, end);
+    console.log(`[sales-returns] Fetched ${pjpSkuRows.length} PJP x SKU performance rows for ${monthStart.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}.`);
+    await post("/api/pjp-sku-performance/upload", { rows: pjpSkuRows, month: monthStart.toISOString() });
+
+    const summary =
+      `Uploaded ${lines.length} rows for ${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}. ` +
+      `PJP x SKU: replaced ${pjpSkuRows.length} rows for month ${monthStart.toISOString().slice(0, 10)}.`;
     console.log(`[sales-returns] ${summary}`);
     return summary;
   } finally {

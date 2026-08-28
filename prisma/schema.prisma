@@ -1499,3 +1499,26 @@ model SalesReturnLine {
   @@index([customerCode])
   @@index([documentType])
 }
+
+// PJP (route) x SKU month-to-date performance — a second report fed by the
+// same Centegy SQL Server bridge as SalesReturnLine (scripts/db-bridge/sales-returns/run.ts),
+// reusing its connection rather than a separate scheduled task. Unlike
+// SalesReturnLine's per-day delivery-date window, the source query always
+// recomputes the whole current month, so each run fully replaces that
+// month's rows (see app/api/pjp-sku-performance/upload) rather than
+// appending — a row here is a snapshot, not an immutable fact.
+model PjpSkuPerformance {
+  id        String   @id @default(cuid())
+  month     DateTime // first-of-month marker (Africa/Nairobi) this snapshot covers
+  pjp       String // route/journey-plan code
+  route     String // route description
+  skuCode   String
+  skuDesc   String
+  ecoMtd    Int // distinct outlets (town+locality+slocality+pop) visited so far this month
+  skuSales  Float
+  pcs       Float
+  updatedAt DateTime @updatedAt
+
+  @@unique([month, pjp, skuCode])
+  @@index([month])
+}
