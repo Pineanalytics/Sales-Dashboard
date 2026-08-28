@@ -41,9 +41,13 @@ export interface CustomerPortfolioSummary {
     topTenSharePct: number | null;
     priorYearRevenue: number;
     yoyGrowthPct: number | null;
+    lyspRevenue: number | null;
+    vsLyspGrowthPct: number | null;
     latestMonthRevenue: number;
     previousMonthRevenue: number;
+    previousFullMonthRevenue: number;
     momGrowthPct: number | null;
+    comparisonDay: number | null;
     retainedCustomers: number;
     newCustomers: number;
     lapsedCustomers: number;
@@ -69,6 +73,40 @@ function customerKey(name: string) {
 
 function growth(current: number, comparison: number) {
   return comparison > 0 ? ((current - comparison) / comparison) * 100 : null;
+}
+
+export interface CanonicalPortfolioComparisons {
+  revenue: number;
+  priorYearRevenue: number;
+  lyspRevenue: number | null;
+  latestMonthRevenue: number;
+  previousMonthRevenue: number;
+  previousFullMonthRevenue: number;
+  comparisonDay: number | null;
+}
+
+/** Keeps customer ranking/detail at SAP customer grain while anchoring headline
+ * revenue comparisons to the canonical SAP principal/month and day facts. */
+export function applyCanonicalPortfolioComparisons(
+  portfolio: CustomerPortfolioSummary,
+  comparisons: CanonicalPortfolioComparisons
+): CustomerPortfolioSummary {
+  return {
+    ...portfolio,
+    totals: {
+      ...portfolio.totals,
+      revenue: comparisons.revenue,
+      priorYearRevenue: comparisons.priorYearRevenue,
+      yoyGrowthPct: growth(comparisons.revenue, comparisons.priorYearRevenue),
+      lyspRevenue: comparisons.lyspRevenue,
+      vsLyspGrowthPct: comparisons.lyspRevenue === null ? null : growth(comparisons.revenue, comparisons.lyspRevenue),
+      latestMonthRevenue: comparisons.latestMonthRevenue,
+      previousMonthRevenue: comparisons.previousMonthRevenue,
+      previousFullMonthRevenue: comparisons.previousFullMonthRevenue,
+      momGrowthPct: growth(comparisons.latestMonthRevenue, comparisons.previousMonthRevenue),
+      comparisonDay: comparisons.comparisonDay,
+    },
+  };
 }
 
 function customerMap(rows: MonthlyBrandCustomerRow[]) {
@@ -184,9 +222,13 @@ export function summarizeCustomerPortfolio({
       topTenSharePct: revenue > 0 ? (topTenRevenue / revenue) * 100 : null,
       priorYearRevenue: priorRevenue,
       yoyGrowthPct: growth(revenue, priorRevenue),
+      lyspRevenue: null,
+      vsLyspGrowthPct: null,
       latestMonthRevenue: latestRevenue,
       previousMonthRevenue: previousRevenue,
+      previousFullMonthRevenue: previousRevenue,
       momGrowthPct: growth(latestRevenue, previousRevenue),
+      comparisonDay: null,
       retainedCustomers: [...currentLatestKeys].filter((key) => previousKeys.has(key)).length,
       newCustomers: [...currentLatestKeys].filter((key) => !previousKeys.has(key)).length,
       lapsedCustomers: [...previousKeys].filter((key) => !currentLatestKeys.has(key)).length,

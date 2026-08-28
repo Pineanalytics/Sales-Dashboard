@@ -457,6 +457,32 @@ export async function getLiveBrandCustomerRows(periods: { year: string; monthInd
   return [...rows.values()];
 }
 
+/** Day-bounded customer facts used for fair same-period MoM comparisons. */
+export async function getLiveDailyBrandCustomerRows(start: Date, end: Date, principals: string[] = []): Promise<MonthlyBrandCustomerRow[]> {
+  const dailyRows = await prisma.dailyBrandCustomerActual.findMany({
+    where: {
+      date: { gte: start, lte: end },
+      ...(principals.length > 0 ? { principal: { in: principals } } : {}),
+    },
+    select: { date: true, principal: true, brand: true, sapName: true, customerName: true, cases: true, revenue: true, grossProfit: true },
+  });
+  return dailyRows.map((row) => ({
+    date: row.date.toISOString().slice(0, 10),
+    year: String(row.date.getUTCFullYear()),
+    month: CANONICAL_MONTHS[row.date.getUTCMonth()],
+    monthIndex: row.date.getUTCMonth(),
+    principal: row.principal,
+    principalKey: normalizePrincipalKey(row.principal),
+    brand: row.brand,
+    salesEmployee: row.sapName,
+    customerName: row.customerName,
+    cases: row.cases,
+    revenue: row.revenue,
+    grossProfit: row.grossProfit,
+    grossMarginPct: row.revenue > 0 ? Math.round((row.grossProfit / row.revenue) * 1000) / 10 : null,
+  }));
+}
+
 /** Overlays admin-uploaded Target rows onto monthlySales[].target, keyed by
  *  (year, month, principal). A DB row only wins when it exists AND has a
  *  non-null valueTarget — a Target row that only captured e.g. Volume Target

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeCustomerPortfolio } from "../lib/customerPortfolio";
+import { applyCanonicalPortfolioComparisons, summarizeCustomerPortfolio } from "../lib/customerPortfolio";
 import type { MonthlyBrandCustomerRow } from "../lib/types";
 
 function row(customerName: string, revenue: number, overrides: Partial<MonthlyBrandCustomerRow> = {}): MonthlyBrandCustomerRow {
@@ -24,5 +24,19 @@ describe("summarizeCustomerPortfolio", () => {
     const result = summarizeCustomerPortfolio({ currentRows: [row("Acme Shop", 10), row("  ACME   SHOP ", 5), row("Acme-Shop", 7)], latestMonthRows: [], previousMonthRows: [], priorYearRows: [] });
     expect(result.totals.customerCount).toBe(2);
     expect(result.customers[0].revenue).toBe(15);
+  });
+
+  it("uses canonical full-period, LYSP and day-aligned MoM totals for headline growth", () => {
+    const detail = summarizeCustomerPortfolio({ currentRows: [row("Alpha", 200)], latestMonthRows: [row("Alpha", 40)], previousMonthRows: [row("Alpha", 100)], priorYearRows: [row("Alpha", 100)] });
+    const result = applyCanonicalPortfolioComparisons(detail, {
+      revenue: 300,
+      priorYearRevenue: 200,
+      lyspRevenue: 250,
+      latestMonthRevenue: 90,
+      previousMonthRevenue: 75,
+      previousFullMonthRevenue: 110,
+      comparisonDay: 28,
+    });
+    expect(result.totals).toMatchObject({ yoyGrowthPct: 50, vsLyspGrowthPct: 20, momGrowthPct: 20, comparisonDay: 28 });
   });
 });

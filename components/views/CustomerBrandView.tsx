@@ -70,10 +70,10 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
         <>
           <KpiGrid>
             <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={formatCompact(totals.revenue)} sublabel={`${formatNumber(totals.customerCount)} buying customers`} />
-            <KpiCard accent="growth" label={`YoY vs ${priorYear}`} value={growthLabel(totals.yoyGrowthPct, totals.revenue)} sublabel={`${formatCompact(totals.priorYearRevenue)} same selected period`} />
-            <KpiCard accent="growth" label={`${latestMonthLabel} MoM`} value={growthLabel(totals.momGrowthPct, totals.latestMonthRevenue)} sublabel={`vs ${formatCompact(totals.previousMonthRevenue)} in ${previousMonthLabel}`} />
+            <KpiCard accent="growth" label={`${period.kind} vs ${priorYear} full period`} value={growthLabel(totals.yoyGrowthPct, totals.revenue)} sublabel={`${formatCompact(totals.priorYearRevenue)} full prior-year equivalent`} />
+            <KpiCard accent="growth" label="Vs LYSP" value={growthLabel(totals.vsLyspGrowthPct, totals.revenue)} sublabel={totals.lyspRevenue === null ? "No matching prior-year daily data" : `vs ${formatCompact(totals.lyspRevenue)} through day ${totals.comparisonDay}`} />
+            <KpiCard accent="growth" label={`${latestMonthLabel} MoM`} value={growthLabel(totals.momGrowthPct, totals.latestMonthRevenue)} sublabel={`Day 1–${totals.comparisonDay ?? "end"} vs ${formatCompact(totals.previousMonthRevenue)} in ${previousMonthLabel}`} />
             <KpiCard accent="quarter" label="Top 10 Concentration" value={formatPercent(totals.topTenSharePct)} sublabel="Share of selected-period revenue" />
-            <KpiCard accent="mission" label="Avg Revenue / Customer" value={formatCompact(totals.averageRevenuePerCustomer)} />
             <KpiCard accent="coverage" label="Customer Movement" value={`${totals.newCustomers} new`} sublabel={`${totals.retainedCustomers} retained · ${totals.lapsedCustomers} lapsed`} />
           </KpiGrid>
 
@@ -100,7 +100,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
             </SectionCard>
           </ChartGrid>
 
-          <SectionCard title="Ranked Customer Portfolio" action={<span className="text-xs text-muted">MoM: {latestMonthLabel} vs {previousMonthLabel} · YoY: same selected period</span>}>
+          <SectionCard title="Ranked Customer Portfolio" action={<span className="text-xs text-muted">MoM: day 1–{totals.comparisonDay ?? "end"} · YoY: full selected period</span>}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {(["All", "Strategic", "Growth", "Long Tail", "Adjustment"] as const).map((tier) => <button key={tier} onClick={() => setTierFilter(tier)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${tierFilter === tier ? "border-secondary-blue bg-secondary-blue text-white" : "border-border bg-surface text-muted-strong hover:bg-background-elevated"}`}>{tier}</button>)}
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer or principal…" className="ml-auto min-w-[240px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground" />
@@ -120,7 +120,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
             </TableWrap>
             {visibleCustomers.length > 100 ? <p className="mt-2 text-right text-xs text-muted">Showing the first 100 of {visibleCustomers.length} matching customers.</p> : null}
           </SectionCard>
-          <p className="text-xs text-muted">Customer matching normalizes case and repeated spaces only; punctuation variants remain separate SAP accounts. Tiering excludes non-positive revenue from the Pareto denominator. Historical monthly data does not support day-aligned MTD comparison, so the previous-month figure is the complete prior month.</p>
+          <p className="text-xs text-muted">Customer matching normalizes case and repeated spaces only; punctuation variants remain separate SAP accounts. Tiering excludes non-positive revenue from the Pareto denominator. YoY compares the full selected YTD with the full equivalent prior-year YTD; LYSP and MoM use the same elapsed calendar day.</p>
         </>
       ) : (
         <>

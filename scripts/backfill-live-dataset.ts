@@ -104,11 +104,24 @@ async function main() {
     return;
   }
 
+  // Brand/customer history exists at two incompatible grains: the legacy
+  // Snapshot has customer/principal rows with brand="Unspecified", while the
+  // SAP bridge stores item/customer/principal rows. Row-level skipDuplicates
+  // cannot protect against mixing those grains because `brand` is part of the
+  // unique key. Treat any already-present period as authoritative and skip the
+  // entire legacy period; otherwise a later backfill almost exactly doubles
+  // revenue while still satisfying the database uniqueness constraint.
+  const existingBrandCustomerPeriods = new Set(
+    (await prisma.brandCustomerActual.findMany({ select: { year: true, monthIndex: true }, distinct: ["year", "monthIndex"] }))
+      .map((row) => `${row.year}|${row.monthIndex}`)
+  );
+  const brandCustomerToInsert = [...brandCustomer.values()].filter((row) => !existingBrandCustomerPeriods.has(`${row.year}|${row.monthIndex}`));
+
   const [salesInserted, targetsInserted, coverageInserted, brandCustomerInserted] = await Promise.all([
     insertInChunks(sales, (rows) => prisma.salesRecord.createMany({ data: rows, skipDuplicates: true })),
     insertInChunks(targets, (rows) => prisma.target.createMany({ data: rows, skipDuplicates: true })),
     insertInChunks(coverage, (rows) => prisma.coverageActual.createMany({ data: rows, skipDuplicates: true })),
-    insertInChunks([...brandCustomer.values()], (rows) => prisma.brandCustomerActual.createMany({ data: rows, skipDuplicates: true })),
+    insertInChunks(brandCustomerToInsert, (rows) => prisma.brandCustomerActual.createMany({ data: rows, skipDuplicates: true })),
   ]);
 
   // Stock is operational/current-state data. Backfill it only if the live
