@@ -391,6 +391,9 @@ model TeamLeaderAssignmentAuditLog {
 model Product {
   id             String   @id @default(cuid())
   itemNo         String   @unique
+  itemDescription String?
+  series         String?
+  size           String?
   packSize       Float?
   principal      String
   costPrice      Float?

@@ -26,6 +26,7 @@
     "order360:sync": "tsx scripts/db-bridge/order-360/run.ts",
     "jp-adherence:import-plan": "tsx scripts/jp-adherence/import-plan.ts",
     "employee-master:import": "tsx scripts/employee-master/import.ts",
+    "product-master:import": "tsx scripts/product-master/import.ts",
     "target-management:import": "tsx scripts/target-management/import.ts",
     "ai-insights:sync": "tsx scripts/ai-insights/trigger.ts"
     ,"principal-kpis:mars-import": "node --max-old-space-size=4096 --import tsx scripts/principal-kpis/import-mars.ts"

@@ -2,13 +2,22 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { createProductAction, updateProductAction, deleteProductAction } from "./actions";
+import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const inputClass =
   "rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue";
 const labelClass = "text-[13px] font-medium text-muted-strong";
+
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+      <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+    </svg>
+  );
+}
 
 export default async function AdminProductsPage({
   searchParams,
@@ -34,7 +43,7 @@ export default async function AdminProductsPage({
         <p className="mt-1 text-sm text-white/70">Item → principal/pack-size reference data used by the SQL bridge.</p>
       </div>
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+      <div className="max-w-7xl mx-auto p-4 md:p-8 flex flex-col gap-6">
         {error ? (
           <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {error}
@@ -46,6 +55,33 @@ export default async function AdminProductsPage({
           </p>
         ) : null}
 
+        <div className="rounded-2xl border border-border bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-blue-soft text-primary-blue">
+              <UploadIcon />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold text-primary-blue">Update product master</h2>
+              <p className="mt-1 text-[13px] text-muted">
+                Upload the Products sheet from ProductMasterData.xlsx. Existing Item No. rows update in place; new items and product-principal mappings are added without deleting older rows.
+              </p>
+            </div>
+          </div>
+          <form action={uploadProductsAction} className="mt-4 flex flex-wrap items-center gap-4">
+            <input
+              type="file"
+              name="file"
+              accept=".xlsx,.xls,.xlsm"
+              required
+              className="min-w-0 text-sm text-foreground file:mr-4 file:rounded-full file:border-0 file:bg-background-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-blue hover:file:bg-accent-blue-soft"
+            />
+            <button type="submit" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+              <UploadIcon />
+              Upload product master
+            </button>
+          </form>
+        </div>
+
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Add a product</h2>
           <form action={createProductAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -54,8 +90,20 @@ export default async function AdminProductsPage({
               <input name="itemNo" required className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
+              <label className={labelClass}>Item description</label>
+              <input name="itemDescription" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Series</label>
+              <input name="series" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Size</label>
+              <input name="size" className={inputClass} />
+            </div>
+            <div className="flex flex-col gap-2">
               <label className={labelClass}>Principal</label>
-              <input name="principal" className={inputClass} />
+              <input name="principal" required className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Classification</label>
@@ -93,6 +141,7 @@ export default async function AdminProductsPage({
               <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-6 py-3 text-left font-medium">Item No.</th>
+                  <th className="px-6 py-3 text-left font-medium">Description</th>
                   <th className="px-6 py-3 text-left font-medium">Principal</th>
                   <th className="px-6 py-3 text-left font-medium">Classification</th>
                   <th className="px-6 py-3 text-right font-medium">Pack size</th>
@@ -105,12 +154,24 @@ export default async function AdminProductsPage({
                 {products.map((p) =>
                   editing?.id === p.id ? (
                     <tr key={p.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={7} className="px-6 py-4 border-b border-border/60">
+                      <td colSpan={8} className="px-6 py-4 border-b border-border/60">
                         <form action={updateProductAction} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                           <input type="hidden" name="productId" value={p.id} />
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Item No.</label>
                             <input value={p.itemNo} disabled className={inputClass + " opacity-60"} />
+                          </div>
+                          <div className="flex flex-col gap-1 sm:col-span-2">
+                            <label className={labelClass}>Item description</label>
+                            <input name="itemDescription" defaultValue={p.itemDescription ?? ""} className={inputClass} />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Series</label>
+                            <input name="series" defaultValue={p.series ?? ""} className={inputClass} />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Size</label>
+                            <input name="size" defaultValue={p.size ?? ""} className={inputClass} />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Principal</label>
@@ -146,6 +207,7 @@ export default async function AdminProductsPage({
                   ) : (
                     <tr key={p.id}>
                       <td className="px-6 py-3 border-b border-border/60 font-medium">{p.itemNo}</td>
+                      <td className="max-w-[320px] px-6 py-3 border-b border-border/60">{p.itemDescription || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60">{p.principal || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60">{p.classification || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">{p.packSize ?? "—"}</td>
@@ -167,7 +229,7 @@ export default async function AdminProductsPage({
                 )}
                 {products.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={8} className="px-6 py-8 text-center text-muted">
                       No products yet.
                     </td>
                   </tr>
