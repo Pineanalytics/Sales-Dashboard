@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
+import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 
 function formatLastUpdated(date: Date | null): string {
@@ -31,6 +32,7 @@ export function SyncHealthPanel({ rows }: { rows: SyncHealthRow[] }) {
           <Th>Cadence</Th>
           <Th>Last Updated</Th>
           <Th align="center">Status</Th>
+          <Th>Manual run</Th>
         </Thead>
         <tbody>
           {rows.map((r) => (
@@ -41,6 +43,7 @@ export function SyncHealthPanel({ rows }: { rows: SyncHealthRow[] }) {
               <Td align="center">
                 <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>
               </Td>
+              <Td>{r.triggerDistributor ? <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} /> : null}</Td>
             </tr>
           ))}
         </tbody>

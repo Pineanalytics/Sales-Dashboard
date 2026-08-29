@@ -7,6 +7,11 @@ export interface SyncHealthRow {
   lastUpdated: Date | null;
   staleAfterHours: number;
   isStale: boolean;
+  // Set only for rows with a manual "Trigger now" option (currently just
+  // Sales & Returns branches) — the distributor code to queue against via
+  // POST /api/sales-returns/trigger. See SalesReturnsTriggerRequest's schema
+  // comment for why this has to be a queue rather than a direct call.
+  triggerDistributor?: string;
 }
 
 /** Surfaces whether each scheduled sync job is actually landing fresh data —
@@ -54,9 +59,16 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
   ]);
 
-  function row(key: string, label: string, cadenceLabel: string, lastUpdated: Date | null, staleAfterHours: number): SyncHealthRow {
+  function row(
+    key: string,
+    label: string,
+    cadenceLabel: string,
+    lastUpdated: Date | null,
+    staleAfterHours: number,
+    triggerDistributor?: string
+  ): SyncHealthRow {
     const isStale = !lastUpdated || Date.now() - lastUpdated.getTime() > staleAfterHours * 3600_000;
-    return { key, label, cadenceLabel, lastUpdated, staleAfterHours, isStale };
+    return { key, label, cadenceLabel, lastUpdated, staleAfterHours, isStale, triggerDistributor };
   }
 
   const salesReturnsRows = salesReturnsBranches
@@ -66,7 +78,8 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
         `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[b.storageLocation] ?? b.storageLocation})`,
         "3x daily (7am/12pm/8pm)",
         b._max.createdAt,
-        15
+        15,
+        b.storageLocation
       )
     )
     .sort((a, b) => a.label.localeCompare(b.label));

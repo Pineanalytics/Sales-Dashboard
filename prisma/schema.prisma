@@ -1718,3 +1718,31 @@ model PjpDsrDailyActivity {
   @@index([dsr, date])
   @@index([distributor, date])
 }
+
+// Manual "run the sync now" queue for the Sales & Returns bridge, since the
+// Centegy machines (Nairobi, Nyeri) are on isolated networks with no inbound
+// access — nothing can reach in and trigger them directly. Instead each
+// machine's own scheduled poll (scripts/sales-returns-trigger-poll.ps1)
+// checks GET /api/sales-returns/trigger/pending over the same outbound
+// HTTPS connection it already uses to upload data, claims the oldest
+// pending request for its own distributor, runs the sync, then reports back
+// via POST /api/sales-returns/trigger/complete. Queued from the
+// /admin/dataset Sync Health panel's "Trigger now" button
+// (POST /api/sales-returns/trigger, session-authed/ADMIN).
+model SalesReturnsTriggerRequest {
+  id            String    @id @default(cuid())
+  distributor   String
+  // Exactly one of window/backfillFrom is set — validated at the API layer,
+  // not here (Prisma has no cross-field constraint).
+  window        String? // "today" | "yesterday" | "catchup"
+  backfillFrom  DateTime?
+  status        String    @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  requestedBy   String? // session user's email, for the audit trail
+  requestedAt   DateTime  @default(now())
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String? // run.ts's own success/failure summary, or the poll script's error
+
+  @@index([distributor, status])
+  @@index([requestedAt])
+}
