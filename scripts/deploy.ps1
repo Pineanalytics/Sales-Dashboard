@@ -173,14 +173,14 @@ try {
     $imageList = $images -join " "
 
     Write-Host "==> Preserving the currently running images as last-good..." -ForegroundColor Cyan
-    Invoke-Ssh "for image in $imageList; do if docker image inspect \"`$image:latest\" >/dev/null 2>&1; then docker tag \"`$image:latest\" \"`$image:last-good\"; fi; done"
+    Invoke-Ssh "for image in $imageList; do if docker image inspect `$image:latest >/dev/null 2>&1; then docker tag `$image:latest `$image:last-good; fi; done"
 
     Write-Host "==> Rebuilding the app and every code-bearing sync worker..." -ForegroundColor Cyan
     $buildArgs = "--build-arg APP_BUILD_COMMIT=$commitSha --build-arg APP_BUILD_BRANCH=master --build-arg APP_BUILT_AT='$builtAt' --build-arg APP_SCHEMA_FINGERPRINT=$schemaFingerprint"
     Invoke-Ssh "cd $RemotePath && docker compose build $buildArgs $services"
 
     Write-Host "==> Tagging immutable rollback images ($shortSha)..." -ForegroundColor Cyan
-    Invoke-Ssh "for image in $imageList; do docker tag \"`$image:latest\" \"`$image:$commitSha\"; done"
+    Invoke-Ssh "for image in $imageList; do docker tag `$image:latest `$image:$commitSha; done"
 
     if ($PushSchema -or $BackfillLiveDataset) {
         Write-Host "==> Rebuilding pinefrost-builder (full node_modules, needed for the requested production operation)..." -ForegroundColor Cyan
@@ -229,7 +229,7 @@ try {
     } catch {
         if ($restartCompleted) {
             Write-Warning "New build failed health verification. Restoring all last-good images..."
-            Invoke-Ssh "for image in $imageList; do docker image inspect \"`$image:last-good\" >/dev/null 2>&1 || exit 1; done; for image in $imageList; do docker tag \"`$image:last-good\" \"`$image:latest\"; done; cd $RemotePath && docker compose up -d --no-build --force-recreate $services"
+            Invoke-Ssh "for image in $imageList; do docker image inspect `$image:last-good >/dev/null 2>&1 || exit 1; done; for image in $imageList; do docker tag `$image:last-good `$image:latest; done; cd $RemotePath && docker compose up -d --no-build --force-recreate $services"
         }
         throw
     }
@@ -239,7 +239,7 @@ try {
 } finally {
     if ($deployLockAcquired) {
         try {
-            Invoke-Ssh "if [ \"`$(cat '$deployLockPath/owner' 2>/dev/null)\" = '$commitSha' ]; then rm -f '$deployLockPath/owner' && rmdir '$deployLockPath'; else echo 'Deployment lock owner changed; refusing to remove it.'; exit 74; fi"
+            Invoke-Ssh "if [ x`$(cat '$deployLockPath/owner' 2>/dev/null) = x'$commitSha' ]; then rm -f '$deployLockPath/owner' && rmdir '$deployLockPath'; else echo 'Deployment lock owner changed; refusing to remove it.'; exit 74; fi"
         } catch {
             Write-Warning "Could not release $deployLockPath automatically. Inspect its owner before the next deployment."
         }
