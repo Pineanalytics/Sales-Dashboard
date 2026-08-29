@@ -7,6 +7,7 @@ export interface SyncHealthRow {
   lastUpdated: Date | null;
   staleAfterHours: number;
   isStale: boolean;
+  expectedBy: Date | null;
   // Set only for rows with a manual "Trigger now" option (currently just
   // Sales & Returns branches) — the distributor code to queue against via
   // POST /api/sales-returns/trigger. See SalesReturnsTriggerRequest's schema
@@ -68,18 +69,28 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     triggerDistributor?: string
   ): SyncHealthRow {
     const isStale = !lastUpdated || Date.now() - lastUpdated.getTime() > staleAfterHours * 3600_000;
-    return { key, label, cadenceLabel, lastUpdated, staleAfterHours, isStale, triggerDistributor };
+    const expectedBy = lastUpdated ? new Date(lastUpdated.getTime() + staleAfterHours * 3600_000) : null;
+    return { key, label, cadenceLabel, lastUpdated, staleAfterHours, isStale, expectedBy, triggerDistributor };
   }
 
-  const salesReturnsRows = salesReturnsBranches
-    .map((b) =>
+  const salesReturnsByDistributor = new Map(
+    salesReturnsBranches.map((branch) => [branch.storageLocation, branch._max.createdAt] as const)
+  );
+  const salesReturnsDistributors = [
+    ...Object.keys(SALES_RETURNS_BRANCH_LABELS),
+    ...salesReturnsBranches
+      .map((branch) => branch.storageLocation)
+      .filter((distributor) => !(distributor in SALES_RETURNS_BRANCH_LABELS)),
+  ];
+  const salesReturnsRows = salesReturnsDistributors
+    .map((distributor) =>
       row(
-        `salesReturns:${b.storageLocation}`,
-        `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[b.storageLocation] ?? b.storageLocation})`,
+        `salesReturns:${distributor}`,
+        `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[distributor] ?? distributor})`,
         "3x daily (7am/12pm/8pm)",
-        b._max.createdAt,
+        salesReturnsByDistributor.get(distributor) ?? null,
         15,
-        b.storageLocation
+        distributor
       )
     )
     .sort((a, b) => a.label.localeCompare(b.label));

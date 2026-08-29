@@ -1,0 +1,63 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      push_schema:
+        description: Back up Postgres and apply an additive Prisma schema update
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinefrost-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      - run: npm run lint
+        continue-on-error: true
+      - run: npm test
+      - run: npm run build
+
+      - name: Configure VPS access
+        shell: bash
+        env:
+          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$HOSTINGER_SSH_KEY" > ~/.ssh/pinefrost_hostinger
+          chmod 600 ~/.ssh/pinefrost_hostinger
+          ssh-keyscan -H 187.77.80.216 >> ~/.ssh/known_hosts
+
+      - name: Deploy immutable master build
+        shell: pwsh
+        run: |
+          $arguments = @(
+            '-SshKey', "$HOME/.ssh/pinefrost_hostinger",
+            '-SshTarget', 'root@187.77.80.216'
+          )
+          if ('${{ inputs.push_schema }}' -eq 'true') {
+            $arguments += '-PushSchema'
+          }
+          & ./scripts/deploy.ps1 @arguments

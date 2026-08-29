@@ -167,24 +167,27 @@ tests/                Vitest unit tests + fixture workbook builder
 
 ## Deploying
 
-Runs on a single self-hosted Hostinger VPS via Docker Compose (`docker-compose.yml`): a Postgres 16 container, a `next build && next start` app container (a persistent Node process, not per-request serverless functions), and Caddy in front for automatic HTTPS. Postgres has no `ports:` mapping — it's reachable only inside the Compose network, never from the public internet. There is no CI/CD; the VPS's `/opt/pinefrost` is a plain file checkout (no `.git`), updated by copying the repo over and rebuilding.
+Runs on a single self-hosted Hostinger VPS via Docker Compose (`docker-compose.yml`): a Postgres 16 container, a `next build && next start` app container (a persistent Node process, not per-request serverless functions), code-bearing sync workers, and Caddy in front for automatic HTTPS. Postgres has no `ports:` mapping — it's reachable only inside the Compose network, never from the public internet. GitHub Actions validates `master`; production deployment is a manually dispatched, environment-guarded workflow. The VPS's `/opt/pinefrost` is an exact archive of the deployed commit, not a Git checkout.
 
 **`scripts/deploy.ps1`** wraps the whole process — from a Windows machine with SSH access to the VPS (`~/.ssh/pinefrost_hostinger` by default):
 
 ```powershell
 ./scripts/deploy.ps1                # code only: sync files, rebuild, restart the app container
-./scripts/deploy.ps1 -PushSchema     # also runs `prisma db push` against the VPS's Postgres
+./scripts/deploy.ps1 -PreflightOnly  # verify clean/synchronized master without changing the VPS
+./scripts/deploy.ps1 -PushSchema     # back up Postgres, then apply an additive schema update
 ```
 
 What it does, in order:
 
-1. `git archive HEAD` — packages exactly the committed tree (no `node_modules`, `.next`, `.git`, or local `.env`) into a tarball.
-2. `scp`s the tarball to the VPS and extracts it over `/opt/pinefrost`, **never touching the VPS's own `.env`** (it isn't tracked, so the archive doesn't contain it).
-3. `docker compose build app` (the runner image) and `docker build --target builder -t pinefrost-builder` (a full-`node_modules` image, used only for one-off commands like schema pushes or data backfills — the runner image is pruned and doesn't have the Prisma CLI).
-4. `docker compose up -d app` to recreate the app container on the new image.
-5. With `-PushSchema`: runs `prisma db push` inside a throwaway `pinefrost-builder` container, on the Compose network, with `DATABASE_URL` assembled from the VPS's real `POSTGRES_*` env vars — i.e. against the actual production database, not a local one.
+1. Refuses anything except a clean `master` whose HEAD exactly matches `origin/master`, then acquires a VPS deployment lock.
+2. `git archive HEAD` packages exactly the committed tree and mirrors it to `/opt/pinefrost` while preserving the VPS's environment files.
+3. Preserves all current app/worker images as `last-good`, then rebuilds the app and every code-bearing sync worker with commit/build/schema identity labels and immutable commit tags.
+4. With `-PushSchema`, creates a production `pg_dump` and applies the additive Prisma schema before application containers restart. `-AcceptDataLoss` is disabled.
+5. Restarts all code services and requires `/api/health` to report the expected commit. A failed identity/health check automatically restores every `last-good` image.
 
 **Before running it for the first time**, set the VPS's SSH host/user/path at the top of the script if they differ from the defaults, and confirm `~/.ssh/pinefrost_hostinger` is the right key.
+
+See [`docs/production-governance.md`](docs/production-governance.md) for the pull-request, schema, rollback, and branch-retirement policy.
 
 **A one-time data backfill or schema change that isn't a normal code deploy** (e.g. importing a spreadsheet directly into production) should still go through the same `pinefrost-builder` image and Compose network by hand — see the pattern `scripts/deploy.ps1` itself uses for `-PushSchema` as a template. Local scripts never have direct access to the production database; it's intentionally not exposed outside the VPS.
 

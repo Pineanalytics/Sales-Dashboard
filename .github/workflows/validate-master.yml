@@ -1,0 +1,55 @@
+name: Validate master
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      # Existing lint debt is reported but does not block production yet. Remove
+      # continue-on-error once the baseline is clean; new code is still covered
+      # by typecheck, tests, the production build, and review.
+      - run: npm run lint
+        continue-on-error: true
+      - run: npm test
+      - run: npm run build
+      - run: git diff --check
+
+      - name: Select comparison schema
+        id: schema-base
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_ref="${{ github.event.pull_request.base.sha }}"
+          else
+            base_ref="${{ github.event.before }}"
+          fi
+          if [[ -z "$base_ref" || "$base_ref" == "0000000000000000000000000000000000000000" ]] || ! git cat-file -e "$base_ref:prisma/schema.prisma" 2>/dev/null; then
+            cp prisma/schema.prisma /tmp/base-schema.prisma
+          else
+            git show "$base_ref:prisma/schema.prisma" > /tmp/base-schema.prisma
+          fi
+
+      - name: Reject destructive schema changes
+        run: node scripts/check-schema-safety.mjs /tmp/base-schema.prisma prisma/schema.prisma

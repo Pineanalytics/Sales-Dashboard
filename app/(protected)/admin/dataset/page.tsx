@@ -6,6 +6,7 @@ import { SyncHealthPanel } from "@/components/admin/SyncHealthPanel";
 import { getSyncHealth } from "@/lib/syncHealth";
 import { DirectStockSyncPanel } from "@/components/admin/DirectStockSyncPanel";
 import { getDirectStockSyncStatus } from "@/lib/stockSync";
+import { getDeploymentInfo } from "@/lib/deployment";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function AdminDatasetPage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        <SyncHealthPanel rows={syncHealth} />
+        <SyncHealthPanel rows={syncHealth} deployment={getDeploymentInfo()} />
         <DirectStockSyncPanel status={stockSyncStatus} />
         <AdminDatasetPanel />
       </div>

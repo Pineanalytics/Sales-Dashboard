@@ -28,7 +28,16 @@ RUN npm run build
 # dashboard, but run in their own containers. Keeping them separate means a
 # slow SAP/Pine read can never occupy the Next.js request process.
 FROM deps AS sync-worker
+ARG APP_BUILD_COMMIT=development
+ARG APP_BUILD_BRANCH=local
+ARG APP_BUILT_AT=unknown
+ARG APP_SCHEMA_FINGERPRINT=unavailable
 WORKDIR /app
+ENV APP_BUILD_COMMIT=$APP_BUILD_COMMIT
+ENV APP_BUILD_BRANCH=$APP_BUILD_BRANCH
+ENV APP_BUILT_AT=$APP_BUILT_AT
+ENV APP_SCHEMA_FINGERPRINT=$APP_SCHEMA_FINGERPRINT
+LABEL org.opencontainers.image.revision=$APP_BUILD_COMMIT
 COPY . .
 # Bridge entry points call process.loadEnvFile(). The real values are injected
 # by Compose at runtime; this harmless template only makes the file available
@@ -40,8 +49,17 @@ USER nextjs
 CMD ["node", "--import", "tsx", "scripts/continuous-sync-worker.ts"]
 
 FROM base AS runner
+ARG APP_BUILD_COMMIT=development
+ARG APP_BUILD_BRANCH=local
+ARG APP_BUILT_AT=unknown
+ARG APP_SCHEMA_FINGERPRINT=unavailable
 WORKDIR /app
 ENV NODE_ENV=production
+ENV APP_BUILD_COMMIT=$APP_BUILD_COMMIT
+ENV APP_BUILD_BRANCH=$APP_BUILD_BRANCH
+ENV APP_BUILT_AT=$APP_BUILT_AT
+ENV APP_SCHEMA_FINGERPRINT=$APP_SCHEMA_FINGERPRINT
+LABEL org.opencontainers.image.revision=$APP_BUILD_COMMIT
 RUN groupadd --system --gid 1001 nodejs && useradd --system --uid 1001 --gid nodejs nextjs
 
 COPY --from=builder /app/public ./public
