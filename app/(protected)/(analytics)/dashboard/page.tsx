@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useDashboardStore } from "@/lib/store";
 import { CoverageSnapshot } from "@/components/overview/CoverageSnapshot";
 import { CoverageRoleToggle } from "@/components/overview/CoverageRoleToggle";
@@ -8,7 +9,7 @@ import { WeekDailyActuals } from "@/components/dashboard/WeekDailyActuals";
 import { TlRankingTable } from "@/components/dashboard/TlRankingTable";
 import { PrincipalMarginsBars } from "@/components/dashboard/PrincipalMarginsBars";
 import { MissionProgressBars } from "@/components/dashboard/MissionProgressBars";
-import { DashboardHero } from "@/components/dashboard/DashboardHero";
+import { SalesSectionNav, type SalesSection } from "@/components/dashboard/SalesSectionNav";
 import { useDateAwareGrowth } from "@/components/hooks/useDateAwareGrowth";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
@@ -42,6 +43,8 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
   const period = useDashboardStore((s) => s.selectedPeriod);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const tab = useDashboardStore((s) => s.executiveView);
+  const setSalesSection = useDashboardStore((s) => s.setSalesSection);
+  const router = useRouter();
   const [coverageRole, setCoverageRole] = useState<Extract<RoleCategory, "primary" | "secondary">>("primary");
   const dateMatchedGrowth = useDateAwareGrowth(dataset ? getCurrentMonthPeriod(dataset) : null, selectedPrincipalKey).data;
 
@@ -82,6 +85,11 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
       : null;
   const mtdBalance = mtdSummary.target !== null ? mtdSummary.target - mtdSummary.revenue : null;
 
+  const selectSalesSection = (section: SalesSection) => {
+    setSalesSection(section);
+    if (section !== "executive") router.push("/sales");
+  };
+
   // "Total YTD Revenue" / "Total YTD Mission" / "Growth v SPLY" / "YTD % Achieved" —
   // the YTD Summary tab's own top row, fixed to YTD regardless of the global
   // PeriodSelector (same rationale as mtdSummary above for the MTD tab).
@@ -98,7 +106,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
 
   return (
     <div className="flex flex-col gap-3 md:gap-4">
-      {!embedded ? <DashboardHero title={tab === "mtd" ? "MTD Sales Overview" : "YTD Summary"} /> : null}
+      {!embedded ? <SalesSectionNav active="executive" onSelect={selectSalesSection} /> : null}
       {tab === "mtd" ? (
         <div className="flex flex-col gap-3 md:gap-4">
           <WeekDailyActuals
