@@ -8,6 +8,7 @@ const CHUNK_SIZE = 500;
 
 interface PjpDsrDailyActivityUploadRow {
   date: string;
+  distributor: string;
   pjp: string;
   route: string;
   dsr: string;
@@ -37,6 +38,7 @@ function isValidRow(value: unknown): value is PjpDsrDailyActivityUploadRow {
   const nullableNumber = (v: unknown) => v === null || typeof v === "number";
   return (
     typeof row.date === "string" &&
+    typeof row.distributor === "string" &&
     typeof row.pjp === "string" &&
     typeof row.route === "string" &&
     typeof row.dsr === "string" &&
@@ -78,14 +80,22 @@ export async function POST(req: NextRequest) {
   try {
     await prisma.$transaction(
       async (tx) => {
-        if (windowStart && windowEnd) {
-          await tx.pjpDsrDailyActivity.deleteMany({ where: { date: { gte: windowStart, lt: windowEnd } } });
+        // Scoped to this batch's own distributor(s), not just the date
+        // window — see the matching comment in
+        // app/api/sales-returns/upload/route.ts for why (this table is
+        // shared across branches too). Skipped when rows is empty, same
+        // reasoning as that route.
+        if (windowStart && windowEnd && rows.length > 0) {
+          const distributors = Array.from(new Set(rows.map((row) => row.distributor)));
+          await tx.pjpDsrDailyActivity.deleteMany({
+            where: { date: { gte: windowStart, lt: windowEnd }, distributor: { in: distributors } },
+          });
         }
         for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
           await tx.pjpDsrDailyActivity.createMany({
             data: rows.slice(index, index + CHUNK_SIZE).map((row) => ({
               ...row,
-              sourceRowKey: `${row.pjp}|${row.dsr}|${row.date}`,
+              sourceRowKey: `${row.distributor}|${row.pjp}|${row.dsr}|${row.date}`,
               date: new Date(row.date),
               firstEntryTime: row.firstEntryTime ? new Date(row.firstEntryTime) : null,
               lastEntryTime: row.lastEntryTime ? new Date(row.lastEntryTime) : null,

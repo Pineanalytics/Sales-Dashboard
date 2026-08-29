@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 const CHUNK_SIZE = 500;
 
 interface PjpSkuPerformanceUploadRow {
+  distributor: string;
   pjp: string;
   route: string;
   skuCode: string;
@@ -29,6 +30,7 @@ function isValidRow(value: unknown): value is PjpSkuPerformanceUploadRow {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   return (
+    typeof row.distributor === "string" &&
     typeof row.pjp === "string" &&
     typeof row.route === "string" &&
     typeof row.skuCode === "string" &&
@@ -65,7 +67,15 @@ export async function POST(req: NextRequest) {
   try {
     await prisma.$transaction(
       async (tx) => {
-        await tx.pjpSkuPerformance.deleteMany({ where: { month } });
+        // Scoped to this batch's own distributor(s), not just the month —
+        // see the matching comment in app/api/sales-returns/upload/route.ts
+        // for why (this table is shared across branches too). Skipped when
+        // rows is empty (no rows this run at all, for any distributor) —
+        // there's nothing to safely scope the delete to.
+        if (rows.length > 0) {
+          const distributors = Array.from(new Set(rows.map((row) => row.distributor)));
+          await tx.pjpSkuPerformance.deleteMany({ where: { month, distributor: { in: distributors } } });
+        }
         for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
           await tx.pjpSkuPerformance.createMany({
             data: rows.slice(index, index + CHUNK_SIZE).map((row) => ({ ...row, month })),

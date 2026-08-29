@@ -86,8 +86,16 @@ export async function POST(req: NextRequest) {
   try {
     await prisma.$transaction(
       async (tx) => {
-        if (windowStart && windowEnd) {
-          await tx.outletSkuDailySales.deleteMany({ where: { date: { gte: windowStart, lt: windowEnd } } });
+        // Scoped to this batch's own distributor(s), not just the date
+        // window — see the matching comment in
+        // app/api/sales-returns/upload/route.ts for why (this table is
+        // shared across branches too). Skipped when rows is empty, same
+        // reasoning as that route.
+        if (windowStart && windowEnd && rows.length > 0) {
+          const distributors = Array.from(new Set(rows.map((row) => row.distributor)));
+          await tx.outletSkuDailySales.deleteMany({
+            where: { date: { gte: windowStart, lt: windowEnd }, distributor: { in: distributors } },
+          });
         }
         for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
           await tx.outletSkuDailySales.createMany({

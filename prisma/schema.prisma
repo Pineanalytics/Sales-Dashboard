@@ -1612,6 +1612,7 @@ model SalesReturnLine {
   @@index([salesRepCode, deliveryDate])
   @@index([customerCode])
   @@index([documentType])
+  @@index([storageLocation, deliveryDate])
 }
 
 // PJP (route) x SKU month-to-date performance — a second report fed by the
@@ -1620,21 +1621,26 @@ model SalesReturnLine {
 // SalesReturnLine's per-day delivery-date window, the source query always
 // recomputes the whole current month, so each run fully replaces that
 // month's rows (see app/api/pjp-sku-performance/upload) rather than
-// appending — a row here is a snapshot, not an immutable fact.
+// appending — a row here is a snapshot, not an immutable fact. `distributor`
+// (added once a second branch, e.g. Nyeri, started feeding this same table)
+// keys the delete-and-replace per branch, so one branch's sync can never
+// wipe another's rows for the same month.
 model PjpSkuPerformance {
-  id        String   @id @default(cuid())
-  month     DateTime // first-of-month marker (Africa/Nairobi) this snapshot covers
-  pjp       String // route/journey-plan code
-  route     String // route description
-  skuCode   String
-  skuDesc   String
-  ecoMtd    Int // distinct outlets (town+locality+slocality+pop) visited so far this month
-  skuSales  Float
-  pcs       Float
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  month       DateTime // first-of-month marker (Africa/Nairobi) this snapshot covers
+  distributor String
+  pjp         String // route/journey-plan code
+  route       String // route description
+  skuCode     String
+  skuDesc     String
+  ecoMtd      Int // distinct outlets (town+locality+slocality+pop) visited so far this month
+  skuSales    Float
+  pcs         Float
+  updatedAt   DateTime @updatedAt
 
-  @@unique([month, pjp, skuCode])
+  @@unique([month, distributor, pjp, skuCode])
   @@index([month])
+  @@index([distributor, month])
 }
 
 // Outlet x SKU net sales (sales netted against returns), per delivery day —
@@ -1671,6 +1677,7 @@ model OutletSkuDailySales {
   @@index([outletCode, date])
   @@index([sku])
   @@index([pjp])
+  @@index([distributor, date])
 }
 
 // PJP/DSR daily activity — a fourth report fed by the same Centegy SQL
@@ -1679,12 +1686,16 @@ model OutletSkuDailySales {
 // confirmed (by sampling live data) to carry real time-of-day variation,
 // unlike DELV_DATE/DOC_DATE which always sit at exactly 00:00:00. Per-day
 // fact grain like OutletSkuDailySales — delete-and-replace by date window,
-// see app/api/pjp-dsr-daily-activity/upload.
+// see app/api/pjp-dsr-daily-activity/upload. `distributor` (added once a
+// second branch, e.g. Nyeri, started feeding this same table) keys both the
+// sourceRowKey and the delete-and-replace, so one branch's sync can never
+// wipe another's rows for the same day.
 model PjpDsrDailyActivity {
   id           String   @id @default(cuid())
-  // `${pjp}|${dsr}|${date}` — unique per the source query's grain.
+  // `${distributor}|${pjp}|${dsr}|${date}` — unique per the source query's grain.
   sourceRowKey String   @unique
   date         DateTime
+  distributor  String
   pjp          String
   route        String
   dsr          String
@@ -1705,4 +1716,5 @@ model PjpDsrDailyActivity {
   @@index([date])
   @@index([pjp, date])
   @@index([dsr, date])
+  @@index([distributor, date])
 }

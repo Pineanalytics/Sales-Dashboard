@@ -14,10 +14,15 @@
 // its DATE_ENTRY times likely reflect office/manual entry, not real field
 // activity. handheldTransactionCount lets a consumer judge how much to trust
 // a given row's timing rather than silently excluding that data.
+//
+// DISTRIBUTOR (already joined for the DSR lookup) is surfaced in the output
+// too — needed once a second branch (e.g. Nyeri) feeds this same shared
+// table, so its PJP/DSR codes can't collide with another branch's.
 import sql from "mssql";
 
 export interface PjpDsrDailyActivityRow {
   date: string; // "YYYY-MM-DD" — the delivery date this activity belongs to
+  distributor: string;
   pjp: string;
   route: string;
   dsr: string;
@@ -33,6 +38,7 @@ export interface PjpDsrDailyActivityRow {
 
 interface PjpDsrDailyActivityRecord {
   ActivityDate: Date;
+  DISTRIBUTOR: string;
   PJP: string;
   ROUTE: string;
   DSR: string;
@@ -79,6 +85,7 @@ export async function fetchPjpDsrDailyActivity(
       )
       SELECT
           oe.ActivityDate,
+          oe.DISTRIBUTOR,
           oe.PJP,
           MAX(ph.LDESC) AS ROUTE,
           oe.DSR,
@@ -98,6 +105,7 @@ export async function fetchPjpDsrDailyActivity(
 
   return result.recordset.map((r) => ({
     date: r.ActivityDate.toISOString().slice(0, 10),
+    distributor: r.DISTRIBUTOR,
     pjp: r.PJP,
     route: r.ROUTE,
     dsr: r.DSR,

@@ -106,8 +106,21 @@ export async function POST(req: NextRequest) {
   try {
     await prisma.$transaction(
       async (tx) => {
-        if (windowStart && windowEnd) {
-          await tx.salesReturnLine.deleteMany({ where: { deliveryDate: { gte: windowStart, lt: windowEnd } } });
+        // Scoped to this batch's own storageLocation(s) (the field the source
+        // query calls DISTRIBUTOR) — not just the date window. This table is
+        // shared across branches (e.g. Nairobi/Nyeri, each running its own
+        // scheduled sync against this same endpoint); without this, one
+        // branch's run would delete-and-replace the whole window, wiping out
+        // another branch's rows for the same dates. Skipped when lines is
+        // empty (the "window checked, nothing found" marker — see run.ts) —
+        // there's no way to safely identify which branch's rows a zero-row
+        // batch belongs to, so we leave existing rows untouched rather than
+        // risk deleting the wrong branch's data.
+        if (windowStart && windowEnd && lines.length > 0) {
+          const storageLocations = Array.from(new Set(lines.map((line) => line.storageLocation)));
+          await tx.salesReturnLine.deleteMany({
+            where: { deliveryDate: { gte: windowStart, lt: windowEnd }, storageLocation: { in: storageLocations } },
+          });
         }
         for (let index = 0; index < lines.length; index += CHUNK_SIZE) {
           await tx.salesReturnLine.createMany({

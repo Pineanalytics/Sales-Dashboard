@@ -1,13 +1,19 @@
 // PJP (route) x SKU month-to-date performance — a second report against the
 // same Centegy SQL Server as query.ts's Sales & Returns invoice-line detail
 // (same connection, same run — see run.ts). Direct port of a hand-run report:
-// only change from the original is the hardcoded month bounds becoming query
-// parameters. Unlike query.ts, this is a full-month aggregate recomputed on
-// every run, not a per-day fact table — callers should always pass
+// changes from the original are the hardcoded month bounds becoming query
+// parameters, and DISTRIBUTOR added to the SELECT/GROUP BY (not in the
+// original report, which only ever ran against one branch) — needed once a
+// second branch (e.g. Nyeri) feeds this same shared table: without it,
+// there's nothing distinguishing one branch's PJP/SKU codes from another's,
+// and the two branches' scheduled syncs would overwrite each other's rows.
+// Unlike query.ts, this is a full-month aggregate recomputed on every run,
+// not a per-day fact table — callers should always pass
 // [month-start, end-of-current-window], never an arbitrary range.
 import sql from "mssql";
 
 export interface PjpSkuPerformanceRow {
+  distributor: string;
   pjp: string;
   route: string;
   skuCode: string;
@@ -18,6 +24,7 @@ export interface PjpSkuPerformanceRow {
 }
 
 interface PjpSkuPerformanceRecord {
+  DISTRIBUTOR: string;
   PJP: string;
   ROUTE: string;
   SKU_CODE: string;
@@ -41,6 +48,7 @@ export async function fetchPjpSkuPerformance(
     .input("EndDate", sql.DateTime2, endDate)
     .query<PjpSkuPerformanceRecord>(`
       SELECT
+          c.DISTRIBUTOR AS DISTRIBUTOR,
           ph.pjp AS PJP,
           MAX(ph.LDESC) AS ROUTE,
           su.sku AS SKU_CODE,
@@ -58,10 +66,11 @@ export async function fetchPjpSkuPerformance(
       WHERE
           c.delv_date >= @StartDate AND c.delv_date <= @EndDate
           AND c.VISIT_TYPE = '02'
-      GROUP BY su.SKU, ph.PJP
+      GROUP BY c.DISTRIBUTOR, su.SKU, ph.PJP
     `);
 
   return result.recordset.map((r) => ({
+    distributor: r.DISTRIBUTOR,
     pjp: r.PJP,
     route: r.ROUTE,
     skuCode: r.SKU_CODE,
