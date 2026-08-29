@@ -154,13 +154,12 @@ try {
     # every deploy an exact mirror of the committed tree, matching this script's own
     # documented intent.
     Write-Host "==> Clearing $RemotePath (except protected environment files) before extracting..." -ForegroundColor Cyan
-    Invoke-Ssh "find $RemotePath -mindepth 1 -not -name '.env' -not -name '.sync.env' -delete"
+    Invoke-Ssh "find $RemotePath -mindepth 1 -not -name '.env' -not -name '.sync.env' -not -name '.deployment.json' -delete"
 
     Write-Host "==> Extracting the committed tree into $RemotePath..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && tar -xf /tmp/pinefrost-deploy.tar && rm /tmp/pinefrost-deploy.tar"
 
     $deploymentJson = @{ commit = $commitSha; branch = "master"; builtAt = $builtAt; schemaFingerprint = $schemaFingerprint } | ConvertTo-Json -Compress
-    Invoke-Ssh "printf '%s\n' '$deploymentJson' > '$RemotePath/.deployment.json'"
 
     $services = "app live-sync-worker outlets-sync-worker mars-kpis-sync-worker sap-sync-worker"
     $images = @(
@@ -213,23 +212,40 @@ try {
     }
 
     Write-Host "==> Restarting the app and every code-bearing sync worker..." -ForegroundColor Cyan
-    Invoke-Ssh "cd $RemotePath && docker compose up -d $services"
+    Invoke-Ssh "cd $RemotePath && docker compose up -d --no-deps $services"
     $restartCompleted = $true
 
     Write-Host "==> Verifying the site responds..." -ForegroundColor Cyan
-    Start-Sleep -Seconds 3
     try {
-        $health = Invoke-WebRequest -Uri "https://pinefrostdb.com/api/health" -TimeoutSec 20 -UseBasicParsing
-        $healthBody = $health.Content | ConvertFrom-Json
-        if ($healthBody.status -ne "ok" -or $healthBody.deployment.commit -ne $commitSha) {
-            throw "Health identity mismatch: expected $commitSha, received $($healthBody.deployment.commit)."
+        $healthVerified = $false
+        $lastHealthError = $null
+        for ($attempt = 1; $attempt -le 12; $attempt++) {
+            try {
+                $health = Invoke-WebRequest -Uri "https://pinefrostdb.com/api/health" -TimeoutSec 20 -UseBasicParsing
+                $healthBody = $health.Content | ConvertFrom-Json
+                if ($healthBody.status -ne "ok" -or $healthBody.deployment.commit -ne $commitSha) {
+                    throw "Health identity mismatch: expected $commitSha, received $($healthBody.deployment.commit)."
+                }
+                $healthVerified = $true
+                break
+            } catch {
+                $lastHealthError = $_
+                if ($attempt -lt 12) {
+                    Write-Host "    Health not ready (attempt $attempt/12); retrying in 5 seconds..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 5
+                }
+            }
         }
+        if (-not $healthVerified) {
+            throw "New build did not become healthy after 12 attempts: $lastHealthError"
+        }
+        Invoke-Ssh "printf '%s\n' '$deploymentJson' > '$RemotePath/.deployment.json'"
         Write-Host "    /api/health -> HTTP $($health.StatusCode)" -ForegroundColor Green
         Write-Host "    live build -> $($healthBody.deployment.branch)@$($healthBody.deployment.shortCommit)" -ForegroundColor Green
     } catch {
         if ($restartCompleted) {
             Write-Warning "New build failed health verification. Restoring all last-good images..."
-            Invoke-Ssh "for image in $imageList; do docker image inspect `$image:last-good >/dev/null 2>&1 || exit 1; done; for image in $imageList; do docker tag `$image:last-good `$image:latest; done; cd $RemotePath && docker compose up -d --no-build --force-recreate $services"
+            Invoke-Ssh "for image in $imageList; do docker image inspect `$image:last-good >/dev/null 2>&1 || exit 1; done; for image in $imageList; do docker tag `$image:last-good `$image:latest; done; cd $RemotePath && docker compose up -d --no-deps --no-build --force-recreate $services"
         }
         throw
     }
