@@ -65,7 +65,7 @@ function isValidRow(value: unknown): value is OutletSkuDailySalesUploadRow {
 export async function POST(req: NextRequest) {
   if (!hasValidApiKey(req)) return NextResponse.json({ error: "Invalid or missing API key." }, { status: 401 });
 
-  let body: { rows?: unknown; windowStart?: unknown; windowEnd?: unknown };
+  let body: { rows?: unknown; windowStart?: unknown; windowEnd?: unknown; distributor?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -83,16 +83,22 @@ export async function POST(req: NextRequest) {
   }
 
   const rows = body.rows as OutletSkuDailySalesUploadRow[];
+  const distributor = typeof body.distributor === "string" && /^\d+$/.test(body.distributor) ? body.distributor : null;
+  if (distributor && rows.some((row) => row.distributor !== distributor)) {
+    return NextResponse.json({ error: "Every row must match the requested distributor." }, { status: 400 });
+  }
   try {
     await prisma.$transaction(
       async (tx) => {
         // Scoped to this batch's own distributor(s), not just the date
         // window — see the matching comment in
         // app/api/sales-returns/upload/route.ts for why (this table is
-        // shared across branches too). Skipped when rows is empty, same
-        // reasoning as that route.
-        if (windowStart && windowEnd && rows.length > 0) {
-          const distributors = Array.from(new Set(rows.map((row) => row.distributor)));
+        // shared across branches too). An explicit distributor lets smart
+        // reconciliation safely clear a corrected source day with zero rows.
+        const distributors = distributor
+          ? [distributor]
+          : Array.from(new Set(rows.map((row) => row.distributor)));
+        if (windowStart && windowEnd && distributors.length > 0) {
           await tx.outletSkuDailySales.deleteMany({
             where: { date: { gte: windowStart, lt: windowEnd }, distributor: { in: distributors } },
           });

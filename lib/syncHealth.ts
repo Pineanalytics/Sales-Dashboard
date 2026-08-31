@@ -34,13 +34,12 @@ export interface SyncHealthRow {
  *  correct freshness signal now. PJP ownership adherence joins those
  *  ActiveOutlet owner fields to RepCall, so it shares their source freshness.
  *
- *  Sales & Returns gets one row PER BRANCH (Nairobi/Nyeri, keyed by
- *  SalesReturnLine.storageLocation — that field holds the source query's
- *  DISTRIBUTOR code) rather than one combined row: this bridge runs as
- *  entirely separate scheduled tasks on separate physical Centegy machines,
- *  so one branch's sync can die while the other keeps landing fresh data —
- *  a single MAX(createdAt) across both would mask that. Uses createdAt
- *  (delete + insert each run, like JP Adherence) rather than updatedAt.
+ *  Sales & Returns gets one row PER BRANCH (Nairobi/Nyeri). Smart checks can
+ *  legitimately find no changed day and skip all data writes, so freshness
+ *  comes from a per-distributor SyncWatermark heartbeat updated only after
+ *  reconciliation/repair verification succeeds. Existing data createdAt is
+ *  retained as a fallback until each machine has completed its first smart
+ *  run. A single combined timestamp would let one live branch mask another.
  *  BRANCH_LABELS is just cosmetic — an unrecognized distributor code (e.g.
  *  a new branch onboarded but not added here yet) still shows up, just
  *  labeled by its raw code instead of a friendly name. */
@@ -50,7 +49,7 @@ const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
 };
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -58,6 +57,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
+    prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
   ]);
 
   function row(
@@ -76,20 +76,26 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   const salesReturnsByDistributor = new Map(
     salesReturnsBranches.map((branch) => [branch.storageLocation, branch._max.createdAt] as const)
   );
+  const salesReturnsHeartbeatByDistributor = new Map(
+    salesReturnsWatermarks.map((watermark) => [watermark.bridge.slice("sales-returns:".length), watermark.updatedAt] as const)
+  );
   const salesReturnsDistributors = [
     ...Object.keys(SALES_RETURNS_BRANCH_LABELS),
     ...salesReturnsBranches
       .map((branch) => branch.storageLocation)
       .filter((distributor) => !(distributor in SALES_RETURNS_BRANCH_LABELS)),
+    ...salesReturnsWatermarks
+      .map((watermark) => watermark.bridge.slice("sales-returns:".length))
+      .filter((distributor) => !(distributor in SALES_RETURNS_BRANCH_LABELS)),
   ];
-  const salesReturnsRows = salesReturnsDistributors
+  const salesReturnsRows = Array.from(new Set(salesReturnsDistributors))
     .map((distributor) =>
       row(
         `salesReturns:${distributor}`,
         `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[distributor] ?? distributor})`,
         "Every 5 minutes",
-        salesReturnsByDistributor.get(distributor) ?? null,
-        15,
+        salesReturnsHeartbeatByDistributor.get(distributor) ?? salesReturnsByDistributor.get(distributor) ?? null,
+        20 / 60,
         distributor
       )
     )

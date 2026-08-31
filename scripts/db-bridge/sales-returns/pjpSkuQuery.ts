@@ -40,12 +40,14 @@ interface PjpSkuPerformanceRecord {
 export async function fetchPjpSkuPerformance(
   pool: sql.ConnectionPool,
   startDate: Date,
-  endDate: Date
+  endDate: Date,
+  distributor: string
 ): Promise<PjpSkuPerformanceRow[]> {
   const result = await pool
     .request()
     .input("StartDate", sql.DateTime2, startDate)
     .input("EndDate", sql.DateTime2, endDate)
+    .input("Distributor", sql.VarChar, distributor)
     .query<PjpSkuPerformanceRecord>(`
       SELECT
           c.DISTRIBUTOR AS DISTRIBUTOR,
@@ -66,6 +68,7 @@ export async function fetchPjpSkuPerformance(
       WHERE
           c.delv_date >= @StartDate AND c.delv_date <= @EndDate
           AND c.VISIT_TYPE = '02'
+          AND c.DISTRIBUTOR = @Distributor
       GROUP BY c.DISTRIBUTOR, su.SKU, ph.PJP
     `);
 

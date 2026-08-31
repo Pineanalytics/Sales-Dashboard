@@ -13,17 +13,17 @@
   containing "&" (this project's own folder name), a known quirk on this
   machine.
 
-  Registered as one five-minute Task Scheduler entry with -Window Catchup.
-  Catchup fetches yesterday+today on every run: today stays close to live and
-  yesterday keeps correcting for late/final transactions. The API's
-  distributor-scoped delete-and-replace makes repeated runs idempotent and
-  prevents Nairobi/Nyeri from touching each other's rows.
+  Registered as one five-minute Task Scheduler entry with -Window Smart.
+  Smart checks SQL's latest real delivery date and exact per-day VPS
+  signatures, repairs the oldest mismatch first, and does no extraction when
+  nothing changed. The API's distributor-scoped delete-and-replace keeps
+  Nairobi and Nyeri isolated.
 #>
 
 param(
   [string]$ProjectPath = "D:\Reports & Extractions\Sales Dashboard",
-  [ValidateSet("Today", "Yesterday", "Catchup")]
-  [string]$Window = "Yesterday"
+  [ValidateSet("Smart", "Today", "Yesterday", "Catchup")]
+  [string]$Window = "Smart"
 )
 
 $ErrorActionPreference = "Stop"

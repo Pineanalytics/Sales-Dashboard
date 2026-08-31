@@ -60,12 +60,14 @@ function toNumber(value: number | string | null): number {
 export async function fetchOutletSkuDailySales(
   pool: sql.ConnectionPool,
   startDate: Date,
-  endDate: Date
+  endDate: Date,
+  distributor: string
 ): Promise<OutletSkuDailySalesRow[]> {
   const result = await pool
     .request()
     .input("StartDate", sql.DateTime2, startDate)
     .input("EndDate", sql.DateTime2, endDate)
+    .input("Distributor", sql.VarChar, distributor)
     .query<OutletSkuDailySalesRecord>(`
       WITH TotalSales AS (
           SELECT
@@ -110,6 +112,7 @@ export async function fetchOutletSkuDailySales(
           WHERE
               cm.Delv_DATE >= @StartDate AND cm.Delv_DATE <= @EndDate
               AND cm.VISIT_TYPE = '02'
+              AND cm.DISTRIBUTOR = @Distributor
 
           GROUP BY
               cd.DISTRIBUTOR, dt.NAME, cm.PJP, ds.NAME, cm.DELV_DATE, pt.LDESC, pl.LDESC, p5.LDESC,
@@ -142,6 +145,7 @@ export async function fetchOutletSkuDailySales(
               SKU sk ON sk.SKU = cd.SKU
 
           WHERE cm_return.Delv_DATE >= @StartDate AND cm_return.Delv_DATE <= @EndDate
+            AND cm_return.DISTRIBUTOR = @Distributor
 
           GROUP BY
               cd.DISTRIBUTOR, cd.SKU, cm_return.PJP, ds_return.NAME, cm_return.Delv_DATE,
