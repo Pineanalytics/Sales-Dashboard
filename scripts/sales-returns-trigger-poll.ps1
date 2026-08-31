@@ -12,7 +12,7 @@
   queued against this machine's own -Distributor from the /admin/dataset
   Sync Health panel's "Trigger now" button, and if one is claimed, runs
   scripts/db-bridge/sales-returns/run.ts with that request's window (or
-  backfill date) — same invocation shape as sales-returns-sync.ps1, just
+  single-day repair date) — same invocation shape as sales-returns-sync.ps1, just
   triggered by the queue instead of the clock. Reports back via
   POST /api/sales-returns/trigger/complete either way.
 
@@ -76,7 +76,7 @@ if (-not $pending.pending) {
   exit 0
 }
 
-$windowLabel = if ($pending.window) { "-Window $($pending.window)" } else { "-BackfillFrom $($pending.backfillFrom)" }
+$windowLabel = if ($pending.window) { "-Window $($pending.window)" } else { "-RepairDate $($pending.backfillFrom)" }
 Write-Log "Claimed trigger request $($pending.id) ($windowLabel). Running sync..."
 
 if ($pending.window) {

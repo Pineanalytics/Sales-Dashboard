@@ -17,6 +17,7 @@ import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
 import { fetchPjpDsrDailyActivity } from "./pjpDsrDailyActivityQuery";
 import {
   selectOldestMismatch,
+  resolveManualSalesReturnsWindow,
   signaturesMatch,
   type SalesReturnsDailySignature,
 } from "../../../lib/salesReturnsReconciliation";
@@ -57,23 +58,6 @@ function configuredReconcileDays(): number {
     throw new Error(`SALES_RETURNS_RECONCILE_DAYS must be an integer from 2 to ${MAX_RECONCILE_DAYS}.`);
   }
   return parsed;
-}
-
-function manualDateWindow(): { start: Date; end: Date } {
-  const backfillFrom = process.env.SALES_RETURNS_BACKFILL_FROM;
-  if (backfillFrom) {
-    const start = new Date(`${backfillFrom}T00:00:00.000Z`);
-    if (Number.isNaN(start.getTime())) throw new Error("SALES_RETURNS_BACKFILL_FROM must be YYYY-MM-DD.");
-    return { start, end: nairobiMidnight(1) };
-  }
-
-  const window = (process.env.SALES_RETURNS_WINDOW ?? "smart").toLowerCase();
-  const today = nairobiMidnight(0);
-  const yesterday = nairobiMidnight(1);
-  if (window === "today") return { start: today, end: today };
-  if (window === "catchup") return { start: yesterday, end: today };
-  if (window === "yesterday") return { start: yesterday, end: yesterday };
-  throw new Error(`SALES_RETURNS_WINDOW must be "smart", "today", "yesterday", or "catchup" (got "${window}").`);
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -246,7 +230,10 @@ async function main() {
     const mode = (process.env.SALES_RETURNS_WINDOW ?? "smart").toLowerCase();
     if (mode === "smart" && !process.env.SALES_RETURNS_BACKFILL_FROM) return await runSmart(pool, distributor);
 
-    const { start, end } = manualDateWindow();
+    const { start, end } = resolveManualSalesReturnsWindow(
+      mode,
+      process.env.SALES_RETURNS_BACKFILL_FROM
+    );
     const latestSourceDate = (await fetchLatestSalesReturnDate(pool, distributor, nairobiMidnight(0))) ?? end;
     return await uploadWindow(pool, start, end, distributor, latestSourceDate, end);
   } finally {

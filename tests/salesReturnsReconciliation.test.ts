@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   selectOldestMismatch,
+  resolveManualSalesReturnsWindow,
   signaturesMatch,
   type SalesReturnsDailySignature,
 } from "../lib/salesReturnsReconciliation";
@@ -41,5 +42,25 @@ describe("Sales & Returns smart reconciliation", () => {
   it("detects value reconciliation even when row and invoice counts do not change", () => {
     const selected = selectOldestMismatch([signature("2026-08-30", 10, 120)], [signature("2026-08-30", 10, 100)]);
     expect(selected?.date).toBe("2026-08-30");
+  });
+});
+
+describe("Sales & Returns manual windows", () => {
+  const now = new Date("2026-08-31T02:00:00.000Z"); // 5:00 AM Nairobi
+
+  it("repairs exactly one selected day instead of a date range", () => {
+    const selected = resolveManualSalesReturnsWindow("smart", "2026-08-29", now);
+    expect(selected.start.toISOString()).toBe("2026-08-29T00:00:00.000Z");
+    expect(selected.end.toISOString()).toBe("2026-08-29T00:00:00.000Z");
+  });
+
+  it("keeps normal catchup limited to yesterday and today", () => {
+    const selected = resolveManualSalesReturnsWindow("catchup", undefined, now);
+    expect(selected.start.toISOString()).toBe("2026-08-30T00:00:00.000Z");
+    expect(selected.end.toISOString()).toBe("2026-08-31T00:00:00.000Z");
+  });
+
+  it("rejects impossible calendar dates", () => {
+    expect(() => resolveManualSalesReturnsWindow("smart", "2026-02-31", now)).toThrow("real YYYY-MM-DD");
   });
 });
