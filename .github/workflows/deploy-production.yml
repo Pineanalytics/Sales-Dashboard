@@ -53,11 +53,13 @@ jobs:
       - name: Deploy immutable master build
         shell: pwsh
         run: |
-          $arguments = @(
-            '-SshKey', "$HOME/.ssh/pinefrost_hostinger",
-            '-SshTarget', 'root@187.77.80.216'
-          )
           if ('${{ inputs.push_schema }}' -eq 'true') {
-            $arguments += '-PushSchema'
+            & ./scripts/deploy.ps1 `
+              -SshKey "$HOME/.ssh/pinefrost_hostinger" `
+              -SshTarget 'root@187.77.80.216' `
+              -PushSchema
+          } else {
+            & ./scripts/deploy.ps1 `
+              -SshKey "$HOME/.ssh/pinefrost_hostinger" `
+              -SshTarget 'root@187.77.80.216'
           }
-          & ./scripts/deploy.ps1 @arguments
