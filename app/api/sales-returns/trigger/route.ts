@@ -53,6 +53,9 @@ export async function POST(req: NextRequest) {
     if (Number.isNaN(backfillFrom.getTime())) {
       return NextResponse.json({ error: '"backfillFrom" is not a valid date.' }, { status: 400 });
     }
+    if (backfillFrom.toISOString().slice(0, 10) !== body.backfillFrom) {
+      return NextResponse.json({ error: '"backfillFrom" must be a real calendar date.' }, { status: 400 });
+    }
   }
 
   if (backfillFrom) {
@@ -62,7 +65,7 @@ export async function POST(req: NextRequest) {
     });
     if (control?.desiredMode === "CATCHUP") {
       return NextResponse.json(
-        { error: "Historical backfill is stopped for this branch. Resume Smart repair before queuing a backfill." },
+        { error: "Historical repair is stopped for this branch. Resume Smart repair before queuing a selected-day repair." },
         { status: 409 }
       );
     }

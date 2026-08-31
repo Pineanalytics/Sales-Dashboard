@@ -69,7 +69,7 @@ export function TriggerSalesReturnsButton({ distributor, label }: { distributor:
         <option value="catchup">Catchup (yesterday + today — safest)</option>
         <option value="today">Today only</option>
         <option value="yesterday">Yesterday only</option>
-        <option value="backfill">Backfill from date...</option>
+        <option value="backfill">Repair one selected day...</option>
       </select>
       {window_ === "backfill" && (
         <input

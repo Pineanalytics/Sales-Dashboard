@@ -11,6 +11,42 @@ export interface SalesReturnsDailySignature {
 
 const MONEY_TOLERANCE = 0.01;
 const QUANTITY_TOLERANCE = 0.001;
+const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function nairobiMidnight(now: Date, daysAgo: number): Date {
+  const nairobi = new Date(now.getTime() + NAIROBI_OFFSET_MS);
+  return new Date(Date.UTC(nairobi.getUTCFullYear(), nairobi.getUTCMonth(), nairobi.getUTCDate() - daysAgo));
+}
+
+/**
+ * Resolves an explicitly requested manual run. A backfill date is deliberately
+ * one calendar day, not "from this date through yesterday"; after this process
+ * exits, the independent five-minute scheduled task resumes its configured
+ * Smart/Catchup mode normally.
+ */
+export function resolveManualSalesReturnsWindow(
+  window: string,
+  backfillDate?: string,
+  now = new Date()
+): { start: Date; end: Date } {
+  if (backfillDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(backfillDate)) {
+      throw new Error("SALES_RETURNS_BACKFILL_FROM must be YYYY-MM-DD.");
+    }
+    const selected = new Date(`${backfillDate}T00:00:00.000Z`);
+    if (Number.isNaN(selected.getTime()) || selected.toISOString().slice(0, 10) !== backfillDate) {
+      throw new Error("SALES_RETURNS_BACKFILL_FROM must be a real YYYY-MM-DD date.");
+    }
+    return { start: selected, end: selected };
+  }
+
+  const today = nairobiMidnight(now, 0);
+  const yesterday = nairobiMidnight(now, 1);
+  if (window === "today") return { start: today, end: today };
+  if (window === "catchup") return { start: yesterday, end: today };
+  if (window === "yesterday") return { start: yesterday, end: yesterday };
+  throw new Error(`SALES_RETURNS_WINDOW must be "smart", "today", "yesterday", or "catchup" (got "${window}").`);
+}
 
 function closeEnough(left: number, right: number, tolerance: number): boolean {
   return Math.abs(left - right) <= tolerance;
@@ -66,4 +102,3 @@ export function selectOldestMismatch(
   }
   return null;
 }
-
