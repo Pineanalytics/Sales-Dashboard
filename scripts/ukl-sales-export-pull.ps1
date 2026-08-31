@@ -88,17 +88,22 @@ if (-not $Distributor) {
 
 $filenameDate = [datetime]::ParseExact($Date, "yyyy-MM-dd", $null).ToString("dd.MM.yyyy")
 $destFile = Join-Path $DestFolder "UKL_${Branch}_${filenameDate}.csv"
+$tempFile = "$destFile.tmp"
 
 try {
   Write-Log "Fetching UKL Sales & Returns export for $Date -> $destFile"
   New-Item -ItemType Directory -Path $DestFolder -Force | Out-Null
   Invoke-WebRequest -Uri "$AppUrl/api/integrations/ukl/sales-export?date=$Date&distributor=$Distributor" `
     -Headers @{ "x-ukl-export-key" = $ApiKey } `
-    -OutFile $destFile
-  $bytes = (Get-Item $destFile).Length
+    -OutFile $tempFile
+  $bytes = (Get-Item $tempFile).Length
+  # Same-folder rename is atomic on NTFS: the downstream watcher sees either
+  # the previous complete CSV or the new complete CSV, never a partial download.
+  Move-Item -LiteralPath $tempFile -Destination $destFile -Force
   Write-Log "Saved $bytes bytes to $destFile"
 }
 catch {
+  if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue }
   Write-Log "FAILED: $($_.Exception.Message)"
   Send-PipelineAlert -Status "failure" -Summary "$($_.Exception.Message) (date $Date, branch $Branch)"
   throw
