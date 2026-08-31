@@ -1742,3 +1742,21 @@ model SalesReturnsTriggerRequest {
   @@index([distributor, status])
   @@index([requestedAt])
 }
+
+// Durable operator control for each isolated Sales & Returns branch. The VPS
+// enforces CATCHUP immediately by rejecting historical upload windows; the
+// branch scheduler polls and acknowledges the same version when it switches
+// from Smart reconciliation to the normal yesterday+today five-minute run.
+model SalesReturnsControl {
+  distributor    String    @id
+  desiredMode    String    @default("SMART") // "SMART" | "CATCHUP"
+  version        Int       @default(1)
+  status         String    @default("PENDING") // "PENDING" | "APPLIED" | "FAILED"
+  requestedBy    String?
+  requestedAt    DateTime  @default(now())
+  acknowledgedAt DateTime?
+  resultSummary  String?
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
+}

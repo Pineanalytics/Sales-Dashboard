@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
+import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -52,7 +53,14 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
               <Td align="center">
                 <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>
               </Td>
-              <Td>{r.triggerDistributor ? <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} /> : null}</Td>
+              <Td>
+                {r.triggerDistributor ? (
+                  <div className="flex flex-wrap items-start gap-2">
+                    <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
+                    <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
+                  </div>
+                ) : null}
+              </Td>
             </tr>
           ))}
         </tbody>

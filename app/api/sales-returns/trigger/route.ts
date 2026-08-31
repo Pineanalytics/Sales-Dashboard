@@ -55,6 +55,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (backfillFrom) {
+    const control = await prisma.salesReturnsControl.findUnique({
+      where: { distributor: body.distributor },
+      select: { desiredMode: true },
+    });
+    if (control?.desiredMode === "CATCHUP") {
+      return NextResponse.json(
+        { error: "Historical backfill is stopped for this branch. Resume Smart repair before queuing a backfill." },
+        { status: 409 }
+      );
+    }
+  }
+
   // Avoid stacking up duplicate requests if the button gets clicked more than
   // once before the branch machine has a chance to poll — return the
   // existing one instead of creating a new one.

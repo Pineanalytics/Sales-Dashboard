@@ -13,6 +13,13 @@ export interface SyncHealthRow {
   // POST /api/sales-returns/trigger. See SalesReturnsTriggerRequest's schema
   // comment for why this has to be a queue rather than a direct call.
   triggerDistributor?: string;
+  salesReturnsControl?: {
+    desiredMode: string;
+    status: string;
+    requestedAt: Date | null;
+    acknowledgedAt: Date | null;
+    resultSummary: string | null;
+  };
 }
 
 /** Surfaces whether each scheduled sync job is actually landing fresh data —
@@ -49,7 +56,7 @@ const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
 };
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -58,6 +65,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
     prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
+    prisma.salesReturnsControl.findMany(),
   ]);
 
   function row(
@@ -79,6 +87,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   const salesReturnsHeartbeatByDistributor = new Map(
     salesReturnsWatermarks.map((watermark) => [watermark.bridge.slice("sales-returns:".length), watermark.updatedAt] as const)
   );
+  const salesReturnsControlByDistributor = new Map(salesReturnsControls.map((control) => [control.distributor, control] as const));
   const salesReturnsDistributors = [
     ...Object.keys(SALES_RETURNS_BRANCH_LABELS),
     ...salesReturnsBranches
@@ -89,16 +98,28 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       .filter((distributor) => !(distributor in SALES_RETURNS_BRANCH_LABELS)),
   ];
   const salesReturnsRows = Array.from(new Set(salesReturnsDistributors))
-    .map((distributor) =>
-      row(
+    .map((distributor) => {
+      const control = salesReturnsControlByDistributor.get(distributor);
+      return {
+        ...row(
         `salesReturns:${distributor}`,
         `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[distributor] ?? distributor})`,
-        "Every 5 minutes",
+        control?.desiredMode === "CATCHUP" ? "Every 5 minutes · yesterday + today" : "Every 5 minutes · Smart repair",
         salesReturnsHeartbeatByDistributor.get(distributor) ?? salesReturnsByDistributor.get(distributor) ?? null,
         20 / 60,
         distributor
-      )
-    )
+        ),
+        salesReturnsControl: control
+          ? {
+              desiredMode: control.desiredMode,
+              status: control.status,
+              requestedAt: control.requestedAt,
+              acknowledgedAt: control.acknowledgedAt,
+              resultSummary: control.resultSummary,
+            }
+          : undefined,
+      };
+    })
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return [

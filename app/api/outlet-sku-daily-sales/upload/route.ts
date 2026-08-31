@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
+import { historicalSalesReturnsUploadBlocked } from "@/lib/salesReturnsControl";
 
 export const runtime = "nodejs";
 
@@ -86,6 +87,12 @@ export async function POST(req: NextRequest) {
   const distributor = typeof body.distributor === "string" && /^\d+$/.test(body.distributor) ? body.distributor : null;
   if (distributor && rows.some((row) => row.distributor !== distributor)) {
     return NextResponse.json({ error: "Every row must match the requested distributor." }, { status: 400 });
+  }
+  if (await historicalSalesReturnsUploadBlocked(distributor, windowStart)) {
+    return NextResponse.json(
+      { error: "Historical Sales & Returns reconciliation is stopped for this branch. Normal yesterday-and-today sync remains allowed." },
+      { status: 409 }
+    );
   }
   try {
     await prisma.$transaction(
