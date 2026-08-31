@@ -49,14 +49,18 @@ Set-Location -Path $ProjectPath
 # this script needs it too, but PowerShell has no equivalent, so parse it directly.
 function Get-DotEnvValue {
   param([string]$Name)
-  $line = Get-Content -Path ".env" -ErrorAction SilentlyContinue | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
+  # Match dotenv's practical override behavior: when a legacy file contains
+  # duplicate keys, the later definition wins. Nairobi's .env historically has
+  # an old blank UPLOAD_API_KEY before the real one.
+  $line = Get-Content -Path ".env" -ErrorAction SilentlyContinue | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -Last 1
   if (-not $line) { return $null }
   return ($line -replace "^\s*$Name\s*=\s*", "") -replace '^"(.*)"$', '$1'
 }
 
 $apiKey = Get-DotEnvValue -Name "UPLOAD_API_KEY"
+$Distributor = if ($Distributor) { $Distributor } else { Get-DotEnvValue -Name "SALES_RETURNS_DISTRIBUTOR" }
 if (-not $apiKey) { throw "UPLOAD_API_KEY not found in .env at $ProjectPath." }
-if (-not $Distributor) { throw "No distributor provided. Pass -Distributor, or set SALES_RETURNS_DISTRIBUTOR in this machine's environment." }
+if (-not $Distributor) { throw "No distributor provided. Pass -Distributor, or set SALES_RETURNS_DISTRIBUTOR in this machine's environment or .env file." }
 
 try {
   $pending = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/trigger/pending?distributor=$Distributor" -Method Get `

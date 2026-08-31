@@ -23,13 +23,11 @@
 // query file + a new fetch/post pair added to main() below, sharing this one
 // connection.
 //
-// Wired into Windows Task Scheduler via scripts/sales-returns-sync.ps1 as
-// THREE separate daily runs (each replaces only its own delivery-date window,
-// so overlapping runs are safe and idempotent — see app/api/sales-returns/upload):
-//   - 20:00 -Window Today     same-day, necessarily partial (day isn't over yet)
-//   - 07:00 -Window Yesterday finalizes yesterday once the DMS day is fully closed
-//   - 12:00 -Window Catchup   yesterday+today, catches anything the other two missed
-// SALES_RETURNS_WINDOW selects which of the three; defaults to "yesterday" for
+// Wired into Windows Task Scheduler via scripts/sales-returns-sync.ps1 as one
+// five-minute Catchup run on each branch machine. Catchup replaces yesterday
+// and today every time, so today's partial data stays current while late/final
+// yesterday rows are continuously corrected. SALES_RETURNS_WINDOW still
+// supports Today/Yesterday/Catchup for manual triggers; defaults to Yesterday for
 // any ad-hoc/manual run. SALES_RETURNS_BACKFILL_FROM=YYYY-MM-DD overrides all of
 // the above for a one-off historical repair (from that date through yesterday) —
 // never set it for a routine scheduled run.
@@ -197,11 +195,10 @@ async function main() {
   }
 }
 
-// Chained (not fire-and-forget) so the pipeline-alert POST's outstanding
-// request keeps the process alive until it settles, same as the rest of main().
-main()
-  .then((summary) => reportRun("success", summary))
-  .catch(async (error) => {
+// Successful runs are deliberately quiet: at a five-minute cadence, success
+// email would be noise. Failures still wait for the alert POST to settle so
+// the process does not exit before the VPS has accepted the notification.
+main().catch(async (error) => {
     console.error("[sales-returns] FAILED:", error);
     await reportRun("failure", error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

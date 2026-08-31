@@ -87,7 +87,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       row(
         `salesReturns:${distributor}`,
         `Sales & Returns (${SALES_RETURNS_BRANCH_LABELS[distributor] ?? distributor})`,
-        "3x daily (7am/12pm/8pm)",
+        "Every 5 minutes",
         salesReturnsByDistributor.get(distributor) ?? null,
         15,
         distributor

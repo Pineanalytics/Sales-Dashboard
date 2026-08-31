@@ -143,9 +143,9 @@ export async function sendAnnouncementEmail(to: string, name: string | null, sub
  *  Centegy machine, and scripts/ukl-sales-export-pull.ps1 on the
  *  D:\UKL_INTEGRATION\UPLOADS server. Both POST a short report to
  *  app/api/pipeline-alerts instead of emailing directly, same "credentials
- *  never leave the VPS" pattern as UPLOAD_API_KEY/UKL_SALES_EXPORT_KEY. Fires
- *  on every run, success or failure, per user request — this is deliberately
- *  chattier than sendApprovalEmail/sendAnnouncementEmail. */
+ *  never leave the VPS" pattern as UPLOAD_API_KEY/UKL_SALES_EXPORT_KEY. The
+ *  pipeline-alert route now invokes this only for failures/issues; successful
+ *  high-frequency runs are intentionally quiet. */
 export async function sendPipelineRunEmail(params: {
   to: string;
   task: string;

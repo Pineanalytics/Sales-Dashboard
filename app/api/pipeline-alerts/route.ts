@@ -12,9 +12,9 @@ export const dynamic = "force-dynamic";
  * (scripts/db-bridge/sales-returns/run.ts on the Centegy machine, and
  * scripts/ukl-sales-export-pull.ps1 on the D:\UKL_INTEGRATION\UPLOADS
  * server) POST a short report here, and this route emails it via the app's
- * existing Gmail SMTP (lib/email.ts) — so the SMTP password never has to be
- * copied onto either of those machines. Fires on every run, success or
- * failure, per user request.
+ * existing SMTP (lib/email.ts) - so the SMTP password never has to be copied
+ * onto either machine. Successful runs are acknowledged but deliberately do
+ * not send email; only failures/issues notify the recipients.
  */
 
 const DEFAULT_ALERT_EMAIL = "analytics@pinefrost.co.ke";
@@ -36,6 +36,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body.task !== "string" || (body.status !== "success" && body.status !== "failure")) {
     return NextResponse.json({ error: 'Body must include "task" (string) and "status" ("success" | "failure").' }, { status: 400 });
+  }
+
+  // Backwards-compatible guard: older standalone script copies may still POST
+  // success until they are refreshed. Acknowledge those requests without
+  // sending mail so the failure-only policy takes effect immediately on deploy.
+  if (body.status === "success") {
+    return NextResponse.json({ sent: false, skipped: true, reason: "Success alerts are disabled." });
   }
 
   const result = await sendPipelineRunEmail({

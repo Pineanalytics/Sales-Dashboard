@@ -13,18 +13,11 @@
   containing "&" (this project's own folder name), a known quirk on this
   machine.
 
-  Registered as THREE separate Task Scheduler entries (each just this same
-  script with a different -Window), not one: the source report is a
-  day-grain delivery-date extract, not a live feed, so same-day visibility
-  needs same-day partial runs that a later run then corrects —
-    -Window Today      20:00 daily — that day's transactions so far.
-    -Window Yesterday  07:00 daily — finalizes yesterday once fully closed.
-    -Window Catchup    12:00 daily — yesterday+today, catches anything the
-                        other two missed.
-  Each run only deletes-and-replaces its own delivery-date window
-  server-side, so the three overlap safely with no duplication. Offset from
-  the other scheduled syncs (SalesDashboard-SalesSync, SalesDashboard-PLSync,
-  etc.) so none hit their source servers at the same moment.
+  Registered as one five-minute Task Scheduler entry with -Window Catchup.
+  Catchup fetches yesterday+today on every run: today stays close to live and
+  yesterday keeps correcting for late/final transactions. The API's
+  distributor-scoped delete-and-replace makes repeated runs idempotent and
+  prevents Nairobi/Nyeri from touching each other's rows.
 #>
 
 param(

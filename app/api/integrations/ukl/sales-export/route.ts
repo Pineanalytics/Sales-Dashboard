@@ -39,6 +39,10 @@ function isValidDate(value: string | null): value is string {
   return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function isValidDistributor(value: string | null): value is string {
+  return !!value && /^\d{1,20}$/.test(value);
+}
+
 function todayNairobi(): string {
   // Africa/Nairobi has no DST — a fixed UTC+3 offset is safe here.
   const now = new Date(Date.now() + 3 * 60 * 60 * 1000);
@@ -67,12 +71,16 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const dateParam = url.searchParams.get("date");
+  const distributorParam = url.searchParams.get("distributor");
+  if (!isValidDistributor(distributorParam)) {
+    return NextResponse.json({ error: 'A numeric "distributor" query parameter is required.' }, { status: 400 });
+  }
   const date = isValidDate(dateParam) ? dateParam : todayNairobi();
   const start = new Date(`${date}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
   const rows = await prisma.salesReturnLine.findMany({
-    where: { deliveryDate: { gte: start, lt: end } },
+    where: { deliveryDate: { gte: start, lt: end }, storageLocation: distributorParam },
     orderBy: [{ invoiceNo: "asc" }, { sku: "asc" }],
     take: MAX_ROWS,
   });
