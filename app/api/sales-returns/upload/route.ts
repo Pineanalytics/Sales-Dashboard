@@ -85,7 +85,7 @@ function isValidRow(value: unknown): value is SalesReturnLineUploadRow {
 export async function POST(req: NextRequest) {
   if (!hasValidApiKey(req)) return NextResponse.json({ error: "Invalid or missing API key." }, { status: 401 });
 
-  let body: { lines?: unknown; windowStart?: unknown; windowEnd?: unknown };
+  let body: { lines?: unknown; windowStart?: unknown; windowEnd?: unknown; distributor?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -103,6 +103,10 @@ export async function POST(req: NextRequest) {
   }
 
   const lines = body.lines as SalesReturnLineUploadRow[];
+  const distributor = typeof body.distributor === "string" && /^\d+$/.test(body.distributor) ? body.distributor : null;
+  if (distributor && lines.some((line) => line.storageLocation !== distributor)) {
+    return NextResponse.json({ error: "Every line must match the requested distributor." }, { status: 400 });
+  }
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -111,13 +115,13 @@ export async function POST(req: NextRequest) {
         // shared across branches (e.g. Nairobi/Nyeri, each running its own
         // scheduled sync against this same endpoint); without this, one
         // branch's run would delete-and-replace the whole window, wiping out
-        // another branch's rows for the same dates. Skipped when lines is
-        // empty (the "window checked, nothing found" marker — see run.ts) —
-        // there's no way to safely identify which branch's rows a zero-row
-        // batch belongs to, so we leave existing rows untouched rather than
-        // risk deleting the wrong branch's data.
-        if (windowStart && windowEnd && lines.length > 0) {
-          const storageLocations = Array.from(new Set(lines.map((line) => line.storageLocation)));
+        // another branch's rows for the same dates. Smart-reconciliation
+        // clients send distributor explicitly, allowing a corrected day that
+        // now has zero rows to remove only that branch's stale target rows.
+        const storageLocations = distributor
+          ? [distributor]
+          : Array.from(new Set(lines.map((line) => line.storageLocation)));
+        if (windowStart && windowEnd && storageLocations.length > 0) {
           await tx.salesReturnLine.deleteMany({
             where: { deliveryDate: { gte: windowStart, lt: windowEnd }, storageLocation: { in: storageLocations } },
           });

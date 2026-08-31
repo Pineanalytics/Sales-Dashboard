@@ -58,12 +58,14 @@ interface PjpDsrDailyActivityRecord {
 export async function fetchPjpDsrDailyActivity(
   pool: sql.ConnectionPool,
   startDate: Date,
-  endDate: Date
+  endDate: Date,
+  distributor: string
 ): Promise<PjpDsrDailyActivityRow[]> {
   const result = await pool
     .request()
     .input("StartDate", sql.DateTime2, startDate)
     .input("EndDate", sql.DateTime2, endDate)
+    .input("Distributor", sql.VarChar, distributor)
     .query<PjpDsrDailyActivityRecord>(`
       WITH OrderedEntries AS (
           SELECT
@@ -82,6 +84,7 @@ export async function fetchPjpDsrDailyActivity(
           FROM CASHMEMO c
           WHERE c.DELV_DATE >= @StartDate AND c.DELV_DATE <= @EndDate
             AND c.VISIT_TYPE = '02'
+            AND c.DISTRIBUTOR = @Distributor
       )
       SELECT
           oe.ActivityDate,

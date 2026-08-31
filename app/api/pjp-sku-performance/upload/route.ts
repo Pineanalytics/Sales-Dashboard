@@ -49,7 +49,7 @@ function isValidRow(value: unknown): value is PjpSkuPerformanceUploadRow {
 export async function POST(req: NextRequest) {
   if (!hasValidApiKey(req)) return NextResponse.json({ error: "Invalid or missing API key." }, { status: 401 });
 
-  let body: { rows?: unknown; month?: unknown };
+  let body: { rows?: unknown; month?: unknown; distributor?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -64,16 +64,21 @@ export async function POST(req: NextRequest) {
   }
 
   const rows = body.rows as PjpSkuPerformanceUploadRow[];
+  const distributor = typeof body.distributor === "string" && /^\d+$/.test(body.distributor) ? body.distributor : null;
+  if (distributor && rows.some((row) => row.distributor !== distributor)) {
+    return NextResponse.json({ error: "Every row must match the requested distributor." }, { status: 400 });
+  }
   try {
     await prisma.$transaction(
       async (tx) => {
         // Scoped to this batch's own distributor(s), not just the month —
         // see the matching comment in app/api/sales-returns/upload/route.ts
-        // for why (this table is shared across branches too). Skipped when
-        // rows is empty (no rows this run at all, for any distributor) —
-        // there's nothing to safely scope the delete to.
-        if (rows.length > 0) {
-          const distributors = Array.from(new Set(rows.map((row) => row.distributor)));
+        // for why (this table is shared across branches too). Explicit
+        // distributor makes an empty current-month replacement safe.
+        const distributors = distributor
+          ? [distributor]
+          : Array.from(new Set(rows.map((row) => row.distributor)));
+        if (distributors.length > 0) {
           await tx.pjpSkuPerformance.deleteMany({ where: { month, distributor: { in: distributors } } });
         }
         for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
