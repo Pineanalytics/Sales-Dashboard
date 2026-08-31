@@ -1,6 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import {
+  MAX_UKL_EXPORT_RECONCILE_DAYS,
+  parseUklExportReconcileDays,
+  toUklExportManifestDay,
+} from "@/lib/uklSalesExportManifest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +31,12 @@ export const dynamic = "force-dynamic";
  */
 
 const MAX_ROWS = 50_000; // a single day's Sales & Returns lines is nowhere near this; a safety cap, not an expected ceiling.
+
+interface ManifestAggregateRow {
+  date: string;
+  rowCount: bigint | number;
+  lastReplacedAt: Date;
+}
 
 function hasValidKey(request: NextRequest) {
   const expected = process.env.UKL_SALES_EXPORT_KEY;
@@ -75,6 +87,51 @@ export async function GET(request: NextRequest) {
   if (!isValidDistributor(distributorParam)) {
     return NextResponse.json({ error: 'A numeric "distributor" query parameter is required.' }, { status: 400 });
   }
+
+  if (url.searchParams.get("mode") === "manifest") {
+    const days = parseUklExportReconcileDays(url.searchParams.get("days"));
+    if (days === null) {
+      return NextResponse.json(
+        { error: `"days" must be an integer from 2 to ${MAX_UKL_EXPORT_RECONCILE_DAYS}.` },
+        { status: 400 }
+      );
+    }
+
+    const tomorrow = new Date(`${todayNairobi()}T00:00:00.000Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const latest = await prisma.salesReturnLine.aggregate({
+      where: { storageLocation: distributorParam, deliveryDate: { lt: tomorrow } },
+      _max: { deliveryDate: true },
+    });
+    const latestDate = latest._max.deliveryDate;
+    if (!latestDate) {
+      return NextResponse.json({ distributor: distributorParam, latestDate: null, days: [] });
+    }
+
+    const endExclusive = new Date(latestDate);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const start = new Date(latestDate);
+    start.setUTCDate(start.getUTCDate() - (days - 1));
+    const rows = await prisma.$queryRaw<ManifestAggregateRow[]>(Prisma.sql`
+      SELECT
+        TO_CHAR("deliveryDate" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+        COUNT(*) AS "rowCount",
+        MAX("createdAt") AS "lastReplacedAt"
+      FROM "SalesReturnLine"
+      WHERE "storageLocation" = ${distributorParam}
+        AND "deliveryDate" >= ${start}
+        AND "deliveryDate" < ${endExclusive}
+      GROUP BY TO_CHAR("deliveryDate" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+      ORDER BY date
+    `);
+
+    return NextResponse.json({
+      distributor: distributorParam,
+      latestDate: latestDate.toISOString().slice(0, 10),
+      days: rows.map(toUklExportManifestDay),
+    });
+  }
+
   const date = isValidDate(dateParam) ? dateParam : todayNairobi();
   const start = new Date(`${date}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
