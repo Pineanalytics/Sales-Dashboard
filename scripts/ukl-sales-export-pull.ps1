@@ -20,9 +20,10 @@
   branch-scoped VPS manifest with local state, repairs the oldest missing or
   changed CSV, and naturally advances to the latest populated delivery date.
 
-.PARAMETER ReconcileDays
-  Calendar-day VPS lookback considered by Smart mode. Defaults to 35 and
-  accepts 2-62, matching the Centegy reconciliation guardrail.
+.PARAMETER ArchiveFolder
+  Folder where the downstream watcher moves successfully consumed CSV files.
+  Smart mode accepts a matching archived file as delivered instead of treating
+  its removal from UPLOADS as a reason to extract it again. Searched recursively.
 
 .PARAMETER StateFolder
   Stores the branch's small manifest state outside the watched UPLOADS folder.
@@ -60,8 +61,7 @@ param(
   [string]$Date,
   [string]$Distributor,
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
-  [ValidateRange(2, 62)]
-  [int]$ReconcileDays = 35,
+  [string]$ArchiveFolder,
   [string]$StateFolder
 )
 
@@ -105,6 +105,11 @@ if (-not $Distributor) {
 if (-not $StateFolder) {
   $StateFolder = Join-Path (Split-Path -Parent $DestFolder) "STATE"
 }
+if (-not $ArchiveFolder) {
+  $ArchiveFolder = Join-Path (Split-Path -Parent $DestFolder) "ARCHIVE"
+}
+
+$script:LastSavedExportHash = $null
 
 function Get-ExportPath {
   param([string]$ExportDate)
@@ -124,6 +129,7 @@ function Save-Export {
       -Headers @{ "x-ukl-export-key" = $ApiKey } `
       -OutFile $tempFile
     $bytes = (Get-Item $tempFile).Length
+    $script:LastSavedExportHash = (Get-FileHash -LiteralPath $tempFile -Algorithm SHA256).Hash
     # Same-folder rename is atomic on NTFS: the downstream watcher sees either
     # the previous complete CSV or the new complete CSV, never a partial download.
     Move-Item -LiteralPath $tempFile -Destination $destFile -Force
@@ -133,6 +139,24 @@ function Save-Export {
     if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue }
     throw
   }
+}
+
+function Find-DeliveredFile {
+  param([string]$ExportDate, [string]$ExpectedHash)
+  $filename = Split-Path -Leaf (Get-ExportPath -ExportDate $ExportDate)
+  $candidates = @()
+  $livePath = Join-Path $DestFolder $filename
+  if (Test-Path -LiteralPath $livePath) { $candidates += Get-Item -LiteralPath $livePath }
+  if (Test-Path -LiteralPath $ArchiveFolder) {
+    $candidates += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter $filename -File -Recurse -ErrorAction SilentlyContinue)
+  }
+  foreach ($candidate in @($candidates | Sort-Object LastWriteTimeUtc -Descending)) {
+    $hash = (Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256).Hash
+    if (-not $ExpectedHash -or $hash -eq $ExpectedHash) {
+      return [pscustomobject]@{ path = $candidate.FullName; sha256 = $hash; lastWriteTimeUtc = $candidate.LastWriteTimeUtc }
+    }
+  }
+  return $null
 }
 
 function Read-ManifestState {
@@ -179,8 +203,11 @@ try {
     return
   }
 
-  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&days=$ReconcileDays"
-  Write-Log "Checking $Branch export manifest for the latest $ReconcileDays days..."
+  $nairobiNow = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(3))
+  $today = $nairobiNow.ToString("yyyy-MM-dd")
+  $yesterday = $nairobiNow.AddDays(-1).ToString("yyyy-MM-dd")
+  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$yesterday&to=$today"
+  Write-Log "Checking $Branch export manifest for yesterday $yesterday and today $today..."
   $manifest = Invoke-RestMethod -Uri $manifestUri -Headers @{ "x-ukl-export-key" = $ApiKey }
   $availableDays = @($manifest.days | Sort-Object date)
   if ($availableDays.Count -eq 0) {
@@ -190,34 +217,41 @@ try {
 
   $stateFile = Join-Path $StateFolder "ukl-sales-export-$($Branch.ToUpperInvariant()).json"
   $known = Read-ManifestState -Path $stateFile
+  $stateChanged = $false
   $repair = $null
   foreach ($day in $availableDays) {
-    $localFile = Get-ExportPath -ExportDate ([string]$day.date)
     $knownDay = $known[[string]$day.date]
-    $localHash = if (Test-Path -LiteralPath $localFile) {
-      (Get-FileHash -LiteralPath $localFile -Algorithm SHA256).Hash
-    } else { $null }
-    if (-not (Test-Path -LiteralPath $localFile) -or
-        -not $knownDay -or
-        $knownDay.revision -ne [string]$day.revision -or
-        -not $knownDay.sha256 -or
-        $knownDay.sha256 -ne $localHash) {
+    $delivered = Find-DeliveredFile -ExportDate ([string]$day.date) -ExpectedHash $(if ($knownDay) { $knownDay.sha256 } else { $null })
+    $revisionMatches = $knownDay -and $knownDay.revision -eq [string]$day.revision
+    if ($revisionMatches -and $delivered -and $knownDay.sha256 -eq $delivered.sha256) {
+      continue
+    }
+    if (-not $knownDay -and $delivered) {
+      $remoteUpdatedAt = [DateTimeOffset]::Parse([string]$day.lastReplacedAt).UtcDateTime
+      if ($delivered.lastWriteTimeUtc -ge $remoteUpdatedAt) {
+        $known[[string]$day.date] = [pscustomobject]@{ revision = [string]$day.revision; sha256 = $delivered.sha256 }
+        $stateChanged = $true
+        Write-Log "Confirmed existing delivered export for $($day.date) at $($delivered.path)."
+        continue
+      }
+    }
+    if (-not $revisionMatches -or -not $delivered) {
       $repair = $day
       break
     }
   }
 
   if (-not $repair) {
+    if ($stateChanged) { Save-ManifestState -Path $stateFile -Known $known }
     Write-Log "All $($availableDays.Count) populated VPS day(s) are current locally; latest is $($manifest.latestDate)."
     return
   }
 
   Write-Log "Repairing oldest missing or changed local export: $($repair.date) ($($repair.rowCount) VPS rows)."
   Save-Export -ExportDate ([string]$repair.date)
-  $repairedFile = Get-ExportPath -ExportDate ([string]$repair.date)
   $known[[string]$repair.date] = [pscustomobject]@{
     revision = [string]$repair.revision
-    sha256 = (Get-FileHash -LiteralPath $repairedFile -Algorithm SHA256).Hash
+    sha256 = $script:LastSavedExportHash
   }
   Save-ManifestState -Path $stateFile -Known $known
   Write-Log "Manifest state updated; any remaining gaps will be handled on the next five-minute run."
