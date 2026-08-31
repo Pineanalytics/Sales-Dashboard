@@ -102,7 +102,9 @@ export async function POST(req: NextRequest) {
         // unique keys. Different branches and months remain parallel.
         for (const branch of [...distributors].sort()) {
           const lockKey = `pjp-sku:${month.toISOString()}:${branch}`;
-          await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+          await tx.$queryRaw(Prisma.sql`
+            SELECT pg_advisory_xact_lock(hashtext(${lockKey})) IS NULL AS "lockAcquired"
+          `);
         }
         if (distributors.length > 0) {
           await tx.pjpSkuPerformance.deleteMany({ where: { month, distributor: { in: distributors } } });
