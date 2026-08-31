@@ -48,6 +48,30 @@ enum UserStatus {
   APPROVED
 }
 
+enum ScheduledReportBackfillStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// Dashboard-to-Windows-agent queue. The web application never receives the
+// browser profile, session cookie, password, or MFA information.
+model ScheduledReportBackfill {
+  id          String                        @id @default(cuid())
+  reportId    String                        @default("daily-sales-report")
+  startDate   DateTime                      @db.Date
+  endDate     DateTime                      @db.Date
+  status      ScheduledReportBackfillStatus @default(QUEUED)
+  requestedBy String
+  requestedAt DateTime                      @default(now())
+  claimedAt   DateTime?
+  completedAt DateTime?
+  message     String?
+
+  @@index([status, requestedAt])
+}
+
 model User {
   id                String     @id @default(cuid())
   email             String     @unique
