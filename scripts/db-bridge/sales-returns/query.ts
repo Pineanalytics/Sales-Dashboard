@@ -245,7 +245,7 @@ export async function fetchLatestSalesReturnDate(
 
 interface DailySignatureRecord {
   DeliveryDate: Date;
-  RowCount: number;
+  SignatureRowCount: number;
   InvoiceCount: number;
   SaleQtyPieces: number | string | null;
   FreeQtyPieces: number | string | null;
@@ -348,7 +348,7 @@ export async function fetchSalesReturnDailySignatures(
       )
       SELECT
         DeliveryDate,
-        COUNT(*) AS RowCount,
+        COUNT(*) AS SignatureRowCount,
         COUNT(DISTINCT InvoiceNo) AS InvoiceCount,
         SUM(COALESCE(SaleQtyPieces, 0)) AS SaleQtyPieces,
         SUM(COALESCE(FreeQtyPieces, 0)) AS FreeQtyPieces,
@@ -362,7 +362,7 @@ export async function fetchSalesReturnDailySignatures(
 
   return result.recordset.map((row) => ({
     date: row.DeliveryDate.toISOString().slice(0, 10),
-    rowCount: Number(row.RowCount),
+    rowCount: Number(row.SignatureRowCount),
     invoiceCount: Number(row.InvoiceCount),
     saleQtyPieces: Number(row.SaleQtyPieces ?? 0),
     freeQtyPieces: Number(row.FreeQtyPieces ?? 0),
