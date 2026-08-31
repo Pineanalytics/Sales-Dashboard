@@ -54,6 +54,16 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+  const control = await prisma.salesReturnsControl.findUnique({
+    where: { distributor },
+    select: { desiredMode: true },
+  });
+  if (control?.desiredMode === "CATCHUP") {
+    return NextResponse.json(
+      { error: "Smart historical reconciliation is stopped for this branch. Run the normal catchup window instead." },
+      { status: 409 }
+    );
+  }
   const dayCount = Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1;
   if (dayCount > MAX_RECONCILIATION_DAYS) {
     return NextResponse.json({ error: `Reconciliation window cannot exceed ${MAX_RECONCILIATION_DAYS} days.` }, { status: 400 });
