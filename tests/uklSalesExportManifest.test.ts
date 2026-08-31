@@ -19,12 +19,12 @@ describe("UKL Sales export manifest", () => {
   it("changes the revision when a branch day is replaced", () => {
     const first = toUklExportManifestDay({
       date: "2026-08-29",
-      rowCount: 172n,
+      rowCount: 172,
       lastReplacedAt: new Date("2026-08-31T02:00:00.000Z"),
     });
     const replaced = toUklExportManifestDay({
       date: "2026-08-29",
-      rowCount: 172n,
+      rowCount: 172,
       lastReplacedAt: new Date("2026-08-31T02:05:00.000Z"),
     });
 
