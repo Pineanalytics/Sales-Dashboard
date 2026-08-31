@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { canonicalTeamLeaderIdMap } from "@/lib/tlRanking";
 import { createPrincipalAction, updatePrincipalAction, deletePrincipalAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,13 @@ export default async function AdminPrincipalsPage({
   }
 
   const { error, success, edit } = await searchParams;
-  const [principals, teamLeaders] = await Promise.all([
+  const [principals, allTeamLeaders, supervisors] = await Promise.all([
     prisma.principal.findMany({ orderBy: { principal: "asc" } }),
-    prisma.teamLeader.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.teamLeader.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, supervisorId: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true } }),
   ]);
+  const canonicalTeamLeaderIds = canonicalTeamLeaderIdMap(allTeamLeaders, supervisors);
+  const teamLeaders = allTeamLeaders.filter((teamLeader) => canonicalTeamLeaderIds.get(teamLeader.id) === teamLeader.id);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const editing = edit ? principals.find((p) => p.id === edit) : undefined;
 

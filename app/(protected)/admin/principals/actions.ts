@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { invalidateDatasetCache } from "@/lib/datasetStore";
+import { canonicalTeamLeaderIdMap } from "@/lib/tlRanking";
 
 async function requireAdmin() {
   const session = await auth();
@@ -22,10 +23,20 @@ function nullableStr(formData: FormData, name: string): string | null {
   return v || null;
 }
 
+async function canonicalTeamLeaderId(teamLeaderId: string | null): Promise<string | null> {
+  if (!teamLeaderId) return null;
+  const [teamLeaders, supervisors] = await Promise.all([
+    prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true } }),
+  ]);
+  return canonicalTeamLeaderIdMap(teamLeaders, supervisors).get(teamLeaderId) ?? teamLeaderId;
+}
+
 export async function createPrincipalAction(formData: FormData) {
   await requireAdmin();
 
   const principal = str(formData, "principal");
+  const teamLeaderId = await canonicalTeamLeaderId(nullableStr(formData, "teamLeaderId"));
   if (!principal) {
     redirect("/admin/principals?error=" + encodeURIComponent("Principal is required."));
   }
@@ -38,7 +49,7 @@ export async function createPrincipalAction(formData: FormData) {
         location: str(formData, "location"),
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
-        teamLeaderId: nullableStr(formData, "teamLeaderId"),
+        teamLeaderId,
       },
     });
   } catch (err: unknown) {
@@ -56,6 +67,7 @@ export async function createPrincipalAction(formData: FormData) {
 export async function updatePrincipalAction(formData: FormData) {
   await requireAdmin();
   const id = str(formData, "principalId");
+  const teamLeaderId = await canonicalTeamLeaderId(nullableStr(formData, "teamLeaderId"));
 
   try {
     await prisma.principal.update({
@@ -65,7 +77,7 @@ export async function updatePrincipalAction(formData: FormData) {
         location: str(formData, "location"),
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
-        teamLeaderId: nullableStr(formData, "teamLeaderId"),
+        teamLeaderId,
       },
     });
   } catch {

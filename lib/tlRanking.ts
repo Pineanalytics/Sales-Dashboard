@@ -190,6 +190,37 @@ export interface TeamLeaderHierarchyInput {
   supervisorId: string | null;
 }
 
+const LEGACY_ROLE_ALIASES = new Set(["bdm"]);
+
+function normalizedHierarchyName(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+/** Resolves a legacy role label such as "BDM" to the real named Team Leader
+ *  when both rows report to the same Supervisor and that Supervisor has one
+ *  exact-name Team Leader row. The legacy row remains in the database for
+ *  historical target/audit references, but it must not split current revenue
+ *  or appear as a second person in hierarchy reports. */
+export function canonicalTeamLeaderIdMap(
+  teamLeaders: TeamLeaderHierarchyInput[],
+  supervisors: HierarchyEntity[]
+): Map<string, string> {
+  const supervisorNameById = new Map(supervisors.map((supervisor) => [supervisor.id, normalizedHierarchyName(supervisor.name)]));
+  const result = new Map(teamLeaders.map((teamLeader) => [teamLeader.id, teamLeader.id]));
+
+  for (const alias of teamLeaders) {
+    if (!LEGACY_ROLE_ALIASES.has(normalizedHierarchyName(alias.name)) || !alias.supervisorId) continue;
+    const supervisorName = supervisorNameById.get(alias.supervisorId);
+    if (!supervisorName) continue;
+    const canonicalMatches = teamLeaders.filter(
+      (candidate) => candidate.id !== alias.id && candidate.supervisorId === alias.supervisorId && normalizedHierarchyName(candidate.name) === supervisorName
+    );
+    if (canonicalMatches.length === 1) result.set(alias.id, canonicalMatches[0].id);
+  }
+
+  return result;
+}
+
 /** Rolls Team-Leader-level ranking rows up to Sales Supervisor level — the primary
  *  ranking grouping (several Team Leaders can share one Supervisor, e.g. Mars-
  *  Nairobi's 5 Team Leaders all under Lucy Githinji). Team Leader detail nests

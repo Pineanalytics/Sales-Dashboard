@@ -5,6 +5,7 @@ import {
   buildTlRanking,
   buildSupervisorRanking,
   buildManagerRanking,
+  canonicalTeamLeaderIdMap,
   type PrincipalRevenueInput,
   type SupervisorRankingResult,
   type ManagerRankingResult,
@@ -81,14 +82,24 @@ export async function POST(req: NextRequest) {
     getMtdTargetByTeamLeader(year, monthLabel, effectivePrincipals),
   ]);
 
-  const result = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
+  const canonicalTeamLeaderIds = canonicalTeamLeaderIdMap(teamLeaders, supervisors);
+  const canonicalPrincipals = principals.map((principal) => ({
+    ...principal,
+    teamLeaderId: principal.teamLeaderId ? (canonicalTeamLeaderIds.get(principal.teamLeaderId) ?? principal.teamLeaderId) : null,
+  }));
+  const canonicalMtdTargets = mtdTargets.map((target) => ({
+    ...target,
+    teamLeaderId: canonicalTeamLeaderIds.get(target.teamLeaderId) ?? target.teamLeaderId,
+  }));
+  const result = buildTlRanking(principalRevenue, canonicalPrincipals, teamLeaders, canonicalMtdTargets);
 
   // TEAM_LEADER and a principal-scoped VIEWER keep today's flat shape — a single
   // Team Leader (or a flat multi-TL list with no meaningful supervisor grouping
   // narrowed further) doesn't benefit from the extra nesting.
   if (scope && (scope.teamLeaderId || !scope.supervisorId)) {
     if (scope.teamLeaderId) {
-      const rankings = result.rankings.filter((r) => r.teamLeaderId === scope.teamLeaderId);
+      const scopedTeamLeaderId = canonicalTeamLeaderIds.get(scope.teamLeaderId) ?? scope.teamLeaderId;
+      const rankings = result.rankings.filter((r) => r.teamLeaderId === scopedTeamLeaderId);
       return NextResponse.json({ mode: "flat", rankings, unattributedPrincipals: [] } satisfies TlRankingResponse);
     }
     // Principal-restricted VIEWER (no single TL identity of their own): show every
@@ -97,7 +108,7 @@ export async function POST(req: NextRequest) {
     // cross-principal total, not narrowed to just the allowed principal — the same
     // limitation buildTlRanking has always had (no per-principal target breakdown).
     const allowedTeamLeaderIds = new Set(
-      principals.filter((p) => p.teamLeaderId && scope.principals.includes(p.principal)).map((p) => p.teamLeaderId!)
+      canonicalPrincipals.filter((p) => p.teamLeaderId && scope.principals.includes(p.principal)).map((p) => p.teamLeaderId!)
     );
     const rankings = result.rankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
     return NextResponse.json({ mode: "flat", rankings, unattributedPrincipals: [] } satisfies TlRankingResponse);

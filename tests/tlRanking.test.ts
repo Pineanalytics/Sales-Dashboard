@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTlRanking, buildSupervisorRanking, buildManagerRanking, type TlRankingRow } from "../lib/tlRanking";
+import { buildTlRanking, buildSupervisorRanking, buildManagerRanking, canonicalTeamLeaderIdMap, type TlRankingRow } from "../lib/tlRanking";
 
 const teamLeaders = [
   { id: "tl-josephat", name: "Josephat" },
@@ -144,6 +144,28 @@ const supervisors = [
   { id: "sup-eve", name: "Eve" },
 ];
 const managers = [{ id: "mgr-angela", name: "Angela Sitati" }];
+
+describe("canonicalTeamLeaderIdMap", () => {
+  it("maps the legacy BDM role row to the named Team Leader under the same Supervisor", () => {
+    const map = canonicalTeamLeaderIdMap(
+      [
+        { id: "tl-bdm", name: "BDM", supervisorId: "sup-eva" },
+        { id: "tl-eva", name: "Eva Gachoki", supervisorId: "sup-eva" },
+      ],
+      [{ id: "sup-eva", name: "Eva Gachoki" }]
+    );
+    expect(map.get("tl-bdm")).toBe("tl-eva");
+    expect(map.get("tl-eva")).toBe("tl-eva");
+  });
+
+  it("does not guess when the Supervisor has no exact-name Team Leader row", () => {
+    const map = canonicalTeamLeaderIdMap(
+      [{ id: "tl-bdm", name: "BDM", supervisorId: "sup-eva" }],
+      [{ id: "sup-eva", name: "Eva Gachoki" }]
+    );
+    expect(map.get("tl-bdm")).toBe("tl-bdm");
+  });
+});
 
 describe("buildSupervisorRanking", () => {
   it("groups several Team Leaders under one Supervisor and sums their target/revenue, including the full-month target", () => {
