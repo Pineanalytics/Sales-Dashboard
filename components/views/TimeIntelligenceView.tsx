@@ -35,12 +35,8 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
       ? ((currentSummary.revenue - priorPeriodSummary.revenue) / priorPeriodSummary.revenue) * 100
       : null;
   const dateCurrentRevenue = dateMatched?.current?.revenue;
-  const dateYoyRevenue = dateMatched?.yoy?.revenue;
   const dateMomRevenue = dateMatched?.mom?.revenue;
   const useDateMatched = Boolean(dateMatched?.available && dateCurrentRevenue !== null && dateCurrentRevenue !== undefined);
-  const dateMatchedYoy = useDateMatched && dateYoyRevenue !== null && dateYoyRevenue !== undefined && dateYoyRevenue > 0
-    ? ((dateCurrentRevenue! - dateYoyRevenue) / dateYoyRevenue) * 100
-    : null;
   const dateMatchedMom = useDateMatched && dateMomRevenue !== null && dateMomRevenue !== undefined && dateMomRevenue > 0
     ? ((dateCurrentRevenue! - dateMomRevenue) / dateMomRevenue) * 100
     : null;
@@ -90,9 +86,9 @@ export function TimeIntelligenceView({ dataset, selectedPrincipalKey, period }: 
         <KpiCard accent="quarter" label="Gross Margin" value={formatPercent(currentSummary.grossMarginPct)} size="md" />
         <KpiCard
           accent="growth"
-          label={useDateMatched ? `YoY through ${dateMatched?.asOf ?? "selected date"}` : priorYear ? `YOY vs ${priorYear}` : "YOY"}
+          label={period.month && priorYear ? `YoY · ${period.month} ${period.year} vs ${period.month} ${priorYear}` : priorYear ? `YOY vs ${priorYear}` : "YOY"}
           value={
-            <span className={tierTextClass[trendTier(useDateMatched ? dateMatchedYoy : yoyVariance)]}>{dateGrowthLoading ? "…" : useDateMatched ? formatTrendPercent(dateMatchedYoy) : yoyVariance !== null ? formatTrendPercent(yoyVariance) : "—"}</span>
+            <span className={tierTextClass[trendTier(yoyVariance)]}>{yoyVariance !== null ? formatTrendPercent(yoyVariance) : "—"}</span>
           }
           size="md"
         />

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { invalidateDatasetCache } from "@/lib/datasetStore";
 import { importProductMaster } from "@/lib/productMasterImport";
 import { parseProductsWorkbook, ProductsParseError } from "@/lib/parseProducts";
 
@@ -55,6 +56,7 @@ export async function createProductAction(formData: FormData) {
     redirect("/admin/products?error=" + encodeURIComponent(message));
   }
 
+  invalidateDatasetCache();
   redirect("/admin/products?success=" + encodeURIComponent(`Added ${itemNo}.`));
 }
 
@@ -80,6 +82,7 @@ export async function updateProductAction(formData: FormData) {
     redirect("/admin/products?error=" + encodeURIComponent("Failed to update the product."));
   }
 
+  invalidateDatasetCache();
   redirect("/admin/products?success=" + encodeURIComponent("Product updated."));
 }
 
@@ -98,6 +101,7 @@ export async function uploadProductsAction(formData: FormData) {
     const message = error instanceof ProductsParseError ? error.message : "Failed to import the product master workbook.";
     redirect("/admin/products?error=" + encodeURIComponent(message));
   }
+  invalidateDatasetCache();
   redirect(
     "/admin/products?success=" +
       encodeURIComponent(
@@ -116,5 +120,6 @@ export async function deleteProductAction(formData: FormData) {
   }
 
   await prisma.product.delete({ where: { id } });
+  invalidateDatasetCache();
   redirect("/admin/products?success=" + encodeURIComponent(`Removed ${target.itemNo}.`));
 }

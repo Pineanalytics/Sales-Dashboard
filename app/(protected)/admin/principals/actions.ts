@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { invalidateDatasetCache } from "@/lib/datasetStore";
 
 async function requireAdmin() {
   const session = await auth();
@@ -48,6 +49,7 @@ export async function createPrincipalAction(formData: FormData) {
     redirect("/admin/principals?error=" + encodeURIComponent(message));
   }
 
+  invalidateDatasetCache();
   redirect("/admin/principals?success=" + encodeURIComponent(`Added ${principal}.`));
 }
 
@@ -70,6 +72,7 @@ export async function updatePrincipalAction(formData: FormData) {
     redirect("/admin/principals?error=" + encodeURIComponent("Failed to update the principal."));
   }
 
+  invalidateDatasetCache();
   redirect("/admin/principals?success=" + encodeURIComponent("Principal updated."));
 }
 
@@ -83,5 +86,6 @@ export async function deletePrincipalAction(formData: FormData) {
   }
 
   await prisma.principal.delete({ where: { id } });
+  invalidateDatasetCache();
   redirect("/admin/principals?success=" + encodeURIComponent(`Removed ${target.principal}.`));
 }

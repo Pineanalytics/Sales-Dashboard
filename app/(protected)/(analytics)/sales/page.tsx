@@ -77,7 +77,8 @@ function SalesCockpit() {
   const displayedGrossProfitPerformance = grossProfitTargetPerformance(displayedSummary.grossProfit, displayedGrossProfitTarget);
 
   const trendChartData = monthlyRows.map((r) => ({ name: includesMultipleYears ? r.label : month3(r.month), Revenue: r.revenue, Target: r.target ?? undefined }));
-  const byPrincipalChartData = principals.slice(0, 12).map((p) => ({ name: p.principal, value: p.revenue }));
+  const byPrincipalChartData = principals.map((p) => ({ name: p.principal, value: p.revenue }));
+  const byPrincipalChartHeight = Math.max(260, byPrincipalChartData.length * 28);
   const targetBalance = currentSummary.target !== null ? currentSummary.target - currentSummary.revenue : null;
 
   return (
@@ -119,16 +120,20 @@ function SalesCockpit() {
           </ResponsiveContainer>
         </SectionCard>
 
-        <SectionCard title="Revenue by Principal">
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={byPrincipalChartData} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} />
-              <XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
-              <YAxis type="category" dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} width={100} />
-              <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
-              <Bar dataKey="value" radius={[0, 6, 6, 0]} fill={CHART_COLORS[0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <SectionCard title="Revenue by Principal" action={<span className="text-xs text-muted">{byPrincipalChartData.length} revenue-bearing principals</span>}>
+          <div className="max-h-[360px] overflow-y-auto pr-1">
+            <div style={{ height: byPrincipalChartHeight }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byPrincipalChartData} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} />
+                  <XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
+                  <YAxis type="category" dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} width={120} />
+                  <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]} fill={CHART_COLORS[0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </SectionCard>
       </ChartGrid>
 

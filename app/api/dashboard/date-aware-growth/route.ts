@@ -22,11 +22,12 @@ function daysInMonth(year: number, month: number) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/** Date-matched revenue comparison from the SAP daily aggregate feed.
+/** Date-matched month-over-month revenue comparison from the SAP daily feed.
  *
- * The latest actual day in the requested month controls every comparison:
- * e.g. 1-14 Aug 2026 is compared with 1-14 Jul 2026 and 1-14 Aug 2025.
- * This avoids calling a partial live month "down" against a completed month.
+ * The latest actual day in the requested month controls the previous-month
+ * comparison: e.g. 1-14 Aug 2026 is compared with 1-14 Jul 2026. YoY is not
+ * served here: Sales Cockpit compares the selected month with the full same
+ * calendar month in the prior year's authoritative monthly SAP history.
  */
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -66,11 +67,9 @@ export async function GET(req: NextRequest) {
   const previousMonth = month === 1 ? 12 : month - 1;
   const previousYear = month === 1 ? year - 1 : year;
   const previousCutoff = Math.min(cutoff, daysInMonth(previousYear, previousMonth));
-  const priorYearCutoff = Math.min(cutoff, daysInMonth(year - 1, month));
   const windows = {
     current: { from: monthStart, through: latest.date },
     mom: { from: utcDate(previousYear, previousMonth, 1), through: utcDate(previousYear, previousMonth, previousCutoff) },
-    yoy: { from: utcDate(year - 1, month, 1), through: utcDate(year - 1, month, priorYearCutoff) },
   };
 
   const totals = await Promise.all(
@@ -92,7 +91,7 @@ export async function GET(req: NextRequest) {
           });
     })
   );
-  const result = (["current", "mom", "yoy"] as const).reduce((acc, key, index) => {
+  const result = (["current", "mom"] as const).reduce((acc, key, index) => {
     const total = totals[index];
     const window = windows[key];
     acc[key] = {
@@ -102,7 +101,7 @@ export async function GET(req: NextRequest) {
       rows: total._count.id,
     };
     return acc;
-  }, {} as Record<"current" | "mom" | "yoy", { from: string; through: string; revenue: number | null; rows: number }>);
+  }, {} as Record<"current" | "mom", { from: string; through: string; revenue: number | null; rows: number }>);
 
   return NextResponse.json({ available: true, asOf: dateKey(latest.date), ...result });
 }

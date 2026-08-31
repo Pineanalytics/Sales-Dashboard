@@ -15,35 +15,30 @@ export interface DateMatchedGrowth {
   asOf?: string;
   current?: DateMatchedGrowthWindow;
   mom?: DateMatchedGrowthWindow;
-  yoy?: DateMatchedGrowthWindow;
 }
 
-/** Loads the compact daily SAP aggregate for fair partial-month comparisons. */
+/** Loads the compact daily SAP aggregate for a fair day-aligned MoM comparison. */
 export function useDateAwareGrowth(period: PeriodSelection | null, selectedPrincipalKey: string | null) {
-  const [data, setData] = useState<DateMatchedGrowth | null>(null);
-  const [loading, setLoading] = useState(Boolean(period?.month));
+  const year = period?.year ?? "";
+  const month = period?.month ? CANONICAL_MONTHS.indexOf(period.month) + 1 : 0;
+  const requestKey = month ? `${year}|${month}|${selectedPrincipalKey ?? ""}` : null;
+  const [result, setResult] = useState<{ key: string; data: DateMatchedGrowth } | null>(null);
   useEffect(() => {
-    const month = period?.month ? CANONICAL_MONTHS.indexOf(period.month) + 1 : 0;
-    if (!month) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
+    if (!requestKey) return;
     const controller = new AbortController();
-    setData(null);
-    setLoading(true);
-    const params = new URLSearchParams({ year: period!.year, month: String(month) });
+    const params = new URLSearchParams({ year, month: String(month) });
     if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
     fetch(`/api/dashboard/date-aware-growth?${params}`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Growth comparison unavailable"))))
-      .then((result: DateMatchedGrowth) => setData(result))
+      .then((data: DateMatchedGrowth) => setResult({ key: requestKey, data }))
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) setData({ available: false });
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setResult({ key: requestKey, data: { available: false } });
+        }
       });
     return () => controller.abort();
-  }, [period?.year, period?.month, selectedPrincipalKey]);
+  }, [month, requestKey, selectedPrincipalKey, year]);
+  const data = requestKey && result?.key === requestKey ? result.data : null;
+  const loading = Boolean(requestKey && result?.key !== requestKey);
   return { data, loading };
 }

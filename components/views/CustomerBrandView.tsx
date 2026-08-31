@@ -48,6 +48,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
   }, [customers, search, tierFilter]);
 
   const topCustomersChart = customers.slice(0, 10).map((customer) => ({ name: customer.customerName, value: customer.revenue }));
+  const principalChartHeight = Math.max(300, principals.length * 28);
   const topBrandTotal = brands.slice(0, 7).reduce((sum, brand) => sum + brand.revenue, 0);
   const doughnutData = [...brands.slice(0, 7).map((brand) => ({ name: brand.name, value: brand.revenue })), { name: "Others", value: Math.max(0, totals.revenue - topBrandTotal) }].filter((item) => item.value > 0);
   const priorYear = String(Number(period.year) - 1);
@@ -93,10 +94,14 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
                 <BarChart data={topCustomersChart} layout="vertical" margin={{ top: 4, right: 14, left: 24, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} /><XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(value) => formatCompact(Number(value))} /><YAxis type="category" dataKey="name" width={125} stroke={CHART_AXIS_COLOR} fontSize={10} tick={{ width: 120 }} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Bar dataKey="value" fill="var(--primary-blue)" radius={[0, 6, 6, 0]} /></BarChart>
               </ResponsiveContainer>
             </SectionCard>
-            <SectionCard title="Revenue Contribution by Principal" action={<span className="text-xs text-muted">Customer portfolio context</span>}>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={principals.slice(0, 12)} layout="vertical" margin={{ top: 4, right: 14, left: 18, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} /><XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(value) => formatCompact(Number(value))} /><YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_COLOR} fontSize={10} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Bar dataKey="revenue" fill="var(--secondary-blue)" radius={[0, 6, 6, 0]} /></BarChart>
-              </ResponsiveContainer>
+            <SectionCard title="Revenue Contribution by Principal" action={<span className="text-xs text-muted">{principals.length} revenue-bearing principals</span>}>
+              <div className="max-h-[360px] overflow-y-auto pr-1">
+                <div style={{ height: principalChartHeight }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={principals} layout="vertical" margin={{ top: 4, right: 14, left: 18, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} /><XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(value) => formatCompact(Number(value))} /><YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_COLOR} fontSize={10} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Bar dataKey="revenue" fill="var(--secondary-blue)" radius={[0, 6, 6, 0]} /></BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </SectionCard>
           </ChartGrid>
 
