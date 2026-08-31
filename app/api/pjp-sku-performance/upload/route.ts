@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -68,6 +69,23 @@ export async function POST(req: NextRequest) {
   if (distributor && rows.some((row) => row.distributor !== distributor)) {
     return NextResponse.json({ error: "Every row must match the requested distributor." }, { status: 400 });
   }
+  const uniqueKeys = new Set<string>();
+  const duplicateKeys = new Set<string>();
+  for (const row of rows) {
+    const key = `${row.distributor}\u0000${row.pjp}\u0000${row.skuCode}`;
+    if (uniqueKeys.has(key)) duplicateKeys.add(`${row.distributor}/${row.pjp}/${row.skuCode}`);
+    uniqueKeys.add(key);
+  }
+  if (duplicateKeys.size > 0) {
+    return NextResponse.json(
+      {
+        error: "The PJP x SKU payload contains duplicate source keys.",
+        duplicateCount: duplicateKeys.size,
+        examples: Array.from(duplicateKeys).slice(0, 5),
+      },
+      { status: 400 }
+    );
+  }
   try {
     await prisma.$transaction(
       async (tx) => {
@@ -78,6 +96,14 @@ export async function POST(req: NextRequest) {
         const distributors = distributor
           ? [distributor]
           : Array.from(new Set(rows.map((row) => row.distributor)));
+        // A five-minute task can overlap its previous run (or a manual run).
+        // Serialize only the same branch/month replacement so two transactions
+        // cannot both delete the snapshot and then race to insert identical
+        // unique keys. Different branches and months remain parallel.
+        for (const branch of [...distributors].sort()) {
+          const lockKey = `pjp-sku:${month.toISOString()}:${branch}`;
+          await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+        }
         if (distributors.length > 0) {
           await tx.pjpSkuPerformance.deleteMany({ where: { month, distributor: { in: distributors } } });
         }
