@@ -15,6 +15,8 @@ param(
   [string]$ApiKey = $env:EABL_SALES_EXPORT_KEY,
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
   [string]$Date,
+  [ValidateSet('Smart', 'Today', 'Close')]
+  [string]$ScheduleMode = 'Smart',
   [switch]$Replace
 )
 
@@ -92,6 +94,18 @@ function Download-Day([string]$date, [string]$revision) {
     return [pscustomobject]@{ date=$date; revision=$revision; filename=$filename; sha256=$hash; rowCount=$rows; deliveredAt=[datetime]::UtcNow.ToString('o') }
   } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue } }
 }
+function Reconcile-ManifestDay($day, [hashtable]$known) {
+  $date = [string]$day.date
+  if ($day.rowCount -le 0) { return [pscustomobject]@{ date=$date; available=$false; changed=$false; record=$null } }
+  $prior = $known[$date]
+  $delivered = Find-Delivered $date $(if ($prior) { [string]$prior.sha256 } else { $null })
+  if ($prior -and $prior.revision -eq $day.revision -and $delivered -and $delivered.sha256 -eq $prior.sha256) {
+    return [pscustomobject]@{ date=$date; available=$true; changed=$false; record=$prior }
+  }
+  $record = Download-Day $date ([string]$day.revision)
+  $known[$date] = $record
+  return [pscustomobject]@{ date=$date; available=$true; changed=$true; record=$record }
+}
 
 if (-not $ApiKey) { throw 'Set the EABL_SALES_EXPORT_KEY machine environment variable; do not place it in this script or task definition.' }
 if (-not $ArchiveFolder) { $ArchiveFolder = Join-Path $DestFolder 'Archive' }
@@ -118,17 +132,30 @@ try {
     exit 0
   }
   $now = [datetimeoffset]::UtcNow.ToOffset([timespan]::FromHours(3)); $today = $now.ToString('yyyy-MM-dd'); $yesterday = $now.AddDays(-1).ToString('yyyy-MM-dd')
-  $manifest = Invoke-RestMethod -Uri "$AppUrl/api/integrations/eabl/sales-export?mode=manifest&from=$yesterday&to=$today" -Headers @{ 'x-eabl-sales-export-key' = $ApiKey }
+  # Today mode is used by the 09:00–21:00 hourly task. It never inspects
+  # yesterday. Close mode (22:00) is the sole scheduled reconciliation that
+  # verifies yesterday's final export and alerts if it is unavailable.
+  $from = if ($ScheduleMode -eq 'Today') { $today } else { $yesterday }
+  $manifest = Invoke-RestMethod -Uri "$AppUrl/api/integrations/eabl/sales-export?mode=manifest&from=$from&to=$today" -Headers @{ 'x-eabl-sales-export-key' = $ApiKey }
   $known = Read-State $stateFile
-  foreach ($day in @($manifest.days | Where-Object { $_.rowCount -gt 0 } | Sort-Object date)) {
-    $prior = $known[[string]$day.date]; $delivered = Find-Delivered ([string]$day.date) $(if ($prior) { [string]$prior.sha256 } else { $null })
-    if ($prior -and $prior.revision -eq $day.revision -and $delivered -and $delivered.sha256 -eq $prior.sha256) { continue }
-    $known[[string]$day.date] = Download-Day ([string]$day.date) ([string]$day.revision); Save-State $stateFile $known
-    break # one repair per five-minute run avoids conflicting downstream processing.
+  $byDate = @{}; foreach ($day in @($manifest.days)) { $byDate[[string]$day.date] = $day }
+  if ($ScheduleMode -eq 'Close') {
+    $yesterdayDay = $byDate[$yesterday]
+    if (-not $yesterdayDay -or $yesterdayDay.rowCount -le 0) {
+      throw "FINAL_YESTERDAY_MISSING: VPS has no qualifying EABL sales rows for $yesterday at the 22:00 close check."
+    }
+    $yesterdayResult = Reconcile-ManifestDay $yesterdayDay $known
+    if ($yesterdayResult.changed) { Save-State $stateFile $known }
+  }
+
+  $todayDay = $byDate[$today]
+  if ($todayDay) {
+    $todayResult = Reconcile-ManifestDay $todayDay $known
+    if ($todayResult.changed) { Save-State $stateFile $known }
   }
   Send-Status 'OK' $null $null $null $today
   if ($triggerId) { Invoke-RestMethod -Uri "$AppUrl/api/integrations/eabl/sales-export/trigger/complete" -Method Post -ContentType 'application/json' -Headers @{ 'x-eabl-sales-export-key' = $ApiKey } -Body (@{ id=$triggerId; success=$true; summary='Smart reconciliation completed.' } | ConvertTo-Json -Compress) | Out-Null }
-  Write-Log 'Smart reconciliation completed.'
+  Write-Log "$ScheduleMode reconciliation completed."
 } catch {
   $failedDate = if ($Date) { $Date } else { 'today/yesterday' }; Write-Log "FAILED: $($_.Exception.Message)"; Send-Status 'FAILED' $_.Exception.Message $null $null $failedDate; Send-PipelineAlert 'download-or-validation' $_.Exception.Message $failedDate
   if ($triggerId) { try { Invoke-RestMethod -Uri "$AppUrl/api/integrations/eabl/sales-export/trigger/complete" -Method Post -ContentType 'application/json' -Headers @{ 'x-eabl-sales-export-key' = $ApiKey } -Body (@{ id=$triggerId; success=$false; summary=$_.Exception.Message } | ConvertTo-Json -Compress) | Out-Null } catch { Write-Log "Could not complete trigger: $($_.Exception.Message)" } }
