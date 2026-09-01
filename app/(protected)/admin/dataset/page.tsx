@@ -45,6 +45,8 @@ export default async function AdminDatasetPage() {
           ...run,
           startDate: run.startDate.toISOString().slice(0, 10),
           endDate: run.endDate.toISOString().slice(0, 10),
+          requestedAt: run.requestedAt.toISOString(),
+          completedAt: run.completedAt?.toISOString() ?? null,
         }))} />
         <AdminDatasetPanel />
       </div>

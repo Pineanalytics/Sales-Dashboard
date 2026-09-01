@@ -85,7 +85,11 @@ describe("resolveCostCentre", () => {
 });
 
 function outlet(overrides: Partial<OutletRow>): OutletRow {
-  return { id: "1", name: "Test Outlet", subChannel: "Retailers", sourceChannel: "Retail", territory: "Nairobi", ...overrides };
+  return {
+    id: "1", name: "Test Outlet", subChannel: "Retailers", sourceChannel: "Retail", territory: "Nairobi",
+    latitude: null, longitude: null, pjpUserId: null, pjpRepName: null, pjpRepGroup: null, pjpRegion: null,
+    ...overrides,
+  };
 }
 function user(overrides: Partial<UserRow>): UserRow {
   return { id: "1", employee: "Jane Doe", userGroup: "DSR", region: "Nairobi", ...overrides };
