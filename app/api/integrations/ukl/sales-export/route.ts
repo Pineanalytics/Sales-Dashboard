@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
   MAX_UKL_EXPORT_RECONCILE_DAYS,
+  parseUklExportManifestRange,
   parseUklExportReconcileDays,
   toUklExportManifestDay,
 } from "@/lib/uklSalesExportManifest";
@@ -89,6 +90,16 @@ export async function GET(request: NextRequest) {
   }
 
   if (url.searchParams.get("mode") === "manifest") {
+    const requestedRange = parseUklExportManifestRange(
+      url.searchParams.get("from"),
+      url.searchParams.get("to")
+    );
+    if ((url.searchParams.has("from") || url.searchParams.has("to")) && !requestedRange) {
+      return NextResponse.json(
+        { error: `"from" and "to" must be real YYYY-MM-DD dates in order, spanning at most ${MAX_UKL_EXPORT_RECONCILE_DAYS} days.` },
+        { status: 400 }
+      );
+    }
     const days = parseUklExportReconcileDays(url.searchParams.get("days"));
     if (days === null) {
       return NextResponse.json(
@@ -108,10 +119,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ distributor: distributorParam, latestDate: null, days: [] });
     }
 
-    const endExclusive = new Date(latestDate);
-    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
-    const start = new Date(latestDate);
-    start.setUTCDate(start.getUTCDate() - (days - 1));
+    const endExclusive = requestedRange?.endExclusive ?? new Date(latestDate);
+    if (!requestedRange) endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const start = requestedRange?.start ?? new Date(latestDate);
+    if (!requestedRange) start.setUTCDate(start.getUTCDate() - (days - 1));
     const rows = await prisma.$queryRaw<ManifestAggregateRow[]>(Prisma.sql`
       SELECT
         TO_CHAR("deliveryDate" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
