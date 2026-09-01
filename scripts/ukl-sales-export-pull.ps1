@@ -106,7 +106,7 @@ if (-not $StateFolder) {
   $StateFolder = Join-Path (Split-Path -Parent $DestFolder) "STATE"
 }
 if (-not $ArchiveFolder) {
-  $ArchiveFolder = Join-Path (Split-Path -Parent $DestFolder) "ARCHIVE"
+  $ArchiveFolder = Join-Path $DestFolder "Archive"
 }
 
 $script:LastSavedExportHash = $null
