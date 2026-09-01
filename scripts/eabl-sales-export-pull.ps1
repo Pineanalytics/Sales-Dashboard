@@ -134,3 +134,9 @@ try {
   if ($triggerId) { try { Invoke-RestMethod -Uri "$AppUrl/api/integrations/eabl/sales-export/trigger/complete" -Method Post -ContentType 'application/json' -Headers @{ 'x-eabl-sales-export-key' = $ApiKey } -Body (@{ id=$triggerId; success=$false; summary=$_.Exception.Message } | ConvertTo-Json -Compress) | Out-Null } catch { Write-Log "Could not complete trigger: $($_.Exception.Message)" } }
   exit 1
 } finally { if ($mutex) { $mutex.ReleaseMutex() | Out-Null; $mutex.Dispose() } }
+
+# A successful Smart run may not invoke a native executable, leaving
+# $LASTEXITCODE inherited from the hosting PowerShell session. Set the process
+# result explicitly so Task Scheduler and the installer can distinguish a
+# completed reconciliation from a real failure.
+exit 0
