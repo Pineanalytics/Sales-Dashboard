@@ -20,6 +20,15 @@ export interface SyncHealthRow {
     acknowledgedAt: Date | null;
     resultSummary: string | null;
   };
+  eablSalesExport?: {
+    latestVpsTransactionDate: Date | null;
+    latestAvailableReportDate: Date | null;
+    lastDeliveredFile: string | null;
+    deliveredLocation: string | null;
+    lastError: string | null;
+    nextScheduledRunAt: Date | null;
+  };
+  triggerEablSalesExport?: boolean;
 }
 
 /** Surfaces whether each scheduled sync job is actually landing fresh data —
@@ -56,7 +65,7 @@ const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
 };
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls] = await Promise.all([
+  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -66,6 +75,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
     prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
     prisma.salesReturnsControl.findMany(),
+    prisma.eablSalesExportStatus.findMany(),
   ]);
 
   function row(
@@ -121,6 +131,19 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label));
+  const eabl = eablExportStatuses.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
+  const eablRow: SyncHealthRow = {
+    ...row("eablSalesExport", "EABL Sales Export Download", "Every 5 minutes · yesterday + today", eabl?.lastSuccessfulDownloadAt ?? null, 20 / 60),
+    triggerEablSalesExport: true,
+    eablSalesExport: eabl ? {
+      latestVpsTransactionDate: eabl.latestVpsTransactionDate,
+      latestAvailableReportDate: eabl.latestAvailableReportDate,
+      lastDeliveredFile: eabl.lastDeliveredFile,
+      deliveredLocation: eabl.deliveredLocation,
+      lastError: eabl.lastError,
+      nextScheduledRunAt: eabl.nextScheduledRunAt,
+    } : undefined,
+  };
 
   return [
     row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60),
@@ -131,5 +154,6 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
     ...salesReturnsRows,
+    eablRow,
   ];
 }

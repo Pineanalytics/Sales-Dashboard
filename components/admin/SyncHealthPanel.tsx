@@ -3,6 +3,7 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
 import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
+import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -59,7 +60,8 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                     <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
                     <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
                   </div>
-                ) : null}
+                ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : null}
+                {r.eablSalesExport && <div className="mt-1 max-w-xs text-[10px] text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
               </Td>
             </tr>
           ))}

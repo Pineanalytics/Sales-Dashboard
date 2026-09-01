@@ -1760,3 +1760,36 @@ model SalesReturnsControl {
 
   @@index([status])
 }
+
+// Operational metadata sent by the isolated EABL download machine. This is
+// deliberately not a transaction/fact table: Transactions.Sales stays in the
+// read-only PinefrostAnalytics SQL Server source.
+model EablSalesExportStatus {
+  machine                    String   @id
+  latestVpsTransactionDate   DateTime?
+  latestAvailableReportDate  DateTime?
+  lastSuccessfulDownloadAt   DateTime?
+  lastDeliveredFile          String?
+  deliveredLocation          String?  // "Root" | "Archive"
+  status                     String   @default("UNKNOWN")
+  lastError                  String?
+  nextScheduledRunAt         DateTime?
+  updatedAt                  DateTime @updatedAt
+}
+
+// Passwordless outbound polling queue for an administrator's exact-date
+// backfill request. The machine claims and completes jobs using the dedicated
+// EABL export API key; admins create them through the session-authenticated API.
+model EablSalesExportTriggerRequest {
+  id            String   @id @default(cuid())
+  requestedDate DateTime?
+  mode          String   @default("SMART") // "SMART" | "DATE"
+  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  requestedBy   String?
+  requestedAt   DateTime @default(now())
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String?
+
+  @@index([status, requestedAt])
+}
