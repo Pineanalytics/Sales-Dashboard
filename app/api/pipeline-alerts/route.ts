@@ -45,8 +45,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sent: false, skipped: true, reason: "Success alerts are disabled." });
   }
 
+  // EABL's operational close alert has an explicit recipient list so adding
+  // Issa/James does not widen notifications from unrelated UKL or field syncs.
+  const recipients = body.task === "eabl-sales-export"
+    ? process.env.EABL_SALES_EXPORT_ALERT_EMAIL || process.env.PIPELINE_ALERT_EMAIL || DEFAULT_ALERT_EMAIL
+    : process.env.PIPELINE_ALERT_EMAIL || DEFAULT_ALERT_EMAIL;
   const result = await sendPipelineRunEmail({
-    to: process.env.PIPELINE_ALERT_EMAIL || DEFAULT_ALERT_EMAIL,
+    to: recipients,
     task: body.task,
     machine: typeof body.machine === "string" ? body.machine : undefined,
     status: body.status,
