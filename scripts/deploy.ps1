@@ -239,6 +239,39 @@ try {
         if (-not $healthVerified) {
             throw "New build did not become healthy after 12 attempts: $lastHealthError"
         }
+
+        # The isolated Centegy PCs post four related report payloads. A build
+        # can be generally healthy while one App Router handler is absent,
+        # which previously surfaced only when Nairobi's next scheduled sync
+        # hit a production 404. Require every contract route to reject an
+        # anonymous request with 401: this proves the route is compiled and
+        # its upload-key guard is active without sending any data.
+        $salesReturnsUploadRoutes = @(
+            "/api/sales-returns/upload",
+            "/api/pjp-sku-performance/upload",
+            "/api/outlet-sku-daily-sales/upload",
+            "/api/pjp-dsr-daily-activity/upload"
+        )
+        Write-Host "==> Verifying Sales & Returns upload routes..." -ForegroundColor Cyan
+        foreach ($route in $salesReturnsUploadRoutes) {
+            $statusCode = $null
+            try {
+                $response = Invoke-WebRequest -Uri "https://pinefrostdb.com$route" -Method Post -TimeoutSec 20 -UseBasicParsing
+                $statusCode = [int]$response.StatusCode
+            } catch {
+                $httpResponse = $_.Exception.Response
+                if ($httpResponse -and $httpResponse.StatusCode) {
+                    $statusCode = [int]$httpResponse.StatusCode
+                } else {
+                    throw "Could not verify ${route}: $($_.Exception.Message)"
+                }
+            }
+            if ($statusCode -ne 401) {
+                throw "Upload route contract failed for ${route}: expected HTTP 401 without credentials, received HTTP $statusCode."
+            }
+            Write-Host "    $route -> HTTP 401" -ForegroundColor Green
+        }
+
         Invoke-Ssh "printf '%s\n' '$deploymentJson' > '$RemotePath/.deployment.json'"
         Write-Host "    /api/health -> HTTP $($health.StatusCode)" -ForegroundColor Green
         Write-Host "    live build -> $($healthBody.deployment.branch)@$($healthBody.deployment.shortCommit)" -ForegroundColor Green
