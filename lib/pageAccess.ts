@@ -40,8 +40,8 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   coverage: "Coverage & Productivity",
   reps: "Rep Performance",
   customers: "Customers & Brands",
-  profitability: "Profitability",
-  receivables: "Receivables & Ageing",
+  profitability: "Financials – Profitability",
+  receivables: "Financials – Receivables & Ageing",
   stock: "Stock Balance",
   "dormant-stock": "Dormant OOS",
   "active-outlets": "Active Outlets",
@@ -55,6 +55,13 @@ export const PAGE_LABELS: Record<PageKey, string> = {
 
 export function isPageKey(value: string): value is PageKey {
   return (ALL_PAGE_KEYS as readonly string[]).includes(value);
+}
+
+/** Financials combines the existing profitability and receivables permissions.
+ * Existing user grants remain valid; no user needs a new permission merely
+ * because the two reports are now presented in one major module. */
+export function canAccessFinancials(role: string | null | undefined, allowedPages: readonly string[] = []): boolean {
+  return role === "ADMIN" || allowedPages.includes("profitability") || allowedPages.includes("receivables");
 }
 
 /** Maps a pathname like "/coverage" or "/coverage/some-sub-route" to its page

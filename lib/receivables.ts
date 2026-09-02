@@ -25,7 +25,7 @@ export interface ReceivablesDashboard {
   creditLimitBreaches: number;
   buckets: Record<AgeingBucket, number>;
   terms: { groupNum: number | null; name: string; days: number; customers: number; creditLimit: number; outstanding: number }[];
-  customers: { code: string; name: string; active: boolean; term: string; termDays: number; creditLimit: number; outstanding: number; utilisationPct: number | null; buckets: Record<AgeingBucket, number> }[];
+  customers: { code: string; name: string; active: boolean; status: "Within limit" | "Watch" | "Over limit" | "No limit" | "Inactive"; term: string; termDays: number; creditLimit: number; outstanding: number; utilisationPct: number | null; buckets: Record<AgeingBucket, number> }[];
   largestItems: { customer: string; customerCode: string; documentRef: string | null; dueDate: string; openBalance: number; bucket: AgeingBucket }[];
 }
 
@@ -51,15 +51,26 @@ export async function getReceivablesDashboard(): Promise<ReceivablesDashboard | 
     const customerBuckets = byCustomer.get(customer.customerCode) ?? Object.fromEntries(BUCKETS.map((bucket) => [bucket, 0])) as Record<AgeingBucket, number>;
     const total = BUCKETS.reduce((sum, bucket) => sum + customerBuckets[bucket], 0);
     const days = (customer.creditTerm?.extraDays ?? 0) + (customer.creditTerm?.extraMonths ?? 0) * 30;
+    const utilisationPct = customer.creditLimit > 0 ? total / customer.creditLimit * 100 : null;
+    const status: ReceivablesDashboard["customers"][number]["status"] = !customer.active
+      ? "Inactive"
+      : utilisationPct === null
+        ? "No limit"
+        : utilisationPct > 100
+          ? "Over limit"
+          : utilisationPct >= 80
+            ? "Watch"
+            : "Within limit";
     return {
       code: customer.customerCode,
       name: customer.customerName,
       active: customer.active,
+      status,
       term: customer.creditTerm?.name ?? "(Not assigned)",
       termDays: days,
       creditLimit: customer.creditLimit,
       outstanding: total,
-      utilisationPct: customer.creditLimit > 0 ? total / customer.creditLimit * 100 : null,
+      utilisationPct,
       buckets: customerBuckets,
     };
   }).sort((a, b) => b.outstanding - a.outstanding);
@@ -84,7 +95,7 @@ export async function getReceivablesDashboard(): Promise<ReceivablesDashboard | 
     creditLimitBreaches: customerRows.filter((row) => row.utilisationPct !== null && row.utilisationPct > 100).length,
     buckets,
     terms: [...terms.values()].sort((a, b) => b.outstanding - a.outstanding),
-    customers: customerRows.slice(0, 250),
+    customers: customerRows,
     largestItems: openItems.slice(0, 50).map((item) => ({
       customer: customerNames.get(item.customerCode) ?? item.customerCode,
       customerCode: item.customerCode,
