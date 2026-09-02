@@ -17,3 +17,14 @@ guarded production workflow or `scripts/deploy.ps1`. Schema changes must be
 additive/expand-contract; `-AcceptDataLoss` is disabled. Read
 `docs/production-governance.md` before deploying, changing Prisma, or retiring
 a branch/worktree.
+
+## Automation and multi-session coordination
+
+For any production, integration, scheduler, VPS-environment, or download-machine
+change, read `docs/automation-registry.md` and `docs/release-checklist.md`
+before acting. Work in a dedicated feature branch and worktree; never share an
+editable checkout with another active session. Before a deployment, fetch
+`origin`, confirm the intended master commit and release scope, and use only
+the clean deployment checkout at `D:\sales-dashboard-deploy-clean-20260831`.
+Do not deploy unrelated master changes merely because they are present; stop
+and request a release decision when the intended scope is unclear.
