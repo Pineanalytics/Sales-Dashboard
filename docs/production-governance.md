@@ -2,6 +2,12 @@
 
 Production is defined by `origin/master`. Feature branches are review branches, not deployment sources.
 
+Operational ownership, schedules, destinations, and release checks are kept in
+[`automation-registry.md`](automation-registry.md) and
+[`release-checklist.md`](release-checklist.md). Those documents apply whenever
+a scheduler, integration endpoint, VPS configuration, or download-machine
+artifact changes.
+
 ## Standard flow
 
 1. Create a feature branch and commit one coherent change.
