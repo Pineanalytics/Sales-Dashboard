@@ -27,7 +27,7 @@ import {
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
-import { pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessFinancials, pageKeyForPathname } from "@/lib/pageAccess";
 import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
@@ -44,8 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/insights", label: "Insights", icon: Lightbulb20Regular },
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
-  { href: "/profitability", label: "Profitability", icon: Money20Regular },
-  { href: "/receivables", label: "Receivables & Ageing", icon: Money20Regular },
+  { href: "/financials", label: "Financials", icon: Money20Regular },
   { href: "/stock", label: "Stock Balance", icon: Box20Regular },
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },
   { href: "/active-outlets", label: "Active Outlets", icon: BuildingShop20Regular },
@@ -88,6 +87,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => {
+        if (item.href === "/financials") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
         const key = pageKeyForPathname(item.href);
         return key ? (user?.allowedPages ?? []).includes(key) : true;
       });

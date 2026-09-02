@@ -13,7 +13,7 @@ import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
-import { pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessFinancials, pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -38,7 +38,9 @@ export function AnalyticsShell({
   const pathname = usePathname();
   // Principal KPIs and Coaching have compact, source-specific APIs. They must
   // never make the shell hydrate the portfolio-sized workbook dataset first.
-  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables");
+  const isFinancials = pathname?.startsWith("/financials") ?? false;
+  const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
+  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables") && !(isFinancials && !canViewProfitability);
 
   // Same fallback pattern as the old DashboardShell: the store starts empty
   // client-side, so render the SSR-provided dataset until the hydration
@@ -50,7 +52,9 @@ export function AnalyticsShell({
   // gate for anyone navigating to a disallowed URL directly).
   const requiredPage = pageKeyForPathname(pathname);
   const isAdmin = user?.role === "ADMIN";
-  const pageAllowed = isAdmin || !requiredPage || (user?.allowedPages ?? []).includes(requiredPage);
+  const pageAllowed = isFinancials
+    ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
+    : isAdmin || !requiredPage || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {
     if (initialDataset) {
