@@ -45,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
   { href: "/profitability", label: "Profitability", icon: Money20Regular },
+  { href: "/receivables", label: "Receivables & Ageing", icon: Money20Regular },
   { href: "/stock", label: "Stock Balance", icon: Box20Regular },
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },
   { href: "/active-outlets", label: "Active Outlets", icon: BuildingShop20Regular },

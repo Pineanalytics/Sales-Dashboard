@@ -38,7 +38,7 @@ export function AnalyticsShell({
   const pathname = usePathname();
   // Principal KPIs and Coaching have compact, source-specific APIs. They must
   // never make the shell hydrate the portfolio-sized workbook dataset first.
-  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis");
+  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables");
 
   // Same fallback pattern as the old DashboardShell: the store starts empty
   // client-side, so render the SSR-provided dataset until the hydration

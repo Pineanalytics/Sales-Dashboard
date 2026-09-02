@@ -65,10 +65,11 @@ const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
 };
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
+  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
+    prisma.receivablesSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
@@ -149,6 +150,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60),
     row("stock", "Stock (SAP direct, parallel)", "Hourly", stock?.completedAt ?? null, 2),
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
+    row("receivables", "Receivables (SAP)", "Every 30 minutes", receivables?.completedAt ?? null, 90 / 60),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),

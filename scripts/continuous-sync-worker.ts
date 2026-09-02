@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "mars-kpis" | "sales" | "pl" | "stock";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "mars-kpis" | "sales" | "pl" | "stock" | "receivables";
 
 interface JobDefinition {
   name: JobName;
@@ -34,6 +34,7 @@ const jobs: Record<JobName, JobDefinition> = {
   sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 300 },
   pl: { name: "pl", entry: "scripts/pl-bridge/run.ts", intervalEnv: "PL_INTERVAL_SECONDS", defaultSeconds: 1800 },
   stock: { name: "stock", entry: "scripts/db-bridge/stock-sync.ts", intervalEnv: "STOCK_INTERVAL_SECONDS", defaultSeconds: 900 },
+  receivables: { name: "receivables", entry: "scripts/db-bridge/receivables/run.ts", intervalEnv: "RECEIVABLES_INTERVAL_SECONDS", defaultSeconds: 1800 },
 };
 
 function intervalMs(job: JobDefinition): number {
