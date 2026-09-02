@@ -194,10 +194,11 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,pl,stock
+      CONTINUOUS_SYNC_JOBS: sales,pl,stock,receivables
       SALES_INTERVAL_SECONDS: 300
       PL_INTERVAL_SECONDS: 1800
       STOCK_INTERVAL_SECONDS: 900
+      RECEIVABLES_INTERVAL_SECONDS: 1800
     cpus: 0.75
     mem_limit: 1024m
 

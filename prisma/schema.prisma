@@ -752,6 +752,61 @@ model StockSyncRun {
   @@index([completedAt])
 }
 
+// Current SAP payment-term catalogue. SAP remains authoritative: this is a
+// read-only reporting mirror keyed by OCTG.GroupNum.
+model CreditTerm {
+  groupNum     Int                     @id
+  name         String
+  extraDays    Int                     @default(0)
+  extraMonths  Int                     @default(0)
+  updatedAt    DateTime                @updatedAt
+  customers    CustomerCreditProfile[]
+}
+
+// Customer credit-master mirror from SAP OCRD. Only customer partners
+// (CardType = C) are included; this never writes a limit or term back to SAP.
+model CustomerCreditProfile {
+  customerCode  String      @id
+  customerName  String
+  active        Boolean     @default(true)
+  creditLimit   Float       @default(0)
+  masterBalance Float       @default(0)
+  termGroupNum  Int?
+  creditTerm    CreditTerm? @relation(fields: [termGroupNum], references: [groupNum])
+  updatedAt     DateTime    @updatedAt
+
+  @@index([termGroupNum])
+  @@index([masterBalance])
+}
+
+// Full replacement mirror of SAP's open customer ledger (JDT1). Negative
+// open balances are legitimate credits and remain visible for reconciliation.
+model ReceivableOpenItem {
+  id              String   @id
+  customerCode    String
+  documentRef     String?
+  transactionType Int
+  postingDate     DateTime @db.Date
+  dueDate         DateTime @db.Date
+  openBalance     Float
+  updatedAt       DateTime @updatedAt
+
+  @@index([customerCode])
+  @@index([dueDate])
+}
+
+// Immutable audit summary of every complete receivables refresh.
+model ReceivablesSyncRun {
+  id            String   @id @default(cuid())
+  sourceDate    DateTime
+  completedAt   DateTime @default(now())
+  customerCount Int
+  openItemCount Int
+  masterBalance Float
+  ledgerBalance Float
+  variance      Float
+}
+
 // Canonical Calls & Productivity rows sourced directly from Pine.  The bridge
 // uses the same cost-centre attribution rules as the former workbook query,
 // but stores one immutable business grain (month/principal/role/rep) instead
