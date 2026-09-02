@@ -24,9 +24,17 @@ const ALIGN_CLASS = {
   center: "text-center",
 } as const;
 
-export function Th({ children, align = "left" }: { children: ReactNode; align?: "left" | "right" | "center" }) {
+export function Th({
+  children,
+  align = "left",
+  className = "",
+}: {
+  children: ReactNode;
+  align?: "left" | "right" | "center";
+  className?: string;
+}) {
   return (
-    <th className={`px-3 py-3 font-medium border-b border-white/10 ${ALIGN_CLASS[align]} whitespace-nowrap`}>
+    <th className={`px-3 py-3 font-medium border-b border-white/10 ${ALIGN_CLASS[align]} whitespace-nowrap ${className}`}>
       {children}
     </th>
   );

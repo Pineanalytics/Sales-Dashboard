@@ -9,7 +9,7 @@ import type { DeploymentInfo } from "@/lib/deployment";
 
 function formatLastUpdated(date: Date | null): string {
   if (!date) return "Never";
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** Server-rendered — computed once per page load from lib/syncHealth.ts, no
@@ -36,36 +36,46 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
         <div><span className="font-semibold text-foreground">Schema</span><br />{deployment.schemaFingerprint.slice(0, 12)}</div>
       </div>
       <TableWrap>
-        <Thead>
-          <Th>Source</Th>
-          <Th>Cadence</Th>
-          <Th>Last Updated</Th>
-          <Th>Expected By</Th>
-          <Th align="center">Status</Th>
-          <Th>Manual run</Th>
-        </Thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.key}>
-              <Td>{r.label}</Td>
-              <Td>{r.cadenceLabel}</Td>
-              <Td>{formatLastUpdated(r.lastUpdated)}</Td>
-              <Td>{formatLastUpdated(r.expectedBy)}</Td>
-              <Td align="center">
-                <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>
-              </Td>
-              <Td>
-                {r.triggerDistributor ? (
-                  <div className="flex flex-wrap items-start gap-2">
-                    <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
-                    <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
-                  </div>
-                ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : null}
-                {r.eablSalesExport && <div className="mt-1 max-w-xs text-[10px] text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
-              </Td>
-            </tr>
-          ))}
-        </tbody>
+        <table className="w-full table-fixed border-collapse text-xs">
+          <colgroup>
+            <col className="w-[16%]" />
+            <col className="w-[17%]" />
+            <col className="w-[16%]" />
+            <col className="w-[16%]" />
+            <col className="w-[10%]" />
+            <col className="w-[25%]" />
+          </colgroup>
+          <Thead>
+            <Th className="!whitespace-normal !px-2 !py-2">Source</Th>
+            <Th className="!whitespace-normal !px-2 !py-2">Cadence</Th>
+            <Th className="!whitespace-normal !px-2 !py-2">Last updated</Th>
+            <Th className="!whitespace-normal !px-2 !py-2">Expected by</Th>
+            <Th align="center" className="!whitespace-normal !px-2 !py-2">Status</Th>
+            <Th className="!whitespace-normal !px-2 !py-2">Manual run</Th>
+          </Thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <Td className="!whitespace-normal !px-2 !py-2 leading-tight">{r.label}</Td>
+                <Td className="!whitespace-normal !px-2 !py-2 leading-tight">{r.cadenceLabel}</Td>
+                <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.lastUpdated?.toLocaleString()}>{formatLastUpdated(r.lastUpdated)}</Td>
+                <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.expectedBy?.toLocaleString()}>{formatLastUpdated(r.expectedBy)}</Td>
+                <Td align="center" className="!whitespace-normal !px-2 !py-2">
+                  <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>
+                </Td>
+                <Td className="!whitespace-normal !px-2 !py-2">
+                  {r.triggerDistributor ? (
+                    <div className="flex flex-wrap items-start gap-1.5">
+                      <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
+                      <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
+                    </div>
+                  ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : null}
+                  {r.eablSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </TableWrap>
     </SectionCard>
   );
