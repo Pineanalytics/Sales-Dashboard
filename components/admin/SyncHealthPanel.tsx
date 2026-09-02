@@ -4,7 +4,6 @@ import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
 import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
 import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
-import { TriggerUpfieldDataEdgeButton } from "@/components/admin/TriggerUpfieldDataEdgeButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -70,7 +69,7 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                       <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
                       <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
                     </div>
-                  ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : r.triggerUpfieldDataEdge ? <TriggerUpfieldDataEdgeButton /> : null}
+                  ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : null}
                   {r.eablSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
                 </Td>
               </tr>
