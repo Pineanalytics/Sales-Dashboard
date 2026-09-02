@@ -189,6 +189,9 @@ What it does, in order:
 **Before running it for the first time**, set the VPS's SSH host/user/path at the top of the script if they differ from the defaults, and confirm `~/.ssh/pinefrost_hostinger` is the right key.
 
 See [`docs/production-governance.md`](docs/production-governance.md) for the pull-request, schema, rollback, and branch-retirement policy.
+For every scheduler or integration change, also use the
+[`automation registry`](docs/automation-registry.md) and
+[`release checklist`](docs/release-checklist.md).
 
 **A one-time data backfill or schema change that isn't a normal code deploy** (e.g. importing a spreadsheet directly into production) should still go through the same `pinefrost-builder` image and Compose network by hand — see the pattern `scripts/deploy.ps1` itself uses for `-PushSchema` as a template. Local scripts never have direct access to the production database; it's intentionally not exposed outside the VPS.
 
