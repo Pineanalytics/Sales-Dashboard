@@ -133,10 +133,13 @@ services:
       # uploads server-to-server rather than traversing the public proxy.
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
       CONTINUOUS_SYNC_JOBS: active-outlets
-      # A full YTD aggregate is intentionally a quiet overnight job. It uses
-      # bounded weekly source windows and cannot delay live timestamps.
-      ACTIVE_OUTLETS_DAILY_AT: "01:15"
-      ACTIVE_OUTLETS_RUN_ON_START: "false"
+      # Incremental passes keep the dashboard current hourly. The bridge
+      # itself promotes one pass to a bounded full safety refresh about every
+      # 22 hours, so this does not turn into an hourly YTD rebuild. Running on
+      # start prevents a deploy after the old daily slot from leaving the
+      # dashboard stale until the following day.
+      ACTIVE_OUTLETS_INTERVAL_SECONDS: 3600
+      ACTIVE_OUTLETS_RUN_ON_START: "true"
       TZ: Africa/Nairobi
     cpus: 0.75
     mem_limit: 1024m

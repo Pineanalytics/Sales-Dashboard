@@ -29,6 +29,7 @@ export interface SyncHealthRow {
     nextScheduledRunAt: Date | null;
   };
   triggerEablSalesExport?: boolean;
+  triggerUpfieldDataEdge?: boolean;
 }
 
 /** Surfaces whether each scheduled sync job is actually landing fresh data —
@@ -151,7 +152,10 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
-    row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
+    {
+      ...row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
+      triggerUpfieldDataEdge: true,
+    },
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
     ...salesReturnsRows,
     eablRow,

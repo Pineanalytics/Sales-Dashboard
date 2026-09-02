@@ -1793,3 +1793,19 @@ model EablSalesExportTriggerRequest {
 
   @@index([status, requestedAt])
 }
+
+// Outbound-only DataEdge machines cannot be reached directly from the VPS.
+// Admins queue a refresh here; the machine's local poll task claims it and
+// starts its existing uploader. Completion means the task was dispatched —
+// the Upfield watermark remains the authoritative proof that data landed.
+model UpfieldDataEdgeTriggerRequest {
+  id            String   @id @default(cuid())
+  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  requestedBy   String?
+  requestedAt   DateTime @default(now())
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String?
+
+  @@index([status, requestedAt])
+}

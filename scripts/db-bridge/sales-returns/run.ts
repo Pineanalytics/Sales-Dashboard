@@ -235,7 +235,12 @@ async function main() {
       process.env.SALES_RETURNS_BACKFILL_FROM
     );
     const latestSourceDate = (await fetchLatestSalesReturnDate(pool, distributor, nairobiMidnight(0))) ?? end;
-    return await uploadWindow(pool, start, end, distributor, latestSourceDate, end);
+    const summary = await uploadWindow(pool, start, end, distributor, latestSourceDate, end);
+    // Catchup/today/yesterday runs successfully upload every report but used
+    // to omit this marker. That made a healthy branch look stale whenever a
+    // backfill guard was active or a quiet source produced no changed rows.
+    await recordHeartbeat(distributor, latestSourceDate);
+    return summary;
   } finally {
     await pool.close();
   }
