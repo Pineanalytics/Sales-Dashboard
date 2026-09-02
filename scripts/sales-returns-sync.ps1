@@ -48,7 +48,12 @@ if ($apiKey -and $Distributor) {
   try {
     $control = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control?distributor=$Distributor" -Method Get `
       -Headers @{ "x-upload-api-key" = $apiKey }
-    if ($control.desiredMode -eq "CATCHUP") { $effectiveWindow = "Catchup" }
+    # The task's historical -Window Catchup argument is only a safe fallback
+    # while a backfill pause is active. Once the VPS control is restored to
+    # SMART, it must actively override that legacy task argument; otherwise a
+    # healthy machine can acknowledge the control yet remain in Catchup
+    # forever and never run its reconciliation/heartbeat path.
+    $effectiveWindow = if ($control.desiredMode -eq "CATCHUP") { "Catchup" } else { "Smart" }
   }
   catch {
     Write-Log "Could not read branch control; using configured window $Window`: $($_.Exception.Message)"
