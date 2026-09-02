@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import { historicalSalesReturnsUploadBlocked } from "@/lib/salesReturnsControl";
 
 export const runtime = "nodejs";
+// Keep this ingestion handler as a request-time route. Its input is a
+// five-minute source batch, so it must never be treated as a cached artifact.
+export const dynamic = "force-dynamic";
 
 const CHUNK_SIZE = 500;
 
