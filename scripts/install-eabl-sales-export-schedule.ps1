@@ -3,9 +3,8 @@
   Installs the EABL timetable on the dedicated download machine.
 
 .DESCRIPTION
-  - 09:05 through 21:05 Africa/Nairobi: Today-only reconciliation, hourly,
-    after the hourly VPS upload has had time to complete.
-  - 22:05 Africa/Nairobi: final Today reconciliation and mandatory Yesterday
+  - 09:00 through 21:00 Africa/Nairobi: Today-only reconciliation, hourly.
+  - 22:00 Africa/Nairobi: final Today reconciliation and mandatory Yesterday
     reconciliation. Missing or failed yesterday data causes a failure-only
     pipeline email alert.
 #>
@@ -35,8 +34,8 @@ function New-EablAction([string]$mode) {
   Unregister-ScheduledTask -TaskName $_ -Confirm:$false -ErrorAction SilentlyContinue
 }
 
-$todayTriggers = @(9..21 | ForEach-Object { New-ScheduledTaskTrigger -Daily -At ("{0:00}:05" -f $_) })
-Register-ScheduledTask -TaskName $TodayTaskName -Action (New-EablAction 'Today') -Trigger $todayTriggers -Settings $settings -Principal $principal -Description 'EABL today-only hourly exports, 09:05–21:05 Africa/Nairobi, after VPS upload.' -Force | Out-Null
-Register-ScheduledTask -TaskName $CloseTaskName -Action (New-EablAction 'Close') -Trigger (New-ScheduledTaskTrigger -Daily -At '22:05') -Settings $settings -Principal $principal -Description 'EABL 22:05 final today + mandatory yesterday reconciliation, after VPS upload.' -Force | Out-Null
+$todayTriggers = @(9..21 | ForEach-Object { New-ScheduledTaskTrigger -Daily -At ("{0:00}:00" -f $_) })
+Register-ScheduledTask -TaskName $TodayTaskName -Action (New-EablAction 'Today') -Trigger $todayTriggers -Settings $settings -Principal $principal -Description 'EABL today-only hourly exports, 09:00–21:00 Africa/Nairobi.' -Force | Out-Null
+Register-ScheduledTask -TaskName $CloseTaskName -Action (New-EablAction 'Close') -Trigger (New-ScheduledTaskTrigger -Daily -At '22:00') -Settings $settings -Principal $principal -Description 'EABL 22:00 final today + mandatory yesterday reconciliation.' -Force | Out-Null
 
 Get-ScheduledTask -TaskName $TodayTaskName, $CloseTaskName | Get-ScheduledTaskInfo | Format-Table TaskName, LastRunTime, LastTaskResult, NextRunTime -AutoSize
