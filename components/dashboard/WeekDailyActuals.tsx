@@ -123,7 +123,6 @@ export function WeekDailyActuals({
 
   const weeks: WeekInfo[] = getWeeksInMonth(Number(year), monthIndex);
   const today = new Date();
-  const todayKey = toDateKey(today);
 
   const weekCards = weeks.map((w, i) => {
     const weekStart = w.weekStartDate;
@@ -144,10 +143,32 @@ export function WeekDailyActuals({
 
   const currentWeek = weekCards.find((w) => w.isCurrentWeek) ?? weekCards[weekCards.length - 1];
 
-  const todayProjection = targetByDate.get(todayKey) ?? 0;
-  const todayActual = revenueByDate.get(todayKey) ?? 0;
-  const todayVariance = todayActual - todayProjection;
-  const todayAchievedPct = todayProjection > 0 ? (todayActual / todayProjection) * 100 : null;
+  // A still-live month's "today" row is usually incomplete or not yet synced
+  // (today's sync run may not have happened yet) — yesterday is the last day
+  // with a real chance of being fully posted. A month that has already ended
+  // has no "today"/"yesterday" of its own at all, so it shows the month's
+  // per-day average instead of chasing a single date outside its range.
+  const isLiveMonth = Number(year) === today.getUTCFullYear() && monthIndex === today.getUTCMonth();
+  let dailyTitle: string;
+  let dailyProjection: number;
+  let dailyActual: number;
+  if (isLiveMonth) {
+    const yesterday = new Date(today.getTime() - 86400000);
+    const yesterdayKey = toDateKey(yesterday);
+    dailyTitle = "Daily Projection vs Target (Yesterday)";
+    dailyProjection = targetByDate.get(yesterdayKey) ?? 0;
+    dailyActual = revenueByDate.get(yesterdayKey) ?? 0;
+  } else {
+    const targetDayCount = new Set(filteredDailyTargets.map((r) => toDateKey(new Date(r.date)))).size;
+    const actualDayCount = revenueByDate.size;
+    const totalTarget = filteredDailyTargets.reduce((s, r) => s + r.targetValue, 0);
+    const totalActual = filteredSales.reduce((s, r) => s + r.revenue, 0);
+    dailyTitle = "Daily Average vs Target";
+    dailyProjection = targetDayCount > 0 ? totalTarget / targetDayCount : 0;
+    dailyActual = actualDayCount > 0 ? totalActual / actualDayCount : 0;
+  }
+  const dailyVariance = dailyActual - dailyProjection;
+  const dailyAchievedPct = dailyProjection > 0 ? (dailyActual / dailyProjection) * 100 : null;
 
   const WEEK_ACCENTS = ["green", "amber", "purple", "blue"] as const;
 
@@ -168,10 +189,10 @@ export function WeekDailyActuals({
           <Row label="Actual" value={status === "loading" ? "…" : formatCompact(currentWeek?.actual ?? 0)} />
           <Row label="Variance" value={status === "loading" ? "…" : formatCompact(currentWeek?.variance ?? 0)} negative={(currentWeek?.variance ?? 0) < 0} />
         </ProgressCard>
-        <ProgressCard title="Daily Projection vs Target" pct={todayAchievedPct} accent="navy" loading={status === "loading"}>
-          <Row label="Daily Target" value={status === "loading" ? "…" : formatCompact(todayProjection)} />
-          <Row label="Actual" value={status === "loading" ? "…" : formatCompact(todayActual)} />
-          <Row label="Variance" value={status === "loading" ? "…" : formatCompact(todayVariance)} negative={todayVariance < 0} />
+        <ProgressCard title={dailyTitle} pct={dailyAchievedPct} accent="navy" loading={status === "loading"}>
+          <Row label={isLiveMonth ? "Daily Target" : "Avg Daily Target"} value={status === "loading" ? "…" : formatCompact(dailyProjection)} />
+          <Row label={isLiveMonth ? "Actual" : "Avg Actual"} value={status === "loading" ? "…" : formatCompact(dailyActual)} />
+          <Row label="Variance" value={status === "loading" ? "…" : formatCompact(dailyVariance)} negative={dailyVariance < 0} />
         </ProgressCard>
       </div>
 
