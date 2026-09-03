@@ -3,10 +3,10 @@
 import { Broom20Regular } from "@fluentui/react-icons";
 import { usePathname } from "next/navigation";
 import { ALL_DAY_NAMES, useDashboardStore } from "@/lib/store";
+import { resolvePeriodMonths } from "@/lib/timeIntelligence";
 import { PeriodSelector } from "./PeriodSelector";
 import { PrincipalSelector } from "./PrincipalSelector";
 import { DayNameSelector } from "./DayNameFilter";
-import { ExecutiveViewSwitch } from "./DashboardControlsMulti";
 
 /** Sticky filter strip below the header — period + principal, visible on
  *  every analytics page. Principal selection used to live in the Sidebar;
@@ -17,12 +17,12 @@ export function GlobalFilterBar() {
   const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
-  const executiveView = useDashboardStore((s) => s.executiveView);
-  const setExecutiveView = useDashboardStore((s) => s.setExecutiveView);
   const salesSection = useDashboardStore((s) => s.salesSection);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const hasDayFilter = selectedDayNames.size !== ALL_DAY_NAMES.length;
   const showExecutiveControls = pathname === "/dashboard" || (pathname === "/sales" && salesSection === "executive");
+  const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
+  const canFilterExecutiveDays = showExecutiveControls && resolvePeriodMonths(selectedPeriod).length === 1;
 
   // Timestamps owns a compact report-specific control bar, where its rep,
   // date, role, and principal filters need to sit together. Keeping this
@@ -34,15 +34,7 @@ export function GlobalFilterBar() {
       <div className="flex flex-wrap items-center gap-2">
         <PeriodSelector />
         <PrincipalSelector />
-        {showExecutiveControls ? (
-          <div className="flex items-end gap-2 rounded-xl border border-border bg-background-elevated px-3 py-2">
-            <div>
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">Executive overview</span>
-              <ExecutiveViewSwitch view={executiveView} onViewChange={setExecutiveView} />
-            </div>
-          </div>
-        ) : null}
-        {showExecutiveControls && executiveView === "mtd" ? <DayNameSelector /> : null}
+        {canFilterExecutiveDays ? <DayNameSelector /> : null}
       </div>
       <button
         onClick={clearAllFilters}
