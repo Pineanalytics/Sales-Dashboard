@@ -198,6 +198,220 @@ export async function updateSupervisorManagerAction(formData: FormData) {
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
 }
 
+// Sales Supervisor entity CRUD — mirrors createTeamLeaderAction/
+// renameTeamLeaderAction/deleteTeamLeaderAction exactly, one tier up.
+// Previously a Supervisor only ever came into existence via a V18 Roster CSV
+// upload (upsertRosterRows' find-or-create-by-name); this is the direct
+// admin-only equivalent for when there's no CSV to hand, e.g. standing up a
+// brand-new Supervisor before any rep roster names them.
+export async function createSupervisorAction(formData: FormData) {
+  await requireAdmin();
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Supervisor name is required."));
+  }
+
+  try {
+    await prisma.supervisor.create({ data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Supervisor named "${name}" already exists.`
+        : "Failed to add the Supervisor.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Added Supervisor "${name}".`));
+}
+
+export async function renameSupervisorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Supervisor name is required."));
+  }
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Supervisor named "${name}" already exists.`
+        : "Failed to rename the Supervisor.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Supervisor renamed."));
+}
+
+export async function deleteSupervisorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+
+  const supervisor = await prisma.supervisor.findUnique({ where: { id } });
+  if (!supervisor) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Supervisor not found."));
+  }
+
+  // Same reject-deletes-that-orphan-history stance as deleteTeamLeaderAction,
+  // one tier up: clear the reporting line on every Team Leader who pointed at
+  // this Supervisor rather than leaving a dangling supervisorId, but keep
+  // those Team Leaders and their own assignment history intact.
+  await prisma.teamLeader.updateMany({ where: { supervisorId: id }, data: { supervisorId: null } });
+  await prisma.teamLeaderAssignment.updateMany({ where: { supervisorId: id }, data: { supervisorId: null } });
+  await prisma.supervisor.delete({ where: { id } });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Supervisor "${supervisor.name}". Their Team Leaders now need a new Supervisor.`));
+}
+
+// Head of Sales (org-entity) CRUD — one tier above Manager, same pattern as
+// Supervisor above. Deliberately distinct from the HOD Role a User account can
+// hold (Admin -> Users) — see prisma/schema.prisma's Hod model comment for why
+// both can name the same real person without either implying the other.
+export async function createHodAction(formData: FormData) {
+  await requireAdmin();
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Head of Sales name is required."));
+  }
+
+  try {
+    await prisma.hod.create({ data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Head of Sales named "${name}" already exists.`
+        : "Failed to add the Head of Sales.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Added Head of Sales "${name}".`));
+}
+
+export async function renameHodAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "hodId");
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Head of Sales name is required."));
+  }
+
+  try {
+    await prisma.hod.update({ where: { id }, data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Head of Sales named "${name}" already exists.`
+        : "Failed to rename the Head of Sales.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Head of Sales renamed."));
+}
+
+export async function deleteHodAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "hodId");
+
+  const hod = await prisma.hod.findUnique({ where: { id } });
+  if (!hod) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Head of Sales not found."));
+  }
+
+  await prisma.manager.updateMany({ where: { hodId: id }, data: { hodId: null } });
+  await prisma.hod.delete({ where: { id } });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Head of Sales "${hod.name}". Their Managers now need a new Head of Sales.`));
+}
+
+/** Sets which Head of Sales a Manager reports to — Manager.hodId. */
+export async function updateManagerHodAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "managerId");
+  const hodId = str(formData, "hodId") || null;
+
+  try {
+    await prisma.manager.update({ where: { id }, data: { hodId } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Manager's Head of Sales."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
+// Director (org-entity) CRUD — one tier above Head of Sales, same pattern.
+export async function createDirectorAction(formData: FormData) {
+  await requireAdmin();
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Director name is required."));
+  }
+
+  try {
+    await prisma.director.create({ data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Director named "${name}" already exists.`
+        : "Failed to add the Director.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Added Director "${name}".`));
+}
+
+export async function renameDirectorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "directorId");
+  const name = str(formData, "name");
+  if (!name) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Director name is required."));
+  }
+
+  try {
+    await prisma.director.update({ where: { id }, data: { name } });
+  } catch (err: unknown) {
+    const message =
+      typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
+        ? `A Director named "${name}" already exists.`
+        : "Failed to rename the Director.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Director renamed."));
+}
+
+export async function deleteDirectorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "directorId");
+
+  const director = await prisma.director.findUnique({ where: { id } });
+  if (!director) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Director not found."));
+  }
+
+  await prisma.hod.updateMany({ where: { directorId: id }, data: { directorId: null } });
+  await prisma.director.delete({ where: { id } });
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Director "${director.name}". Their Heads of Sales now need a new Director.`));
+}
+
+/** Sets which Director a Head of Sales reports to — Hod.directorId. */
+export async function updateHodDirectorAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "hodId");
+  const directorId = str(formData, "directorId") || null;
+
+  try {
+    await prisma.hod.update({ where: { id }, data: { directorId } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Head of Sales' Director."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
 /** Browser-based alternative to running scripts/target-management/import.ts locally —
  *  accepts a plain CSV export of the Roster sheet (either format, see
  *  lib/rosterImport.ts) and upserts it through the exact same shared logic the
