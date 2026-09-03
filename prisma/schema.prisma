@@ -201,6 +201,29 @@ model Supervisor {
 model Manager {
   id        String   @id @default(cuid())
   name      String   @unique
+  hodId     String?
+  createdAt DateTime @default(now())
+}
+
+// Two more reporting tiers above Manager, same grouping/ranking-key rationale
+// as TeamLeader/Supervisor/Manager (name-drift-safety, not just display text)
+// — Manager.hodId / Hod.directorId. Deliberately distinct from the HOD/DIRECTOR
+// Role enum values below: those are about who fills/reviews the company-wide
+// PerformanceTracker (no linked entity, by design — see that model's own
+// comment); these are the org-chart reporting line TL Ranking's rollup walks,
+// same as every tier below them. A person can hold both at once (e.g. the
+// Hod-role User and the Hod org-entity often name the same real person) but
+// neither implies the other.
+model Hod {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  directorId String?
+  createdAt  DateTime @default(now())
+}
+
+model Director {
+  id        String   @id @default(cuid())
+  name      String   @unique
   createdAt DateTime @default(now())
 }
 

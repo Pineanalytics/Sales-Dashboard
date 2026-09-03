@@ -7,9 +7,6 @@ import { validateContributionTotals } from "@/lib/repContribution";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import {
   createTeamLeaderAction,
-  renameTeamLeaderAction,
-  deleteTeamLeaderAction,
-  updateTeamLeaderSupervisorAction,
   updateSupervisorManagerAction,
   createAssignmentAction,
   updateAssignmentAction,
@@ -19,7 +16,19 @@ import {
   createReliefAction,
   endReliefAction,
   deleteReliefAction,
+  createSupervisorAction,
+  renameSupervisorAction,
+  deleteSupervisorAction,
+  createHodAction,
+  renameHodAction,
+  deleteHodAction,
+  updateManagerHodAction,
+  createDirectorAction,
+  renameDirectorAction,
+  deleteDirectorAction,
+  updateHodDirectorAction,
 } from "./actions";
+import { TeamLeaderRosterPanel } from "./TeamLeaderRosterPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +43,9 @@ export default async function AdminTeamLeadersPage({
     error?: string;
     success?: string;
     rename?: string;
+    renameSupervisor?: string;
+    renameHod?: string;
+    renameDirector?: string;
     edit?: string;
     teamLeaderId?: string;
     principal?: string;
@@ -55,6 +67,9 @@ export default async function AdminTeamLeadersPage({
     error,
     success,
     rename,
+    renameSupervisor,
+    renameHod,
+    renameDirector,
     edit,
     teamLeaderId: lastTeamLeaderId,
     principal: lastPrincipal,
@@ -65,7 +80,7 @@ export default async function AdminTeamLeadersPage({
     filterManager,
   } = await searchParams;
 
-  const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, reliefs] = await Promise.all([
+  const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, hods, directors, reliefs] = await Promise.all([
     prisma.teamLeader.findMany({ where: scope ? { id: { in: scope.teamLeaderIds } } : {}, orderBy: { name: "asc" } }),
     prisma.teamLeaderAssignment.findMany({
       where: scope ? { teamLeaderId: { in: scope.teamLeaderIds } } : {},
@@ -75,6 +90,8 @@ export default async function AdminTeamLeadersPage({
     getKnownPrincipals(),
     prisma.supervisor.findMany({ orderBy: { name: "asc" } }),
     prisma.manager.findMany({ orderBy: { name: "asc" } }),
+    prisma.hod.findMany({ orderBy: { name: "asc" } }),
+    prisma.director.findMany({ orderBy: { name: "asc" } }),
     // "Currently active" mirrors lib/teamLeaderScope.ts's getActiveReliefCoverage
     // exactly (revokedAt null, within any start/end window) — both sides scoped
     // to a Supervisor's own group the same way teamLeaders/assignments above are.
@@ -87,6 +104,9 @@ export default async function AdminTeamLeadersPage({
   ]);
 
   const renaming = rename ? teamLeaders.find((tl) => tl.id === rename) : undefined;
+  const renamingSupervisor = renameSupervisor ? supervisors.find((s) => s.id === renameSupervisor) : undefined;
+  const renamingHod = renameHod ? hods.find((h) => h.id === renameHod) : undefined;
+  const renamingDirector = renameDirector ? directors.find((d) => d.id === renameDirector) : undefined;
   const editing = edit ? assignments.find((a) => a.id === edit) : undefined;
   const contributionWarnings = validateContributionTotals(assignments);
 
@@ -187,11 +207,21 @@ export default async function AdminTeamLeadersPage({
         ) : null}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Upload Roster (CSV)</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="text-lg font-semibold text-primary-blue">Upload Roster (CSV)</h2>
+            <a
+              href="/api/team-leaders/export-roster"
+              className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft"
+            >
+              Download current roster (CSV)
+            </a>
+          </div>
           <p className="mt-1 text-[13px] text-muted">
             Expects the Target_Management_System.xlsm workbook&apos;s own Roster sheet, exported as CSV (a single header row —
             Employee Code, Employee (Sales Edge Name), SAP Name, Channel, Team Leader, Principal, * Contribution %, Active
-            (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated.
+            (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated. The download
+            above produces the same 18-column shape this upload expects (Sales Supervisor/Manager format), pre-filled with
+            every current assignment — edit it and re-upload to update in bulk.
           </p>
           <form action={uploadRosterCsvAction} className="mt-4 flex flex-wrap items-center gap-4">
             <input
@@ -230,12 +260,43 @@ export default async function AdminTeamLeadersPage({
             </button>
           </form>
 
+          <TeamLeaderRosterPanel
+            teamLeaders={teamLeaders.map((tl) => ({
+              id: tl.id,
+              name: tl.name,
+              supervisorId: tl.supervisorId,
+              assignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).length,
+            }))}
+            supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
+            renamingId={renaming?.id}
+            inputClass={inputClass}
+            labelClass={labelClass}
+          />
+        </div>
+        ) : null}
+
+        {isAdmin ? (
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Sales Supervisor roster</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Creating/renaming/removing a Supervisor entity directly — the same effect the Roster CSV upload&apos;s
+            find-or-create-by-name already has, for standing one up before any rep roster names them.
+          </p>
+          <form action={createSupervisorAction} className="mt-4 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Name</label>
+              <input name="name" required placeholder="Lucy Githinji" className={inputClass} />
+            </div>
+            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+              Add Supervisor
+            </button>
+          </form>
           <div className="mt-5 flex flex-col gap-2">
-            {teamLeaders.map((tl) =>
-              renaming?.id === tl.id ? (
-                <form key={tl.id} action={renameTeamLeaderAction} className="flex items-center gap-2">
-                  <input type="hidden" name="teamLeaderId" value={tl.id} />
-                  <input name="name" defaultValue={tl.name} className={inputClass} />
+            {supervisors.map((s) =>
+              renamingSupervisor?.id === s.id ? (
+                <form key={s.id} action={renameSupervisorAction} className="flex items-center gap-2">
+                  <input type="hidden" name="supervisorId" value={s.id} />
+                  <input name="name" defaultValue={s.name} className={inputClass} />
                   <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
                     Save
                   </button>
@@ -244,37 +305,14 @@ export default async function AdminTeamLeadersPage({
                   </Link>
                 </form>
               ) : (
-                <div key={tl.id} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
-                  <span className="text-sm font-medium text-foreground">
-                    {tl.name}
-                    <span className="ml-2 text-[13px] text-muted">
-                      {(assignmentsByTeamLeader.get(tl.id) ?? []).length} assignment(s)
-                    </span>
-                  </span>
+                <div key={s.id} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
+                  <span className="text-sm font-medium text-foreground">{s.name}</span>
                   <div className="flex items-center gap-3 flex-wrap">
-                    <form action={updateTeamLeaderSupervisorAction} className="flex items-center gap-1.5">
-                      <input type="hidden" name="teamLeaderId" value={tl.id} />
-                      <span className="text-[13px] text-muted">Reports to</span>
-                      <select name="supervisorId" defaultValue={tl.supervisorId ?? ""} className={inputClass + " py-1 text-xs"}>
-                        <option value="">— none —</option>
-                        {supervisors.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
-                        Save
-                      </button>
-                    </form>
-                    <Link
-                      href={`/admin/team-leaders?rename=${tl.id}`}
-                      className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
-                    >
+                    <Link href={`/admin/team-leaders?renameSupervisor=${s.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
                       Rename
                     </Link>
-                    <form action={deleteTeamLeaderAction} className="inline">
-                      <input type="hidden" name="teamLeaderId" value={tl.id} />
+                    <form action={deleteSupervisorAction} className="inline">
+                      <input type="hidden" name="supervisorId" value={s.id} />
                       <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
                         Remove
                       </button>
@@ -283,7 +321,7 @@ export default async function AdminTeamLeadersPage({
                 </div>
               )
             )}
-            {teamLeaders.length === 0 ? <p className="text-sm text-muted">No Team Leaders yet — add one above.</p> : null}
+            {supervisors.length === 0 ? <p className="text-sm text-muted">No Sales Supervisors yet.</p> : null}
           </div>
         </div>
         ) : null}
@@ -318,6 +356,148 @@ export default async function AdminTeamLeadersPage({
               </form>
             ))}
             {supervisors.length === 0 ? <p className="text-sm text-muted">No Sales Supervisors yet — added via the Roster CSV upload.</p> : null}
+          </div>
+        </div>
+        ) : null}
+
+        {isAdmin ? (
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Managers → Head of Sales</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Who each Manager reports to — one tier above Supervisor → Manager, same rationale.
+          </p>
+          <form action={createHodAction} className="mt-4 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>New Head of Sales</label>
+              <input name="name" required placeholder="Angela Sitati" className={inputClass} />
+            </div>
+            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+              Add Head of Sales
+            </button>
+          </form>
+          <div className="mt-5 flex flex-col gap-2">
+            {managers.map((m) => (
+              <form key={m.id} action={updateManagerHodAction} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
+                <input type="hidden" name="managerId" value={m.id} />
+                <span className="text-sm font-medium text-foreground">{m.name}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13px] text-muted">Reports to</span>
+                  <select name="hodId" defaultValue={m.hodId ?? ""} className={inputClass + " py-1 text-xs"}>
+                    <option value="">— none —</option>
+                    {hods.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                    Save
+                  </button>
+                </div>
+              </form>
+            ))}
+            {managers.length === 0 ? <p className="text-sm text-muted">No Managers yet — added via the Roster CSV upload.</p> : null}
+          </div>
+        </div>
+        ) : null}
+
+        {isAdmin ? (
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Head of Sales → Director</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Head of Sales entities and who each reports to — distinct from the HOD/DIRECTOR login roles
+            (Admin → Users), which control who fills/reviews the company-wide Performance Tracker, not this
+            reporting line.
+          </p>
+          <form action={createDirectorAction} className="mt-4 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>New Director</label>
+              <input name="name" required placeholder="Director name" className={inputClass} />
+            </div>
+            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+              Add Director
+            </button>
+          </form>
+          <div className="mt-5 flex flex-col gap-2">
+            {hods.map((h) =>
+              renamingHod?.id === h.id ? (
+                <form key={h.id} action={renameHodAction} className="flex items-center gap-2">
+                  <input type="hidden" name="hodId" value={h.id} />
+                  <input name="name" defaultValue={h.name} className={inputClass} />
+                  <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                    Save
+                  </button>
+                  <Link href="/admin/team-leaders" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                    Cancel
+                  </Link>
+                </form>
+              ) : (
+                <form key={h.id} action={updateHodDirectorAction} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
+                  <input type="hidden" name="hodId" value={h.id} />
+                  <span className="text-sm font-medium text-foreground">{h.name}</span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-[13px] text-muted">Reports to</span>
+                    <select name="directorId" defaultValue={h.directorId ?? ""} className={inputClass + " py-1 text-xs"}>
+                      <option value="">— none —</option>
+                      {directors.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                      Save
+                    </button>
+                    <Link href={`/admin/team-leaders?renameHod=${h.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                      Rename
+                    </Link>
+                    <button type="submit" formAction={deleteHodAction} className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                      Remove
+                    </button>
+                  </div>
+                </form>
+              )
+            )}
+            {hods.length === 0 ? <p className="text-sm text-muted">No Heads of Sales yet — add one above.</p> : null}
+          </div>
+        </div>
+        ) : null}
+
+        {isAdmin ? (
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Director roster</h2>
+          <p className="mt-1 text-[13px] text-muted">The top of the reporting line — who each Head of Sales above reports to.</p>
+          <div className="mt-4 flex flex-col gap-2">
+            {directors.map((d) =>
+              renamingDirector?.id === d.id ? (
+                <form key={d.id} action={renameDirectorAction} className="flex items-center gap-2">
+                  <input type="hidden" name="directorId" value={d.id} />
+                  <input name="name" defaultValue={d.name} className={inputClass} />
+                  <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                    Save
+                  </button>
+                  <Link href="/admin/team-leaders" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                    Cancel
+                  </Link>
+                </form>
+              ) : (
+                <div key={d.id} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
+                  <span className="text-sm font-medium text-foreground">{d.name}</span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Link href={`/admin/team-leaders?renameDirector=${d.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                      Rename
+                    </Link>
+                    <form action={deleteDirectorAction} className="inline">
+                      <input type="hidden" name="directorId" value={d.id} />
+                      <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                        Remove
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )
+            )}
+            {directors.length === 0 ? <p className="text-sm text-muted">No Directors yet — add one above.</p> : null}
           </div>
         </div>
         ) : null}
