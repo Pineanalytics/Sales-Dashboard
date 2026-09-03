@@ -5,7 +5,7 @@ import { formatCompact } from "@/lib/format";
 import type { PeriodSalesSummary } from "@/lib/timeIntelligence";
 
 /** H1/H2 (or Q1/Q2, reused for either pairing) Mission & Actual progress bars for the
- *  YTD Summary tab — OverviewView.tsx already computes the same h1Summary/h2Summary
+ *  Historical executive layout — OverviewView.tsx already computes the same h1Summary/h2Summary
  *  shape, this just gives it the progress-bar visual the reference dashboard uses. */
 export function MissionProgressBars({
   title,
