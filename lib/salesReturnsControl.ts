@@ -1,5 +1,16 @@
 import { prisma } from "./db";
 
+// Every Sales & Returns-fed table (SalesReturnLine, PjpDsrDailyActivity,
+// PjpSkuPerformance, OutletSkuDailySales) is keyed by this raw numeric
+// distributor code. Centralized here so Sync Health and any report reading
+// those tables show the same friendly branch name — an unrecognized code
+// (a new branch onboarded but not added here yet) still displays fine, just
+// labeled by its raw code instead of a name.
+export const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
+  "18048241": "Nairobi",
+  "18058585": "Nyeri",
+};
+
 export const SALES_RETURNS_CONTROL_MODES = ["SMART", "CATCHUP"] as const;
 export type SalesReturnsControlMode = (typeof SALES_RETURNS_CONTROL_MODES)[number];
 

@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { SALES_RETURNS_BRANCH_LABELS } from "./salesReturnsControl";
 
 export interface SyncHealthRow {
   key: string;
@@ -56,13 +57,9 @@ export interface SyncHealthRow {
  *  reconciliation/repair verification succeeds. Existing data createdAt is
  *  retained as a fallback until each machine has completed its first smart
  *  run. A single combined timestamp would let one live branch mask another.
- *  BRANCH_LABELS is just cosmetic — an unrecognized distributor code (e.g.
- *  a new branch onboarded but not added here yet) still shows up, just
- *  labeled by its raw code instead of a friendly name. */
-const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
-  "18048241": "Nairobi",
-  "18058585": "Nyeri",
-};
+ *  SALES_RETURNS_BRANCH_LABELS (see lib/salesReturnsControl.ts) is just
+ *  cosmetic — an unrecognized distributor code still shows up, just labeled
+ *  by its raw code instead of a friendly name. */
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([

@@ -5,10 +5,10 @@ const SYSTEMS = [
   { principal: "Pine", system: "SalesEdge", description: "Standard timestamp and time-management activity.", href: "/timestamps", status: "Live" },
   { principal: "EABL", system: "DMS", description: "Dedicated call performance and customer visit detail.", href: "/timestamps/eabl-call-performance", status: "Live" },
   { principal: "Upfield", system: "DataEdge", description: "Transaction timestamps and productive outlet coverage.", href: "/timestamps/upfield-dataedge", status: "Live" },
-  { principal: "Unilever", system: "Leverage", description: "Timestamp reporting will appear here when its feed is connected.", status: "Planned" },
+  { principal: "Unilever", system: "Leverage", description: "PJP/route daily activity and entry-time tracking from the field DMS.", href: "/timestamps/leverage", status: "Live" },
 ] as const;
 
-export function SfaReportNavigator({ current = "Pine" }: { current?: "Pine" | "EABL" | "Upfield" }) {
+export function SfaReportNavigator({ current = "Pine" }: { current?: "Pine" | "EABL" | "Upfield" | "Unilever" }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)] sm:p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
