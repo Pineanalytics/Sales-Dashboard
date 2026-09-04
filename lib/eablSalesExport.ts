@@ -68,11 +68,14 @@ function resolveProductCode(rawCode: string): string {
   return KNOWN_PRODUCT_CODE_CORRECTIONS[stripped] ?? stripped;
 }
 
-// NetPrice arrives from the source VAT-inclusive; the receiving system
-// expects a VAT-exclusive figure instead. Kenyan VAT is a flat 16%. Confirmed
-// 2026-09-04: the source's Tax column is not a usable per-row taxed/exempt
-// indicator (no distinct 0/1 - or any other - split was found in it), so this
-// is applied uniformly to every row rather than conditioned on Tax.
+// UnitPrice (the "Unit Price (KE)" column, immediately before NetPrice) arrives
+// from the source VAT-inclusive; the receiving system expects a VAT-exclusive
+// figure instead. Kenyan VAT is a flat 16%. Confirmed 2026-09-04: the source's
+// Tax column is not a usable per-row taxed/exempt indicator (no distinct 0/1 -
+// or any other - split was found in it), so this is applied uniformly to
+// every row rather than conditioned on Tax. Originally applied to NetPrice by
+// mistake (2026-09-04) - corrected same day to UnitPrice, the actually
+// intended column; NetPrice ships unchanged, VAT-inclusive as before.
 const KENYA_VAT_RATE = 0.16;
 
 function excludeVat(value: unknown): number | null {
@@ -98,8 +101,12 @@ export function normaliseRow(row: Record<string, unknown>): EablSalesExportRow {
     ProductHierarchyLevel4: row.ProductHierarchyLevel4,
     CustomerStatus: row.CustomerStatus,
     ConversionUnit: row.ConversionUnit,
-    UnitPrice: formatUnitPrice(row.UnitPrice),
-    NetPrice: formatFixed(excludeVat(row.NetPrice), 2),
+    // Full precision preserved (formatUnitPrice's arbitrary-precision trim,
+    // not a fixed 2dp round) - confirmed 2026-09-04 the general price after
+    // VAT exclusion needs to keep all its decimals, e.g. 760 -> the exact
+    // "655.1724137931035", not a rounded "655.17".
+    UnitPrice: formatUnitPrice(excludeVat(row.UnitPrice)),
+    NetPrice: formatFixed(row.NetPrice, 2),
     DiscountAmount: formatFixed(row.DiscountAmount, 2),
     DiscountPercent: row.DiscountPercent === null || row.DiscountPercent === undefined || row.DiscountPercent === "" ? "" : `${formatFixed(row.DiscountPercent, 2)}%`,
     Tax: row.Tax,

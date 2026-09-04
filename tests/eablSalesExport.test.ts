@@ -9,14 +9,17 @@ describe("EABL sales export formatting", () => {
   });
 
   it("implements the exact business transformations without grouped numerics", () => {
-    expect(normaliseRow({ ProductCode: "B350360", TransactionDate: new Date("2026-08-20T00:00:00Z"), ExportDate: new Date("2026-08-21T00:00:00Z"), UnitPrice: 760, NetPrice: -5320, DiscountAmount: 0, DiscountPercent: 1.5 }).ProductCode).toBe("350360");
-    const row = normaliseRow({ ProductCode: "B350360", TransactionDate: new Date("2026-08-20T00:00:00Z"), ExportDate: new Date("2026-08-21T00:00:00Z"), UnitPrice: 760, NetPrice: -5320, DiscountAmount: 0, DiscountPercent: 1.5 });
+    expect(normaliseRow({ ProductCode: "B350360", TransactionDate: new Date("2026-08-20T00:00:00Z"), ExportDate: new Date("2026-08-21T00:00:00Z"), UnitPrice: 116, NetPrice: -5320, DiscountAmount: 0, DiscountPercent: 1.5 }).ProductCode).toBe("350360");
+    const row = normaliseRow({ ProductCode: "B350360", TransactionDate: new Date("2026-08-20T00:00:00Z"), ExportDate: new Date("2026-08-21T00:00:00Z"), UnitPrice: 116, NetPrice: -5320, DiscountAmount: 0, DiscountPercent: 1.5 });
     expect(row.TransactionDate).toBe("20260820");
     expect(row.ExportDate).toBe("20260821");
-    expect(row.UnitPrice).toBe("760");
-    // -5320 VAT-inclusive / 1.16 = -4586.21 VAT-exclusive (see the dedicated
-    // VAT-exclusion test below for the isolated calculation).
-    expect(row.NetPrice).toBe("-4586.21");
+    // 116 VAT-inclusive / 1.16 = 100 VAT-exclusive, full precision preserved
+    // (see the dedicated VAT-exclusion test below for the isolated calculation).
+    expect(row.UnitPrice).toBe("100");
+    // NetPrice ships unchanged, VAT-inclusive as before - the VAT exclusion
+    // applies to UnitPrice only (corrected 2026-09-04; originally applied to
+    // NetPrice by mistake).
+    expect(row.NetPrice).toBe("-5320.00");
     expect(row.DiscountAmount).toBe("0.00");
     expect(row.DiscountPercent).toBe("1.50%");
   });
@@ -36,16 +39,23 @@ describe("EABL sales export formatting", () => {
     expect(normaliseRow({ ProductCode: "B696895" }).ProductCode).toBe("696895");
   });
 
-  it("exports NetPrice VAT-exclusive at the flat Kenyan 16% rate", () => {
+  it("exports UnitPrice (KE) VAT-exclusive at the flat Kenyan 16% rate, full precision", () => {
     // 116 VAT-inclusive = 100 exclusive + 16 VAT, so dividing by 1.16 exactly
     // recovers a round number - the cleanest possible check of the formula.
-    expect(normaliseRow({ NetPrice: 116 }).NetPrice).toBe("100.00");
-    expect(normaliseRow({ NetPrice: 0 }).NetPrice).toBe("0.00");
-    expect(normaliseRow({ NetPrice: null }).NetPrice).toBe("");
+    expect(normaliseRow({ UnitPrice: 116 }).UnitPrice).toBe("100");
+    expect(normaliseRow({ UnitPrice: 0 }).UnitPrice).toBe("0");
+    expect(normaliseRow({ UnitPrice: null }).UnitPrice).toBe("");
+    // A non-clean-multiple price keeps its full, unrounded decimal precision -
+    // confirmed 2026-09-04 the general price after VAT exclusion must not be
+    // rounded away.
+    expect(normaliseRow({ UnitPrice: 760 }).UnitPrice).toBe("655.1724137931035");
     // Applied uniformly regardless of Tax - there's no reliable per-row
     // taxed/exempt indicator in the source to condition it on (confirmed
     // 2026-09-04), so Tax itself is passed through unchanged either way.
-    expect(normaliseRow({ NetPrice: 116, Tax: 0 }).NetPrice).toBe("100.00");
+    expect(normaliseRow({ UnitPrice: 116, Tax: 0 }).UnitPrice).toBe("100");
+    // NetPrice is untouched by the VAT exclusion - it ships exactly as the
+    // source provides it.
+    expect(normaliseRow({ NetPrice: 5320 }).NetPrice).toBe("5320.00");
   });
 
   it("changes the manifest revision when report content changes", () => {
