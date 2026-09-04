@@ -27,6 +27,13 @@ describe("EABL sales export formatting", () => {
     expect(eablFilename("2026-08-20")).toBe("EABL_20260820.csv");
   });
 
+  it("corrects known upstream product-code exceptions after stripping the B prefix", () => {
+    expect(normaliseRow({ ProductCode: "B696894" }).ProductCode).toBe("616838");
+    // Confirms the exception is scoped to the exact known-bad code, not a
+    // broad rule - an unrelated code isn't affected.
+    expect(normaliseRow({ ProductCode: "B696895" }).ProductCode).toBe("696895");
+  });
+
   it("changes the manifest revision when report content changes", () => {
     expect(contentRevision("a")).not.toBe(contentRevision("b"));
     expect(contentRevision("a")).toBe(contentRevision("a"));

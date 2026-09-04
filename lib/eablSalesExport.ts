@@ -49,6 +49,25 @@ export function csvEscape(value: unknown): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+// Known data-quality exceptions in the source system: a handful of per-bottle
+// SKUs were assigned an unrelated "B"-prefixed code instead of following the
+// normal convention (B + the item's own official/base code). The generic
+// B-strip in resolveProductCode() below reproduces that convention correctly
+// for every product that follows it - this map corrects the ones that don't, keyed by
+// the code AFTER stripping the "B" prefix, so the extraction is right even if
+// the source system's own master data is never corrected upstream. Confirmed
+// 2026-09-03: source ProductCode "B696894" should resolve to "616838" (its
+// official code), not "696894" - add further exceptions here as they surface,
+// one line each, with the date and who/what confirmed it.
+const KNOWN_PRODUCT_CODE_CORRECTIONS: Record<string, string> = {
+  "696894": "616838", // per-bottle SKU mis-coded upstream; confirmed 2026-09-03
+};
+
+function resolveProductCode(rawCode: string): string {
+  const stripped = rawCode.startsWith("B") ? rawCode.slice(1) : rawCode;
+  return KNOWN_PRODUCT_CODE_CORRECTIONS[stripped] ?? stripped;
+}
+
 export function normaliseRow(row: Record<string, unknown>): EablSalesExportRow {
   const productCode = row.ProductCode == null ? "" : String(row.ProductCode);
   return {
@@ -58,7 +77,7 @@ export function normaliseRow(row: Record<string, unknown>): EablSalesExportRow {
     TransactionType: row.TransactionType,
     TransactionNumber: row.TransactionNumber,
     CashBillReference: row.CashBillReference,
-    ProductCode: productCode.startsWith("B") ? productCode.slice(1) : productCode,
+    ProductCode: resolveProductCode(productCode),
     TransactionDate: toCompactDate(row.TransactionDate),
     Salesman: row.Salesman,
     SalesmanOperationType: row.SalesmanOperationType,
