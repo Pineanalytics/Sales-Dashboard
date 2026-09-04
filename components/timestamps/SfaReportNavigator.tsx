@@ -6,10 +6,10 @@ const SYSTEMS = [
   { key: "eabl", principal: "EABL", system: "DMS", description: "Dedicated call performance and customer visit detail.", href: "/timestamps/eabl-call-performance", status: "Live" },
   { key: "upfield-dataedge", principal: "Upfield", system: "DataEdge", description: "Transaction timestamps and productive outlet coverage.", href: "/timestamps/upfield-dataedge", status: "Live" },
   { key: "upfield-visits", principal: "Upfield", system: "Outlet Visits", description: "FSR check-in/check-out and transit time, 4x daily.", href: "/timestamps/upfield-visits", status: "Live" },
-  { key: "unilever", principal: "Unilever", system: "Leverage", description: "Timestamp reporting will appear here when its feed is connected.", status: "Planned" },
+  { key: "unilever", principal: "Unilever", system: "Leverage", description: "PJP/route daily activity and entry-time tracking from the field DMS.", href: "/timestamps/leverage", status: "Live" },
 ] as const;
 
-export function SfaReportNavigator({ current = "pine" }: { current?: "pine" | "eabl" | "upfield-dataedge" | "upfield-visits" }) {
+export function SfaReportNavigator({ current = "pine" }: { current?: "pine" | "eabl" | "upfield-dataedge" | "upfield-visits" | "unilever" }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)] sm:p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
