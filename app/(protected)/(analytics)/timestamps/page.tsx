@@ -662,7 +662,7 @@ export default function TimestampsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <SfaReportNavigator current="Pine" />
+      <SfaReportNavigator current="pine" />
       <SectionCard title="SalesEdge timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span>}>
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />

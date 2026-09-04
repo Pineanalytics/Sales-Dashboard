@@ -65,7 +65,7 @@ const SALES_RETURNS_BRANCH_LABELS: Record<string, string> = {
 };
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
+  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -73,6 +73,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.syncWatermark.findUnique({ where: { bridge: "active-outlets" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
+    prisma.syncWatermark.findUnique({ where: { bridge: "upfield-visits" } }),
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
     prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
     prisma.salesReturnsControl.findMany(),
@@ -154,6 +155,10 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
     row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
+    // 4 fixed times/day (10:00/12:00/17:00/20:00 Africa/Nairobi); the
+    // overnight 20:00->10:00 gap is ~14h, so the threshold allows a 1h buffer
+    // past that longest expected gap rather than the tighter between-run gaps.
+    row("upfieldVisits", "Outlet Visits (Upfield DataEdge)", "4x daily (10:00/12:00/17:00/20:00)", upfieldVisitsWatermark?.updatedAt ?? null, 15),
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
     ...salesReturnsRows,
     eablRow,
