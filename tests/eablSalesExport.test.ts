@@ -14,7 +14,9 @@ describe("EABL sales export formatting", () => {
     expect(row.TransactionDate).toBe("20260820");
     expect(row.ExportDate).toBe("20260821");
     expect(row.UnitPrice).toBe("760");
-    expect(row.NetPrice).toBe("-5320.00");
+    // -5320 VAT-inclusive / 1.16 = -4586.21 VAT-exclusive (see the dedicated
+    // VAT-exclusion test below for the isolated calculation).
+    expect(row.NetPrice).toBe("-4586.21");
     expect(row.DiscountAmount).toBe("0.00");
     expect(row.DiscountPercent).toBe("1.50%");
   });
@@ -32,6 +34,18 @@ describe("EABL sales export formatting", () => {
     // Confirms the exception is scoped to the exact known-bad code, not a
     // broad rule - an unrelated code isn't affected.
     expect(normaliseRow({ ProductCode: "B696895" }).ProductCode).toBe("696895");
+  });
+
+  it("exports NetPrice VAT-exclusive at the flat Kenyan 16% rate", () => {
+    // 116 VAT-inclusive = 100 exclusive + 16 VAT, so dividing by 1.16 exactly
+    // recovers a round number - the cleanest possible check of the formula.
+    expect(normaliseRow({ NetPrice: 116 }).NetPrice).toBe("100.00");
+    expect(normaliseRow({ NetPrice: 0 }).NetPrice).toBe("0.00");
+    expect(normaliseRow({ NetPrice: null }).NetPrice).toBe("");
+    // Applied uniformly regardless of Tax - there's no reliable per-row
+    // taxed/exempt indicator in the source to condition it on (confirmed
+    // 2026-09-04), so Tax itself is passed through unchanged either way.
+    expect(normaliseRow({ NetPrice: 116, Tax: 0 }).NetPrice).toBe("100.00");
   });
 
   it("changes the manifest revision when report content changes", () => {
