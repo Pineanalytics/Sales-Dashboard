@@ -206,10 +206,14 @@ try {
   $nairobiNow = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(3))
   $today = $nairobiNow.ToString("yyyy-MM-dd")
   $yesterday = $nairobiNow.AddDays(-1).ToString("yyyy-MM-dd")
+  $afterPreviousDayCutoff = $nairobiNow.Hour -ge 6
   $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$yesterday&to=$today"
-  Write-Log "Checking $Branch export manifest for yesterday $yesterday and today $today..."
+  $previousDayMode = if ($afterPreviousDayCutoff) { "late-change detection only" } else { "close-period reconciliation until 06:00" }
+  Write-Log "Checking $Branch export manifest: today $today first; yesterday $yesterday is $previousDayMode."
   $manifest = Invoke-RestMethod -Uri $manifestUri -Headers @{ "x-ukl-export-key" = $ApiKey }
-  $availableDays = @($manifest.days | Sort-Object date)
+  # Today is operationally urgent. Descending order also prevents a changing
+  # previous-day partition from starving today's export.
+  $availableDays = @($manifest.days | Sort-Object date -Descending)
   if ($availableDays.Count -eq 0) {
     Write-Log "No populated VPS delivery dates are available for $Branch yet."
     return
@@ -218,7 +222,7 @@ try {
   $stateFile = Join-Path $StateFolder "ukl-sales-export-$($Branch.ToUpperInvariant()).json"
   $known = Read-ManifestState -Path $stateFile
   $stateChanged = $false
-  $repair = $null
+  $repairs = @()
   foreach ($day in $availableDays) {
     $knownDay = $known[[string]$day.date]
     $delivered = Find-DeliveredFile -ExportDate ([string]$day.date) -ExpectedHash $(if ($knownDay) { $knownDay.sha256 } else { $null })
@@ -236,25 +240,32 @@ try {
       }
     }
     if (-not $revisionMatches -or -not $delivered) {
-      $repair = $day
-      break
+      $repairs += $day
     }
   }
 
-  if (-not $repair) {
+  if ($repairs.Count -eq 0) {
     if ($stateChanged) { Save-ManifestState -Path $stateFile -Known $known }
     Write-Log "All $($availableDays.Count) populated VPS day(s) are current locally; latest is $($manifest.latestDate)."
     return
   }
 
-  Write-Log "Repairing oldest missing or changed local export: $($repair.date) ($($repair.rowCount) VPS rows)."
-  Save-Export -ExportDate ([string]$repair.date)
-  $known[[string]$repair.date] = [pscustomobject]@{
-    revision = [string]$repair.revision
-    sha256 = $script:LastSavedExportHash
+  foreach ($repair in $repairs) {
+    $isPreviousDay = [string]$repair.date -ne $today
+    if ($isPreviousDay -and $afterPreviousDayCutoff) {
+      Write-Log "Late previous-day change detected after 06:00; replacing $($repair.date) automatically."
+    }
+    Write-Log "Repairing missing or content-changed local export: $($repair.date) ($($repair.rowCount) VPS rows)."
+    Save-Export -ExportDate ([string]$repair.date)
+    $known[[string]$repair.date] = [pscustomobject]@{
+      revision = [string]$repair.revision
+      sha256 = $script:LastSavedExportHash
+    }
+    # Persist after each file. If the second download fails, the completed
+    # first file is not needlessly repeated on the next five-minute run.
+    Save-ManifestState -Path $stateFile -Known $known
   }
-  Save-ManifestState -Path $stateFile -Known $known
-  Write-Log "Manifest state updated; any remaining gaps will be handled on the next five-minute run."
+  Write-Log "Manifest state updated for all $($repairs.Count) changed day(s)."
 }
 catch {
   Write-Log "FAILED: $($_.Exception.Message)"

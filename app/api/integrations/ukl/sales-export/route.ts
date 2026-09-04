@@ -37,6 +37,7 @@ interface ManifestAggregateRow {
   date: string;
   rowCount: bigint | number;
   lastReplacedAt: Date;
+  contentHash: string;
 }
 
 function hasValidKey(request: NextRequest) {
@@ -127,7 +128,18 @@ export async function GET(request: NextRequest) {
       SELECT
         TO_CHAR("deliveryDate" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
         COUNT(*) AS "rowCount",
-        MAX("createdAt") AS "lastReplacedAt"
+        MAX("createdAt") AS "lastReplacedAt",
+        MD5(STRING_AGG(
+          JSONB_BUILD_ARRAY(
+            "customerCode", "salesRepCode", "salesRepName", "route", "routeName",
+            "invoiceNo", "invoiceDate", "documentType", "documentTypeDesc",
+            "referenceDocument", "referenceDocDate", "hdmsOrderNo", "sku", "skuDesc",
+            "storageLocation", "piecesPerCase", "listPricePerCase", "saleQtyPieces",
+            "freeQtyPieces", "grossSale", "netSale", "bonusDiscount", "tradeDiscount",
+            "cashDiscount", "totalDiscount"
+          )::text,
+          E'\n' ORDER BY "invoiceNo", "sku", "sourceRowKey"
+        )) AS "contentHash"
       FROM "SalesReturnLine"
       WHERE "storageLocation" = ${distributorParam}
         AND "deliveryDate" >= ${start}

@@ -5,6 +5,7 @@ export interface UklExportManifestAggregate {
   date: string;
   rowCount: bigint | number;
   lastReplacedAt: Date;
+  contentHash: string;
 }
 
 export interface UklExportManifestDay {
@@ -44,9 +45,10 @@ export function parseUklExportReconcileDays(value: string | null): number | null
   return Number.isInteger(days) && days >= 2 && days <= MAX_UKL_EXPORT_RECONCILE_DAYS ? days : null;
 }
 
-/** `createdAt` changes whenever a branch/day is atomically replaced by the
- * Centegy bridge. Combining it with row count gives the remote puller a small,
- * non-sensitive version token without hashing or downloading the full CSV. */
+/** The revision tracks exported content, not ingestion time. The Centegy
+ * bridge can replace yesterday and today every five minutes even when values
+ * are unchanged; using createdAt made yesterday look perpetually stale and
+ * prevented the puller from advancing to today. */
 export function toUklExportManifestDay(row: UklExportManifestAggregate): UklExportManifestDay {
   const rowCount = Number(row.rowCount);
   const lastReplacedAt = row.lastReplacedAt.toISOString();
@@ -54,6 +56,6 @@ export function toUklExportManifestDay(row: UklExportManifestAggregate): UklExpo
     date: row.date,
     rowCount,
     lastReplacedAt,
-    revision: `${row.date}:${rowCount}:${lastReplacedAt}`,
+    revision: `${row.date}:${rowCount}:${row.contentHash}`,
   };
 }

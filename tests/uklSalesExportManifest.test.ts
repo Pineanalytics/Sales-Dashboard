@@ -31,20 +31,39 @@ describe("UKL Sales export manifest", () => {
     expect(parseUklExportManifestRange("2026-08-30", null)).toBeNull();
   });
 
-  it("changes the revision when a branch day is replaced", () => {
+  it("keeps the revision stable when identical content is replaced", () => {
     const first = toUklExportManifestDay({
       date: "2026-08-29",
       rowCount: 172,
       lastReplacedAt: new Date("2026-08-31T02:00:00.000Z"),
+      contentHash: "same-content",
     });
     const replaced = toUklExportManifestDay({
       date: "2026-08-29",
       rowCount: 172,
       lastReplacedAt: new Date("2026-08-31T02:05:00.000Z"),
+      contentHash: "same-content",
     });
 
     expect(first.rowCount).toBe(172);
-    expect(first.revision).not.toBe(replaced.revision);
+    expect(first.revision).toBe(replaced.revision);
     expect(replaced.lastReplacedAt).toBe("2026-08-31T02:05:00.000Z");
+  });
+
+  it("changes the revision when late transactions change exported content", () => {
+    const before = toUklExportManifestDay({
+      date: "2026-09-03",
+      rowCount: 100,
+      lastReplacedAt: new Date("2026-09-04T02:55:00.000Z"),
+      contentHash: "before",
+    });
+    const after = toUklExportManifestDay({
+      date: "2026-09-03",
+      rowCount: 101,
+      lastReplacedAt: new Date("2026-09-04T09:00:00.000Z"),
+      contentHash: "after",
+    });
+
+    expect(after.revision).not.toBe(before.revision);
   });
 });
