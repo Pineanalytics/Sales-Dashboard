@@ -1,7 +1,7 @@
-import { timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { hasUklSalesExportKey } from "@/lib/uklSalesExportAuth";
 import {
   MAX_UKL_EXPORT_RECONCILE_DAYS,
   parseUklExportManifestRange,
@@ -40,15 +40,6 @@ interface ManifestAggregateRow {
   contentHash: string;
 }
 
-function hasValidKey(request: NextRequest) {
-  const expected = process.env.UKL_SALES_EXPORT_KEY;
-  const provided = request.headers.get("x-ukl-export-key");
-  if (!expected || !provided) return false;
-  const expectedBuffer = Buffer.from(expected);
-  const providedBuffer = Buffer.from(provided);
-  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
-}
-
 function isValidDate(value: string | null): value is string {
   return !!value && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -79,7 +70,7 @@ function dateOnly(value: Date | null): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  if (!hasValidKey(request)) {
+  if (!hasUklSalesExportKey(request)) {
     return NextResponse.json({ error: "Invalid UKL export credentials." }, { status: 401 });
   }
 

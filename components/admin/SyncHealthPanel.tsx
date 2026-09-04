@@ -4,6 +4,7 @@ import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
 import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
 import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
+import { TriggerUklSalesExportButton } from "@/components/admin/TriggerUklSalesExportButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -68,7 +69,7 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.expectedBy?.toLocaleString()}>{formatLastUpdated(r.expectedBy)}</Td>
                 <Td align="center" className="!whitespace-normal !px-2 !py-2">
-                  <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>
+                  <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : r.manualOnly ? "Ready" : "Fresh"}</Badge>
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2">
                   {r.triggerDistributor ? (
@@ -76,8 +77,9 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                       <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
                       <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
                     </div>
-                  ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : null}
+                  ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : r.triggerUklSalesExport ? <TriggerUklSalesExportButton /> : null}
                   {r.eablSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
+                  {r.uklSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">{r.uklSalesExport.claimedCount ? `${r.uklSalesExport.claimedCount} running` : ""}{r.uklSalesExport.claimedCount && r.uklSalesExport.pendingCount ? " · " : ""}{r.uklSalesExport.pendingCount ? `${r.uklSalesExport.pendingCount} queued` : ""}{!r.uklSalesExport.claimedCount && !r.uklSalesExport.pendingCount ? "No month queued." : ""}{r.uklSalesExport.lastSummary ? ` · Last: ${r.uklSalesExport.lastSummary}` : ""}</div>}
                 </Td>
               </tr>
             ))}

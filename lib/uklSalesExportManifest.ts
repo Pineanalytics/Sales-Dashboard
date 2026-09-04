@@ -46,7 +46,7 @@ export function parseUklExportReconcileDays(value: string | null): number | null
 }
 
 /** The revision tracks exported content, not ingestion time. The Centegy
- * bridge can replace yesterday and today every five minutes even when values
+ * bridge can replace yesterday and today every hour even when values
  * are unchanged; using createdAt made yesterday look perpetually stale and
  * prevented the puller from advancing to today. */
 export function toUklExportManifestDay(row: UklExportManifestAggregate): UklExportManifestDay {

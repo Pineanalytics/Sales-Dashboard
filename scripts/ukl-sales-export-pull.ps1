@@ -44,9 +44,14 @@
   environment variable of the same name; if that's unset, alerting is just
   skipped — it never blocks or fails the actual pull.
 
+.PARAMETER ClaimQueuedTrigger
+  Used only by the dedicated Server-PC trigger task. Claims one
+  administrator-selected exact-date export, if any; normal Smart runs are
+  unchanged.
+
 .EXAMPLE
   ./ukl-sales-export-pull.ps1
-  Smart five-minute reconciliation for the Nairobi branch.
+  Smart hourly reconciliation for the Nairobi branch.
 
 .EXAMPLE
   ./ukl-sales-export-pull.ps1 -Branch NYERI -Date 2026-08-29
@@ -62,7 +67,8 @@ param(
   [string]$Distributor,
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
   [string]$ArchiveFolder,
-  [string]$StateFolder
+  [string]$StateFolder,
+  [switch]$ClaimQueuedTrigger
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,8 +96,43 @@ function Send-PipelineAlert {
   }
 }
 
+function Complete-QueuedTrigger {
+  param([bool]$Success, [string]$Summary)
+  if (-not $script:TriggerId) { return }
+  try {
+    Invoke-RestMethod -Uri "$AppUrl/api/integrations/ukl/sales-export/trigger/complete" -Method Post -ContentType "application/json" `
+      -Headers @{ "x-ukl-export-key" = $ApiKey } `
+      -Body (@{ id = $script:TriggerId; success = $Success; summary = $Summary } | ConvertTo-Json -Compress) | Out-Null
+  }
+  catch {
+    Write-Log "Could not report queued-trigger completion: $($_.Exception.Message)"
+  }
+}
+
 if (-not $ApiKey) {
   throw "No API key provided. Pass -ApiKey, or set the UKL_SALES_EXPORT_KEY environment variable on this machine."
+}
+
+$mutex = [Threading.Mutex]::new($false, 'Global\Pinefrost-UklSalesExportPull')
+if (-not $mutex.WaitOne(0)) {
+  Write-Log 'Another UKL export pull is already running; exiting without claiming or writing a file.'
+  exit 0
+}
+
+try {
+$script:TriggerId = $null
+if ($ClaimQueuedTrigger) {
+  $pending = Invoke-RestMethod -Uri "$AppUrl/api/integrations/ukl/sales-export/trigger/pending" `
+    -Headers @{ "x-ukl-export-key" = $ApiKey }
+  if (-not $pending.pending) {
+    Write-Log "No queued Server-PC UKL export is waiting."
+    exit 0
+  }
+  $script:TriggerId = [string]$pending.id
+  $Branch = [string]$pending.branch
+  $Date = [string]$pending.date
+  $Distributor = $null
+  Write-Log "Claimed queued $Branch export for $Date."
 }
 
 if (-not $Distributor) {
@@ -197,9 +238,9 @@ function Save-ManifestState {
   Move-Item -LiteralPath $tempPath -Destination $Path -Force
 }
 
-try {
   if ($Date) {
     Save-Export -ExportDate $Date
+    Complete-QueuedTrigger -Success $true -Summary "Saved $(Split-Path -Leaf (Get-ExportPath -ExportDate $Date)) for $Branch on $Date."
     return
   }
 
@@ -262,7 +303,7 @@ try {
       sha256 = $script:LastSavedExportHash
     }
     # Persist after each file. If the second download fails, the completed
-    # first file is not needlessly repeated on the next five-minute run.
+    # first file is not needlessly repeated on the next hourly run.
     Save-ManifestState -Path $stateFile -Known $known
   }
   Write-Log "Manifest state updated for all $($repairs.Count) changed day(s)."
@@ -271,5 +312,10 @@ catch {
   Write-Log "FAILED: $($_.Exception.Message)"
   $scope = if ($Date) { "date $Date" } else { "smart manifest" }
   Send-PipelineAlert -Status "failure" -Summary "$($_.Exception.Message) ($scope, branch $Branch)"
+  Complete-QueuedTrigger -Success $false -Summary $_.Exception.Message
   throw
+}
+finally {
+  $mutex.ReleaseMutex() | Out-Null
+  $mutex.Dispose()
 }

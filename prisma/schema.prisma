@@ -1897,6 +1897,26 @@ model EablSalesExportTriggerRequest {
   @@index([status, requestedAt])
 }
 
+// One job per branch and calendar date selected from the Server-PC UKL Sales
+// & Returns export trigger. The Server PC has no inbound path, so its local
+// five-minute poll claims one job at a time, runs the established CSV puller,
+// and reports the result. Keeping dates independent makes a selected month
+// resumable after a transient failure without repeating completed days.
+model UklSalesExportTriggerRequest {
+  id            String   @id @default(cuid())
+  branch        String   // "NAIROBI" | "NYERI"
+  requestedDate DateTime
+  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  requestedBy   String?
+  requestedAt   DateTime @default(now())
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String?
+
+  @@index([status, requestedAt])
+  @@index([branch, requestedDate, status])
+}
+
 // Outbound-only DataEdge machines cannot be reached directly from the VPS.
 // Admins queue a refresh here; the machine's local poll task claims it and
 // starts its existing uploader. Completion means the task was dispatched —

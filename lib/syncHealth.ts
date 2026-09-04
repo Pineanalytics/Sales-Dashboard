@@ -9,6 +9,7 @@ export interface SyncHealthRow {
   staleAfterHours: number;
   isStale: boolean;
   expectedBy: Date | null;
+  manualOnly?: boolean;
   // Set only for rows with a manual "Trigger now" option (currently just
   // Sales & Returns branches) — the distributor code to queue against via
   // POST /api/sales-returns/trigger. See SalesReturnsTriggerRequest's schema
@@ -37,6 +38,13 @@ export interface SyncHealthRow {
     nextScheduledRunAt: Date | null;
   };
   triggerEablSalesExport?: boolean;
+  triggerUklSalesExport?: boolean;
+  uklSalesExport?: {
+    pendingCount: number;
+    claimedCount: number;
+    lastCompletedAt: Date | null;
+    lastSummary: string | null;
+  };
 }
 
 /** Surfaces whether each scheduled sync job is actually landing fresh data —
@@ -69,7 +77,7 @@ export interface SyncHealthRow {
  *  by its raw code instead of a friendly name. */
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses] = await Promise.all([
+  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses, uklTriggerCounts, latestUklTrigger] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -82,6 +90,8 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
     prisma.salesReturnsControl.findMany(),
     prisma.eablSalesExportStatus.findMany(),
+    prisma.uklSalesExportTriggerRequest.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.uklSalesExportTriggerRequest.findFirst({ where: { status: "COMPLETED" }, orderBy: { completedAt: "desc" }, select: { completedAt: true, resultSummary: true } }),
   ]);
 
   function row(
@@ -169,6 +179,24 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       nextScheduledRunAt: eabl.nextScheduledRunAt,
     } : undefined,
   };
+  const uklCountByStatus = new Map(uklTriggerCounts.map((count) => [count.status, count._count._all] as const));
+  const uklRow: SyncHealthRow = {
+    key: "uklSalesExport",
+    label: "Sales & Returns Export (Server PC)",
+    cadenceLabel: "Manual selected month · one file per hour",
+    lastUpdated: latestUklTrigger?.completedAt ?? null,
+    staleAfterHours: 0,
+    isStale: false,
+    expectedBy: null,
+    manualOnly: true,
+    triggerUklSalesExport: true,
+    uklSalesExport: {
+      pendingCount: uklCountByStatus.get("PENDING") ?? 0,
+      claimedCount: uklCountByStatus.get("CLAIMED") ?? 0,
+      lastCompletedAt: latestUklTrigger?.completedAt ?? null,
+      lastSummary: latestUklTrigger?.resultSummary ?? null,
+    },
+  };
 
   return [
     row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60),
@@ -184,6 +212,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     row("upfieldVisits", "Outlet Visits (Upfield DataEdge)", "4x daily (10:00/12:00/17:00/20:00)", upfieldVisitsWatermark?.updatedAt ?? null, 15),
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
     ...salesReturnsRows,
+    uklRow,
     eablRow,
   ];
 }
