@@ -58,7 +58,14 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
               <tr key={r.key}>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight">{r.label}</Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight">{r.cadenceLabel}</Td>
-                <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.lastUpdated?.toLocaleString()}>{formatLastUpdated(r.lastUpdated)}</Td>
+                <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.lastUpdated?.toLocaleString()}>
+                  {formatLastUpdated(r.lastUpdated)}
+                  {r.extractionRun && (
+                    <div className="mt-1 break-all font-mono text-[10px] text-muted" title={`Window: ${r.extractionRun.windowStart.toLocaleDateString()} to ${r.extractionRun.windowEnd.toLocaleDateString()}`}>
+                      {r.extractionRun.serial} · {r.extractionRun.status.toLowerCase()}
+                    </div>
+                  )}
+                </Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.expectedBy?.toLocaleString()}>{formatLastUpdated(r.expectedBy)}</Td>
                 <Td align="center" className="!whitespace-normal !px-2 !py-2">
                   <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : "Fresh"}</Badge>

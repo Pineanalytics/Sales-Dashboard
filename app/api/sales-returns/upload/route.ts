@@ -137,7 +137,9 @@ export async function POST(req: NextRequest) {
           await tx.salesReturnLine.createMany({
             data: lines.slice(index, index + CHUNK_SIZE).map((row) => ({
               ...row,
-              sourceRowKey: `${row.invoiceNo}|${row.sku}`,
+              // Invoice numbering is not guaranteed to be globally unique
+              // across the isolated Nairobi and Nyeri source databases.
+              sourceRowKey: `${row.storageLocation}|${row.invoiceNo}|${row.sku}`,
               invoiceDate: row.invoiceDate ? new Date(row.invoiceDate) : null,
               deliveryDate: new Date(row.deliveryDate),
               referenceDocDate: row.referenceDocDate ? new Date(row.referenceDocDate) : null,

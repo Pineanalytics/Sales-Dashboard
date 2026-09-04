@@ -1651,8 +1651,8 @@ model FrostConversationMessage {
 // report) can differ from it.
 model SalesReturnLine {
   id                String    @id @default(cuid())
-  // `${invoiceNo}|${sku}` — unique per the source query's grain (GROUP BY is
-  // per invoice + material, never split further by batch).
+  // `${storageLocation}|${invoiceNo}|${sku}` — unique per branch and source
+  // query grain (GROUP BY is per invoice + material, never split by batch).
   sourceRowKey      String    @unique
   customerCode      String
   salesRepCode      String
@@ -1791,6 +1791,31 @@ model PjpDsrDailyActivity {
   @@index([pjp, date])
   @@index([dsr, date])
   @@index([distributor, date])
+}
+
+// Immutable audit ledger for each Sales & Returns extraction attempt. The
+// serial identifies the run, but deliberately does not participate in any
+// fact-table key: successful reruns still replace the same distributor/date
+// partition instead of creating another copy of its facts.
+model SalesReturnsExtractionRun {
+  id               String    @id @default(cuid())
+  extractionSerial String    @unique
+  distributor      String
+  windowStart      DateTime
+  windowEnd        DateTime
+  status           String
+  invoiceLineCount Int       @default(0)
+  pjpSkuCount      Int       @default(0)
+  outletSkuCount   Int       @default(0)
+  activityCount    Int       @default(0)
+  errorMessage     String?
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime  @updatedAt
+
+  @@index([distributor, startedAt])
+  @@index([distributor, windowStart])
+  @@index([status, startedAt])
 }
 
 // Manual "run the sync now" queue for the Sales & Returns bridge, since the

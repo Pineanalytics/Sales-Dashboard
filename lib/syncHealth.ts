@@ -21,6 +21,13 @@ export interface SyncHealthRow {
     acknowledgedAt: Date | null;
     resultSummary: string | null;
   };
+  extractionRun?: {
+    serial: string;
+    status: string;
+    windowStart: Date;
+    windowEnd: Date;
+    completedAt: Date | null;
+  };
   eablSalesExport?: {
     latestVpsTransactionDate: Date | null;
     latestAvailableReportDate: Date | null;
@@ -106,9 +113,19 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       .map((watermark) => watermark.bridge.slice("sales-returns:".length))
       .filter((distributor) => !(distributor in SALES_RETURNS_BRANCH_LABELS)),
   ];
-  const salesReturnsRows = Array.from(new Set(salesReturnsDistributors))
+  const uniqueSalesReturnsDistributors = Array.from(new Set(salesReturnsDistributors));
+  const latestExtractions = await Promise.all(
+    uniqueSalesReturnsDistributors.map((distributor) =>
+      prisma.salesReturnsExtractionRun.findFirst({ where: { distributor }, orderBy: { startedAt: "desc" } })
+    )
+  );
+  const latestExtractionByDistributor = new Map(
+    latestExtractions.filter((run) => run !== null).map((run) => [run.distributor, run] as const)
+  );
+  const salesReturnsRows = uniqueSalesReturnsDistributors
     .map((distributor) => {
       const control = salesReturnsControlByDistributor.get(distributor);
+      const extraction = latestExtractionByDistributor.get(distributor);
       return {
         ...row(
         `salesReturns:${distributor}`,
@@ -125,6 +142,15 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
               requestedAt: control.requestedAt,
               acknowledgedAt: control.acknowledgedAt,
               resultSummary: control.resultSummary,
+            }
+          : undefined,
+        extractionRun: extraction
+          ? {
+              serial: extraction.extractionSerial,
+              status: extraction.status,
+              windowStart: extraction.windowStart,
+              windowEnd: extraction.windowEnd,
+              completedAt: extraction.completedAt,
             }
           : undefined,
       };
