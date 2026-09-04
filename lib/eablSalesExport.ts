@@ -68,6 +68,18 @@ function resolveProductCode(rawCode: string): string {
   return KNOWN_PRODUCT_CODE_CORRECTIONS[stripped] ?? stripped;
 }
 
+// NetPrice arrives from the source VAT-inclusive; the receiving system
+// expects a VAT-exclusive figure instead. Kenyan VAT is a flat 16%. Confirmed
+// 2026-09-04: the source's Tax column is not a usable per-row taxed/exempt
+// indicator (no distinct 0/1 - or any other - split was found in it), so this
+// is applied uniformly to every row rather than conditioned on Tax.
+const KENYA_VAT_RATE = 0.16;
+
+function excludeVat(value: unknown): number | null {
+  const raw = decimal(value);
+  return raw === null ? null : Number(raw) / (1 + KENYA_VAT_RATE);
+}
+
 export function normaliseRow(row: Record<string, unknown>): EablSalesExportRow {
   const productCode = row.ProductCode == null ? "" : String(row.ProductCode);
   return {
@@ -87,7 +99,7 @@ export function normaliseRow(row: Record<string, unknown>): EablSalesExportRow {
     CustomerStatus: row.CustomerStatus,
     ConversionUnit: row.ConversionUnit,
     UnitPrice: formatUnitPrice(row.UnitPrice),
-    NetPrice: formatFixed(row.NetPrice, 2),
+    NetPrice: formatFixed(excludeVat(row.NetPrice), 2),
     DiscountAmount: formatFixed(row.DiscountAmount, 2),
     DiscountPercent: row.DiscountPercent === null || row.DiscountPercent === undefined || row.DiscountPercent === "" ? "" : `${formatFixed(row.DiscountPercent, 2)}%`,
     Tax: row.Tax,
