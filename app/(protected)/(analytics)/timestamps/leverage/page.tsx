@@ -135,7 +135,7 @@ export default function LeveragePage() {
   const metrics = summary.metrics;
 
   return <main className="flex w-full max-w-none flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
-    <SfaReportNavigator current="Unilever" />
+    <SfaReportNavigator current="unilever" />
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Unilever · Leverage</h1><p className="mt-1 text-sm text-muted">PJP/route daily activity and first/last entry time from the field DMS (Centegy), Nairobi &amp; Nyeri branches.</p></div>
       <div className="flex flex-wrap gap-2">{summary.freshness.branches.map((branch) => <span key={branch.distributor} className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">{branch.distributorLabel} synced {syncLabel(branch.syncedAt)}</span>)}</div>

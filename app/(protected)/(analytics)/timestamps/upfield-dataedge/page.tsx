@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
+import { SfaReportNavigator } from "@/components/timestamps/SfaReportNavigator";
 import { recentMonthOptions } from "@/lib/timeManagement";
 import { upfieldClosingStatus, upfieldFirstTransactionStatus, upfieldMinutesAfterMidnight } from "@/lib/upfieldTimeManagement";
 
@@ -165,6 +166,7 @@ export default function UpfieldTimestampPage() {
   const metrics = summary.metrics;
 
   return <main className="flex w-full max-w-none flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
+    <SfaReportNavigator current="upfield-dataedge" />
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Upfield DataEdge · Timestamp &amp; Coverage</h1><p className="mt-1 text-sm text-muted">First/last sales transaction monitoring and productive outlet coverage from the five-minute DataEdge sync.</p></div>
       <div className="flex flex-wrap gap-2"><span className="rounded-full bg-accent-green-soft px-3 py-1 text-xs font-semibold text-accent-green">Live every 5 minutes</span><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">Synced {syncLabel(summary.freshness.syncedAt)}</span></div>
