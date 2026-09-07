@@ -10,6 +10,7 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { SfaReportNavigator } from "@/components/timestamps/SfaReportNavigator";
+import { UpfieldReportTabs } from "@/components/timestamps/UpfieldReportTabs";
 import { recentMonthOptions } from "@/lib/timeManagement";
 import { upfieldClosingStatus, upfieldFirstTransactionStatus, upfieldMinutesAfterMidnight } from "@/lib/upfieldTimeManagement";
 
@@ -164,12 +165,13 @@ export default function UpfieldVisitsPage() {
   if (error || !summary) return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Upfield Outlet Visits is unavailable" description="The Timestamp Report rows could not be loaded from Postgres. Refresh once the latest 4x-daily sync completes." />;
   const metrics = summary.metrics;
 
-  return <main className="flex w-full max-w-none flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
-    <SfaReportNavigator current="upfield-visits" />
+  return <div className="flex flex-col gap-4">
+    <SfaReportNavigator current="upfield" />
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Upfield · Outlet Visits</h1><p className="mt-1 text-sm text-muted">FSR check-in/check-out, transit time, and per-visit sale from the Timestamp Report (Outlet Visit Detail).</p></div>
-      <div className="flex flex-wrap gap-2"><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">4x daily · 10:00/12:00/17:00/20:00</span><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">Synced {syncLabel(summary.freshness.syncedAt)}</span></div>
+      <UpfieldReportTabs current="visits" />
     </div>
+    <div className="flex flex-wrap justify-end gap-2"><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">4x daily · 10:00/12:00/17:00/20:00</span><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">Synced {syncLabel(summary.freshness.syncedAt)}</span></div>
 
     <section className="grid gap-3 rounded-xl border border-border bg-background-elevated/40 p-3 sm:grid-cols-3">
       <label className="text-xs font-semibold text-muted">Month<select value={month} onChange={(event) => { setMonth(event.target.value); setSelectedDate(""); setRep(""); }} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-brand-navy">{recentMonthOptions(new Date(), 6).map((value) => <option key={value}>{value}</option>)}</select></label>
@@ -197,5 +199,5 @@ export default function UpfieldVisitsPage() {
 
     <section className="rounded-xl border border-border bg-background-elevated/45 px-4 py-3 text-xs text-muted"><strong className="text-brand-navy">Metric boundary:</strong> {summary.definitions.coverage} {summary.definitions.time} This is the Outlet Visit Detail feed — for sales/return document totals, see Upfield DataEdge · Timestamp &amp; Coverage instead.</section>
     {activeRep ? <RepVisitDrawer rep={activeRep} month={month} dates={summary.filters.dates} initialDate={selectedDate} close={() => setActiveRep(null)} /> : null}
-  </main>;
+  </div>;
 }
