@@ -12,7 +12,7 @@ param(
   [string]$ScriptPath = "C:\ukl-sales-export-pull.ps1",
   [string]$DestFolder = "D:\UKL_INTEGRATION\UPLOADS",
   [string]$ArchiveFolder = "D:\UKL_INTEGRATION\UPLOADS\Archive",
-  [string]$StateFolder = "D:\UKL_INTEGRATION\STATE",
+  [string]$StateFolder = "D:\UKL_INTEGRATION\UKL_SALES_EXPORT_STATE",
   [string]$NairobiTaskName = "UKL-SalesExport-Pull",
   [string]$NyeriTaskName = "UKL-SalesExport-Pull-Nyeri"
 )
