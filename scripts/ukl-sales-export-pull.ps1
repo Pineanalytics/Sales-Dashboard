@@ -8,8 +8,9 @@
   Standalone — no dependency on the Sales-Dashboard repo, Node.js, or the
   Centegy DMS SQL Server, since this runs on a third machine (the one hosting
   D:\UKL_INTEGRATION\UPLOADS) with no direct path to either. Only needs
-  outbound HTTPS to the dashboard. Filename matches the existing convention:
-  UKL_<BRANCH>_<DD.MM.YYYY>.csv (e.g. UKL_NAIROBI_10.08.2026.csv).
+  outbound HTTPS to the dashboard. Every saved export has a monotonically
+  increasing, three-digit run sequence for its branch and report date:
+  UKL_<BRANCH>_<DD.MM.YYYY>_<NNN>.csv (e.g. UKL_NAIROBI_10.08.2026_001.csv).
 
 .PARAMETER Branch
   Differentiates files once multiple branches (Nairobi, later Nyeri) feed the
@@ -151,16 +152,43 @@ if (-not $ArchiveFolder) {
 }
 
 $script:LastSavedExportHash = $null
+$script:LastSavedExportPath = $null
 
-function Get-ExportPath {
+function Get-ExportPrefix {
   param([string]$ExportDate)
   $filenameDate = [datetime]::ParseExact($ExportDate, "yyyy-MM-dd", $null).ToString("dd.MM.yyyy")
-  return Join-Path $DestFolder "UKL_${Branch}_${filenameDate}.csv"
+  return "UKL_$($Branch.ToUpperInvariant())_${filenameDate}"
+}
+
+function Get-ExportFiles {
+  param([string]$ExportDate)
+  $prefix = Get-ExportPrefix -ExportDate $ExportDate
+  $files = @()
+  if (Test-Path -LiteralPath $DestFolder) {
+    $files += @(Get-ChildItem -LiteralPath $DestFolder -Filter "$prefix*.csv" -File -ErrorAction SilentlyContinue)
+  }
+  if (Test-Path -LiteralPath $ArchiveFolder) {
+    $files += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter "$prefix*.csv" -File -Recurse -ErrorAction SilentlyContinue)
+  }
+  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(_\\d+)?\\.csv$" })
+}
+
+function Get-NextExportPath {
+  param([string]$ExportDate)
+  $prefix = Get-ExportPrefix -ExportDate $ExportDate
+  $pattern = "^$([regex]::Escape($prefix))_(?<sequence>\\d+)\\.csv$"
+  $highestSequence = 0
+  foreach ($file in Get-ExportFiles -ExportDate $ExportDate) {
+    if ($file.Name -match $pattern) {
+      $highestSequence = [Math]::Max($highestSequence, [int]$Matches.sequence)
+    }
+  }
+  return Join-Path $DestFolder ("{0}_{1:D3}.csv" -f $prefix, ($highestSequence + 1))
 }
 
 function Save-Export {
   param([string]$ExportDate)
-  $destFile = Get-ExportPath -ExportDate $ExportDate
+  $destFile = Get-NextExportPath -ExportDate $ExportDate
   $tempFile = "$destFile.tmp"
 
   try {
@@ -174,6 +202,7 @@ function Save-Export {
     # Same-folder rename is atomic on NTFS: the downstream watcher sees either
     # the previous complete CSV or the new complete CSV, never a partial download.
     Move-Item -LiteralPath $tempFile -Destination $destFile -Force
+    $script:LastSavedExportPath = $destFile
     Write-Log "Saved $bytes bytes to $destFile"
   }
   catch {
@@ -184,14 +213,7 @@ function Save-Export {
 
 function Find-DeliveredFile {
   param([string]$ExportDate, [string]$ExpectedHash)
-  $filename = Split-Path -Leaf (Get-ExportPath -ExportDate $ExportDate)
-  $candidates = @()
-  $livePath = Join-Path $DestFolder $filename
-  if (Test-Path -LiteralPath $livePath) { $candidates += Get-Item -LiteralPath $livePath }
-  if (Test-Path -LiteralPath $ArchiveFolder) {
-    $candidates += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter $filename -File -Recurse -ErrorAction SilentlyContinue)
-  }
-  foreach ($candidate in @($candidates | Sort-Object LastWriteTimeUtc -Descending)) {
+  foreach ($candidate in @(Get-ExportFiles -ExportDate $ExportDate | Sort-Object LastWriteTimeUtc -Descending)) {
     $hash = (Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256).Hash
     if (-not $ExpectedHash -or $hash -eq $ExpectedHash) {
       return [pscustomobject]@{ path = $candidate.FullName; sha256 = $hash; lastWriteTimeUtc = $candidate.LastWriteTimeUtc }
@@ -240,7 +262,7 @@ function Save-ManifestState {
 
   if ($Date) {
     Save-Export -ExportDate $Date
-    Complete-QueuedTrigger -Success $true -Summary "Saved $(Split-Path -Leaf (Get-ExportPath -ExportDate $Date)) for $Branch on $Date."
+    Complete-QueuedTrigger -Success $true -Summary "Saved $(Split-Path -Leaf $script:LastSavedExportPath) for $Branch on $Date."
     return
   }
 
