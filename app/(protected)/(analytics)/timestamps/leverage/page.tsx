@@ -134,7 +134,7 @@ export default function LeveragePage() {
   if (error || !summary) return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Unilever Leverage is unavailable" description="PJP/DSR daily activity could not be loaded from Postgres. Refresh once the latest Sales & Returns sync completes." />;
   const metrics = summary.metrics;
 
-  return <main className="flex w-full max-w-none flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
+  return <div className="flex flex-col gap-4">
     <SfaReportNavigator current="unilever" />
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Unilever · Leverage</h1><p className="mt-1 text-sm text-muted">PJP/route daily activity and first/last entry time from the field DMS (Centegy), Nairobi &amp; Nyeri branches.</p></div>
@@ -164,5 +164,5 @@ export default function LeveragePage() {
     </div>
 
     <section className="rounded-xl border border-border bg-background-elevated/45 px-4 py-3 text-xs text-muted"><strong className="text-brand-navy">Metric boundary:</strong> {summary.definitions.coverage} {summary.definitions.time} This is route/rep daily activity from the Sales &amp; Returns bridge, not a per-invoice or GPS-visit feed — there is no drilldown below the daily PJP/DSR grain.</section>
-  </main>;
+  </div>;
 }
