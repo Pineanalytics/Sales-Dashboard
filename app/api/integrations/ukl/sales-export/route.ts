@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 /**
  * Daily CSV pull for the UKL integration's downstream upload system, which
  * today is fed by hand: someone runs the Sales & Returns SQL report, saves it
- * as a headerless CSV named `UKL_<BRANCH>_<DD.MM.YYYY>.csv`, and copies it to
+ * as a headerless CSV named `UKL_<BRANCH>_<DD.MM.YYYY>_<NNN>.csv`, and copies it to
  * a server the downstream system watches. This endpoint replaces the manual
  * "run report, save CSV" half of that — the destination server's own puller
  * script (see scripts/ukl-sales-export-pull.ps1) does the "copy to the watched
