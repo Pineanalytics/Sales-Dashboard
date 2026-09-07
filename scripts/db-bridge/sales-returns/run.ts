@@ -21,6 +21,10 @@ import {
   signaturesMatch,
   type SalesReturnsDailySignature,
 } from "../../../lib/salesReturnsReconciliation";
+import {
+  createSalesReturnsExtractionSerial,
+  type SalesReturnsExtractionStatus,
+} from "../../../lib/salesReturnsExtraction";
 
 const APP_URL = process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com";
 const CHUNK_SIZE = 1000;
@@ -77,6 +81,33 @@ async function post(path: string, body: unknown): Promise<void> {
   await requestJson(path, { method: "POST", body: JSON.stringify(body) });
 }
 
+interface ExtractionCounts {
+  invoiceLineCount: number;
+  pjpSkuCount: number;
+  outletSkuCount: number;
+  activityCount: number;
+}
+
+async function recordExtractionRun(
+  extractionSerial: string,
+  distributor: string,
+  windowStart: string,
+  windowEnd: string,
+  status: SalesReturnsExtractionStatus,
+  counts?: ExtractionCounts,
+  errorMessage?: string
+): Promise<void> {
+  await post("/api/sales-returns/extraction-runs", {
+    extractionSerial,
+    distributor,
+    windowStart,
+    windowEnd,
+    status,
+    ...counts,
+    errorMessage,
+  });
+}
+
 async function targetSignatures(distributor: string, from: Date, to: Date): Promise<SalesReturnsDailySignature[]> {
   const query = new URLSearchParams({ distributor, from: dateOnly(from), to: dateOnly(to) });
   const result = await requestJson<{ days: SalesReturnsDailySignature[] }>(`/api/sales-returns/reconciliation?${query}`);
@@ -118,47 +149,65 @@ async function uploadWindow(
   latestSourceDate: Date,
   snapshotDate: Date = start
 ): Promise<string> {
-  console.log(`[sales-returns] Extracting delivery date ${dateOnly(start)} to ${dateOnly(end)}...`);
-  const lines = await fetchSalesReturnLines(pool, start, end, distributor);
-  console.log(`[sales-returns] Fetched ${lines.length} invoice-line rows.`);
-
   const windowStart = start.toISOString();
   const windowEnd = new Date(end.getTime() + DAY_MS).toISOString();
+  const extractionSerial = createSalesReturnsExtractionSerial(distributor);
+  const counts: ExtractionCounts = { invoiceLineCount: 0, pjpSkuCount: 0, outletSkuCount: 0, activityCount: 0 };
+  await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "STARTED");
+  console.log(`[sales-returns] Extraction ${extractionSerial}: delivery date ${dateOnly(start)} to ${dateOnly(end)}.`);
 
-  // Rebuild the snapshot for the repaired day's month. A previous-month
-  // repair uses that month's final day; a current-month repair uses SQL's
-  // current latest delivery date, never the older repair day.
-  const pjpMonth = nairobiMonthStart(snapshotDate);
-  const pjpEnd = monthEndAtLatest(snapshotDate, latestSourceDate);
-  const pjpSkuRows = await fetchPjpSkuPerformance(pool, pjpMonth, pjpEnd, distributor);
-  console.log(`[sales-returns] Fetched ${pjpSkuRows.length} PJP x SKU rows for ${dateOnly(pjpMonth)} to ${dateOnly(pjpEnd)}.`);
-  await post("/api/pjp-sku-performance/upload", { rows: pjpSkuRows, month: pjpMonth.toISOString(), distributor });
+  try {
+    const lines = await fetchSalesReturnLines(pool, start, end, distributor);
+    counts.invoiceLineCount = lines.length;
+    console.log(`[sales-returns] Fetched ${lines.length} invoice-line rows.`);
 
-  const outletSkuRows = await fetchOutletSkuDailySales(pool, start, end, distributor);
-  console.log(`[sales-returns] Fetched ${outletSkuRows.length} Outlet x SKU daily rows.`);
-  await post("/api/outlet-sku-daily-sales/upload", { rows: outletSkuRows, distributor, windowStart, windowEnd });
+    // Rebuild the snapshot for the repaired day's month. A previous-month
+    // repair uses that month's final day; a current-month repair uses SQL's
+    // current latest delivery date, never the older repair day.
+    const pjpMonth = nairobiMonthStart(snapshotDate);
+    const pjpEnd = monthEndAtLatest(snapshotDate, latestSourceDate);
+    const pjpSkuRows = await fetchPjpSkuPerformance(pool, pjpMonth, pjpEnd, distributor);
+    counts.pjpSkuCount = pjpSkuRows.length;
+    console.log(`[sales-returns] Fetched ${pjpSkuRows.length} PJP x SKU rows for ${dateOnly(pjpMonth)} to ${dateOnly(pjpEnd)}.`);
+    await post("/api/pjp-sku-performance/upload", { rows: pjpSkuRows, month: pjpMonth.toISOString(), distributor });
 
-  const activityRows = await fetchPjpDsrDailyActivity(pool, start, end, distributor);
-  console.log(`[sales-returns] Fetched ${activityRows.length} PJP/DSR daily activity rows.`);
-  await post("/api/pjp-dsr-daily-activity/upload", { rows: activityRows, distributor, windowStart, windowEnd });
+    const outletSkuRows = await fetchOutletSkuDailySales(pool, start, end, distributor);
+    counts.outletSkuCount = outletSkuRows.length;
+    console.log(`[sales-returns] Fetched ${outletSkuRows.length} Outlet x SKU daily rows.`);
+    await post("/api/outlet-sku-daily-sales/upload", { rows: outletSkuRows, distributor, windowStart, windowEnd });
 
-  // Invoice lines are the reconciliation commit marker and therefore upload
-  // last. If any companion report above fails, their source/VPS mismatch is
-  // retried next cycle instead of a completed invoice signature masking it.
-  for (let index = 0; index < lines.length; index += CHUNK_SIZE) {
-    await post("/api/sales-returns/upload", {
-      lines: lines.slice(index, index + CHUNK_SIZE),
-      distributor,
-      windowStart: index === 0 ? windowStart : undefined,
-      windowEnd: index === 0 ? windowEnd : undefined,
-    });
+    const activityRows = await fetchPjpDsrDailyActivity(pool, start, end, distributor);
+    counts.activityCount = activityRows.length;
+    console.log(`[sales-returns] Fetched ${activityRows.length} PJP/DSR daily activity rows.`);
+    await post("/api/pjp-dsr-daily-activity/upload", { rows: activityRows, distributor, windowStart, windowEnd });
+
+    // Invoice lines are the reconciliation commit marker and therefore upload
+    // last. If any companion report above fails, their source/VPS mismatch is
+    // retried next cycle instead of a completed invoice signature masking it.
+    for (let index = 0; index < lines.length; index += CHUNK_SIZE) {
+      await post("/api/sales-returns/upload", {
+        lines: lines.slice(index, index + CHUNK_SIZE),
+        distributor,
+        windowStart: index === 0 ? windowStart : undefined,
+        windowEnd: index === 0 ? windowEnd : undefined,
+      });
+    }
+    if (lines.length === 0) {
+      await post("/api/sales-returns/upload", { lines: [], distributor, windowStart, windowEnd });
+    }
+
+    await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "COMPLETED", counts);
+    return `Extraction ${extractionSerial} uploaded ${lines.length} invoice lines, ${pjpSkuRows.length} PJP x SKU rows, ` +
+      `${outletSkuRows.length} Outlet x SKU rows, and ${activityRows.length} activity rows for ${dateOnly(start)}.`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "FAILED", counts, message);
+    } catch (auditError) {
+      console.error(`[sales-returns] Could not close failed extraction ${extractionSerial}:`, auditError);
+    }
+    throw error;
   }
-  if (lines.length === 0) {
-    await post("/api/sales-returns/upload", { lines: [], distributor, windowStart, windowEnd });
-  }
-
-  return `Uploaded ${lines.length} invoice lines, ${pjpSkuRows.length} PJP x SKU rows, ` +
-    `${outletSkuRows.length} Outlet x SKU rows, and ${activityRows.length} activity rows for ${dateOnly(start)}.`;
 }
 
 async function runSmart(pool: sql.ConnectionPool, distributor: string): Promise<string> {

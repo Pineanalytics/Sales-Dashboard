@@ -1651,8 +1651,8 @@ model FrostConversationMessage {
 // report) can differ from it.
 model SalesReturnLine {
   id                String    @id @default(cuid())
-  // `${invoiceNo}|${sku}` — unique per the source query's grain (GROUP BY is
-  // per invoice + material, never split further by batch).
+  // `${storageLocation}|${invoiceNo}|${sku}` — unique per branch and source
+  // query grain (GROUP BY is per invoice + material, never split by batch).
   sourceRowKey      String    @unique
   customerCode      String
   salesRepCode      String
@@ -1793,6 +1793,31 @@ model PjpDsrDailyActivity {
   @@index([distributor, date])
 }
 
+// Immutable audit ledger for each Sales & Returns extraction attempt. The
+// serial identifies the run, but deliberately does not participate in any
+// fact-table key: successful reruns still replace the same distributor/date
+// partition instead of creating another copy of its facts.
+model SalesReturnsExtractionRun {
+  id               String    @id @default(cuid())
+  extractionSerial String    @unique
+  distributor      String
+  windowStart      DateTime
+  windowEnd        DateTime
+  status           String
+  invoiceLineCount Int       @default(0)
+  pjpSkuCount      Int       @default(0)
+  outletSkuCount   Int       @default(0)
+  activityCount    Int       @default(0)
+  errorMessage     String?
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime  @updatedAt
+
+  @@index([distributor, startedAt])
+  @@index([distributor, windowStart])
+  @@index([status, startedAt])
+}
+
 // Manual "run the sync now" queue for the Sales & Returns bridge, since the
 // Centegy machines (Nairobi, Nyeri) are on isolated networks with no inbound
 // access — nothing can reach in and trigger them directly. Instead each
@@ -1870,6 +1895,26 @@ model EablSalesExportTriggerRequest {
   resultSummary String?
 
   @@index([status, requestedAt])
+}
+
+// One job per branch and calendar date selected from the Server-PC UKL Sales
+// & Returns export trigger. The Server PC has no inbound path, so its local
+// five-minute poll claims one job at a time, runs the established CSV puller,
+// and reports the result. Keeping dates independent makes a selected month
+// resumable after a transient failure without repeating completed days.
+model UklSalesExportTriggerRequest {
+  id            String   @id @default(cuid())
+  branch        String   // "NAIROBI" | "NYERI"
+  requestedDate DateTime
+  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  requestedBy   String?
+  requestedAt   DateTime @default(now())
+  claimedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String?
+
+  @@index([status, requestedAt])
+  @@index([branch, requestedDate, status])
 }
 
 // Outbound-only DataEdge machines cannot be reached directly from the VPS.
