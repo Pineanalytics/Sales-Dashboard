@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import type { ViewProps } from "./types";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -24,12 +24,39 @@ const TOP_N_REPS = 12;
 
 const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
 
+interface LeverageMonthlyCoverageRow {
+  year: string;
+  monthIndex: number;
+  distributor: string;
+  distributorLabel: string;
+  employeeCode: string;
+  employeeName: string;
+  coverage: number;
+}
+
 export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProps) {
   const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
   const [activePanel, setActivePanel] = useState<"overview" | "reps">("overview");
   const [showAllPrincipals, setShowAllPrincipals] = useState(false);
   const [showAllReps, setShowAllReps] = useState(false);
+  const [leverageRows, setLeverageRows] = useState<LeverageMonthlyCoverageRow[] | null>(null);
   const roleLabel = ROLE_LABEL[selectedRole];
+
+  // Unilever/Leverage coverage is fetched independently rather than through
+  // the shared dataset prop — see getLeverageMonthlyCoverageRollup's doc
+  // comment (lib/jpAdherence.ts) for why it's kept out of
+  // dataset.monthlyCoverage entirely: no strike rate is derivable from its
+  // source, unlike Pine/EABL/Upfield, which all flow through that shared
+  // pipeline normally. All months are fetched once; period filtering happens
+  // client-side below, same as dataset.monthlyCoverage already does.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/coverage/leverage", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => { if (!response.ok) throw new Error(); return response.json() as Promise<{ rows: LeverageMonthlyCoverageRow[] }>; })
+      .then((body) => { if (!controller.signal.aborted) setLeverageRows(body.rows); })
+      .catch((error) => { if (!controller.signal.aborted && (error as Error).name !== "AbortError") setLeverageRows([]); });
+    return () => controller.abort();
+  }, []);
 
   const currentSummary = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, selectedRole);
   const targetSummary = summarizeCoverageTargetsForPeriod(dataset, period, selectedPrincipalKey);
@@ -136,6 +163,33 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
   const principalTargetComparison = principalBars.filter((row) => row.coverageTarget !== null || row.productivityTarget !== null);
   const visiblePrincipalComparison = showAllPrincipals ? principalTargetComparison : principalTargetComparison.slice(0, 8);
   const visibleReps = showAllReps ? reps : reps.slice(0, TOP_N_REPS);
+
+  // Only relevant when nothing else is selected, or Unilever itself is —
+  // showing it alongside an unrelated principal's numbers would be confusing.
+  const showLeverage = !selectedPrincipalKey || selectedPrincipalKey === "unilever";
+  const leverageMonthKeys = new Set(resolvePeriodMonths(period).map((m) => `${m.year}|${m.monthIndex}`));
+  const leverageRowsInPeriod = (leverageRows ?? []).filter((r) => leverageMonthKeys.has(`${r.year}|${r.monthIndex}`));
+  // Per rep: average across the months present in the period (never sum —
+  // the same outlet showing up in two months must not be double-counted).
+  const leverageByRep = new Map<string, { name: string; distributor: string; byMonth: Map<string, number> }>();
+  for (const r of leverageRowsInPeriod) {
+    const repKey = `${r.distributor}|${r.employeeCode}`;
+    const entry = leverageByRep.get(repKey) ?? { name: r.employeeName, distributor: r.distributorLabel, byMonth: new Map<string, number>() };
+    entry.byMonth.set(`${r.year}|${r.monthIndex}`, r.coverage);
+    leverageByRep.set(repKey, entry);
+  }
+  const leverageReps = Array.from(leverageByRep.values())
+    .map((entry) => {
+      const values = Array.from(entry.byMonth.values());
+      return { name: entry.name, distributor: entry.distributor, coverage: values.length ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length) : 0 };
+    })
+    .sort((a, b) => b.coverage - a.coverage);
+  // Total: sum across reps within each month (additive — different reps'
+  // outlets), then average across months, same convention as principalBars.
+  const leverageMonthTotals = new Map<string, number>();
+  for (const r of leverageRowsInPeriod) leverageMonthTotals.set(`${r.year}|${r.monthIndex}`, (leverageMonthTotals.get(`${r.year}|${r.monthIndex}`) ?? 0) + r.coverage);
+  const leverageMonthTotalValues = Array.from(leverageMonthTotals.values());
+  const leverageTotalCoverage = leverageMonthTotalValues.length ? Math.round(leverageMonthTotalValues.reduce((sum, v) => sum + v, 0) / leverageMonthTotalValues.length) : 0;
 
   function handleSelectRole(role: RoleCategory) {
     setSelectedRole(role);
@@ -290,6 +344,46 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
         {reps.length > visibleReps.length ? <button onClick={() => setShowAllReps(true)} className="mt-3 text-xs font-semibold text-primary-blue hover:underline">Show all {reps.length} reps</button> : null}
         {showAllReps && reps.length > TOP_N_REPS ? <button onClick={() => setShowAllReps(false)} className="ml-4 mt-3 text-xs font-semibold text-primary-blue hover:underline">Show fewer</button> : null}
       </SectionCard> : null}
+
+      {showLeverage && leverageRows !== null && leverageReps.length > 0 ? (
+        <SectionCard
+          accent="navy"
+          title="Unilever · Leverage — Outlet Coverage"
+          action={<span className="text-xs text-muted">Sales &amp; Returns bridge (Nairobi &amp; Nyeri) · {period.kind}</span>}
+        >
+          <p className="mb-3 text-xs text-muted">
+            Distinct outlets invoiced per rep. No strike rate here — Leverage&apos;s source (invoice-line detail) has no
+            &quot;visited but didn&apos;t buy&quot; signal the way Pine, EABL, and Upfield do, so every outlet counted is
+            already productive by definition; showing a percentage would only ever read 100%.
+          </p>
+          <KpiGrid>
+            <KpiCard accent="coverage" label="Outlets covered" value={<AnimatedValue value={leverageTotalCoverage} format={formatNumber} />} sublabel={`${period.kind} · averaged across months in period`} />
+          </KpiGrid>
+          <div className="mt-4">
+            <TableWrap>
+              <Thead>
+                <Th>Sales rep</Th>
+                <Th>Branch</Th>
+                <Th align="right">Outlets Covered</Th>
+              </Thead>
+              <tbody>
+                {leverageReps.slice(0, TOP_N_REPS).map((r) => (
+                  <tr key={`${r.distributor}-${r.name}`}>
+                    <Td>{r.name}</Td>
+                    <Td>{r.distributor}</Td>
+                    <Td align="right">{formatNumber(r.coverage)}</Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td>Total</Td>
+                  <Td>—</Td>
+                  <Td align="right">{formatNumber(leverageTotalCoverage)}</Td>
+                </TotalRow>
+              </tbody>
+            </TableWrap>
+          </div>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }

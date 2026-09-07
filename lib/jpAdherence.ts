@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
+import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
 
 export type SalesRoleFilter = "all" | "Primary Sales" | "Secondary Sales";
@@ -738,4 +739,179 @@ export async function getEablMonthlyCoverageRollup(): Promise<JpMonthlyCoverageR
       qty: 0,
     } as JpMonthlyCoverageRow;
   });
+}
+
+interface UpfieldCoverageRawRow {
+  fsr: string;
+  year: string;
+  monthIndex: number;
+  coverage: bigint | number;
+  productive: bigint | number;
+  revenue: number;
+}
+
+/** Upfield DataEdge's equivalent of getEablMonthlyCoverageRollup above.
+ *  UpfieldTransaction is invoice-only (every row is a completed sale or
+ *  return — there is no "visited, didn't buy" call outcome the way RepCall's
+ *  callOutcome or EablCall's isProductive capture it), so "coverage" here is
+ *  necessarily narrower than Pine/EABL's: an outlet counts as covered if it
+ *  has ANY transaction that month (sale or return) and productive only if it
+ *  has a positive sale — the same "positive sale" test the DataEdge report
+ *  itself already uses (app/api/upfield-timestamps/summary). An outlet with
+ *  only a return that month is the one real (if narrow) covered-not-
+ *  productive case this data supports.
+ *
+ *  Attribution: same primary-rep-per-outlet-month resolution as EABL's
+ *  rollup, applied defensively — DataEdge's FSR/PJP model looks
+ *  one-rep-per-outlet in practice, but nothing here assumes that, so a
+ *  outlet a second rep happens to also invoice that month is still counted
+ *  once, not twice. Principal is the fixed literal "Upfield" (this whole
+ *  table is Upfield's own DataEdge feed, not a multi-principal source), and
+ *  every row is tagged "Primary Sales" — no employee roster exists to
+ *  resolve a real salesRole for DataEdge's FSR reps, same assumption
+ *  getEablMonthlyCoverageRollup makes for EABL's DSR reps. */
+export async function getUpfieldMonthlyCoverageRollup(): Promise<JpMonthlyCoverageRow[]> {
+  const raw = await prisma.$queryRaw<UpfieldCoverageRawRow[]>(Prisma.sql`
+    WITH base AS (
+      SELECT REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g') AS fsr, "custCode",
+        EXTRACT(YEAR FROM "txnDate")::text AS year,
+        (EXTRACT(MONTH FROM "txnDate")::int - 1) AS "monthIndex",
+        type, "saleIncl"
+      FROM "UpfieldTransaction"
+      WHERE NULLIF(BTRIM("custCode"), '') IS NOT NULL
+        AND NULLIF(BTRIM(fsr), '') IS NOT NULL
+        AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'
+    ),
+    outlet_month AS (
+      SELECT "custCode", year, "monthIndex",
+        BOOL_OR(type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS "everProductive",
+        COALESCE(SUM("saleIncl") FILTER (WHERE type = 'sale'), 0)::double precision AS revenue
+      FROM base
+      GROUP BY "custCode", year, "monthIndex"
+    ),
+    per_rep_calls AS (
+      SELECT "custCode", year, "monthIndex", fsr,
+        COUNT(*) AS lines,
+        BOOL_OR(type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS "ownProductive"
+      FROM base
+      GROUP BY "custCode", year, "monthIndex", fsr
+    ),
+    primary_rep AS (
+      SELECT DISTINCT ON ("custCode", year, "monthIndex")
+        "custCode", year, "monthIndex", fsr
+      FROM per_rep_calls
+      ORDER BY "custCode", year, "monthIndex", lines DESC, "ownProductive" DESC, fsr ASC
+    )
+    SELECT
+      pr.fsr AS fsr,
+      om.year AS year,
+      om."monthIndex" AS "monthIndex",
+      COUNT(*)::int AS coverage,
+      COUNT(*) FILTER (WHERE om."everProductive")::int AS productive,
+      COALESCE(SUM(om.revenue), 0)::double precision AS revenue
+    FROM outlet_month om
+    INNER JOIN primary_rep pr USING ("custCode", year, "monthIndex")
+    GROUP BY pr.fsr, om.year, om."monthIndex"
+  `);
+
+  return raw.map((r) => {
+    const coverage = Number(r.coverage);
+    const productive = Number(r.productive);
+    return {
+      year: r.year,
+      monthIndex: r.monthIndex,
+      employeeCode: r.fsr,
+      employeeName: r.fsr,
+      principal: "Upfield",
+      principalKey: normalizePrincipalKey("Upfield"),
+      salesRole: "Primary Sales",
+      activityStatus: productive > 0 ? "Active" : "Inactive",
+      coverage,
+      productive,
+      productivityPct: coverage > 0 ? round1((productive / coverage) * 100) : 0,
+      revenue: r.revenue,
+      qty: 0,
+    } as JpMonthlyCoverageRow;
+  });
+}
+
+export interface LeverageMonthlyCoverageRow {
+  year: string;
+  monthIndex: number;
+  distributor: string;
+  distributorLabel: string;
+  employeeCode: string;
+  employeeName: string;
+  coverage: number;
+}
+
+interface LeverageCoverageRawRow {
+  salesRepCode: string;
+  salesRepName: string;
+  storageLocation: string;
+  year: string;
+  monthIndex: number;
+  coverage: bigint | number;
+}
+
+/** Unilever/Leverage's monthly outlet coverage — deliberately NOT merged into
+ *  dataset.monthlyCoverage/JpMonthlyCoverageRow like Pine/EABL/Upfield above.
+ *  SalesReturnLine (the Sales & Returns bridge backing PjpDsrDailyActivity —
+ *  see scripts/db-bridge/sales-returns/query.ts) is invoice-line detail with
+ *  no unproductive-call signal at all: every row is a completed transaction,
+ *  so a "productive" outlet count would always equal the coverage count
+ *  outright, not just in the occasional edge case Upfield's return-only
+ *  outlets give it. A fabricated always-100% strike rate would be actively
+ *  misleading rather than merely narrow, so this returns coverage only and
+ *  the Coverage & Productivity UI surfaces it in its own section instead of
+ *  through the shared productivityPct-bearing rows (see CoverageView.tsx).
+ *
+ *  Attribution: same primary-rep-per-outlet-month resolution as the EABL/
+ *  Upfield rollups, applied per branch (storageLocation) since Nairobi and
+ *  Nyeri share this table and a rep code is scoped to its own branch. */
+export async function getLeverageMonthlyCoverageRollup(): Promise<LeverageMonthlyCoverageRow[]> {
+  const raw = await prisma.$queryRaw<LeverageCoverageRawRow[]>(Prisma.sql`
+    WITH outlet_month AS (
+      SELECT "customerCode", "storageLocation",
+        EXTRACT(YEAR FROM "deliveryDate")::text AS year,
+        (EXTRACT(MONTH FROM "deliveryDate")::int - 1) AS "monthIndex"
+      FROM "SalesReturnLine"
+      GROUP BY "customerCode", "storageLocation", year, "monthIndex"
+    ),
+    per_rep_calls AS (
+      SELECT "customerCode", "storageLocation",
+        EXTRACT(YEAR FROM "deliveryDate")::text AS year,
+        (EXTRACT(MONTH FROM "deliveryDate")::int - 1) AS "monthIndex",
+        "salesRepCode", "salesRepName",
+        COUNT(*) AS lines
+      FROM "SalesReturnLine"
+      GROUP BY "customerCode", "storageLocation", year, "monthIndex", "salesRepCode", "salesRepName"
+    ),
+    primary_rep AS (
+      SELECT DISTINCT ON ("customerCode", "storageLocation", year, "monthIndex")
+        "customerCode", "storageLocation", year, "monthIndex", "salesRepCode", "salesRepName"
+      FROM per_rep_calls
+      ORDER BY "customerCode", "storageLocation", year, "monthIndex", lines DESC, "salesRepName" ASC
+    )
+    SELECT
+      pr."salesRepCode" AS "salesRepCode",
+      pr."salesRepName" AS "salesRepName",
+      pr."storageLocation" AS "storageLocation",
+      om.year AS year,
+      om."monthIndex" AS "monthIndex",
+      COUNT(*)::int AS coverage
+    FROM outlet_month om
+    INNER JOIN primary_rep pr USING ("customerCode", "storageLocation", year, "monthIndex")
+    GROUP BY pr."salesRepCode", pr."salesRepName", pr."storageLocation", om.year, om."monthIndex"
+  `);
+
+  return raw.map((r) => ({
+    year: r.year,
+    monthIndex: r.monthIndex,
+    distributor: r.storageLocation,
+    distributorLabel: SALES_RETURNS_BRANCH_LABELS[r.storageLocation] ?? r.storageLocation,
+    employeeCode: r.salesRepCode,
+    employeeName: r.salesRepName,
+    coverage: Number(r.coverage),
+  }));
 }

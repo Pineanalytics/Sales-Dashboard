@@ -4,7 +4,7 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
-import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup } from "./jpAdherence";
+import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup, getUpfieldMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
 // The primary dashboard dataset is composed from tables written by the
@@ -154,14 +154,15 @@ async function overlaySales(dataset: Dataset): Promise<Dataset> {
  *  retroactive per-month counting vs. whatever the Excel pivot did) — see
  *  project notes; that's the intended, going-forward number now. */
 async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
-  // EABL's own rollup (lib/jpAdherence.ts's getEablMonthlyCoverageRollup) is
-  // merged in right alongside Pine's — same row shape, same merge-by-key
-  // logic below, so Coverage & Productivity picks it up wherever an EABL
-  // principal is selected with zero further changes to this function.
-  const [directRows, pineRows, eablRows] = await Promise.all([
+  // EABL's and Upfield's own rollups (lib/jpAdherence.ts) are merged in right
+  // alongside Pine's — same row shape, same merge-by-key logic below, so
+  // Coverage & Productivity picks each up wherever that principal is
+  // selected with zero further changes to this function.
+  const [directRows, pineRows, eablRows, upfieldRows] = await Promise.all([
     prisma.coverageActual.findMany(),
     getMonthlyCoverageRollup(null),
     getEablMonthlyCoverageRollup(),
+    getUpfieldMonthlyCoverageRollup(),
   ]);
   // A persisted direct month is authoritative for Pine coverage. RepCall stays
   // as a live fallback only until that month has been validated and saved;
@@ -180,6 +181,7 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
     })),
     ...pineRows.filter((row) => !directMonths.has(`${row.year}|${row.monthIndex}`)),
     ...eablRows,
+    ...upfieldRows,
   ];
   if (rollupRows.length === 0) return dataset;
 
