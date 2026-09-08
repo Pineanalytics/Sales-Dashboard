@@ -79,6 +79,44 @@ function buildRtmCustomers(workbook: XLSX.WorkBook) {
     rtmType: nullable(field(row, "Type")), assignedRep: nullable(field(row, "User Name", "Assigned Rep")),
   }));
 }
+/** JBP (Joint Business Plan) customer targets, from the "JBP Targets"
+ * sheet's own pre-computed outlet-level "Total Target" rows (source sheet
+ * "Overall") — NOT a sum of the sheet's per-category rows (4P/2P/10P/
+ * Orbit): confirmed against the live workbook that those don't add up to
+ * the same customer/period's "Total Target" figure, so recomputing it here
+ * would silently diverge from what the sheet itself reports as the
+ * outlet's overall target. Customer ID 0 rows are Excel aggregation
+ * artifacts in the "Overall" sheet, not real outlets, and are dropped. */
+function buildJbpTargets(workbook: XLSX.WorkBook) {
+  const combined = new Map<string, { customerId: string; customerName: string | null; tier: string | null; area: string | null; periodKey: string; targetCases: number; targetSsu: number }>();
+  for (const row of rows(workbook, "JBP Targets")) {
+    if (string(field(row, "Category")).toLowerCase() !== "total target") continue;
+    const customerId = string(field(row, "Customer ID", "CustomerID"));
+    if (!customerId || customerId === "0") continue;
+    const mapped = {
+      customerId,
+      customerName: nullable(field(row, "Customer Name", "CustomerName")),
+      tier: nullable(field(row, "Tier")),
+      area: nullable(field(row, "AREA", "Area")),
+      periodKey: periodKey(field(row, "Period")),
+      targetCases: numeric(field(row, "Cases")),
+      targetSsu: numeric(field(row, "SSUs", "SSU")),
+    };
+    const key = `${mapped.customerId}|${mapped.periodKey}`;
+    const existing = combined.get(key);
+    // A handful of outlets carry two "Total Target" rows for the same
+    // period in the live workbook — summed rather than one silently
+    // overwriting the other, same duplicate-row rule buildTargets() above
+    // already applies to its own sheet.
+    if (!existing) combined.set(key, mapped);
+    else {
+      existing.targetCases += mapped.targetCases;
+      existing.targetSsu += mapped.targetSsu;
+      if (!existing.customerName) existing.customerName = mapped.customerName;
+    }
+  }
+  return [...combined.values()];
+}
 function buildProductiveTargets(workbook: XLSX.WorkBook) {
   // Mars's Productive Report is SKU-level.  Keeping its expected productive
   // outlet count separate lets the dashboard compare rep productivity without
@@ -252,8 +290,8 @@ async function main() {
   const targets = read(`${dir}\\Productive Target.xlsx`);
   const products = read(`${dir}\\ProductMasterData.xlsx`);
   const rawPath = `${dir}\\Mars Raw Data_PTD.xlsx`;
-  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
-  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers.`);
+  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets), jbpTargets: buildJbpTargets(targets) };
+  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers, ${reference.jbpTargets.length} JBP customer targets.`);
   await post(appUrl, apiKey, reference);
   if (args.includes("--reference-only")) {
     console.log("[mars-kpis] Reference import complete; workbook actuals were intentionally not replaced.");

@@ -15,14 +15,15 @@ import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, 
 type Summary = { current: { ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdOutlets: number; ptdProductive: number; ptdReturns: number }; target: { ptdSsuTarget: number; ytdSsuTarget: number }; ptdAchievement: number | null; ytdAchievement: number | null; ptdGrowth: number | null; ytdGrowth: number | null; ptdCoverage: number | null; ptdStrikeRate: number | null; ptdConversion: number | null };
 type FilterKey = "sellerType" | "employeeGroup" | "location" | "teamLeader" | "fsr";
 type LocationScorecard = { location: string; sellerType: string; stream: string; fullSsuTarget: number; ptdSsuTarget: number; ptdSsu: number; lyspSsu: number; universeTarget: number; visits: number; lyspVisits: number; productive: number; lyspProductive: number; lppc: number | null; dropSize: number | null };
-interface MarsData { available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; source?: "PINE" | "WORKBOOK"; asOf?: string | null; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; filterOptions?: { sellerTypes: string[]; employeeGroups: string[]; locations: string[]; teamLeaders: string[]; fsrs: string[] }; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdVisits: number; ptdProductive: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; rtmPerformance?: { name: string; ptdSsu: number; ptdRevenue: number; ptdVisits: number; ptdProductive: number }[]; rtmUniverse?: { name: string; customers: number }[]; locationScorecards?: LocationScorecard[]; repProductivityScorecards?: { employeeCode: string; employeeName: string; location: string; target: number; productive: number }[]; }
+type JbpCustomer = { customerId: string; customerName: string; tier: string; area: string; targetCases: number; actualCases: number; casesAchievement: number | null; targetSsu: number; actualSsu: number; ssuAchievement: number | null };
+interface MarsData { available: boolean; fiscalYear?: string; priorYear?: string; selectedPeriod?: number; source?: "PINE" | "WORKBOOK"; asOf?: string | null; periods?: { periodKey: string; periodNo: number; startDate: string; endDate: string }[]; summary?: Summary; filterOptions?: { sellerTypes: string[]; employeeGroups: string[]; locations: string[]; teamLeaders: string[]; fsrs: string[] }; byPeriod?: { periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]; bySeller?: { name: string; ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdVisits: number; ptdProductive: number }[]; byBrand?: { name: string; ssu: number; revenue: number }[]; rtmPerformance?: { name: string; ptdSsu: number; ptdRevenue: number; ptdVisits: number; ptdProductive: number }[]; rtmUniverse?: { name: string; customers: number }[]; locationScorecards?: LocationScorecard[]; repProductivityScorecards?: { employeeCode: string; employeeName: string; location: string; target: number; productive: number }[]; jbpCustomers?: JbpCustomer[]; }
 
 const commercialStreams = ["Primary / Wholesale", "Secondary / Retail", "KAM", "MDSR"];
 
 export default function PrincipalKpisPage() {
   const [data, setData] = useState<MarsData | null>(null);
   const [period, setPeriod] = useState<number | null>(null);
-  const [slide, setSlide] = useState<"overview" | "commercial" | "productivity" | "rtm">("overview");
+  const [slide, setSlide] = useState<"overview" | "commercial" | "productivity" | "rtm" | "jbp">("overview");
   const [commercialSlide, setCommercialSlide] = useState("Primary / Wholesale");
   const [filters, setFilters] = useState<Record<FilterKey, string>>({ sellerType: "", employeeGroup: "", location: "", teamLeader: "", fsr: "" });
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -43,13 +44,16 @@ export default function PrincipalKpisPage() {
   if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the Mars reference import may need attention." />;
   if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Mars KPI data is being prepared" description="The Mars fiscal calendar, targets, roster and Pine sales ledger are not loaded yet." />;
 
-  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], rtmPerformance = [], rtmUniverse = [], locationScorecards = [], repProductivityScorecards = [], source, asOf, filterOptions } = data;
+  const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], rtmPerformance = [], rtmUniverse = [], locationScorecards = [], repProductivityScorecards = [], jbpCustomers = [], source, asOf, filterOptions } = data;
   const selected = periods.find((item) => item.periodNo === selectedPeriod);
   const periodLabel = selected ? `${selected.periodKey} | ${new Date(selected.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - ${new Date(selected.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : `P${String(selectedPeriod).padStart(2, "0")}`;
   const sellerData = bySeller.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }));
   const rows = locationScorecards.filter((row) => row.stream === commercialSlide);
   const ratio = (numerator: number, denominator: number) => denominator > 0 ? formatPercent((numerator / denominator) * 100) : "-";
   const growth = (current: number, prior: number) => prior > 0 ? formatPercent(((current / prior) - 1) * 100) : "-";
+  const pctOrDash = (value: number | null) => value === null ? "-" : formatPercent(value);
+  const jbpTotals = jbpCustomers.reduce((acc, row) => ({ targetCases: acc.targetCases + row.targetCases, actualCases: acc.actualCases + row.actualCases, targetSsu: acc.targetSsu + row.targetSsu, actualSsu: acc.actualSsu + row.actualSsu }), { targetCases: 0, actualCases: 0, targetSsu: 0, actualSsu: 0 });
+  const jbpOnTarget = jbpCustomers.filter((row) => (row.ssuAchievement ?? 0) >= 100).length;
 
   return <div className="flex flex-col gap-6">
     <SectionCard title="Principal KPI workspace" action={<span className="text-xs text-muted">Mars is the first configured principal; each view uses the Mars fiscal calendar.</span>}>
@@ -62,7 +66,7 @@ export default function PrincipalKpisPage() {
       <p className="mt-3 text-sm text-muted">FY {fiscalYear} through <span className="font-semibold text-foreground">{periodLabel}</span>, compared with FY {priorYear} at the equivalent fiscal day. {source === "PINE" ? <span className="font-medium text-emerald-700">Live Pine actuals{asOf ? ` as of ${new Date(asOf).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}.</span> : "Workbook baseline while live Pine is being verified."}</p>
     </SectionCard>
 
-    <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2" role="tablist" aria-label="Mars KPI views">{([ ["overview", "Overview"], ["commercial", "Commercial scorecards"], ["productivity", "Productivity & mix"], ["rtm", "RTM"] ] as const).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={slide === key} onClick={() => setSlide(key)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${slide === key ? "bg-brand-navy text-white" : "text-muted hover:bg-background-elevated hover:text-foreground"}`}>{label}</button>)}</div>
+    <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface p-2" role="tablist" aria-label="Mars KPI views">{([ ["overview", "Overview"], ["commercial", "Commercial scorecards"], ["productivity", "Productivity & mix"], ["rtm", "RTM"], ["jbp", "JBP customers"] ] as const).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={slide === key} onClick={() => setSlide(key)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${slide === key ? "bg-brand-navy text-white" : "text-muted hover:bg-background-elevated hover:text-foreground"}`}>{label}</button>)}</div>
 
     {slide === "overview" ? <><KpiGrid>
       <KpiCard accent="revenue" label="Net PTD SSU" value={<AnimatedValue value={summary.current.ptdSsu} format={formatNumber} />} sublabel={`Returns: ${formatNumber(summary.current.ptdReturns)}`} delta={summary.ptdGrowth === null ? undefined : { value: summary.ptdGrowth, caption: `vs FY ${priorYear}` }} />
@@ -89,5 +93,18 @@ export default function PrincipalKpisPage() {
     </ChartGrid></> : null}
 
     {slide === "rtm" ? <SectionCard title="RTM performance" action={<span className="text-xs text-muted">Absolute customer universe from the Mars RTM list; activity is shown for the selected fiscal period.</span>}><TableWrap><Thead><Th>RTM classification</Th><Th align="right">Universe</Th><Th align="right">PTD visits</Th><Th align="right">Productive</Th><Th align="right">Strike rate</Th><Th align="right">Net PTD SSU</Th><Th align="right">PTD revenue</Th></Thead><tbody>{rtmPerformance.map((row) => <tr key={row.name}><Td>{row.name}</Td><Td align="right">{formatNumber(rtmUniverse.find((item) => item.name === row.name)?.customers ?? 0)}</Td><Td align="right">{formatNumber(row.ptdVisits)}</Td><Td align="right">{formatNumber(row.ptdProductive)}</Td><Td align="right">{ratio(row.ptdProductive, row.ptdVisits)}</Td><Td align="right">{formatNumber(row.ptdSsu)}</Td><Td align="right">{formatCompact(row.ptdRevenue)}</Td></tr>)}</tbody></TableWrap></SectionCard> : null}
+
+    {slide === "jbp" ? <>
+      <KpiGrid>
+        <KpiCard accent="coverage" label="JBP customers" value={<AnimatedValue value={jbpCustomers.length} format={formatNumber} />} sublabel={`${selected?.periodKey ?? `P${String(selectedPeriod).padStart(2, "0")}`} targets`} />
+        <KpiCard accent="growth" label="SSU: target vs actual" value={<AnimatedValue value={jbpTotals.actualSsu} format={formatNumber} />} sublabel={`Target ${formatNumber(jbpTotals.targetSsu)} · ${ratio(jbpTotals.actualSsu, jbpTotals.targetSsu)}`} />
+        <KpiCard accent="quarter" label="Cases: target vs actual" value={<AnimatedValue value={jbpTotals.actualCases} format={formatNumber} />} sublabel={`Target ${formatNumber(jbpTotals.targetCases)} · ${ratio(jbpTotals.actualCases, jbpTotals.targetCases)}`} />
+        <KpiCard accent="revenue" label="At/above SSU target" value={<AnimatedValue value={jbpOnTarget} format={formatNumber} />} sublabel={`of ${formatNumber(jbpCustomers.length)} JBP customers`} />
+      </KpiGrid>
+      <SectionCard title="JBP customer performance" action={<span className="text-xs text-muted">Outlet-level total from the JBP Targets sheet&apos;s own &quot;Total Target&quot; rows, vs net actual Cases/SSU for {selected?.periodKey ?? `P${String(selectedPeriod).padStart(2, "0")}`} — not split by brand/category.</span>}>
+        <TableWrap><Thead><Th>Customer</Th><Th>Tier</Th><Th>Area</Th><Th align="right">Target cases</Th><Th align="right">Actual cases</Th><Th align="right">Cases achievement</Th><Th align="right">Target SSU</Th><Th align="right">Actual SSU</Th><Th align="right">SSU achievement</Th></Thead><tbody>{jbpCustomers.map((row) => <tr key={row.customerId}><Td>{row.customerName} <span className="text-xs text-muted">({row.customerId})</span></Td><Td>{row.tier}</Td><Td>{row.area}</Td><Td align="right">{formatNumber(row.targetCases)}</Td><Td align="right">{formatNumber(row.actualCases)}</Td><Td align="right">{pctOrDash(row.casesAchievement)}</Td><Td align="right">{formatNumber(row.targetSsu)}</Td><Td align="right">{formatNumber(row.actualSsu)}</Td><Td align="right">{pctOrDash(row.ssuAchievement)}</Td></tr>)}</tbody></TableWrap>
+        {jbpCustomers.length === 0 ? <p className="py-8 text-center text-sm text-muted">No JBP targets loaded for {selected?.periodKey ?? `P${String(selectedPeriod).padStart(2, "0")}`}.</p> : null}
+      </SectionCard>
+    </> : null}
   </div>;
 }
