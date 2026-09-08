@@ -170,13 +170,16 @@ function Get-ExportFiles {
   if (Test-Path -LiteralPath $ArchiveFolder) {
     $files += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter "$prefix*.csv" -File -Recurse -ErrorAction SilentlyContinue)
   }
-  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(_\\d+)?\\.csv$" })
+  # Double-quoted PowerShell strings do not interpret backslash escapes, so a
+  # literal "\d" (not "\\d") is required here for the regex engine to see a
+  # digit-class escape instead of two literal backslashes matching nothing.
+  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(_\d+)?\.csv$" })
 }
 
 function Get-NextExportPath {
   param([string]$ExportDate)
   $prefix = Get-ExportPrefix -ExportDate $ExportDate
-  $pattern = "^$([regex]::Escape($prefix))_(?<sequence>\\d+)\\.csv$"
+  $pattern = "^$([regex]::Escape($prefix))_(?<sequence>\d+)\.csv$"
   $highestSequence = 0
   foreach ($file in Get-ExportFiles -ExportDate $ExportDate) {
     if ($file.Name -match $pattern) {
@@ -185,6 +188,25 @@ function Get-NextExportPath {
   }
   return Join-Path $DestFolder ("{0}_{1:D3}.csv" -f $prefix, ($highestSequence + 1))
 }
+
+# Guards against a repeat of the 2026-09-07 regression, where doubled
+# backslashes in a double-quoted string ("\\d+"/"\\.csv") silently made the
+# filter above match nothing: every run then treated every export as
+# undelivered and could never advance past "_001", regardless of what was
+# already on disk. Run once at startup so a broken pattern fails loudly
+# instead of quietly starving the sequence again.
+function Assert-ExportFilenamePatternWorks {
+  $probeDate = "2026-01-01"
+  $probePrefix = Get-ExportPrefix -ExportDate $probeDate
+  $probeName = "${probePrefix}_001.csv"
+  $filterPattern = "^$([regex]::Escape($probePrefix))(_\d+)?\.csv$"
+  $sequencePattern = "^$([regex]::Escape($probePrefix))_(?<sequence>\d+)\.csv$"
+  if ($probeName -notmatch $filterPattern -or $probeName -notmatch $sequencePattern) {
+    throw "UKL export filename pattern is broken: '$probeName' does not match the expected sequence regex. Check Get-ExportFiles/Get-NextExportPath for accidental double-backslash escaping."
+  }
+}
+
+Assert-ExportFilenamePatternWorks
 
 function Save-Export {
   param([string]$ExportDate)
