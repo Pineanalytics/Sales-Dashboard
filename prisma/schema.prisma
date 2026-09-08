@@ -552,6 +552,31 @@ model PrincipalKpiRtmCustomer {
   @@index([principal, location, rtmType])
 }
 
+// Joint Business Plan customer targets, from the "JBP Targets" sheet's
+// "Total Target" rows (source sheet "Overall") — the workbook's own
+// outlet-level total, not a sum of the sheet's per-category (4P/2P/10P/
+// Orbit) rows, which were confirmed against real data NOT to add up to the
+// "Total Target" figure for the same customer/period. Not fiscal-year-keyed,
+// same as PrincipalKpiRtmCustomer/PrincipalKpiProductiveTarget above — this
+// sheet only carries a bare period label (no year column), and like those
+// two tables it's replaced wholesale on every import rather than merged.
+model PrincipalKpiJbpTarget {
+  id           String   @id @default(cuid())
+  principal    String
+  customerId   String
+  customerName String?
+  tier         String?
+  area         String?
+  periodKey    String // P01 … P13
+  targetCases  Float
+  targetSsu    Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([principal, customerId, periodKey])
+  @@index([principal, periodKey])
+}
+
 // One source sales line.  It preserves the item, seller and fiscal-period
 // context that the general ActiveOutletEvent ledger intentionally collapses.
 // The `sourceKey` is deterministic on import/sync, making replacement feeds
