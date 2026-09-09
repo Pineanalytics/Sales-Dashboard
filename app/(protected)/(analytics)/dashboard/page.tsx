@@ -58,7 +58,11 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
     ? { kind: "MONTH", year: period.year, month: period.month }
     : getCurrentMonthPeriod(dataset);
   const selectedMonthIndex = selectedMonth.month ? CANONICAL_MONTHS.indexOf(selectedMonth.month) : new Date().getUTCMonth();
-  const monthSummary = summarizeSalesForPeriod(dataset, selectedMonth, selectedPrincipalKey);
+  const operationalPeriod: PeriodSelection = period.kind === "MTD"
+    ? { ...selectedMonth, kind: "MTD" }
+    : selectedMonth;
+  const monthSummary = summarizeSalesForPeriod(dataset, operationalPeriod, selectedPrincipalKey);
+  const fullMonthSummary = summarizeSalesForPeriod(dataset, selectedMonth, selectedPrincipalKey);
   const previousMonthPeriod = getPreviousMonthPeriod(selectedMonth);
   const previousMonthSummary = previousMonthPeriod ? summarizeSalesForPeriod(dataset, previousMonthPeriod, selectedPrincipalKey) : null;
   const momPct =
@@ -137,6 +141,7 @@ export default function DashboardPage({ embedded = false }: { embedded?: boolean
             monthActuals={{
               revenue: monthSummary.revenue,
               target: monthSummary.target,
+              fullMonthTarget: fullMonthSummary.target,
               achievementPct: monthSummary.achievementPct,
               balance: monthBalance,
               momPct,

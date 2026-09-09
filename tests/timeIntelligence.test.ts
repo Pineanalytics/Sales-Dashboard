@@ -7,6 +7,7 @@ import {
   getDefaultPeriod,
   getPriorYearPeriod,
   getPreviousMonthPeriod,
+  getMtdTargetPacing,
   summarizeSalesForPeriod,
   summarizeSalesByPrincipal,
   summarizeCoverageForPeriod,
@@ -156,6 +157,29 @@ describe("resolvePeriodMonths", () => {
   });
 });
 
+describe("getMtdTargetPacing", () => {
+  it("paces a live MTD target to Nairobi calendar days elapsed, including today", () => {
+    expect(getMtdTargetPacing(
+      { kind: "MTD", year: "2026", month: "September" },
+      new Date("2026-09-09T06:00:00.000Z"),
+    )).toEqual({ elapsedDays: 9, daysInMonth: 30, factor: 0.3 });
+  });
+
+  it("uses the Nairobi business date rather than a viewer's browser date", () => {
+    // 21:30 UTC is already 00:30 on 9 September in Nairobi.
+    expect(getMtdTargetPacing(
+      { kind: "MTD", year: "2026", month: "September" },
+      new Date("2026-09-08T21:30:00.000Z"),
+    )).toMatchObject({ elapsedDays: 9, daysInMonth: 30, factor: 0.3 });
+  });
+
+  it("keeps completed months whole and future months at zero", () => {
+    const asOf = new Date("2026-09-09T06:00:00.000Z");
+    expect(getMtdTargetPacing({ kind: "MTD", year: "2026", month: "August" }, asOf)).toMatchObject({ elapsedDays: 31, daysInMonth: 31, factor: 1 });
+    expect(getMtdTargetPacing({ kind: "MTD", year: "2026", month: "October" }, asOf)).toMatchObject({ elapsedDays: 0, daysInMonth: 31, factor: 0 });
+  });
+});
+
 describe("getPriorYearPeriod", () => {
   it("decrements the year while preserving kind and month for a MONTH period", () => {
     expect(getPriorYearPeriod({ kind: "MONTH", year: "2026", month: "July" })).toEqual({
@@ -284,6 +308,21 @@ describe("summarizeSalesForPeriod — the null-target invariant", () => {
     const summary = summarizeSalesForPeriod(dataset, { kind: "MTD", year: "2026", month: "June" }, null);
     expect(summary.achievementPct).toBe(125);
     expect(summary.grossMarginPct).toBe(15);
+  });
+
+  it("prorates an MTD target and its achievement to elapsed calendar days", () => {
+    const dataset = buildDataset({
+      monthlySales: [salesRow({ year: "2026", month: "September", monthIndex: 8, revenue: 30000, target: 100000 })],
+    });
+    const summary = summarizeSalesForPeriod(
+      dataset,
+      { kind: "MTD", year: "2026", month: "September" },
+      null,
+      new Date("2026-09-09T06:00:00.000Z"),
+    );
+    expect(summary.target).toBe(30000);
+    expect(summary.achievementPct).toBe(100);
+    expect(summary.mtdTargetPacing).toEqual({ elapsedDays: 9, daysInMonth: 30, factor: 0.3 });
   });
 
   it("filters by the raw principal string (sales are location-granular, not rolled up by brand)", () => {

@@ -63,6 +63,7 @@ export function WeekDailyActuals({
   monthActuals: {
     revenue: number;
     target: number | null;
+    fullMonthTarget: number | null;
     achievementPct: number | null;
     balance: number | null;
     momPct: number | null;
@@ -177,7 +178,7 @@ export function WeekDailyActuals({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <ProgressCard title="This Month Actuals" pct={monthActuals.achievementPct} accent="green">
           <Row label="MTD Revenue" value={formatCompact(monthActuals.revenue)} />
-          <Row label="Monthly Mission" value={monthActuals.target !== null ? formatCompact(monthActuals.target) : "N/A"} />
+          <Row label="Monthly Mission" value={monthActuals.fullMonthTarget !== null ? formatCompact(monthActuals.fullMonthTarget) : "N/A"} />
           <Row label="MoM" value={monthActuals.momPct !== null ? `${monthActuals.momPct >= 0 ? "+" : ""}${monthActuals.momPct.toFixed(0)}%` : "N/A"} negative={monthActuals.momPct !== null && monthActuals.momPct < 0} />
         </ProgressCard>
         <ProgressCard title="MTD % Achieved" pct={monthActuals.achievementPct} accent="red">
