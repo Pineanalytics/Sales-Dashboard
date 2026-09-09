@@ -10,17 +10,36 @@ export interface PacingActual {
 export interface CalculatedWeeklyTarget {
   weekLabel: string;
   weekStartDate: Date;
+  /** Reconciled value: elapsed actuals plus open targets equal the monthly mission. */
   targetValue: number;
+  /** Revenue still required in this week at the current working-day run rate. */
+  expectedRunRate: number;
+  workingDays: number;
 }
 
 export interface CalculatedDailyTarget {
   date: Date;
+  /** Actual on an elapsed day, or the required run rate on an open workday. */
   targetValue: number;
+  isWorkingDay: boolean;
+}
+
+export interface TargetPacingMetrics {
+  fullMonthTarget: number;
+  fullMonthBalance: number;
+  mtdActual: number;
+  rateOfSale: number | null;
+  projection: number | null;
+  dailyRunRate: number | null;
+  totalWorkingDays: number;
+  elapsedWorkingDays: number;
+  remainingWorkingDays: number;
 }
 
 export interface TargetPacingPlan {
   weeklyTargets: CalculatedWeeklyTarget[];
   dailyTargets: CalculatedDailyTarget[];
+  metrics: TargetPacingMetrics;
   asOfDate: string;
   isRebalanced: boolean;
 }
@@ -31,6 +50,11 @@ function utcDate(year: number, monthIndex: number, day: number): Date {
 
 function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+export function isWorkingDay(date: Date): boolean {
+  const weekday = date.getUTCDay();
+  return weekday >= 1 && weekday <= 5;
 }
 
 /** The dashboard's operational date is Nairobi's calendar date, independent of
@@ -53,15 +77,13 @@ function datesInRange(start: Date, end: Date): Date[] {
 }
 
 /**
- * Builds the dashboard-only pacing plan from a principal's official full-month
- * target. Every month starts with an equal target for each real calendar week
- * (including a partial opening/closing week). Once a week has closed, its real
- * sales replace its planned amount and the remaining mission is shared equally
- * across the weeks still open. Inside the live week, closed-day actuals are
- * similarly carried into the days still open.
- *
- * This deliberately derives values at read time: Monthly Target remains the
- * source of truth and no WeeklyTarget/DailyTarget planning records are edited.
+ * Builds a read-only operational plan from an official monthly target. The
+ * monthly target is distributed by active working days (Mon-Fri). In a live
+ * month, elapsed actuals consume the monthly mission and the remaining balance
+ * is spread over the remaining active working days. This makes elapsed actuals
+ * plus open daily/weekly targets reconcile to the original monthly target,
+ * unless the target has already been exceeded (where a negative target would
+ * be misleading, so the required run rate becomes 0).
  */
 export function buildTargetPacingPlan({
   year,
@@ -80,6 +102,8 @@ export function buildTargetPacingPlan({
   const monthStart = utcDate(year, monthIndex, 1);
   const monthEnd = utcDate(year, monthIndex + 1, 0);
   const isLiveMonth = asOfDate >= dateKey(monthStart) && asOfDate <= dateKey(monthEnd);
+  const monthDates = datesInRange(monthStart, monthEnd);
+  const totalWorkingDays = monthDates.filter(isWorkingDay).length;
   const revenueByDate = new Map<string, number>();
   for (const actual of actuals) {
     if (actual.date >= dateKey(monthStart) && actual.date <= dateKey(monthEnd)) {
@@ -87,47 +111,55 @@ export function buildTargetPacingPlan({
     }
   }
 
-  const weeks = getWeeksInMonth(year, monthIndex).map((week) => {
+  const elapsedDates = isLiveMonth ? monthDates.filter((date) => dateKey(date) <= asOfDate) : monthDates;
+  const closedDatesForTarget = isLiveMonth ? monthDates.filter((date) => dateKey(date) < asOfDate) : monthDates;
+  const openWorkingDates = isLiveMonth ? monthDates.filter((date) => dateKey(date) >= asOfDate && isWorkingDay(date)) : [];
+  const mtdActual = elapsedDates.reduce((sum, date) => sum + (revenueByDate.get(dateKey(date)) ?? 0), 0);
+  const closedActual = closedDatesForTarget.reduce((sum, date) => sum + (revenueByDate.get(dateKey(date)) ?? 0), 0);
+  const elapsedWorkingDays = isLiveMonth ? elapsedDates.filter(isWorkingDay).length : totalWorkingDays;
+  const remainingWorkingDays = isLiveMonth ? openWorkingDates.length : 0;
+  const fullMonthBalance = monthlyTarget - mtdActual;
+  const remainingBalanceForTarget = monthlyTarget - closedActual;
+  const dailyRunRate = isLiveMonth && remainingWorkingDays > 0 ? Math.max(0, remainingBalanceForTarget) / remainingWorkingDays : null;
+  const rateOfSale = elapsedWorkingDays > 0 ? mtdActual / elapsedWorkingDays : null;
+  const projection = rateOfSale !== null ? rateOfSale * totalWorkingDays : null;
+  const standardDailyTarget = totalWorkingDays > 0 ? monthlyTarget / totalWorkingDays : 0;
+
+  const dailyTargets = monthDates.map((date) => {
+    const key = dateKey(date);
+    const elapsed = isLiveMonth && key < asOfDate;
+    const openWorkingDay = isLiveMonth && key >= asOfDate && isWorkingDay(date);
+    return {
+      date,
+      isWorkingDay: isWorkingDay(date),
+      targetValue: elapsed ? revenueByDate.get(key) ?? 0 : openWorkingDay ? dailyRunRate ?? 0 : isLiveMonth ? 0 : isWorkingDay(date) ? standardDailyTarget : 0,
+    };
+  });
+
+  const weeklyTargets = getWeeksInMonth(year, monthIndex).map((week) => {
     const weekEnd = new Date(week.weekStartDate.getTime() + 6 * 86400000);
     const start = new Date(Math.max(week.weekStartDate.getTime(), monthStart.getTime()));
     const end = new Date(Math.min(weekEnd.getTime(), monthEnd.getTime()));
-    return { ...week, dates: datesInRange(start, end) };
+    const dates = datesInRange(start, end);
+    const weekKeys = new Set(dates.map(dateKey));
+    const targetValue = dailyTargets.filter((target) => weekKeys.has(dateKey(target.date))).reduce((sum, target) => sum + target.targetValue, 0);
+    const remainingWeekWorkingDays = isLiveMonth
+      ? dates.filter((date) => dateKey(date) >= asOfDate && isWorkingDay(date)).length
+      : dates.filter(isWorkingDay).length;
+    return {
+      weekLabel: week.weekLabel,
+      weekStartDate: week.weekStartDate,
+      targetValue,
+      expectedRunRate: remainingWeekWorkingDays * (dailyRunRate ?? standardDailyTarget),
+      workingDays: dates.filter(isWorkingDay).length,
+    };
   });
-  const baseWeeklyTarget = weeks.length > 0 ? monthlyTarget / weeks.length : 0;
-  const currentWeekIndex = isLiveMonth
-    ? weeks.findIndex((week) => week.dates.some((date) => dateKey(date) === asOfDate))
-    : -1;
-  const closedWeekRevenue = currentWeekIndex > 0
-    ? weeks.slice(0, currentWeekIndex).reduce(
-        (total, week) => total + week.dates.reduce((sum, date) => sum + (revenueByDate.get(dateKey(date)) ?? 0), 0),
-        0
-      )
-    : 0;
-  const remainingWeeks = currentWeekIndex >= 0 ? weeks.length - currentWeekIndex : 0;
-  const rebalancedWeeklyTarget = remainingWeeks > 0 ? (monthlyTarget - closedWeekRevenue) / remainingWeeks : baseWeeklyTarget;
 
-  const weeklyTargets = weeks.map((week, index) => ({
-    weekLabel: week.weekLabel,
-    weekStartDate: week.weekStartDate,
-    targetValue: isLiveMonth && index >= currentWeekIndex ? rebalancedWeeklyTarget : baseWeeklyTarget,
-  }));
-
-  const dailyTargets: CalculatedDailyTarget[] = [];
-  for (const [index, week] of weeks.entries()) {
-    const weeklyTarget = weeklyTargets[index].targetValue;
-    const daysBeforeToday = isLiveMonth && index === currentWeekIndex ? week.dates.filter((date) => dateKey(date) < asOfDate) : [];
-    const openDays = isLiveMonth && index === currentWeekIndex ? week.dates.filter((date) => dateKey(date) >= asOfDate) : [];
-    const currentWeekActual = daysBeforeToday.reduce((sum, date) => sum + (revenueByDate.get(dateKey(date)) ?? 0), 0);
-    const openDayTarget = openDays.length > 0 ? Math.max(0, weeklyTarget - currentWeekActual) / openDays.length : 0;
-    const ordinaryDayTarget = week.dates.length > 0 ? weeklyTarget / week.dates.length : 0;
-
-    for (const date of week.dates) {
-      dailyTargets.push({
-        date,
-        targetValue: isLiveMonth && index === currentWeekIndex && dateKey(date) >= asOfDate ? openDayTarget : ordinaryDayTarget,
-      });
-    }
-  }
-
-  return { weeklyTargets, dailyTargets, asOfDate, isRebalanced: isLiveMonth };
+  return {
+    weeklyTargets,
+    dailyTargets,
+    metrics: { fullMonthTarget: monthlyTarget, fullMonthBalance, mtdActual, rateOfSale, projection, dailyRunRate, totalWorkingDays, elapsedWorkingDays, remainingWorkingDays },
+    asOfDate,
+    isRebalanced: isLiveMonth,
+  };
 }

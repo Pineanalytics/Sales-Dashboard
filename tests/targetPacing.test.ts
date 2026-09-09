@@ -6,8 +6,8 @@ function rounded(values: number[]) {
 }
 
 describe("buildTargetPacingPlan", () => {
-  it("splits every non-live month evenly over its real calendar weeks and ties to the full-month target", () => {
-    // April 2026 has five Sunday-to-Saturday blocks touching the month.
+  it("splits every non-live month across active working days and ties to the full-month target", () => {
+    // April 2026 has 22 Mon-Fri working days across five Sunday-to-Saturday blocks.
     const plan = buildTargetPacingPlan({
       year: 2026,
       monthIndex: 3,
@@ -18,11 +18,12 @@ describe("buildTargetPacingPlan", () => {
 
     expect(plan.isRebalanced).toBe(false);
     expect(plan.weeklyTargets).toHaveLength(5);
-    expect(rounded(plan.weeklyTargets.map((target) => target.targetValue))).toEqual([100, 100, 100, 100, 100]);
+    expect(plan.metrics.totalWorkingDays).toBe(22);
+    expect(rounded(plan.weeklyTargets.map((target) => target.targetValue))).toEqual([68.181818, 113.636364, 113.636364, 113.636364, 90.909091]);
     expect(plan.dailyTargets.reduce((sum, target) => sum + target.targetValue, 0)).toBeCloseTo(500);
   });
 
-  it("carries a closed week's miss into the current and remaining weeks", () => {
+  it("carries a closed week's actual into the remaining active working days", () => {
     const plan = buildTargetPacingPlan({
       year: 2026,
       monthIndex: 3,
@@ -34,13 +35,14 @@ describe("buildTargetPacingPlan", () => {
     });
 
     expect(plan.isRebalanced).toBe(true);
-    expect(plan.weeklyTargets[0].targetValue).toBe(100);
-    expect(rounded(plan.weeklyTargets.slice(1).map((target) => target.targetValue))).toEqual([115, 115, 115, 115]);
-    // The closed week's actual plus the target required in open weeks still equals the monthly mission.
-    expect(40 + plan.weeklyTargets.slice(1).reduce((sum, target) => sum + target.targetValue, 0)).toBeCloseTo(500);
+    expect(plan.metrics.remainingWorkingDays).toBe(19);
+    expect(plan.metrics.dailyRunRate).toBeCloseTo(460 / 19);
+    expect(plan.weeklyTargets[0].targetValue).toBe(40);
+    // Elapsed actuals plus open weekly targets reconcile to the full-month mission.
+    expect(plan.weeklyTargets.reduce((sum, target) => sum + target.targetValue, 0)).toBeCloseTo(500);
   });
 
-  it("carries a current week's closed-day gap across the days still open", () => {
+  it("uses the remaining working days to calculate the live daily run rate", () => {
     const plan = buildTargetPacingPlan({
       year: 2026,
       monthIndex: 3,
@@ -49,11 +51,15 @@ describe("buildTargetPacingPlan", () => {
       asOf: new Date("2026-04-06T09:00:00Z"),
     });
 
+    expect(plan.metrics.dailyRunRate).toBeCloseTo(455 / 19);
+    expect(plan.metrics.fullMonthBalance).toBe(455);
+    expect(plan.metrics.rateOfSale).toBeCloseTo(45 / 4);
+    expect(plan.metrics.projection).toBeCloseTo((45 / 4) * 22);
     const weekTwo = plan.weeklyTargets[1];
-    expect(weekTwo.targetValue).toBe(115);
-    // Apr 5 is closed at 5; its missed amount is re-spread across Apr 6-11.
+    expect(weekTwo.expectedRunRate).toBeCloseTo(455 / 19 * 5);
     const openWeekTwoDays = plan.dailyTargets.filter((target) => target.date.toISOString().slice(0, 10) >= "2026-04-06" && target.date.toISOString().slice(0, 10) <= "2026-04-11");
-    expect(rounded(openWeekTwoDays.map((target) => target.targetValue))).toEqual([18.333333, 18.333333, 18.333333, 18.333333, 18.333333, 18.333333]);
+    expect(openWeekTwoDays).toHaveLength(6);
+    expect(rounded(openWeekTwoDays.map((target) => target.targetValue))).toEqual([23.947368, 23.947368, 23.947368, 23.947368, 23.947368, 0]);
   });
 });
 
