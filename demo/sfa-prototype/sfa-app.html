@@ -424,7 +424,42 @@ function showScreen(name){
   window.lucide && lucide.createIcons();
 }
 
-function doLogin(){ showScreen("home"); }
+function doLogin(){
+  warmUpStyles();
+  showScreen("home");
+}
+
+function warmUpStyles(){
+  // Tailwind's Play CDN (loaded via <script src="https://cdn.tailwindcss.com">)
+  // rebuilds its ENTIRE stylesheet from scratch on every DOM change instead
+  // of incrementally. Every screen here except Home/Login is empty until a
+  // render*() function fills it in, so the FIRST time a screen is visited
+  // it can visibly flash while Tailwind catches up with a class it hasn't
+  // seen before. Render every screen's content once, hidden, right after
+  // login so Tailwind has already compiled every class before the rep
+  // taps into each screen for real.
+  if(typeof tailwind === "undefined") return;
+  renderJourney();
+  OUTLETS.forEach(o => openOutlet(o.id));
+  renderCatalog();
+  renderStock();
+  renderCollections();
+  OUTLETS.filter(o => o.outstanding > 0).forEach(o => openCollection(o.id));
+  renderNotifications();
+  renderMyOrders();
+  selectedOutletId = null;
+  renderSales();
+  selectedOutletId = OUTLETS[0].id;
+  renderSales();
+  changeQty(PRODUCTS.find(p => p.promo).id, 10);
+  openCart();
+  // reset state mutated purely for the warm-up pass above
+  cart = [];
+  selectedOutletId = null;
+  selectedMode = "Cash";
+  salesCategory = "All";
+  catalogCategory = "All";
+}
 function doLogout(){ cart=[]; selectedOutletId=null; showScreen("login"); }
 function toggleRemember(){
   const dot = document.getElementById("rememberDot");

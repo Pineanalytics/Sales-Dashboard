@@ -255,7 +255,32 @@ function doLogin(){
   document.getElementById("view-login").classList.remove("active");
   document.getElementById("view-app").classList.add("active");
   buildNav();
+  warmUpStyles();
   goTo("dashboard");
+}
+
+function warmUpStyles(){
+  // Tailwind's Play CDN (loaded via <script src="https://cdn.tailwindcss.com">)
+  // rebuilds its ENTIRE stylesheet from scratch every time the DOM changes,
+  // rather than incrementally. Since goTo() swaps #views wholesale, the
+  // first visit to a class-heavy view (e.g. a 15-row order table) can
+  // visibly flash/reflow while that rebuild happens. Render every view once
+  // into a hidden, detached container right after login so Tailwind has
+  // already seen every utility class in use before the user navigates —
+  // real navigation afterward never introduces a class Tailwind hasn't
+  // already compiled, so it never needs to rebuild again.
+  if(typeof tailwind === "undefined") return;
+  const warm = document.createElement("div");
+  warm.style.cssText = "position:absolute; left:-99999px; top:0; width:1440px; visibility:hidden;";
+  document.body.appendChild(warm);
+  const savedOutletFilter = { region: outletFilter.region, channel: outletFilter.channel };
+  const savedOrderFilter = orderFilter;
+  outletFilter = { region:"All", channel:"All" };
+  orderFilter = "All";
+  warm.innerHTML = Object.values(RENDERERS).map(fn=>fn()).join("");
+  outletFilter = savedOutletFilter;
+  orderFilter = savedOrderFilter;
+  document.body.removeChild(warm);
 }
 function doLogout(){
   document.getElementById("view-app").classList.remove("active");
