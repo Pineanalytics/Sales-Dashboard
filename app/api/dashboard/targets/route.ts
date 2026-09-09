@@ -99,5 +99,22 @@ export async function GET(req: NextRequest) {
     ...manualDailyTargets.filter((target) => !plannedPrincipals.has(target.principal)),
   ];
 
-  return NextResponse.json({ weeklyTargets, dailyTargets, asOfDate, isRebalanced });
+  const firstMetrics = plans[0]?.metrics;
+  const pacing = firstMetrics
+    ? {
+        fullMonthTarget: plans.reduce((sum, plan) => sum + plan.metrics.fullMonthTarget, 0),
+        fullMonthBalance: plans.reduce((sum, plan) => sum + plan.metrics.fullMonthBalance, 0),
+        mtdActual: plans.reduce((sum, plan) => sum + plan.metrics.mtdActual, 0),
+        // The calendar is shared across every selected principal, so aggregate
+        // revenue first and divide once; never sum per-principal rates.
+        rateOfSale: firstMetrics.elapsedWorkingDays > 0 ? plans.reduce((sum, plan) => sum + plan.metrics.mtdActual, 0) / firstMetrics.elapsedWorkingDays : null,
+        projection: firstMetrics.elapsedWorkingDays > 0 ? (plans.reduce((sum, plan) => sum + plan.metrics.mtdActual, 0) / firstMetrics.elapsedWorkingDays) * firstMetrics.totalWorkingDays : null,
+        dailyRunRate: firstMetrics.remainingWorkingDays > 0 ? plans.reduce((sum, plan) => sum + (plan.metrics.dailyRunRate ?? 0), 0) : null,
+        totalWorkingDays: firstMetrics.totalWorkingDays,
+        elapsedWorkingDays: firstMetrics.elapsedWorkingDays,
+        remainingWorkingDays: firstMetrics.remainingWorkingDays,
+      }
+    : null;
+
+  return NextResponse.json({ weeklyTargets, dailyTargets, pacing, asOfDate, isRebalanced });
 }

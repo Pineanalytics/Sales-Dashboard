@@ -176,8 +176,7 @@ export default async function AdminTeamLeadersPage({
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Team Leaders</h1>
         <p className="mt-1 text-sm text-white/70">
-          The roster and rep/principal assignment fact table that drives the Weekly Targets grid — a Team Leader only gets a Weekly
-          entry row for a Principal once a rep of theirs is assigned to it here.
+          The roster is the editable rep/principal allocation and activity source for executive target attribution. Active Primary assignments and Contribution % determine how the full-month mission is allocated to Team Leaders and sales reps.
         </p>
       </div>
 
@@ -221,7 +220,7 @@ export default async function AdminTeamLeadersPage({
             Employee Code, Employee (Sales Edge Name), SAP Name, Channel, Team Leader, Principal, * Contribution %, Active
             (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated. The download
             above produces the same 18-column shape this upload expects (Sales Supervisor/Manager format), pre-filled with
-            every current assignment — edit it and re-upload to update in bulk.
+            every current assignment — edit Active, Primary/Secondary role, Principal, or Contribution % here to update allocation and re-upload in bulk.
           </p>
           <form action={uploadRosterCsvAction} className="mt-4 flex flex-wrap items-center gap-4">
             <input
