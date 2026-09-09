@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NovaFresh SFA — Sales Rep App (Demo)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .screen { display: none; }
+  .screen.active { display: flex; flex-direction: column; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .nav-btn.active { color: #0d9488; }
+  .nav-btn.active .nav-dot { display: block; }
+  input[type=range] { accent-color: #0d9488; }
+  .toast { transition: all .25s ease; }
+</style>
+</head>
+<body class="bg-slate-100">
+
+<div class="min-h-screen flex flex-col items-center justify-center py-8 px-3 gap-3">
+
+  <div class="text-center">
+    <p class="text-slate-500 text-sm">NovaFresh SFA Suite — Prototype</p>
+    <h1 class="text-slate-800 font-semibold text-lg">Sales Rep Mobile App</h1>
+    <a href="sfa-backoffice.html" class="inline-flex items-center gap-1 text-teal-600 text-xs font-medium mt-1 hover:underline">
+      View Back Office Portal <i data-lucide="arrow-right" class="w-3 h-3"></i>
+    </a>
+  </div>
+
+  <!-- PHONE FRAME -->
+  <div class="relative bg-slate-900 rounded-[2.75rem] p-3 shadow-2xl" style="width:390px;">
+    <div class="relative bg-slate-50 rounded-[2rem] overflow-hidden" style="width:100%; height:800px;">
+
+      <!-- Status bar -->
+      <div class="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-semibold text-slate-800 bg-slate-50 relative z-20">
+        <span id="statusClock">9:41</span>
+        <div class="flex items-center gap-1">
+          <i data-lucide="signal" class="w-3.5 h-3.5"></i>
+          <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
+          <i data-lucide="battery-full" class="w-3.5 h-3.5"></i>
+        </div>
+      </div>
+
+      <!-- Screens container -->
+      <div class="absolute inset-0 top-8 bottom-16 flex flex-col">
+
+        <!-- LOGIN -->
+        <section id="screen-login" class="screen active flex-1 overflow-y-auto no-scrollbar px-6 py-8">
+          <div class="flex-1 flex flex-col justify-center min-h-full">
+            <div class="flex flex-col items-center mb-8">
+              <div class="w-16 h-16 rounded-2xl bg-teal-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-teal-600/30">N</div>
+              <h2 class="mt-3 text-xl font-bold text-slate-800">NovaFresh SFA</h2>
+              <p class="text-slate-400 text-xs mt-0.5">Field Sales, Simplified.</p>
+            </div>
+            <div class="space-y-3">
+              <div>
+                <label class="text-xs font-medium text-slate-500">Rep ID / Phone Number</label>
+                <div class="mt-1 flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-white focus-within:border-teal-500">
+                  <i data-lucide="user" class="w-4 h-4 text-slate-400"></i>
+                  <input value="SFA-1042" class="w-full text-sm outline-none text-slate-700" placeholder="e.g. SFA-1042">
+                </div>
+              </div>
+              <div>
+                <label class="text-xs font-medium text-slate-500">PIN</label>
+                <div class="mt-1 flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-white focus-within:border-teal-500">
+                  <i data-lucide="lock" class="w-4 h-4 text-slate-400"></i>
+                  <input type="password" value="••••" class="w-full text-sm outline-none text-slate-700">
+                </div>
+              </div>
+              <div class="flex items-center justify-between pt-1">
+                <label class="flex items-center gap-2 text-xs text-slate-500">
+                  <button id="rememberToggle" onclick="toggleRemember()" class="w-9 h-5 rounded-full bg-teal-600 relative transition-colors">
+                    <span id="rememberDot" class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform translate-x-4"></span>
+                  </button>
+                  Remember me
+                </label>
+                <span class="text-xs text-teal-600 font-medium">Forgot PIN?</span>
+              </div>
+              <button onclick="doLogin()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm rounded-xl py-3 mt-2 shadow-md shadow-teal-600/30">Log In</button>
+            </div>
+            <p class="text-center text-[10px] text-slate-400 mt-8">Demo Data — For Representation Purposes Only</p>
+          </div>
+        </section>
+
+        <!-- HOME -->
+        <section id="screen-home" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="bg-gradient-to-br from-teal-600 to-teal-700 px-5 pt-5 pb-8 rounded-b-3xl text-white">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm">JM</div>
+                <div>
+                  <p class="text-xs text-teal-100">Good morning</p>
+                  <p class="font-semibold text-sm">James Mwangi</p>
+                </div>
+              </div>
+              <button onclick="showScreen('notifications')" class="relative w-9 h-9 rounded-full bg-white/15 flex items-center justify-center">
+                <i data-lucide="bell" class="w-4 h-4"></i>
+                <span class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-rose-400 rounded-full border-2 border-teal-700"></span>
+              </button>
+            </div>
+            <button onclick="showScreen('attendance')" id="homeCheckinPill" class="mt-4 w-full flex items-center justify-between bg-white/15 rounded-xl px-4 py-2.5 text-xs">
+              <span class="flex items-center gap-2"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> <span id="homeCheckinStatus">Not checked in</span></span>
+              <span class="font-medium">Tap to check in →</span>
+            </button>
+          </div>
+
+          <div class="px-5 -mt-5 space-y-3 pb-6">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-3">
+                <p class="text-[11px] text-slate-400">Visits Today</p>
+                <p class="text-lg font-bold text-slate-800" id="homeVisits">3 / 8</p>
+                <div class="w-full h-1.5 bg-slate-100 rounded-full mt-1.5"><div class="h-1.5 bg-teal-500 rounded-full" style="width:37%"></div></div>
+              </div>
+              <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-3">
+                <p class="text-[11px] text-slate-400">Orders Booked</p>
+                <p class="text-lg font-bold text-slate-800" id="homeOrders">3</p>
+                <p class="text-[11px] text-teal-600 font-medium mt-1.5">KSh <span id="homeOrdersValue">42,300</span></p>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+              <div class="flex justify-between items-center mb-1.5">
+                <p class="text-xs font-semibold text-slate-600">Monthly Target</p>
+                <p class="text-xs font-bold text-teal-600">72%</p>
+              </div>
+              <div class="w-full h-2 bg-slate-100 rounded-full"><div class="h-2 bg-teal-500 rounded-full" style="width:72%"></div></div>
+              <p class="text-[11px] text-slate-400 mt-1.5">KSh 612,000 achieved of KSh 850,000</p>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2">
+              <button onclick="showScreen('attendance')" class="flex flex-col items-center gap-1 bg-white rounded-xl shadow-sm border border-slate-100 py-3">
+                <i data-lucide="clock" class="w-4 h-4 text-teal-600"></i><span class="text-[10px] text-slate-600 font-medium">Attendance</span>
+              </button>
+              <button onclick="startNewOrder()" class="flex flex-col items-center gap-1 bg-white rounded-xl shadow-sm border border-slate-100 py-3">
+                <i data-lucide="shopping-cart" class="w-4 h-4 text-teal-600"></i><span class="text-[10px] text-slate-600 font-medium">New Order</span>
+              </button>
+              <button onclick="showScreen('collections')" class="flex flex-col items-center gap-1 bg-white rounded-xl shadow-sm border border-slate-100 py-3">
+                <i data-lucide="wallet" class="w-4 h-4 text-teal-600"></i><span class="text-[10px] text-slate-600 font-medium">Collect</span>
+              </button>
+              <button onclick="showScreen('reports')" class="flex flex-col items-center gap-1 bg-white rounded-xl shadow-sm border border-slate-100 py-3">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 text-teal-600"></i><span class="text-[10px] text-slate-600 font-medium">Reports</span>
+              </button>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-2">
+                <p class="text-xs font-semibold text-slate-600">Today's Journey</p>
+                <button onclick="showScreen('journey')" class="text-[11px] text-teal-600 font-medium">View all</button>
+              </div>
+              <div id="homeJourneyPreview" class="space-y-2"></div>
+            </div>
+            <p class="text-center text-[10px] text-slate-400 pt-2">Demo Data — For Representation Purposes Only</p>
+          </div>
+        </section>
+
+        <!-- JOURNEY PLAN -->
+        <section id="screen-journey" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 sticky top-0 bg-slate-50 z-10">
+            <p class="text-[11px] text-slate-400">Tuesday, 9 September 2026</p>
+            <h2 class="text-base font-bold text-slate-800">Today's Beat Plan</h2>
+          </div>
+          <div id="journeyList" class="px-5 space-y-2.5 pb-6"></div>
+        </section>
+
+        <!-- OUTLET DETAIL -->
+        <section id="screen-outlet" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 flex items-center gap-2">
+            <button onclick="showScreen('journey')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">Outlet Profile</h2>
+          </div>
+          <div id="outletDetailBody" class="px-5 space-y-3 pb-6"></div>
+        </section>
+
+        <!-- SALES / ORDER BOOKING -->
+        <section id="screen-sales" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div id="salesBody" class="flex-1 flex flex-col"></div>
+        </section>
+
+        <!-- PRODUCT CATALOG (read-only) -->
+        <section id="screen-catalog" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 flex items-center gap-2 sticky top-0 bg-slate-50 z-10">
+            <button onclick="showScreen('more')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">Product Catalog</h2>
+          </div>
+          <div id="catalogTabs" class="px-5 flex gap-2 pb-3"></div>
+          <div id="catalogList" class="px-5 space-y-2 pb-6"></div>
+        </section>
+
+        <!-- VAN STOCK -->
+        <section id="screen-stock" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 flex items-center gap-2 sticky top-0 bg-slate-50 z-10">
+            <button onclick="showScreen('more')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">Van Stock Check</h2>
+          </div>
+          <p class="px-5 text-[11px] text-slate-400 -mt-1 pb-2">Van #KDF 221Y — Loaded 06:15 AM</p>
+          <div id="stockList" class="px-5 space-y-2 pb-6"></div>
+        </section>
+
+        <!-- COLLECTIONS -->
+        <section id="screen-collections" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div id="collectionsBody" class="flex-1 flex flex-col"></div>
+        </section>
+
+        <!-- ATTENDANCE -->
+        <section id="screen-attendance" class="screen flex-1 overflow-y-auto no-scrollbar px-5 pt-5 pb-6">
+          <div class="flex items-center gap-2 mb-4">
+            <button onclick="showScreen('home')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">Attendance</h2>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+            <div class="h-32 rounded-xl bg-gradient-to-br from-teal-50 to-slate-100 border border-slate-200 flex flex-col items-center justify-center gap-1 relative overflow-hidden">
+              <i data-lucide="map-pin" class="w-6 h-6 text-teal-600"></i>
+              <p class="text-xs font-medium text-slate-600">Nairobi Central, Kenya</p>
+              <p class="text-[10px] text-slate-400">GPS location mocked for demo</p>
+            </div>
+            <div class="mt-4 text-center">
+              <p class="text-xs text-slate-400">Status</p>
+              <p id="attendanceStatus" class="text-lg font-bold text-slate-800 mt-0.5">Not Checked In</p>
+            </div>
+            <button id="attendanceBtn" onclick="toggleCheckIn()" class="w-full mt-4 bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm rounded-xl py-3 flex items-center justify-center gap-2">
+              <i data-lucide="log-in" class="w-4 h-4"></i> Check In
+            </button>
+          </div>
+          <p class="text-xs font-semibold text-slate-600 mt-5 mb-2">Recent Attendance</p>
+          <div class="space-y-2" id="attendanceHistory"></div>
+        </section>
+
+        <!-- REPORTS -->
+        <section id="screen-reports" class="screen flex-1 overflow-y-auto no-scrollbar px-5 pt-5 pb-6">
+          <div class="flex items-center gap-2 mb-4">
+            <button onclick="showScreen('more')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">My Performance</h2>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
+              <p class="text-[11px] text-slate-400">MTD Sales</p>
+              <p class="text-base font-bold text-slate-800">KSh 612K</p>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
+              <p class="text-[11px] text-slate-400">Achievement</p>
+              <p class="text-base font-bold text-teal-600">72%</p>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3 mb-3">
+            <p class="text-xs font-semibold text-slate-600 mb-2">Weekly Sales Trend</p>
+            <canvas id="chartTrend" height="140"></canvas>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
+            <p class="text-xs font-semibold text-slate-600 mb-2">Top Selling SKUs</p>
+            <canvas id="chartTopSku" height="150"></canvas>
+          </div>
+        </section>
+
+        <!-- NOTIFICATIONS -->
+        <section id="screen-notifications" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 flex items-center gap-2 sticky top-0 bg-slate-50 z-10">
+            <button onclick="showScreen('home')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">Notifications</h2>
+          </div>
+          <div id="notifList" class="px-5 space-y-2.5 pb-6"></div>
+        </section>
+
+        <!-- MY ORDERS -->
+        <section id="screen-myorders" class="screen flex-1 overflow-y-auto no-scrollbar">
+          <div class="px-5 pt-5 pb-3 flex items-center gap-2 sticky top-0 bg-slate-50 z-10">
+            <button onclick="showScreen('more')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+            <h2 class="text-sm font-bold text-slate-800">My Orders</h2>
+          </div>
+          <div id="myOrdersList" class="px-5 space-y-2.5 pb-6"></div>
+        </section>
+
+        <!-- MORE -->
+        <section id="screen-more" class="screen flex-1 overflow-y-auto no-scrollbar px-5 pt-5 pb-6">
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-3 mb-4">
+            <div class="w-12 h-12 rounded-full bg-teal-600 flex items-center justify-center text-white font-bold">JM</div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">James Mwangi</p>
+              <p class="text-[11px] text-slate-400">SFA-1042 · Nairobi Central</p>
+              <p class="text-[11px] text-slate-400">+254 712 345 678</p>
+            </div>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100 overflow-hidden">
+            <button onclick="showScreen('catalog')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="book-open" class="w-4 h-4 text-teal-600"></i>Product Catalog</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+            <button onclick="showScreen('stock')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="truck" class="w-4 h-4 text-teal-600"></i>Van Stock Check</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+            <button onclick="showScreen('myorders')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="clipboard-list" class="w-4 h-4 text-teal-600"></i>My Orders</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+            <button onclick="showScreen('reports')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="bar-chart-3" class="w-4 h-4 text-teal-600"></i>Performance Reports</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+            <button onclick="showScreen('attendance')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="clock" class="w-4 h-4 text-teal-600"></i>Attendance</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+            <button onclick="showScreen('notifications')" class="w-full flex items-center justify-between px-4 py-3.5 text-left"><span class="flex items-center gap-3 text-sm text-slate-700"><i data-lucide="bell" class="w-4 h-4 text-teal-600"></i>Notifications</span><i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>
+          </div>
+          <button onclick="doLogout()" class="w-full mt-4 bg-white border border-rose-200 text-rose-500 font-semibold text-sm rounded-xl py-3 flex items-center justify-center gap-2">
+            <i data-lucide="log-out" class="w-4 h-4"></i> Log Out
+          </button>
+          <p class="text-center text-[10px] text-slate-400 mt-4">Demo Data — For Representation Purposes Only · v1.0</p>
+        </section>
+
+      </div>
+
+      <!-- Bottom Nav -->
+      <div class="absolute bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-100 flex items-center justify-around z-20">
+        <button class="nav-btn active flex flex-col items-center gap-0.5 text-slate-400" data-nav="home" onclick="showScreen('home')">
+          <i data-lucide="home" class="w-5 h-5"></i><span class="text-[10px] font-medium">Home</span><span class="nav-dot hidden w-1 h-1 rounded-full bg-teal-600"></span>
+        </button>
+        <button class="nav-btn flex flex-col items-center gap-0.5 text-slate-400" data-nav="journey" onclick="showScreen('journey')">
+          <i data-lucide="map" class="w-5 h-5"></i><span class="text-[10px] font-medium">Journey</span><span class="nav-dot hidden w-1 h-1 rounded-full bg-teal-600"></span>
+        </button>
+        <button class="nav-btn flex flex-col items-center gap-0.5 text-slate-400" data-nav="sales" onclick="startNewOrder()">
+          <div class="w-11 h-11 -mt-5 rounded-full bg-teal-600 flex items-center justify-center shadow-lg shadow-teal-600/40"><i data-lucide="shopping-cart" class="w-5 h-5 text-white"></i></div>
+          <span class="text-[10px] font-medium mt-0.5">Sales</span>
+        </button>
+        <button class="nav-btn flex flex-col items-center gap-0.5 text-slate-400" data-nav="collections" onclick="showScreen('collections')">
+          <i data-lucide="wallet" class="w-5 h-5"></i><span class="text-[10px] font-medium">Collect</span><span class="nav-dot hidden w-1 h-1 rounded-full bg-teal-600"></span>
+        </button>
+        <button class="nav-btn flex flex-col items-center gap-0.5 text-slate-400" data-nav="more" onclick="showScreen('more')">
+          <i data-lucide="menu" class="w-5 h-5"></i><span class="text-[10px] font-medium">More</span><span class="nav-dot hidden w-1 h-1 rounded-full bg-teal-600"></span>
+        </button>
+      </div>
+
+      <!-- Toast -->
+      <div id="toast" class="toast opacity-0 translate-y-4 pointer-events-none absolute bottom-20 left-4 right-4 bg-slate-900 text-white text-xs font-medium rounded-xl px-4 py-3 flex items-center gap-2 shadow-xl z-30">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-teal-400"></i>
+        <span id="toastMsg">Done</span>
+      </div>
+
+    </div>
+  </div>
+  <p class="text-[11px] text-slate-400">NovaFresh Distribution Ltd — internal field-force demo build</p>
+</div>
+
+<script>
+/* ---------------------------------------------------------------
+   DUMMY DATA — everything below is fictional, for demo purposes.
+--------------------------------------------------------------- */
+const REP = { name: "James Mwangi", id: "SFA-1042", territory: "Nairobi Central", phone: "+254 712 345 678" };
+
+const PRODUCTS = [
+  { id:"BV01", name:"NovaFresh Orange Juice", pack:"1L", cat:"Beverages", price:180, stock:120, promo:null },
+  { id:"BV02", name:"NovaFresh Mango Juice", pack:"500ml", cat:"Beverages", price:95, stock:200, promo:null },
+  { id:"BV03", name:"NovaFresh Mineral Water", pack:"500ml", cat:"Beverages", price:40, stock:500, promo:null },
+  { id:"BV04", name:"NovaFresh Cola", pack:"300ml", cat:"Beverages", price:55, stock:300, promo:"Buy 10 Get 1 Free" },
+  { id:"BV05", name:"NovaFresh Energy Drink", pack:"250ml", cat:"Beverages", price:120, stock:35, promo:null },
+  { id:"BV06", name:"NovaFresh Iced Tea", pack:"500ml", cat:"Beverages", price:85, stock:150, promo:null },
+  { id:"BV07", name:"NovaFresh Sparkling Water", pack:"500ml", cat:"Beverages", price:60, stock:90, promo:null },
+  { id:"SN01", name:"NovaFresh Potato Chips", pack:"100g", cat:"Snacks", price:65, stock:220, promo:null },
+  { id:"SN02", name:"NovaFresh Cheese Puffs", pack:"80g", cat:"Snacks", price:55, stock:180, promo:null },
+  { id:"SN03", name:"NovaFresh Digestive Biscuits", pack:"200g", cat:"Snacks", price:90, stock:18, promo:"10% Off" },
+  { id:"SN04", name:"NovaFresh Choco Wafers", pack:"120g", cat:"Snacks", price:70, stock:160, promo:null },
+  { id:"SN05", name:"NovaFresh Roasted Peanuts", pack:"150g", cat:"Snacks", price:75, stock:100, promo:null },
+  { id:"SN06", name:"NovaFresh Popcorn", pack:"90g", cat:"Snacks", price:50, stock:130, promo:null },
+  { id:"PC01", name:"NovaFresh Bath Soap", pack:"100g", cat:"Personal Care", price:45, stock:300, promo:null },
+  { id:"PC02", name:"NovaFresh Body Lotion", pack:"200ml", cat:"Personal Care", price:250, stock:60, promo:null },
+  { id:"PC03", name:"NovaFresh Toothpaste", pack:"100g", cat:"Personal Care", price:110, stock:140, promo:null },
+  { id:"PC04", name:"NovaFresh Shampoo", pack:"200ml", cat:"Personal Care", price:220, stock:0, promo:"Buy 2 Get 1 Free" },
+  { id:"PC05", name:"NovaFresh Hand Sanitizer", pack:"50ml", cat:"Personal Care", price:60, stock:200, promo:null },
+  { id:"PC06", name:"NovaFresh Talcum Powder", pack:"100g", cat:"Personal Care", price:95, stock:90, promo:null },
+  { id:"PC07", name:"NovaFresh Deodorant Spray", pack:"150ml", cat:"Personal Care", price:180, stock:75, promo:null },
+];
+
+const OUTLETS = [
+  { id:1, name:"GreenLeaf Mart - Ngong Rd", type:"Supermarket", area:"Ngong Road", distance:"2.4 km", status:"visited", phone:"+254 722 100 201", contact:"Wanjiku Kamau", creditLimit:150000, outstanding:32000, lastOrder:{date:"5 Sep 2026", amount:18500}, history:[{date:"5 Sep 2026",amount:18500,status:"Delivered"},{date:"28 Aug 2026",amount:15200,status:"Delivered"},{date:"20 Aug 2026",amount:21000,status:"Delivered"}] },
+  { id:2, name:"Mama Faith's Kiosk", type:"Kiosk", area:"Kilimani", distance:"1.1 km", status:"visited", phone:"+254 733 220 118", contact:"Faith Njoki", creditLimit:20000, outstanding:0, lastOrder:{date:"2 Sep 2026", amount:3200}, history:[{date:"2 Sep 2026",amount:3200,status:"Delivered"},{date:"26 Aug 2026",amount:2800,status:"Delivered"}] },
+  { id:3, name:"CityCenter Supermarket", type:"Supermarket", area:"CBD", distance:"3.8 km", status:"pending", phone:"+254 700 445 902", contact:"David Otieno", creditLimit:300000, outstanding:88500, lastOrder:{date:"30 Aug 2026", amount:42000}, history:[{date:"30 Aug 2026",amount:42000,status:"Delivered"},{date:"16 Aug 2026",amount:39500,status:"Delivered"}] },
+  { id:4, name:"Baraka General Store", type:"Wholesaler", area:"Industrial Area", distance:"5.2 km", status:"pending", phone:"+254 711 908 773", contact:"Peter Baraka", creditLimit:250000, outstanding:145000, lastOrder:{date:"25 Aug 2026", amount:61000}, history:[{date:"25 Aug 2026",amount:61000,status:"Delivered"},{date:"11 Aug 2026",amount:57500,status:"Delivered"}] },
+  { id:5, name:"Fresh Stop Mini-Mart", type:"Mini-Mart", area:"Lavington", distance:"4.0 km", status:"pending", phone:"+254 720 334 561", contact:"Grace Muthoni", creditLimit:80000, outstanding:12500, lastOrder:{date:"3 Sep 2026", amount:9800}, history:[{date:"3 Sep 2026",amount:9800,status:"Delivered"}] },
+  { id:6, name:"Corner Shop Kilimani", type:"Kiosk", area:"Kilimani", distance:"1.6 km", status:"skipped", phone:"+254 745 667 220", contact:"Samuel Mwangi", creditLimit:15000, outstanding:4200, lastOrder:{date:"29 Aug 2026", amount:2100}, history:[{date:"29 Aug 2026",amount:2100,status:"Delivered"}] },
+  { id:7, name:"Prime Mart Westlands", type:"Supermarket", area:"Westlands", distance:"6.1 km", status:"pending", phone:"+254 701 556 890", contact:"Linda Achieng", creditLimit:200000, outstanding:0, lastOrder:{date:"1 Sep 2026", amount:35400}, history:[{date:"1 Sep 2026",amount:35400,status:"Delivered"}] },
+  { id:8, name:"Family Grocers", type:"Grocery", area:"Adams Arcade", distance:"2.9 km", status:"visited", phone:"+254 733 118 402", contact:"John Kariuki", creditLimit:60000, outstanding:6300, lastOrder:{date:"4 Sep 2026", amount:11200}, history:[{date:"4 Sep 2026",amount:11200,status:"Delivered"}] },
+];
+
+const NOTIFICATIONS = [
+  { icon:"tag", color:"amber", title:"New Scheme: Buy 10 Get 1 Free", msg:"NovaFresh Cola 300ml — valid until 30 Sep 2026.", time:"09:12 AM" },
+  { icon:"target", color:"blue", title:"Target Reminder", msg:"You're at 72% of your monthly target with 21 days left.", time:"08:00 AM" },
+  { icon:"check-circle", color:"emerald", title:"Order Approved", msg:"Order #OD-3391 for CityCenter Supermarket was approved.", time:"Yesterday" },
+  { icon:"alert-triangle", color:"rose", title:"Low Van Stock", msg:"NovaFresh Digestive Biscuits 200g is running low (18 units left).", time:"Yesterday" },
+  { icon:"wallet", color:"amber", title:"Payment Reminder", msg:"Baraka General Store has KSh 145,000 outstanding beyond 30 days.", time:"2 days ago" },
+];
+
+let cart = [];
+let selectedOutletId = null;
+let checkedIn = false;
+let checkInTime = null;
+let orders = [
+  { id:"OD-3389", outlet:"GreenLeaf Mart - Ngong Rd", date:"9 Sep 2026, 08:45", items:6, total:14200, status:"Pending Approval" },
+  { id:"OD-3388", outlet:"Family Grocers", date:"9 Sep 2026, 10:10", items:4, total:11200, status:"Approved" },
+  { id:"OD-3390", outlet:"Mama Faith's Kiosk", date:"9 Sep 2026, 11:02", items:3, total:16900, status:"Approved" },
+];
+
+/* ---------------------------------------------------------------
+   NAVIGATION
+--------------------------------------------------------------- */
+function showScreen(name){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById("screen-"+name).classList.add("active");
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
+  const navMap = {home:"home",journey:"journey",outlet:"journey",sales:"sales",catalog:"more",stock:"more",collections:"collections",attendance:"more",reports:"more",notifications:"more",myorders:"more",more:"more"};
+  const active = document.querySelector('.nav-btn[data-nav="'+(navMap[name]||name)+'"]');
+  if(active) active.classList.add("active");
+  if(name==="home") renderHome();
+  if(name==="journey") renderJourney();
+  if(name==="catalog") renderCatalog();
+  if(name==="stock") renderStock();
+  if(name==="collections") renderCollections();
+  if(name==="reports") setTimeout(renderCharts, 30);
+  if(name==="notifications") renderNotifications();
+  if(name==="myorders") renderMyOrders();
+  window.lucide && lucide.createIcons();
+}
+
+function doLogin(){ showScreen("home"); }
+function doLogout(){ cart=[]; selectedOutletId=null; showScreen("login"); }
+function toggleRemember(){
+  const dot = document.getElementById("rememberDot");
+  const on = dot.classList.toggle("translate-x-4");
+  document.getElementById("rememberToggle").classList.toggle("bg-teal-600", true);
+}
+
+function showToast(msg){
+  const t = document.getElementById("toast");
+  document.getElementById("toastMsg").textContent = msg;
+  t.classList.remove("opacity-0","translate-y-4");
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>t.classList.add("opacity-0","translate-y-4"), 2200);
+}
+
+function fmt(n){ return Number(n).toLocaleString(); }
+
+/* ---------------------------------------------------------------
+   HOME
+--------------------------------------------------------------- */
+function renderHome(){
+  document.getElementById("homeCheckinStatus").textContent = checkedIn ? "Checked in at "+checkInTime : "Not checked in";
+  document.getElementById("homeOrders").textContent = orders.length;
+  document.getElementById("homeOrdersValue").textContent = fmt(orders.reduce((a,o)=>a+o.total,0));
+  const visited = OUTLETS.filter(o=>o.status==="visited").length;
+  document.getElementById("homeVisits").textContent = visited+" / "+OUTLETS.length;
+
+  const preview = OUTLETS.slice(0,3).map(o=>outletRow(o)).join("");
+  document.getElementById("homeJourneyPreview").innerHTML = preview;
+  window.lucide && lucide.createIcons();
+}
+
+function statusPill(status){
+  const map = { visited:"bg-emerald-100 text-emerald-700", pending:"bg-slate-100 text-slate-500", skipped:"bg-rose-100 text-rose-600" };
+  const label = { visited:"Visited", pending:"Pending", skipped:"Skipped" };
+  return '<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full '+map[status]+'">'+label[status]+'</span>';
+}
+
+function outletRow(o){
+  return `<button onclick="openOutlet(${o.id})" class="w-full flex items-center justify-between bg-white rounded-xl border border-slate-100 shadow-sm px-3.5 py-3 text-left">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center"><i data-lucide="map-pin" class="w-4 h-4 text-teal-600"></i></div>
+      <div>
+        <p class="text-xs font-semibold text-slate-700">${o.name}</p>
+        <p class="text-[10px] text-slate-400">${o.area} · ${o.distance}</p>
+      </div>
+    </div>
+    ${statusPill(o.status)}
+  </button>`;
+}
+
+/* ---------------------------------------------------------------
+   JOURNEY
+--------------------------------------------------------------- */
+function renderJourney(){
+  document.getElementById("journeyList").innerHTML = OUTLETS.map(o=>outletRow(o)).join("");
+  window.lucide && lucide.createIcons();
+}
+
+function openOutlet(id){
+  selectedOutletId = id;
+  const o = OUTLETS.find(x=>x.id===id);
+  document.getElementById("outletDetailBody").innerHTML = `
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="font-bold text-slate-800 text-sm">${o.name}</p>
+          <p class="text-[11px] text-slate-400">${o.type} · ${o.area}</p>
+        </div>
+        ${statusPill(o.status)}
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-3 text-xs">
+        <div class="flex items-center gap-1.5 text-slate-500"><i data-lucide="phone" class="w-3.5 h-3.5"></i>${o.phone}</div>
+        <div class="flex items-center gap-1.5 text-slate-500"><i data-lucide="user" class="w-3.5 h-3.5"></i>${o.contact}</div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+      <p class="text-xs font-semibold text-slate-600 mb-2">Account Summary</p>
+      <div class="grid grid-cols-2 gap-3">
+        <div><p class="text-[10px] text-slate-400">Credit Limit</p><p class="text-sm font-bold text-slate-800">KSh ${fmt(o.creditLimit)}</p></div>
+        <div><p class="text-[10px] text-slate-400">Outstanding</p><p class="text-sm font-bold ${o.outstanding>0?'text-rose-500':'text-emerald-600'}">KSh ${fmt(o.outstanding)}</p></div>
+      </div>
+      <p class="text-[11px] text-slate-400 mt-2">Last order: ${o.lastOrder.date} · KSh ${fmt(o.lastOrder.amount)}</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+      <p class="text-xs font-semibold text-slate-600 mb-2">Order History</p>
+      <div class="space-y-1.5">
+        ${o.history.map(h=>`<div class="flex justify-between text-[11px]"><span class="text-slate-500">${h.date}</span><span class="font-medium text-slate-700">KSh ${fmt(h.amount)}</span><span class="text-emerald-600">${h.status}</span></div>`).join("")}
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <button onclick="setOutletStatus(${o.id},'visited')" class="bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-xl py-2.5">Mark Visited</button>
+      <button onclick="setOutletStatus(${o.id},'skipped')" class="bg-rose-50 text-rose-600 text-xs font-semibold rounded-xl py-2.5">Mark Skipped</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <button onclick="startNewOrder(${o.id})" class="bg-teal-600 text-white text-xs font-semibold rounded-xl py-3 flex items-center justify-center gap-1.5"><i data-lucide="shopping-cart" class="w-3.5 h-3.5"></i> New Order</button>
+      <button onclick="openCollection(${o.id})" class="bg-slate-800 text-white text-xs font-semibold rounded-xl py-3 flex items-center justify-center gap-1.5"><i data-lucide="wallet" class="w-3.5 h-3.5"></i> Collect Payment</button>
+    </div>
+  `;
+  showScreen("outlet");
+}
+
+function setOutletStatus(id, status){
+  const o = OUTLETS.find(x=>x.id===id);
+  o.status = status;
+  showToast((status==="visited"?"Marked as visited":"Marked as skipped")+" — "+o.name);
+  openOutlet(id);
+}
+
+/* ---------------------------------------------------------------
+   SALES / ORDER BOOKING (cart-integrated)
+--------------------------------------------------------------- */
+let salesCategory = "All";
+
+function startNewOrder(outletId){
+  if(outletId) selectedOutletId = outletId;
+  cart = [];
+  showScreen("sales");
+  renderSales();
+}
+
+function renderSales(){
+  if(!selectedOutletId){
+    document.getElementById("salesBody").innerHTML = `
+      <div class="px-5 pt-5 pb-3 flex items-center gap-2 sticky top-0 bg-slate-50 z-10">
+        <button onclick="showScreen('home')" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+        <h2 class="text-sm font-bold text-slate-800">Select Outlet to Order</h2>
+      </div>
+      <div class="px-5 space-y-2.5 pb-6">${OUTLETS.map(o=>outletRow(o).replace('openOutlet','startNewOrder')).join("")}</div>
+    `;
+    window.lucide && lucide.createIcons();
+    return;
+  }
+  const outlet = OUTLETS.find(o=>o.id===selectedOutletId);
+  const cats = ["All","Beverages","Snacks","Personal Care"];
+  document.getElementById("salesBody").innerHTML = `
+    <div class="px-5 pt-5 pb-2 sticky top-0 bg-slate-50 z-10">
+      <div class="flex items-center gap-2 mb-2">
+        <button onclick="selectedOutletId=null; renderSales();" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+        <div><h2 class="text-sm font-bold text-slate-800">${outlet.name}</h2><p class="text-[10px] text-slate-400">Van Sales Order Booking</p></div>
+      </div>
+      <div class="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+        ${cats.map(c=>`<button onclick="salesCategory='${c}';renderSales();" class="text-xs font-medium px-3 py-1.5 rounded-full whitespace-nowrap ${salesCategory===c?'bg-teal-600 text-white':'bg-white border border-slate-200 text-slate-500'}">${c}</button>`).join("")}
+      </div>
+    </div>
+    <div class="px-5 space-y-2 pb-24 flex-1 overflow-y-auto no-scrollbar">
+      ${PRODUCTS.filter(p=>salesCategory==="All"||p.cat===salesCategory).map(productCard).join("")}
+    </div>
+    <div id="cartBar" class="sticky bottom-0 left-0 right-0 px-5 pb-3 pt-2 bg-gradient-to-t from-slate-50 via-slate-50"></div>
+  `;
+  renderCartBar();
+  window.lucide && lucide.createIcons();
+}
+
+function productCard(p){
+  const qty = cartQty(p.id);
+  const stockColor = p.stock===0 ? 'text-rose-500' : p.stock<25 ? 'text-amber-500' : 'text-emerald-600';
+  const stockLabel = p.stock===0 ? 'Out of stock' : p.stock<25 ? p.stock+' left (low)' : p.stock+' in stock';
+  return `<div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3 flex items-center gap-3">
+    <div class="w-12 h-12 rounded-lg bg-slate-50 flex items-center justify-center shrink-0"><i data-lucide="package" class="w-5 h-5 text-slate-300"></i></div>
+    <div class="flex-1 min-w-0">
+      <p class="text-xs font-semibold text-slate-700 truncate">${p.name}</p>
+      <p class="text-[10px] text-slate-400">${p.pack} · KSh ${fmt(p.price)}</p>
+      <p class="text-[10px] ${stockColor} font-medium">${stockLabel}</p>
+      ${p.promo?`<span class="inline-block mt-1 text-[9px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">${p.promo}</span>`:""}
+    </div>
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button ${p.stock===0?'disabled':''} onclick="changeQty('${p.id}',-1)" class="w-7 h-7 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center disabled:opacity-30"><i data-lucide="minus" class="w-3.5 h-3.5"></i></button>
+      <span class="w-5 text-center text-xs font-semibold">${qty}</span>
+      <button ${p.stock===0?'disabled':''} onclick="changeQty('${p.id}',1)" class="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center disabled:opacity-30"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button>
+    </div>
+  </div>`;
+}
+
+function cartQty(id){ const it = cart.find(c=>c.id===id); return it?it.qty:0; }
+
+function changeQty(id, delta){
+  const p = PRODUCTS.find(x=>x.id===id);
+  let it = cart.find(c=>c.id===id);
+  if(!it){ it = { id, qty:0 }; cart.push(it); }
+  it.qty = Math.max(0, Math.min(p.stock, it.qty+delta));
+  cart = cart.filter(c=>c.qty>0);
+  renderSales();
+}
+
+function cartTotal(){
+  return cart.reduce((sum,c)=>{ const p = PRODUCTS.find(x=>x.id===c.id); return sum + p.price*c.qty; },0);
+}
+
+function renderCartBar(){
+  const bar = document.getElementById("cartBar");
+  if(!bar) return;
+  const items = cart.reduce((a,c)=>a+c.qty,0);
+  bar.innerHTML = `<button onclick="openCart()" class="w-full bg-slate-900 text-white rounded-xl py-3 px-4 flex items-center justify-between shadow-lg">
+    <span class="flex items-center gap-2 text-xs font-medium"><i data-lucide="shopping-cart" class="w-4 h-4"></i>${items} item${items!==1?'s':''}</span>
+    <span class="text-sm font-bold">KSh ${fmt(cartTotal())} <span class="text-[10px] font-normal text-slate-300 ml-1">View Cart →</span></span>
+  </button>`;
+  window.lucide && lucide.createIcons();
+}
+
+function openCart(){
+  const outlet = OUTLETS.find(o=>o.id===selectedOutletId);
+  const hasScheme = cart.some(c=>{ const p=PRODUCTS.find(x=>x.id===c.id); return p.promo && c.qty>=10; });
+  document.getElementById("salesBody").innerHTML = `
+    <div class="px-5 pt-5 pb-3 flex items-center gap-2">
+      <button onclick="renderSales()" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+      <h2 class="text-sm font-bold text-slate-800">Order Summary — ${outlet.name}</h2>
+    </div>
+    <div class="px-5 space-y-2 flex-1 overflow-y-auto no-scrollbar pb-3">
+      ${cart.length===0?'<p class="text-xs text-slate-400 text-center pt-10">Your cart is empty.</p>':cart.map(c=>{
+        const p = PRODUCTS.find(x=>x.id===c.id);
+        return `<div class="bg-white rounded-xl border border-slate-100 p-3 flex items-center justify-between">
+          <div><p class="text-xs font-semibold text-slate-700">${p.name}</p><p class="text-[10px] text-slate-400">${c.qty} × KSh ${fmt(p.price)}</p></div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-800">KSh ${fmt(p.price*c.qty)}</span>
+            <button onclick="changeQty('${p.id}',-c.qty); openCart();" class="w-6 h-6 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="x" class="w-3 h-3"></i></button>
+          </div>
+        </div>`;
+      }).join("")}
+      ${hasScheme?'<div class="bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-medium rounded-lg px-3 py-2 flex items-center gap-2"><i data-lucide="badge-percent" class="w-3.5 h-3.5"></i>Scheme applied: Buy 10 Get 1 Free on eligible SKUs</div>':''}
+    </div>
+    <div class="px-5 pb-5 pt-2 border-t border-slate-100 bg-white">
+      <div class="flex justify-between text-xs text-slate-500 mb-1"><span>Subtotal</span><span>KSh ${fmt(cartTotal())}</span></div>
+      <div class="flex justify-between text-sm font-bold text-slate-800 mb-3"><span>Grand Total</span><span>KSh ${fmt(cartTotal())}</span></div>
+      <button ${cart.length===0?'disabled':''} onclick="submitOrder()" class="w-full bg-teal-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-sm rounded-xl py-3">Submit Order</button>
+    </div>
+  `;
+  window.lucide && lucide.createIcons();
+}
+
+function submitOrder(){
+  const outlet = OUTLETS.find(o=>o.id===selectedOutletId);
+  const items = cart.reduce((a,c)=>a+c.qty,0);
+  const total = cartTotal();
+  orders.unshift({ id:"OD-"+(3390+orders.length+1), outlet:outlet.name, date:"9 Sep 2026, "+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}), items, total, status:"Pending Approval" });
+  cart = [];
+  selectedOutletId = null;
+  showToast("Order submitted for "+outlet.name);
+  showScreen("home");
+}
+
+/* ---------------------------------------------------------------
+   CATALOG (read-only)
+--------------------------------------------------------------- */
+let catalogCategory = "All";
+function renderCatalog(){
+  const cats = ["All","Beverages","Snacks","Personal Care"];
+  document.getElementById("catalogTabs").innerHTML = cats.map(c=>`<button onclick="catalogCategory='${c}';renderCatalog();" class="text-xs font-medium px-3 py-1.5 rounded-full ${catalogCategory===c?'bg-teal-600 text-white':'bg-white border border-slate-200 text-slate-500'}">${c}</button>`).join("");
+  document.getElementById("catalogList").innerHTML = PRODUCTS.filter(p=>catalogCategory==="All"||p.cat===catalogCategory).map(p=>`
+    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3 flex items-center gap-3">
+      <div class="w-11 h-11 rounded-lg bg-slate-50 flex items-center justify-center"><i data-lucide="package" class="w-5 h-5 text-slate-300"></i></div>
+      <div class="flex-1">
+        <p class="text-xs font-semibold text-slate-700">${p.name}</p>
+        <p class="text-[10px] text-slate-400">${p.id} · ${p.pack} · ${p.cat}</p>
+        ${p.promo?`<span class="inline-block mt-1 text-[9px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">${p.promo}</span>`:""}
+      </div>
+      <p class="text-sm font-bold text-slate-800">KSh ${fmt(p.price)}</p>
+    </div>
+  `).join("");
+  window.lucide && lucide.createIcons();
+}
+
+/* ---------------------------------------------------------------
+   VAN STOCK
+--------------------------------------------------------------- */
+function renderStock(){
+  document.getElementById("stockList").innerHTML = PRODUCTS.map(p=>{
+    const status = p.stock===0?{l:"Out of Stock",c:"bg-rose-100 text-rose-600"}:p.stock<25?{l:"Low Stock",c:"bg-amber-100 text-amber-700"}:{l:"In Stock",c:"bg-emerald-100 text-emerald-700"};
+    return `<div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3 flex items-center justify-between">
+      <div><p class="text-xs font-semibold text-slate-700">${p.name}</p><p class="text-[10px] text-slate-400">${p.id} · ${p.pack}</p></div>
+      <div class="text-right"><p class="text-sm font-bold text-slate-800">${p.stock} u</p><span class="text-[9px] font-semibold px-1.5 py-0.5 rounded ${status.c}">${status.l}</span></div>
+    </div>`;
+  }).join("");
+  window.lucide && lucide.createIcons();
+}
+
+/* ---------------------------------------------------------------
+   COLLECTIONS
+--------------------------------------------------------------- */
+function renderCollections(){
+  const list = OUTLETS.filter(o=>o.outstanding>0);
+  document.getElementById("collectionsBody").innerHTML = `
+    <div class="px-5 pt-5 pb-3 sticky top-0 bg-slate-50 z-10">
+      <h2 class="text-sm font-bold text-slate-800">Payment Collection</h2>
+      <p class="text-[11px] text-slate-400">Outlets with outstanding balances</p>
+    </div>
+    <div class="px-5 space-y-2.5 pb-6">
+      ${list.map(o=>`<button onclick="openCollection(${o.id})" class="w-full bg-white rounded-xl border border-slate-100 shadow-sm px-3.5 py-3 text-left flex items-center justify-between">
+        <div><p class="text-xs font-semibold text-slate-700">${o.name}</p><p class="text-[10px] text-slate-400">${o.area}</p></div>
+        <p class="text-sm font-bold text-rose-500">KSh ${fmt(o.outstanding)}</p>
+      </button>`).join("")}
+    </div>
+  `;
+  window.lucide && lucide.createIcons();
+}
+
+function openCollection(id){
+  selectedOutletId = id;
+  const o = OUTLETS.find(x=>x.id===id);
+  document.getElementById("collectionsBody").innerHTML = `
+    <div class="px-5 pt-5 pb-3 flex items-center gap-2">
+      <button onclick="renderCollections()" class="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+      <h2 class="text-sm font-bold text-slate-800">Collect Payment</h2>
+    </div>
+    <div class="px-5 space-y-3 pb-6">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <p class="text-xs font-semibold text-slate-700">${o.name}</p>
+        <p class="text-[10px] text-slate-400 mb-2">${o.area}</p>
+        <p class="text-[10px] text-slate-400">Outstanding Balance</p>
+        <p class="text-xl font-bold text-rose-500">KSh ${fmt(o.outstanding)}</p>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Amount Collected (KSh)</label>
+        <input id="collectAmount" type="number" value="${o.outstanding}" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-teal-500">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Payment Mode</label>
+        <div class="mt-1 grid grid-cols-3 gap-2" id="modeGroup">
+          ${["Cash","Cheque","M-Pesa"].map((m,i)=>`<button data-mode="${m}" onclick="pickMode('${m}')" class="text-xs font-medium py-2 rounded-lg border ${i===0?'bg-teal-600 text-white border-teal-600':'bg-white border-slate-200 text-slate-500'}">${m}</button>`).join("")}
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Reference / Notes</label>
+        <input id="collectRef" placeholder="e.g. Cheque no. / M-Pesa code" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-teal-500">
+      </div>
+      <button onclick="recordPayment(${o.id})" class="w-full bg-teal-600 text-white font-semibold text-sm rounded-xl py-3">Record Payment</button>
+    </div>
+  `;
+  window.lucide && lucide.createIcons();
+}
+
+let selectedMode = "Cash";
+function pickMode(m){
+  selectedMode = m;
+  document.querySelectorAll('#modeGroup button').forEach(b=>{
+    const on = b.dataset.mode===m;
+    b.className = "text-xs font-medium py-2 rounded-lg border "+(on?"bg-teal-600 text-white border-teal-600":"bg-white border-slate-200 text-slate-500");
+  });
+}
+
+function recordPayment(id){
+  const o = OUTLETS.find(x=>x.id===id);
+  const amt = Number(document.getElementById("collectAmount").value)||0;
+  o.outstanding = Math.max(0, o.outstanding-amt);
+  showToast("Payment of KSh "+fmt(amt)+" ("+selectedMode+") recorded for "+o.name);
+  renderCollections();
+}
+
+/* ---------------------------------------------------------------
+   ATTENDANCE
+--------------------------------------------------------------- */
+function toggleCheckIn(){
+  const btn = document.getElementById("attendanceBtn");
+  if(!checkedIn){
+    checkedIn = true;
+    checkInTime = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    document.getElementById("attendanceStatus").textContent = "Checked In — "+checkInTime;
+    btn.innerHTML = '<i data-lucide="log-out" class="w-4 h-4"></i> Check Out';
+    btn.className = "w-full mt-4 bg-rose-500 hover:bg-rose-600 text-white font-semibold text-sm rounded-xl py-3 flex items-center justify-center gap-2";
+    showToast("Checked in at "+checkInTime);
+  } else {
+    const outTime = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    document.getElementById("attendanceStatus").textContent = "Checked Out — "+outTime;
+    btn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Day Complete';
+    btn.disabled = true;
+    btn.className = "w-full mt-4 bg-slate-200 text-slate-400 font-semibold text-sm rounded-xl py-3 flex items-center justify-center gap-2";
+    showToast("Checked out at "+outTime);
+  }
+  window.lucide && lucide.createIcons();
+}
+
+const attendanceHistory = [
+  {date:"8 Sep 2026", inT:"08:32 AM", outT:"05:14 PM", hrs:"8h 42m"},
+  {date:"7 Sep 2026", inT:"08:20 AM", outT:"05:05 PM", hrs:"8h 45m"},
+  {date:"6 Sep 2026", inT:"08:41 AM", outT:"04:58 PM", hrs:"8h 17m"},
+  {date:"5 Sep 2026", inT:"08:15 AM", outT:"05:20 PM", hrs:"9h 05m"},
+];
+document.addEventListener("DOMContentLoaded", ()=>{
+  document.getElementById("attendanceHistory").innerHTML = attendanceHistory.map(a=>`
+    <div class="bg-white rounded-xl border border-slate-100 p-3 flex items-center justify-between text-[11px]">
+      <span class="font-medium text-slate-600">${a.date}</span>
+      <span class="text-slate-400">In ${a.inT} · Out ${a.outT}</span>
+      <span class="font-semibold text-teal-600">${a.hrs}</span>
+    </div>`).join("");
+});
+
+/* ---------------------------------------------------------------
+   NOTIFICATIONS
+--------------------------------------------------------------- */
+function renderNotifications(){
+  const colorMap = {amber:"bg-amber-100 text-amber-600",blue:"bg-blue-100 text-blue-600",emerald:"bg-emerald-100 text-emerald-600",rose:"bg-rose-100 text-rose-600"};
+  document.getElementById("notifList").innerHTML = NOTIFICATIONS.map(n=>`
+    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3 flex gap-3">
+      <div class="w-9 h-9 rounded-full ${colorMap[n.color]} flex items-center justify-center shrink-0"><i data-lucide="${n.icon}" class="w-4 h-4"></i></div>
+      <div class="flex-1">
+        <div class="flex justify-between"><p class="text-xs font-semibold text-slate-700">${n.title}</p><span class="text-[10px] text-slate-400">${n.time}</span></div>
+        <p class="text-[11px] text-slate-500 mt-0.5">${n.msg}</p>
+      </div>
+    </div>
+  `).join("");
+  window.lucide && lucide.createIcons();
+}
+
+/* ---------------------------------------------------------------
+   MY ORDERS
+--------------------------------------------------------------- */
+function renderMyOrders(){
+  const statusColor = {"Pending Approval":"bg-amber-100 text-amber-700","Approved":"bg-emerald-100 text-emerald-700","Dispatched":"bg-blue-100 text-blue-700","Delivered":"bg-slate-100 text-slate-600"};
+  document.getElementById("myOrdersList").innerHTML = orders.map(o=>`
+    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
+      <div class="flex justify-between items-start">
+        <div><p class="text-xs font-semibold text-slate-700">${o.outlet}</p><p class="text-[10px] text-slate-400">${o.id} · ${o.date}</p></div>
+        <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded ${statusColor[o.status]}">${o.status}</span>
+      </div>
+      <div class="flex justify-between mt-2 text-[11px] text-slate-500"><span>${o.items} items</span><span class="font-bold text-slate-800">KSh ${fmt(o.total)}</span></div>
+    </div>
+  `).join("");
+  window.lucide && lucide.createIcons();
+}
+
+/* ---------------------------------------------------------------
+   CHARTS
+--------------------------------------------------------------- */
+let trendChart, skuChart;
+function renderCharts(){
+  const ctx1 = document.getElementById("chartTrend");
+  const ctx2 = document.getElementById("chartTopSku");
+  if(!ctx1 || !ctx2) return;
+  if(trendChart) trendChart.destroy();
+  if(skuChart) skuChart.destroy();
+  trendChart = new Chart(ctx1, {
+    type:"line",
+    data:{ labels:["Wk1","Wk2","Wk3","Wk4","Wk5","Wk6","Wk7","Wk8"],
+      datasets:[{ data:[68000,74500,71200,82300,79800,88100,91200,86700], borderColor:"#0d9488", backgroundColor:"rgba(13,148,136,0.1)", fill:true, tension:0.35, pointRadius:2 }]},
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{ display:false }, x:{ ticks:{font:{size:9}}, grid:{display:false} } } }
+  });
+  skuChart = new Chart(ctx2, {
+    type:"bar",
+    data:{ labels:["Cola 300ml","Orange Juice 1L","Bath Soap","Biscuits","Shampoo"],
+      datasets:[{ data:[38200,31500,27800,24100,21900], backgroundColor:"#0d9488", borderRadius:4 }]},
+    options:{ indexAxis:"y", plugins:{legend:{display:false}}, scales:{ x:{ display:false }, y:{ ticks:{font:{size:9}}, grid:{display:false} } } }
+  });
+}
+
+/* ---------------------------------------------------------------
+   INIT
+--------------------------------------------------------------- */
+window.addEventListener("DOMContentLoaded", ()=>{
+  window.lucide && lucide.createIcons();
+  renderHome();
+});
+</script>
+</body>
+</html>
