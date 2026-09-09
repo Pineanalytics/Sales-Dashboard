@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { TeamLeaderScope } from "@/lib/teamLeaderScope";
+import { kenyaPublicHolidaysInRange } from "@/lib/kenyaBusinessCalendar";
 
 export type TimestampRoleFilter = "all" | "Primary Sales" | "Secondary Sales";
 export type TimestampChartGranularity = "Hourly" | "Daily" | "Weekly";
@@ -154,6 +155,17 @@ function nextUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
 }
 
+/** Dashboard-only eligibility. RepCall rows are deliberately retained in
+ * Postgres and remain available to the raw export endpoint; this clause only
+ * keeps non-working activity out of timestamp visuals and averages. */
+function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
+  const holidays = kenyaPublicHolidaysInRange(range.start, range.end);
+  return Prisma.sql`
+    EXTRACT(ISODOW FROM ${dateExpression}) BETWEEN 1 AND 5
+    AND ${dateExpression} NOT IN (${Prisma.join(holidays.map((holiday) => Prisma.sql`${holiday}::date`))})
+  `;
+}
+
 /** The global principal selector uses this normalized brand key, whereas
  * Timestamps stores the full Cost Centre name (for example, `Mars-Nairobi`). */
 export function timestampPrincipalKey(principalKey: string): string {
@@ -225,13 +237,14 @@ function sourceQuery(
 ): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
   const { start, end } = monthRange;
   const teamClause = scopeClause(scope);
+  const workingDayClause = kenyaWorkingDayClause(Prisma.sql`r.date::date`, monthRange);
   const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode" ${principalKey ? inferredPrincipalJoin() : EMPTY_SQL}`;
   const salesRole = Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`;
 
   if (!principalKey) {
     return {
       from,
-      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) ${teamClause}`,
+      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND ${workingDayClause} AND COALESCE(em.active, true) ${teamClause}`,
       salesRole,
     };
   }
@@ -247,7 +260,7 @@ function sourceQuery(
   const inferredPrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`);
   return {
     from,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND ${workingDayClause} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
     salesRole,
   };
 }
@@ -414,7 +427,7 @@ export async function getTimestampSummary(
       FROM "RepCall" r
       LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
       ${inferredPrincipalJoin()}
-      WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND em.id IS NULL ${scopeClause(scope)}
+      WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND ${kenyaWorkingDayClause(Prisma.sql`r.date::date`, monthRange)} AND em.id IS NULL ${scopeClause(scope)}
       GROUP BY r."employeeCode"
       ORDER BY "callsThisMonth" DESC
     `),

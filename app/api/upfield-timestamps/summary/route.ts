@@ -2,12 +2,23 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { kenyaPublicHolidaysInRange } from "@/lib/kenyaBusinessCalendar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NAIROBI_OFFSET = Prisma.sql`INTERVAL '3 hours'`;
 const REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g')`;
+
+/** Excludes non-working days from this dashboard response only. The
+ * UpfieldTransaction source rows remain intact for audit and source evidence. */
+function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
+  const holidays = kenyaPublicHolidaysInRange(range.start, range.end);
+  return Prisma.sql`
+    EXTRACT(ISODOW FROM ${dateExpression}) BETWEEN 1 AND 5
+    AND ${dateExpression} NOT IN (${Prisma.join(holidays.map((holiday) => Prisma.sql`${holiday}::date`))})
+  `;
+}
 
 function monthKey(raw: string | null): string {
   const now = new Date();
@@ -26,6 +37,16 @@ function localWindow(month: string, selectedDate: string | null) {
     return { start, end: new Date(`${nextYear}-${String(nextMonth).padStart(2, "0")}-01T00:00:00+03:00`) };
   }
   return { start, end };
+}
+
+/** Calendar dates must be based on Nairobi's selected YYYY-MM, not the UTC
+ * instant used to query DataEdge (midnight EAT is 21:00 UTC the prior day). */
+function calendarMonthWindow(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return {
+    start: new Date(Date.UTC(year, monthNumber - 1, 1)),
+    end: new Date(Date.UTC(year, monthNumber, 1)),
+  };
 }
 
 const number = (value: bigint | number | null | undefined) => value == null ? 0 : Number(value);
@@ -47,15 +68,20 @@ export async function GET(request: NextRequest) {
 
   const monthRange = localWindow(month, null);
   const activeRange = localWindow(month, selectedDate);
+  const calendarRange = calendarMonthWindow(month);
+  const localTransactionDate = Prisma.sql`DATE("txnDate" + ${NAIROBI_OFFSET})`;
+  const activeWorkingDayClause = kenyaWorkingDayClause(localTransactionDate, calendarRange);
+  const monthWorkingDayClause = kenyaWorkingDayClause(localTransactionDate, calendarRange);
   const baseConditions = [
     Prisma.sql`"txnDate" >= ${activeRange.start}`,
     Prisma.sql`"txnDate" < ${activeRange.end}`,
     Prisma.sql`NULLIF(BTRIM(fsr), '') IS NOT NULL`,
     Prisma.sql`UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'`,
+    activeWorkingDayClause,
   ];
   if (rep) baseConditions.push(Prisma.sql`${REP_EXPRESSION} = ${rep}`);
   const where = Prisma.join(baseConditions, " AND ");
-  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'`;
+  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND ${monthWorkingDayClause} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'`;
 
   type MetricsRow = { lines: bigint; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number; returnsValue: number; lastDataAt: Date | null; averageInterval: number | null };
   type DailyRow = { date: Date; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number };
@@ -154,7 +180,7 @@ export async function GET(request: NextRequest) {
       customers: customers.map((row) => ({ ...row, activeDays: number(row.activeDays), reps: number(row.reps), invoices: number(row.invoices), lastTransaction: iso(row.lastTransaction) })),
       filters: { reps: filterReps.map((row) => row.rep), dates: filterDates.map((row) => day(row.date)) },
       freshness: { syncedAt: iso(watermark?.updatedAt), through: iso(watermark?.lastIncrementalAt), latestRunCompletedAt: iso(latestRun?.completedAt), latestRunRows: latestRun?.recordCount ?? null },
-      definitions: { coverage: "Unique customers with at least one positive sale in the selected period.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark." },
+      definitions: { coverage: "Unique customers with at least one positive sale on dashboard working days in the selected period.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark. Saturday, Sunday, and known Kenyan public-holiday activity is retained in source data but excluded from this dashboard." },
     });
   } catch (error) {
     console.error("Failed to load Upfield Timestamp and Coverage", error);

@@ -169,7 +169,7 @@ export default function UpfieldTimestampPage() {
   return <div className="flex flex-col gap-4">
     <SfaReportNavigator current="upfield" />
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Upfield DataEdge · Timestamp &amp; Coverage</h1><p className="mt-1 text-sm text-muted">First/last sales transaction monitoring and productive outlet coverage from the five-minute DataEdge sync.</p></div>
+      <div><Link href="/timestamps" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-blue hover:underline"><ArrowLeft20Regular className="h-4 w-4" /> All timestamp systems</Link><h1 className="mt-2 text-2xl font-bold text-brand-navy">Upfield DataEdge · Timestamp &amp; Coverage</h1><p className="mt-1 text-sm text-muted">First/last sales transaction monitoring and productive outlet coverage from the five-minute DataEdge sync. Dashboard metrics use Monday–Friday, excluding Kenyan public holidays.</p></div>
       <UpfieldReportTabs current="dataedge" />
     </div>
     <div className="flex flex-wrap justify-end gap-2"><span className="rounded-full bg-accent-green-soft px-3 py-1 text-xs font-semibold text-accent-green">Live every 5 minutes</span><span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">Synced {syncLabel(summary.freshness.syncedAt)}</span></div>
