@@ -3,13 +3,14 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { buildTargetPacingPlan } from "@/lib/targetPacing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Read-only feed for the Executive Overview's Week 1-4/This Week/Daily Projection
- *  cards — WeeklyTarget (week-grain projection) and DailyTarget (day-grain, rep-level
- *  projection) for a given month, optionally scoped to one Principal. */
+/** Read-only feed for Executive weekly/daily pacing. Official Monthly Target is
+ * the governing source; the current month's open weeks and days are rebalanced
+ * from posted actuals without mutating the editable planning tables. */
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
@@ -45,7 +46,16 @@ export async function GET(req: NextRequest) {
   // their own group — a TEAM_LEADER session's teamLeaderIds is always just [their own id].
   const teamLeaderWhere = scope && scope.teamLeaderIds.length > 0 ? { teamLeaderId: { in: scope.teamLeaderIds } } : {};
 
-  const [weeklyTargets, dailyTargets] = await Promise.all([
+  const [monthlyTargets, actuals, manualWeeklyTargets, manualDailyTargets] = await Promise.all([
+    prisma.target.findMany({
+      where: { year, month: monthLabel, ...principalWhere, valueTarget: { not: null } },
+      select: { principal: true, valueTarget: true },
+    }),
+    prisma.dailyBrandCustomerActual.groupBy({
+      by: ["date", "principal"],
+      where: { date: { gte: monthStart, lt: monthEnd }, ...principalWhere },
+      _sum: { revenue: true },
+    }),
     prisma.weeklyTarget.findMany({
       where: { year, monthLabel, ...principalWhere, ...teamLeaderWhere },
       select: { weekLabel: true, weekStartDate: true, principal: true, targetValue: true },
@@ -60,5 +70,34 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ weeklyTargets, dailyTargets });
+  const plannedPrincipals = new Set(monthlyTargets.map((target) => target.principal));
+  const actualsByPrincipal = new Map<string, { date: string; revenue: number }[]>();
+  for (const actual of actuals) {
+    const rows = actualsByPrincipal.get(actual.principal) ?? [];
+    rows.push({ date: actual.date.toISOString().slice(0, 10), revenue: actual._sum.revenue ?? 0 });
+    actualsByPrincipal.set(actual.principal, rows);
+  }
+
+  const plans = monthlyTargets.map((target) => ({
+    principal: target.principal,
+    ...buildTargetPacingPlan({
+      year: Number(year),
+      monthIndex,
+      monthlyTarget: target.valueTarget ?? 0,
+      actuals: actualsByPrincipal.get(target.principal) ?? [],
+    }),
+  }));
+  const asOfDate = plans[0]?.asOfDate;
+  const isRebalanced = plans.some((plan) => plan.isRebalanced);
+
+  const weeklyTargets = [
+    ...plans.flatMap((plan) => plan.weeklyTargets.map((target) => ({ ...target, principal: plan.principal }))),
+    ...manualWeeklyTargets.filter((target) => !plannedPrincipals.has(target.principal)),
+  ];
+  const dailyTargets = [
+    ...plans.flatMap((plan) => plan.dailyTargets.map((target) => ({ ...target, principal: plan.principal }))),
+    ...manualDailyTargets.filter((target) => !plannedPrincipals.has(target.principal)),
+  ];
+
+  return NextResponse.json({ weeklyTargets, dailyTargets, asOfDate, isRebalanced });
 }
