@@ -73,6 +73,8 @@ export function WeekDailyActuals({
   const [weeklyTargets, setWeeklyTargets] = useState<WeeklyTargetRow[]>([]);
   const [dailyTargets, setDailyTargets] = useState<DailyTargetRow[]>([]);
   const [dailyActuals, setDailyActuals] = useState<{ date: string; revenue: number }[]>([]);
+  const [asOfDate, setAsOfDate] = useState<string | null>(null);
+  const [isRebalanced, setIsRebalanced] = useState(false);
   const principalKey = principals.join(",");
 
   useEffect(() => {
@@ -98,6 +100,8 @@ export function WeekDailyActuals({
           setWeeklyTargets(targetsBody.weeklyTargets ?? []);
           setDailyTargets(targetsBody.dailyTargets ?? []);
           setDailyActuals(actualsBody.daily ?? []);
+          setAsOfDate(targetsBody.asOfDate ?? null);
+          setIsRebalanced(Boolean(targetsBody.isRebalanced));
           setStatus("idle");
         }
       } catch {
@@ -123,7 +127,9 @@ export function WeekDailyActuals({
   }
 
   const weeks: WeekInfo[] = getWeeksInMonth(Number(year), monthIndex);
-  const today = new Date();
+  // The API chooses the operational date in Nairobi, so a browser in another
+  // timezone cannot move the highlighted week or rebalanced daily target.
+  const today = new Date(`${asOfDate ?? toDateKey(new Date())}T00:00:00Z`);
 
   const weekCards = weeks.map((w, i) => {
     const weekStart = w.weekStartDate;
@@ -149,16 +155,15 @@ export function WeekDailyActuals({
   // with a real chance of being fully posted. A month that has already ended
   // has no "today"/"yesterday" of its own at all, so it shows the month's
   // per-day average instead of chasing a single date outside its range.
-  const isLiveMonth = Number(year) === today.getUTCFullYear() && monthIndex === today.getUTCMonth();
+  const isLiveMonth = isRebalanced;
   let dailyTitle: string;
   let dailyProjection: number;
   let dailyActual: number;
   if (isLiveMonth) {
-    const yesterday = new Date(today.getTime() - 86400000);
-    const yesterdayKey = toDateKey(yesterday);
-    dailyTitle = "Daily Projection vs Target (Yesterday)";
-    dailyProjection = targetByDate.get(yesterdayKey) ?? 0;
-    dailyActual = revenueByDate.get(yesterdayKey) ?? 0;
+    const todayKey = toDateKey(today);
+    dailyTitle = "Today’s Rebalanced Target";
+    dailyProjection = targetByDate.get(todayKey) ?? 0;
+    dailyActual = revenueByDate.get(todayKey) ?? 0;
   } else {
     const targetDayCount = new Set(filteredDailyTargets.map((r) => toDateKey(new Date(r.date)))).size;
     const actualDayCount = revenueByDate.size;
@@ -186,7 +191,7 @@ export function WeekDailyActuals({
           <Row label="BOM Balance" value={monthActuals.balance !== null ? formatCompact(monthActuals.balance) : "N/A"} negative={monthActuals.balance !== null && monthActuals.balance > 0} />
         </ProgressCard>
         <ProgressCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} pct={currentWeek?.achievedPct ?? null} accent="navy" loading={status === "loading"}>
-          <Row label="Weekly Target" value={status === "loading" ? "…" : formatCompact(currentWeek?.projection ?? 0)} />
+          <Row label={isRebalanced ? "Rebalanced Target" : "Weekly Target"} value={status === "loading" ? "…" : formatCompact(currentWeek?.projection ?? 0)} />
           <Row label="Actual" value={status === "loading" ? "…" : formatCompact(currentWeek?.actual ?? 0)} />
           <Row label="Variance" value={status === "loading" ? "…" : formatCompact(currentWeek?.variance ?? 0)} negative={(currentWeek?.variance ?? 0) < 0} />
         </ProgressCard>
@@ -206,7 +211,7 @@ export function WeekDailyActuals({
               <div className="flex items-center gap-3">
                 <AchievementGauge pct={w.achievedPct} size={62} />
                 <div className="min-w-0 flex-1 space-y-1 text-sm">
-                  <Row label="Projection" value={formatCompact(w.projection)} />
+                  <Row label={isRebalanced && w.isCurrentWeek ? "Rebalanced Projection" : "Projection"} value={formatCompact(w.projection)} />
                   <Row label="Actual" value={formatCompact(w.actual)} />
                   <Row label="Variance" value={formatCompact(w.variance)} negative={w.variance < 0} />
                 </div>
