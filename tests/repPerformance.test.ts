@@ -158,6 +158,22 @@ describe("buildRepPerformanceRows", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("accepts the raw principal value produced by the global multi-select", () => {
+    const rows = buildRepPerformanceRows({
+      employees: [employee({ absolutePrincipal: "Upfield-Nairobi", contributions: [{ principal: "Upfield-Nairobi", contributionPct: 1 }] })],
+      coverageByRepMonth,
+      targets: [{ principal: "Upfield-Nairobi", year: "2026", monthIndex: 6, valueTarget: 1_000_000 }],
+      sapRows: [{ year: "2026", monthIndex: 6, principal: "Upfield-Nairobi", sapName: "Test Rep", employeeCode: "E1", employeeName: "Test Rep", salesRole: "Primary Sales", cases: 10, revenue: 500_000, grossProfit: 100_000 }],
+      repLines: [{ year: "2026", monthIndex: 6, principal: "Upfield-Nairobi", sapName: "Test Rep", lines: 12 }],
+      months,
+      principalKey: "Upfield-Nairobi",
+      teamLeaderFilter: null,
+      salesRoleFilter: null,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ employeeCode: "E1", revenue: 500_000, coverage: 50, target: 1_000_000, lines: 12 });
+  });
+
   it("filters by team leader and sales role", () => {
     const employees = [employee({ employeeCode: "E1", teamLeader: "Eve" }), employee({ employeeCode: "E2", teamLeader: "Josephat", salesRole: "Secondary Sales" })];
     const byTeamLeader = buildRepPerformanceRows({
