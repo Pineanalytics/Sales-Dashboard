@@ -158,8 +158,11 @@ function nextUtcDay(date: Date): Date {
 /** Dashboard-only eligibility. RepCall rows are deliberately retained in
  * Postgres and remain available to the raw export endpoint; this clause only
  * keeps non-working activity out of timestamp visuals and averages. */
-function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
+export function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
   const holidays = kenyaPublicHolidaysInRange(range.start, range.end);
+  if (holidays.length === 0) {
+    return Prisma.sql`EXTRACT(ISODOW FROM ${dateExpression}) BETWEEN 1 AND 5`;
+  }
   return Prisma.sql`
     EXTRACT(ISODOW FROM ${dateExpression}) BETWEEN 1 AND 5
     AND ${dateExpression} NOT IN (${Prisma.join(holidays.map((holiday) => Prisma.sql`${holiday}::date`))})

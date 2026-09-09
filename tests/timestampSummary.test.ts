@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { principalScopedSalesRole, timestampPrincipalKey } from "@/lib/timestampSummary";
+import { Prisma } from "@prisma/client";
+import { kenyaWorkingDayClause, principalScopedSalesRole, timestampPrincipalKey } from "@/lib/timestampSummary";
 
 describe("principalScopedSalesRole", () => {
   it("uses the same normalized key as the global principal selector", () => {
@@ -28,5 +29,27 @@ describe("principalScopedSalesRole", () => {
   it("keeps MBSR in Secondary and preserves the stored role when no principal is selected", () => {
     expect(principalScopedSalesRole("MBSR", "99", "Mars-Nairobi", "Primary Sales")).toBe("Secondary Sales");
     expect(principalScopedSalesRole("TDR", "1155", null, "Primary Sales")).toBe("Primary Sales");
+  });
+});
+
+describe("kenyaWorkingDayClause", () => {
+  it("does not emit an invalid empty NOT IN list for a holiday-free month", () => {
+    const clause = kenyaWorkingDayClause(
+      Prisma.sql`r.date::date`,
+      { start: new Date("2026-09-01T00:00:00.000Z"), end: new Date("2026-10-01T00:00:00.000Z") }
+    );
+
+    expect(clause.strings.join(" ")).toContain("EXTRACT(ISODOW");
+    expect(clause.strings.join(" ")).not.toContain("NOT IN");
+  });
+
+  it("excludes configured public holidays when the month has one", () => {
+    const clause = kenyaWorkingDayClause(
+      Prisma.sql`r.date::date`,
+      { start: new Date("2026-03-01T00:00:00.000Z"), end: new Date("2026-04-01T00:00:00.000Z") }
+    );
+
+    expect(clause.strings.join(" ")).toContain("NOT IN");
+    expect(clause.values).toContain("2026-03-20");
   });
 });
