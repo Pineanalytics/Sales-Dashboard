@@ -426,6 +426,31 @@ model Product {
   createdAt      DateTime @default(now())
 }
 
+// SAP sales rows whose Item Code is absent from Product Master. These facts are
+// deliberately retained at product/month/warehouse grain so the Product Master
+// worklist can show the revenue currently excluded from mapped sales without
+// inferring or writing a principal back to SAP. A confirmed Product Master
+// mapping removes the code from this worklist and the next replacement sync
+// stops producing rows for it.
+model UnmappedProductSale {
+  id              String   @id @default(cuid())
+  year            String
+  month           String
+  monthIndex      Int
+  itemNo          String
+  itemDescription String
+  warehouseCode   String   @default("")
+  revenue         Float
+  grossMargin     Float
+  quantity        Float
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([year, monthIndex, itemNo, warehouseCode])
+  @@index([itemNo])
+  @@index([year, monthIndex])
+}
+
 // Principal KPI workspace — an additive, fiscal-calendar-aware layer for
 // principal-specific scorecards.  The company-wide `Target`, `Product`, and
 // `EmployeeMaster` tables intentionally remain the shared sources for the

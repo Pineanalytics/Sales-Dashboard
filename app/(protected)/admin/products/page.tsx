@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { getProductMappingSuggestions } from "@/lib/productMappingSuggestions";
 import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -22,16 +23,21 @@ function UploadIcon() {
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; edit?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; edit?: string; add?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
     redirect("/");
   }
 
-  const { error, success, edit } = await searchParams;
-  const products = await prisma.product.findMany({ orderBy: { itemNo: "asc" } });
+  const params = await searchParams;
+  const { error, success, edit } = params;
+  const [products, suggestions] = await Promise.all([
+    prisma.product.findMany({ orderBy: { itemNo: "asc" } }),
+    getProductMappingSuggestions(),
+  ]);
   const editing = edit ? products.find((p) => p.id === edit) : undefined;
+  const addingSuggestion = params.add ? suggestions.find((suggestion) => suggestion.itemNo === params.add) : undefined;
 
   return (
     <div className="min-h-screen bg-background">
@@ -40,7 +46,7 @@ export default async function AdminProductsPage({
           ← Back to admin
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Product Master</h1>
-        <p className="mt-1 text-sm text-white/70">Item → principal/pack-size reference data used by the SQL bridge.</p>
+        <p className="mt-1 text-sm text-white/70">Item → principal/pack-size reference data used by the SAP sales bridge. Unidentified SAP products remain review-only until mapped here.</p>
       </div>
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 flex flex-col gap-6">
@@ -63,7 +69,7 @@ export default async function AdminProductsPage({
             <div>
               <h2 className="text-lg font-semibold text-primary-blue">Update product master</h2>
               <p className="mt-1 text-[13px] text-muted">
-                Upload the Products sheet from ProductMasterData.xlsx. Existing Item No. rows update in place; new items and product-principal mappings are added without deleting older rows.
+                Download, edit, and re-upload the CSV or Products workbook. Existing Item No. rows update in place; new items and product-principal mappings are added without deleting older rows.
               </p>
             </div>
           </div>
@@ -71,7 +77,7 @@ export default async function AdminProductsPage({
             <input
               type="file"
               name="file"
-              accept=".xlsx,.xls,.xlsm"
+              accept=".csv,.xlsx,.xls,.xlsm"
               required
               className="min-w-0 text-sm text-foreground file:mr-4 file:rounded-full file:border-0 file:bg-background-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-blue hover:file:bg-accent-blue-soft"
             />
@@ -79,19 +85,48 @@ export default async function AdminProductsPage({
               <UploadIcon />
               Upload product master
             </button>
+            <a href="/api/products/export" className="inline-flex items-center rounded-full border border-secondary-blue/30 bg-surface px-5 py-3 text-sm font-semibold text-primary-blue hover:bg-accent-blue-soft">
+              Download CSV
+            </a>
           </form>
         </div>
 
+        {suggestions.length > 0 ? <section className="overflow-hidden rounded-2xl border border-accent-amber/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="flex flex-wrap items-start justify-between gap-3 p-6 pb-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-amber">SAP mapping worklist</p>
+              <h2 className="mt-1 text-lg font-semibold text-primary-blue">Unidentified products with sales activity</h2>
+              <p className="mt-1 max-w-3xl text-[13px] text-muted">These item codes are in SAP sales but cannot yet be assigned to a dashboard principal. A code-prefix suggestion pre-fills the review form; it is never applied automatically. Branches shown are observed sales locations from warehouse mappings. After approval, run the controlled Sales backfill to include earlier months in mapped dashboard sales.</p>
+            </div>
+            <span className="rounded-full bg-accent-amber-soft px-3 py-1 text-xs font-semibold text-accent-amber">{suggestions.length} to review</span>
+          </div>
+          <div className="overflow-x-auto border-t border-border/60">
+            <table className="w-full min-w-[1120px] border-collapse text-sm">
+              <thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 text-left font-medium">SAP item</th><th className="px-4 py-3 text-left font-medium">Observed months</th><th className="px-4 py-3 text-left font-medium">Branches</th><th className="px-4 py-3 text-right font-medium">SAP revenue</th><th className="px-4 py-3 text-right font-medium">Gross margin</th><th className="px-4 py-3 text-right font-medium">Quantity</th><th className="px-4 py-3 text-left font-medium">Suggested principal</th><th className="px-4 py-3 text-right font-medium">Action</th></tr></thead>
+              <tbody>{suggestions.map((suggestion) => <tr key={suggestion.itemNo}>
+                <td className="max-w-[310px] border-b border-border/60 px-4 py-3"><p className="font-semibold text-brand-navy">{suggestion.itemNo}</p><p className="mt-0.5 text-xs text-muted">{suggestion.itemDescription}</p></td>
+                <td className="border-b border-border/60 px-4 py-3 text-xs">{suggestion.months.join(", ")}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-xs">{suggestion.branches.join(", ") || "Warehouse not mapped"}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-right font-medium">{suggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.grossMargin.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.quantity.toLocaleString("en-KE", { maximumFractionDigits: 0 })}</td>
+                <td className="max-w-[270px] border-b border-border/60 px-4 py-3"><p className="font-medium text-secondary-blue">{suggestion.suggestedPrincipal ?? "No safe suggestion"}</p><p className="mt-0.5 text-[11px] leading-snug text-muted">{suggestion.suggestionReason}</p></td>
+                <td className="border-b border-border/60 px-4 py-3 text-right"><Link href={`/admin/products?add=${encodeURIComponent(suggestion.itemNo)}`} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Review and map</Link></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </section> : <section className="rounded-2xl border border-accent-green/30 bg-surface p-5 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">No unidentified SAP product sales are awaiting Product Master mapping.</section>}
+
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Add a product</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-primary-blue">{addingSuggestion ? `Review SAP product: ${addingSuggestion.itemNo}` : "Add a product"}</h2>{addingSuggestion ? <p className="mt-1 text-[13px] text-muted">{addingSuggestion.itemDescription} · {addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across {addingSuggestion.months.join(", ")}. {addingSuggestion.suggestionReason}</p> : null}</div>{addingSuggestion ? <Link href="/admin/products" className="rounded-full px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Cancel review</Link> : null}</div>
           <form action={createProductAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Item No.</label>
-              <input name="itemNo" required className={inputClass} />
+              <input name="itemNo" required defaultValue={addingSuggestion?.itemNo ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Item description</label>
-              <input name="itemDescription" className={inputClass} />
+              <input name="itemDescription" defaultValue={addingSuggestion?.itemDescription ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Series</label>
@@ -103,7 +138,7 @@ export default async function AdminProductsPage({
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Principal</label>
-              <input name="principal" required className={inputClass} />
+              <input name="principal" required defaultValue={addingSuggestion?.suggestedPrincipal ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Classification</label>
