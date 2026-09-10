@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { renameTeamLeaderAction, deleteTeamLeaderAction, updateTeamLeaderSupervisorAction } from "./actions";
+import { renameTeamLeaderAction, deleteTeamLeaderAction, syncTeamLeaderVisibilityAction, updateTeamLeaderSupervisorAction } from "./actions";
 
 export interface TeamLeaderRow {
   id: string;
   name: string;
   supervisorId: string | null;
   assignmentCount: number;
+  activeAssignmentCount: number;
+  inactiveAssignmentCount: number;
 }
 export interface SupervisorOption {
   id: string;
@@ -29,13 +31,11 @@ export function TeamLeaderRosterPanel({
   supervisors,
   renamingId,
   inputClass,
-  labelClass,
 }: {
   teamLeaders: TeamLeaderRow[];
   supervisors: SupervisorOption[];
   renamingId?: string;
   inputClass: string;
-  labelClass: string;
 }) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -84,7 +84,7 @@ export function TeamLeaderRosterPanel({
               >
                 <span className="min-w-0 truncate text-sm font-medium text-foreground">
                   {tl.name}
-                  <span className="ml-2 text-[13px] text-muted">{tl.assignmentCount} assignment(s)</span>
+                  <span className="ml-2 text-[13px] text-muted">{tl.activeAssignmentCount} visible · {tl.assignmentCount} assignment(s)</span>
                   {supervisorLabel ? (
                     <span className="ml-2 text-[13px] text-muted">· reports to {supervisorLabel}</span>
                   ) : (
@@ -112,6 +112,19 @@ export function TeamLeaderRosterPanel({
                     </form>
                   ) : (
                     <>
+                      {tl.inactiveAssignmentCount > 0 ? (
+                        <div className="rounded-lg border border-accent-amber/30 bg-accent-amber-soft/40 p-3 text-xs text-muted-strong">
+                          <p>
+                            {tl.inactiveAssignmentCount} assignment{tl.inactiveAssignmentCount === 1 ? " is" : "s are"} hidden from this Team Leader&apos;s profile. Only active assignments are included in profile visibility.
+                          </p>
+                          <form action={syncTeamLeaderVisibilityAction} className="mt-2">
+                            <input type="hidden" name="teamLeaderId" value={tl.id} />
+                            <button type="submit" className="rounded-full bg-primary-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-secondary-blue">
+                              Make active roster reps visible
+                            </button>
+                          </form>
+                        </div>
+                      ) : null}
                       <form action={updateTeamLeaderSupervisorAction} className="flex flex-col gap-2">
                         <input type="hidden" name="teamLeaderId" value={tl.id} />
                         <label className="text-[13px] font-medium text-muted-strong">Reports to</label>
