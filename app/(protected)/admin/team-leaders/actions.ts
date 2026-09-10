@@ -493,6 +493,13 @@ export async function createAssignmentAction(formData: FormData) {
     include: { contributions: { where: { principal }, select: { principal: true } } },
   });
   if (master) {
+    if (!master.active) {
+      redirect(
+        "/admin/team-leaders?error=" +
+          encodeURIComponent(`${master.pineName} is inactive in Employee Roster. Activate the rep there before making them visible to a Team Leader.`) +
+          carryForward
+      );
+    }
     if (master.contributions.length === 0) {
       redirect(
         "/admin/team-leaders?error=" +
@@ -507,6 +514,52 @@ export async function createAssignmentAction(formData: FormData) {
     contributionPct = contributionPct ?? null;
   }
 
+  const existing = await prisma.teamLeaderAssignment.findUnique({
+    where: { teamLeaderId_employeeCode_principal: { teamLeaderId, employeeCode, principal } },
+  });
+
+  // An inactive row means the rep has been deliberately hidden from this Team
+  // Leader's scope, not that the relationship has disappeared. Treat a new
+  // assignment of that same rep/principal as a reactivation, so "Assign & make
+  // visible" does what an administrator expects instead of returning a duplicate
+  // error. The unique key includes teamLeaderId, so this never interferes with a
+  // valid shared assignment under another Team Leader.
+  if (existing) {
+    if (existing.active) {
+      redirect(
+        "/admin/team-leaders?success=" +
+          encodeURIComponent(`${existing.employeeName} is already visible to this Team Leader for ${principal}.`) +
+          carryForward
+      );
+    }
+
+    const nextEmployeeName = employeeName || master?.pineName || employeeCode;
+    await prisma.teamLeaderAssignment.update({
+      where: { id: existing.id },
+      data: {
+        employeeName: nextEmployeeName,
+        sapName: master?.sapName ?? existing.sapName,
+        channel,
+        contributionPct,
+        active: true,
+        salesRole,
+      },
+    });
+    await logAssignmentAudit(
+      user.email!,
+      "REACTIVATE",
+      existing,
+      { channel: existing.channel, contributionPct: existing.contributionPct, active: false, salesRole: existing.salesRole },
+      { channel, contributionPct, active: true, salesRole }
+    );
+    await recomputeDerived();
+    redirect(
+      "/admin/team-leaders?success=" +
+        encodeURIComponent(`Reactivated ${nextEmployeeName} — ${principal}. The rep is now visible to this Team Leader.`) +
+        carryForward
+    );
+  }
+
   try {
     await prisma.teamLeaderAssignment.create({
       data: {
@@ -517,7 +570,10 @@ export async function createAssignmentAction(formData: FormData) {
         principal,
         channel,
         contributionPct,
-        active: master?.active ?? true,
+        // A newly saved Team Leader assignment is immediately visible. A globally
+        // inactive Employee Master rep was rejected above rather than being added
+        // as another invisible row.
+        active: true,
         salesRole,
       },
     });
@@ -539,6 +595,60 @@ export async function createAssignmentAction(formData: FormData) {
   await recomputeDerived();
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Assigned ${employeeName || employeeCode} — ${principal}.`) + carryForward);
+}
+
+/** Reconciles the Team Leader visibility gate with active Employee Master rows.
+ * This is deliberately per-Team-Leader: a shared rep remains visible to every
+ * Team Leader whose own assignment is active, while an inactive Employee Master
+ * record is never silently exposed. */
+export async function syncTeamLeaderVisibilityAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const teamLeaderId = str(formData, "teamLeaderId");
+  if (!teamLeaderId) redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader is required."));
+  assertOwnsTeamLeader(scope, teamLeaderId);
+
+  const inactiveAssignments = await prisma.teamLeaderAssignment.findMany({
+    where: { teamLeaderId, active: false },
+    select: { id: true, employeeCode: true, principal: true },
+  });
+  if (inactiveAssignments.length === 0) {
+    redirect("/admin/team-leaders?success=" + encodeURIComponent("Every assignment is already visible.") + `&filterTeamLeader=${encodeURIComponent(teamLeaderId)}`);
+  }
+
+  const activeEmployeeCodes = new Set(
+    (
+      await prisma.employeeMaster.findMany({
+        where: { employeeCode: { in: inactiveAssignments.map((assignment) => assignment.employeeCode) }, active: true },
+        select: { employeeCode: true },
+      })
+    ).map((employee) => employee.employeeCode)
+  );
+  const toReactivate = inactiveAssignments.filter((assignment) => activeEmployeeCodes.has(assignment.employeeCode));
+  if (toReactivate.length > 0) {
+    await prisma.$transaction([
+      prisma.teamLeaderAssignment.updateMany({ where: { id: { in: toReactivate.map((assignment) => assignment.id) } }, data: { active: true } }),
+      prisma.teamLeaderAssignmentAuditLog.createMany({
+        data: toReactivate.map((assignment) => ({
+          userEmail: user.email!,
+          action: "REACTIVATE",
+          teamLeaderId,
+          principal: assignment.principal,
+          employeeCode: assignment.employeeCode,
+          changes: { active: { old: false, new: true } },
+        })),
+      }),
+    ]);
+    await recomputeDerived();
+  }
+
+  const skipped = inactiveAssignments.length - toReactivate.length;
+  redirect(
+    "/admin/team-leaders?success=" +
+      encodeURIComponent(
+        `Made ${toReactivate.length} rep assignment(s) visible.${skipped ? ` ${skipped} inactive Employee Roster rep(s) were left hidden.` : ""}`
+      ) +
+      `&filterTeamLeader=${encodeURIComponent(teamLeaderId)}`
+  );
 }
 
 export async function updateAssignmentAction(formData: FormData) {
