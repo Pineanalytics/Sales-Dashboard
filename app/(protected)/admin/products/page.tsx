@@ -38,6 +38,7 @@ export default async function AdminProductsPage({
   ]);
   const editing = edit ? products.find((p) => p.id === edit) : undefined;
   const addingSuggestion = params.add ? suggestions.find((suggestion) => suggestion.itemNo === params.add) : undefined;
+  const classifications = Array.from(new Set(products.map((product) => product.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,6 +51,9 @@ export default async function AdminProductsPage({
       </div>
 
       <div className="max-w-7xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+        <datalist id="product-classifications">
+          {classifications.map((classification) => <option key={classification} value={classification} />)}
+        </datalist>
         {error ? (
           <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {error}
@@ -118,7 +122,7 @@ export default async function AdminProductsPage({
         </section> : <section className="rounded-2xl border border-accent-green/30 bg-surface p-5 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">No unidentified SAP product sales are awaiting Product Master mapping.</section>}
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-primary-blue">{addingSuggestion ? `Review SAP product: ${addingSuggestion.itemNo}` : "Add a product"}</h2>{addingSuggestion ? <p className="mt-1 text-[13px] text-muted">{addingSuggestion.itemDescription} · {addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across {addingSuggestion.months.join(", ")}. {addingSuggestion.suggestionReason}</p> : null}</div>{addingSuggestion ? <Link href="/admin/products" className="rounded-full px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Cancel review</Link> : null}</div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-primary-blue">{addingSuggestion ? `Review SAP product: ${addingSuggestion.itemNo}` : "Add a product"}</h2>{addingSuggestion ? <p className="mt-1 text-[13px] text-muted">{addingSuggestion.itemDescription} · {addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across {addingSuggestion.months.join(", ")}. {addingSuggestion.suggestionReason} SAP pack size and current net purchase price are prefilled when available; SAP pack/UOM detail is offered as an editable Size starting point.</p> : null}</div>{addingSuggestion ? <Link href="/admin/products" className="rounded-full px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Cancel review</Link> : null}</div>
           <form action={createProductAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Item No.</label>
@@ -134,7 +138,7 @@ export default async function AdminProductsPage({
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Size</label>
-              <input name="size" className={inputClass} />
+              <input name="size" defaultValue={addingSuggestion?.packDetail ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Principal</label>
@@ -142,15 +146,15 @@ export default async function AdminProductsPage({
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Classification</label>
-              <input name="classification" className={inputClass} />
+              <input name="classification" list="product-classifications" className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Pack size</label>
-              <input name="packSize" type="number" step="any" className={inputClass} />
+              <input name="packSize" type="number" step="any" defaultValue={addingSuggestion?.packSize ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Cost price</label>
-              <input name="costPrice" type="number" step="any" className={inputClass} />
+              <label className={labelClass}>Cost price (SAP net)</label>
+              <input name="costPrice" type="number" step="any" defaultValue={addingSuggestion?.costPrice ?? ""} className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>SSU conversion</label>
@@ -214,7 +218,7 @@ export default async function AdminProductsPage({
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Classification</label>
-                            <input name="classification" defaultValue={p.classification ?? ""} className={inputClass} />
+                            <input name="classification" list="product-classifications" defaultValue={p.classification ?? ""} className={inputClass} />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Pack size</label>

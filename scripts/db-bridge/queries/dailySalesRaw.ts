@@ -25,6 +25,11 @@ export interface DailySalesRawRow {
    *  none of them actually sold recently as of the live check that
    *  established this). */
   packSize: number | null;
+  /** SAP OITM's sales-pack or buying-unit description. SAP has no separate
+   * physical-size field, so this is review-only product-detail context. */
+  packDetail?: string | null;
+  /** Current SAP Purchase Price list value, excluding VAT. */
+  costPrice?: number | null;
   salesAmount: number;
   grossSales: number;
   cogs: number;
@@ -41,6 +46,8 @@ interface DailySalesRawRecord {
   "Is Free Sale": number;
   QtySold: number;
   "Pack Size": number | null;
+  "Pack Detail": string | null;
+  "Cost Price": number | null;
   "Sales Amount": number;
   "Gross Sales": number;
   COGs: number;
@@ -82,6 +89,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
                   ELSE T1.Quantity
               END AS QtySold,
               T2.NumInBuy AS [Pack Size],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.SalPackMsr)), ''), NULLIF(LTRIM(RTRIM(T2.BuyUnitMsr)), '')) AS [Pack Detail],
               CASE
                   WHEN T0.isIns = 'N'
                        AND T1.LineTotal > T1.StockSum
@@ -115,6 +123,7 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
                   ELSE -T1.Quantity
               END AS QtySold,
               T2.NumInBuy AS [Pack Size],
+              COALESCE(NULLIF(LTRIM(RTRIM(T2.SalPackMsr)), ''), NULLIF(LTRIM(RTRIM(T2.BuyUnitMsr)), '')) AS [Pack Detail],
               CASE
                   WHEN T0.CANCELED = 'C' THEN T1.StockSum
                   WHEN T1.StockSum = 0 THEN -T1.LineTotal
@@ -143,6 +152,8 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
           CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 1 ELSE 0 END AS [Is Free Sale],
           SUM(SL.QtySold) AS QtySold,
           MAX(SL.[Pack Size]) AS [Pack Size],
+          MAX(SL.[Pack Detail]) AS [Pack Detail],
+          MAX(PL.[Purchase Price]) AS [Cost Price],
           SUM(SL.[Sales Amount]) AS [Sales Amount],
           SUM(CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 0 ELSE SL.[Gross Sales] END) AS [Gross Sales],
           SUM(CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 0 ELSE SL.QtySold * ISNULL(PL.[Purchase Price], 0) END) AS [COGs],
@@ -172,6 +183,8 @@ export async function fetchDailySalesRaw(pool: sql.ConnectionPool, startDate: Da
     isFreeSale: r["Is Free Sale"] === 1,
     qtySold: r.QtySold,
     packSize: r["Pack Size"] && r["Pack Size"] > 0 ? r["Pack Size"] : null,
+    packDetail: r["Pack Detail"]?.trim() || null,
+    costPrice: r["Cost Price"] !== null && r["Cost Price"] !== undefined ? Number(r["Cost Price"]) : null,
     salesAmount: r["Sales Amount"],
     grossSales: r["Gross Sales"],
     cogs: r.COGs,

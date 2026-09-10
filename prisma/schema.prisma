@@ -440,6 +440,12 @@ model UnmappedProductSale {
   itemNo          String
   itemDescription String
   warehouseCode   String   @default("")
+  // Read-only SAP product-reference attributes. `packDetail` is SAP's
+  // pack/UOM description; Product Master's editable `size` field may use it
+  // as a starting value because SAP has no separate physical-size column.
+  packSize        Float?
+  costPrice       Float?
+  packDetail      String?
   revenue         Float
   grossMargin     Float
   quantity        Float

@@ -6,6 +6,9 @@ export interface ProductMappingSuggestion {
   revenue: number;
   grossMargin: number;
   quantity: number;
+  packSize: number | null;
+  costPrice: number | null;
+  packDetail: string | null;
   months: string[];
   branches: string[];
   suggestedPrincipal: string | null;
@@ -41,13 +44,18 @@ export async function getProductMappingSuggestions(): Promise<ProductMappingSugg
 
   const byItemNo = new Map<string, {
     itemNo: string; itemDescription: string; revenue: number; grossMargin: number; quantity: number;
+    packSize: number | null; costPrice: number | null; packDetail: string | null;
     months: Set<string>; warehouseCodes: Set<string>;
   }>();
   for (const sale of sales) {
     const current = byItemNo.get(sale.itemNo) ?? {
       itemNo: sale.itemNo, itemDescription: sale.itemDescription, revenue: 0, grossMargin: 0, quantity: 0,
+      packSize: sale.packSize, costPrice: sale.costPrice, packDetail: sale.packDetail,
       months: new Set<string>(), warehouseCodes: new Set<string>(),
     };
+    if (current.packSize === null && sale.packSize !== null) current.packSize = sale.packSize;
+    if (current.costPrice === null && sale.costPrice !== null) current.costPrice = sale.costPrice;
+    if (!current.packDetail && sale.packDetail) current.packDetail = sale.packDetail;
     current.revenue += sale.revenue;
     current.grossMargin += sale.grossMargin;
     current.quantity += sale.quantity;
@@ -80,6 +88,9 @@ export async function getProductMappingSuggestions(): Promise<ProductMappingSugg
       revenue: item.revenue,
       grossMargin: item.grossMargin,
       quantity: item.quantity,
+      packSize: item.packSize,
+      costPrice: item.costPrice,
+      packDetail: item.packDetail,
       months: Array.from(item.months).sort(),
       branches: Array.from(item.warehouseCodes).map((code) => locationByWarehouse.get(code) ?? code).filter((value, index, values) => values.indexOf(value) === index).sort(),
       suggestedPrincipal,
