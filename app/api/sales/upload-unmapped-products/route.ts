@@ -15,6 +15,9 @@ interface UnmappedProductSalesUploadRow {
   itemNo: string;
   itemDescription: string;
   warehouseCode: string;
+  packSize?: number | null;
+  costPrice?: number | null;
+  packDetail?: string | null;
   revenue: number;
   grossMargin: number;
   quantity: number;
@@ -37,12 +40,21 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isNullableNumber(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null || isNumber(value);
+}
+
+function isNullableText(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || typeof value === "string";
+}
+
 function isRow(value: unknown): value is UnmappedProductSalesUploadRow {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   return (
     isText(row.year) && isText(row.month) && isNumber(row.monthIndex) && Number.isInteger(row.monthIndex) && row.monthIndex >= 0 && row.monthIndex <= 11 &&
     isText(row.itemNo) && isText(row.itemDescription) && typeof row.warehouseCode === "string" &&
+    isNullableNumber(row.packSize) && isNullableNumber(row.costPrice) && isNullableText(row.packDetail) &&
     isNumber(row.revenue) && isNumber(row.grossMargin) && isNumber(row.quantity)
   );
 }
@@ -59,11 +71,11 @@ function uniquePeriods(periods: ReplacementPeriod[]): ReplacementPeriod[] {
 
 async function insertChunk(db: Prisma.TransactionClient, rows: UnmappedProductSalesUploadRow[]) {
   const values = rows.map((row) => Prisma.sql`(
-    ${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.itemNo}, ${row.itemDescription}, ${row.warehouseCode},
+    ${randomUUID()}, ${row.year}, ${row.month}, ${row.monthIndex}, ${row.itemNo}, ${row.itemDescription}, ${row.warehouseCode}, ${row.packSize ?? null}, ${row.costPrice ?? null}, ${row.packDetail ?? null},
     ${row.revenue}, ${row.grossMargin}, ${row.quantity}, now(), now()
   )`);
   await db.$executeRaw`
-    INSERT INTO "UnmappedProductSale" (id, year, month, "monthIndex", "itemNo", "itemDescription", "warehouseCode", revenue, "grossMargin", quantity, "createdAt", "updatedAt")
+    INSERT INTO "UnmappedProductSale" (id, year, month, "monthIndex", "itemNo", "itemDescription", "warehouseCode", "packSize", "costPrice", "packDetail", revenue, "grossMargin", quantity, "createdAt", "updatedAt")
     VALUES ${Prisma.join(values)}
   `;
 }

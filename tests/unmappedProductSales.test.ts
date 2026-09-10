@@ -21,7 +21,7 @@ describe("buildUnmappedProductSales", () => {
 
     expect(result).toEqual([{
       year: "2026", month: "September", monthIndex: 8, itemNo: "NEW-01", itemDescription: "New product", warehouseCode: "NRB",
-      quantity: 12, revenue: 120, grossMargin: 72,
+      packSize: 12, costPrice: null, packDetail: null, quantity: 12, revenue: 120, grossMargin: 72,
     }]);
   });
 
@@ -34,5 +34,10 @@ describe("buildUnmappedProductSales", () => {
 
   it("keeps a Product Master item without a principal in the review worklist", () => {
     expect(buildUnmappedProductSales([raw({ itemCode: "MAPPED-01" })], [{ ...mapped, principal: "" }])).toHaveLength(1);
+  });
+
+  it("retains SAP product-reference fields for review-form prefills", () => {
+    const [result] = buildUnmappedProductSales([raw({ packSize: 20, costPrice: 1096.39, packDetail: "20-Pack" })], []);
+    expect(result).toMatchObject({ packSize: 20, costPrice: 1096.39, packDetail: "20-Pack" });
   });
 });

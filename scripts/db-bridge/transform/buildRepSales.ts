@@ -305,6 +305,8 @@ export function dailyRowsToMonthlyInput(rows: DailySalesRawRow[]): YtdRawRow[] {
       isFreeSale: row.isFreeSale,
       qtySold: row.qtySold,
       packSize: row.packSize,
+      packDetail: row.packDetail,
+      costPrice: row.costPrice,
       salesAmount: row.salesAmount,
       grossProfit: 0,
       grossSales: row.grossSales,

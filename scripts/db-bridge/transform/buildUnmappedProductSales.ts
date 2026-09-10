@@ -11,6 +11,9 @@ export interface UnmappedProductSalesRow {
   itemNo: string;
   itemDescription: string;
   warehouseCode: string;
+  packSize: number | null;
+  costPrice: number | null;
+  packDetail: string | null;
   revenue: number;
   grossMargin: number;
   quantity: number;
@@ -41,10 +44,19 @@ export function buildUnmappedProductSales(rows: YtdRawRow[], products: ProductRo
       itemNo: row.itemCode,
       itemDescription: row.brand.trim() || "(Unspecified product)",
       warehouseCode,
+      packSize: row.packSize ?? null,
+      costPrice: row.costPrice ?? null,
+      packDetail: row.packDetail?.trim() || null,
       revenue: 0,
       grossMargin: 0,
       quantity: 0,
     };
+    // These are current SAP product-master attributes rather than period
+    // measures. Prefer a usable value if one source row has it; do not infer
+    // physical size from the item name.
+    if (existing.packSize === null && row.packSize !== null && row.packSize !== undefined) existing.packSize = row.packSize;
+    if (existing.costPrice === null && row.costPrice !== null && row.costPrice !== undefined) existing.costPrice = row.costPrice;
+    if (!existing.packDetail && row.packDetail?.trim()) existing.packDetail = row.packDetail.trim();
     existing.revenue += row.salesAmount;
     existing.grossMargin += row.grossMargin;
     existing.quantity += row.qtySold;
