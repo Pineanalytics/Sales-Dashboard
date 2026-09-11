@@ -2,21 +2,13 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { kenyaPublicHolidaysInRange } from "@/lib/kenyaBusinessCalendar";
+import { kenyaWorkingDayClause } from "@/lib/timestampSummary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NAIROBI_OFFSET = Prisma.sql`INTERVAL '3 hours'`;
 const REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g')`;
-
-function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
-  const holidays = kenyaPublicHolidaysInRange(range.start, range.end);
-  return Prisma.sql`
-    EXTRACT(ISODOW FROM ${dateExpression}) BETWEEN 1 AND 5
-    AND ${dateExpression} NOT IN (${Prisma.join(holidays.map((holiday) => Prisma.sql`${holiday}::date`))})
-  `;
-}
 
 function window(month: string, selectedDate: string | null) {
   const key = selectedDate ?? `${month}-01`;
