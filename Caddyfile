@@ -12,6 +12,13 @@
 	reverse_proxy pinefrost-app-1:3000
 }
 
+# Keep the apex hostname canonical while still serving a valid certificate for
+# users and links that include www. Caddy obtains and renews this hostname's
+# certificate automatically before issuing the permanent redirect.
+www.pinefrostdb.com {
+	redir https://pinefrostdb.com{uri} permanent
+}
+
 # field-forms app (Latitude / Pinefrost multi-tenant forms), added alongside
 # the main pinefrost site. Separate container on the same Docker network.
 app.pinefrostdb.com {
