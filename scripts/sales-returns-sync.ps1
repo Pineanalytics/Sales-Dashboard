@@ -42,47 +42,61 @@ function Get-DotEnvValue {
 
 $apiKey = Get-DotEnvValue -Name "UPLOAD_API_KEY"
 $Distributor = if ($Distributor) { $Distributor } else { Get-DotEnvValue -Name "SALES_RETURNS_DISTRIBUTOR" }
-$effectiveWindow = $Window
-$control = $null
-if ($apiKey -and $Distributor) {
-  try {
-    $control = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control?distributor=$Distributor" -Method Get `
-      -Headers @{ "x-upload-api-key" = $apiKey }
-    # The task's historical -Window Catchup argument is only a safe fallback
-    # while a backfill pause is active. Once the VPS control is restored to
-    # SMART, it must actively override that legacy task argument; otherwise a
-    # healthy machine can acknowledge the control yet remain in Catchup
-    # forever and never run its reconciliation/heartbeat path.
-    $effectiveWindow = if ($control.desiredMode -eq "CATCHUP") { "Catchup" } else { "Smart" }
-  }
-  catch {
-    Write-Log "Could not read branch control; using configured window $Window`: $($_.Exception.Message)"
-  }
+$lockScript = Join-Path $PSScriptRoot "sales-returns-sync-lock.ps1"
+. $lockScript
+$syncLock = Enter-SalesReturnsSyncLock -Distributor $Distributor
+if (-not $syncLock.Held) {
+  Write-Log "Another Sales & Returns sync is already running for distributor $Distributor; skipping this overlapping launch."
+  Exit-SalesReturnsSyncLock -Lock $syncLock
+  exit 0
 }
 
-$env:SALES_RETURNS_WINDOW = $effectiveWindow
-$status = "APPLIED"
-$summary = ""
+$effectiveWindow = $Window
+$control = $null
 try {
-  Write-Log "Starting Sales & Returns sync (window: $effectiveWindow)..."
-  & node --import tsx "scripts\db-bridge\sales-returns\run.ts"
-  if ($LASTEXITCODE -ne 0) { throw "sales-returns/run.ts exited with code $LASTEXITCODE" }
-  $summary = "Scheduled sync completed with window $effectiveWindow."
-  Write-Log "Sales & Returns sync finished."
-}
-catch {
-  $status = "FAILED"
-  $summary = $_.Exception.Message
-  Write-Log "FAILED: $($_.Exception.Message)"
-  throw
+  if ($apiKey -and $Distributor) {
+    try {
+      $control = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control?distributor=$Distributor" -Method Get `
+        -Headers @{ "x-upload-api-key" = $apiKey }
+      # The task's historical -Window Catchup argument is only a safe fallback
+      # while a backfill pause is active. Once the VPS control is restored to
+      # SMART, it must actively override that legacy task argument; otherwise a
+      # healthy machine can acknowledge the control yet remain in Catchup
+      # forever and never run its reconciliation/heartbeat path.
+      $effectiveWindow = if ($control.desiredMode -eq "CATCHUP") { "Catchup" } else { "Smart" }
+    }
+    catch {
+      Write-Log "Could not read branch control; using configured window $Window`: $($_.Exception.Message)"
+    }
+  }
+
+  $env:SALES_RETURNS_WINDOW = $effectiveWindow
+  $status = "APPLIED"
+  $summary = ""
+  try {
+    Write-Log "Starting Sales & Returns sync (window: $effectiveWindow)..."
+    & node --import tsx "scripts\db-bridge\sales-returns\run.ts"
+    if ($LASTEXITCODE -ne 0) { throw "sales-returns/run.ts exited with code $LASTEXITCODE" }
+    $summary = "Scheduled sync completed with window $effectiveWindow."
+    Write-Log "Sales & Returns sync finished."
+  }
+  catch {
+    $status = "FAILED"
+    $summary = $_.Exception.Message
+    Write-Log "FAILED: $($_.Exception.Message)"
+    throw
+  }
+  finally {
+    if ($control -and $control.version -gt 0 -and $apiKey -and $Distributor) {
+      try {
+        Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control" -Method Patch -ContentType "application/json" `
+          -Headers @{ "x-upload-api-key" = $apiKey } `
+          -Body (@{ distributor = $Distributor; version = [int]$control.version; status = $status; resultSummary = $summary } | ConvertTo-Json) | Out-Null
+      }
+      catch { Write-Log "Could not acknowledge branch control: $($_.Exception.Message)" }
+    }
+  }
 }
 finally {
-  if ($control -and $control.version -gt 0 -and $apiKey -and $Distributor) {
-    try {
-      Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control" -Method Patch -ContentType "application/json" `
-        -Headers @{ "x-upload-api-key" = $apiKey } `
-        -Body (@{ distributor = $Distributor; version = [int]$control.version; status = $status; resultSummary = $summary } | ConvertTo-Json) | Out-Null
-    }
-    catch { Write-Log "Could not acknowledge branch control: $($_.Exception.Message)" }
-  }
+  Exit-SalesReturnsSyncLock -Lock $syncLock
 }

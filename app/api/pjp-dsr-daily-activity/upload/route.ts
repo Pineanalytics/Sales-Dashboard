@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { historicalSalesReturnsUploadBlocked } from "@/lib/salesReturnsControl";
+import { lockSalesReturnsUpload } from "@/lib/salesReturnsUploadLock";
 
 export const runtime = "nodejs";
 // Keep this ingestion handler as a request-time route. Its input is a
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
         const distributors = distributor
           ? [distributor]
           : Array.from(new Set(rows.map((row) => row.distributor)));
+        await lockSalesReturnsUpload(tx, "pjp-dsr-daily", distributors);
         if (windowStart && windowEnd && distributors.length > 0) {
           await tx.pjpDsrDailyActivity.deleteMany({
             where: { date: { gte: windowStart, lt: windowEnd }, distributor: { in: distributors } },
@@ -119,7 +121,7 @@ export async function POST(req: NextRequest) {
           });
         }
       },
-      { timeout: 60_000 }
+      { maxWait: 120_000, timeout: 120_000 }
     );
     return NextResponse.json({ count: rows.length });
   } catch (error) {

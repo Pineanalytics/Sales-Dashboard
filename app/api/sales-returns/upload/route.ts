@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { historicalSalesReturnsUploadBlocked } from "@/lib/salesReturnsControl";
+import { lockSalesReturnsUpload } from "@/lib/salesReturnsUploadLock";
 
 export const runtime = "nodejs";
 
@@ -128,6 +129,7 @@ export async function POST(req: NextRequest) {
         const storageLocations = distributor
           ? [distributor]
           : Array.from(new Set(lines.map((line) => line.storageLocation)));
+        await lockSalesReturnsUpload(tx, "sales-lines", storageLocations);
         if (windowStart && windowEnd && storageLocations.length > 0) {
           await tx.salesReturnLine.deleteMany({
             where: { deliveryDate: { gte: windowStart, lt: windowEnd }, storageLocation: { in: storageLocations } },
@@ -147,7 +149,7 @@ export async function POST(req: NextRequest) {
           });
         }
       },
-      { timeout: 60_000 }
+      { maxWait: 120_000, timeout: 120_000 }
     );
     return NextResponse.json({ count: lines.length });
   } catch (error) {
