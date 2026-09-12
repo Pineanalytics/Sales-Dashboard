@@ -213,6 +213,13 @@ try {
 
     Write-Host "==> Restarting the app and every code-bearing sync worker..." -ForegroundColor Cyan
     Invoke-Ssh "cd $RemotePath && docker compose up -d --no-deps $services"
+
+    # The deployment mirrors the committed tree by replacing files. Caddy's
+    # bind mount can otherwise retain the old Caddyfile inode, so recreate only
+    # the proxy after the app services are ready to make every committed proxy
+    # change effective (including TLS hostnames) on this release.
+    Write-Host "==> Recreating Caddy so it mounts the committed proxy configuration..." -ForegroundColor Cyan
+    Invoke-Ssh "cd $RemotePath && docker compose up -d --no-deps --force-recreate caddy"
     $restartCompleted = $true
 
     Write-Host "==> Verifying the site responds..." -ForegroundColor Cyan
