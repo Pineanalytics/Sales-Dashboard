@@ -20,7 +20,27 @@ www.pinefrostdb.com {
 }
 
 # field-forms app (Latitude / Pinefrost multi-tenant forms), added alongside
-# the main pinefrost site. Separate container on the same Docker network.
+# the main pinefrost site. Same-origin routing sends Supabase client paths to
+# the self-hosted gateway; all other requests go to the Next.js forms app.
+# Keeping this in the tracked configuration means the production watchdog does
+# not need to replace the Caddyfile after a dashboard deployment.
 app.pinefrostdb.com {
-	reverse_proxy field-forms-app:3000
+	@supabase path /rest/v1/* /auth/v1/* /storage/v1/*
+	handle @supabase {
+		reverse_proxy field-forms-supabase-kong:8000
+	}
+	handle {
+		reverse_proxy field-forms-app:3000
+	}
+}
+
+# Self-hosted team file share. This remains independently served through the
+# shared proxy and must be retained whenever the dashboard is released.
+files.pinefrostdb.com {
+	redir /.well-known/carddav /remote.php/dav 301
+	redir /.well-known/caldav /remote.php/dav 301
+
+	reverse_proxy nextcloud-app:80 {
+		header_up X-Forwarded-Proto {scheme}
+	}
 }
