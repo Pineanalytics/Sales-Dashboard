@@ -541,6 +541,32 @@ model PrincipalKpiTarget {
   @@index([principal, fiscalYear, periodNo])
 }
 
+// Customer-level Mars JBP targets are deliberately separate from the rep
+// scorecard target model above.  One customer can have both a category target
+// (4P/2P/10P/Orbit) and an "Overall Target" for the same fiscal period.
+// Keeping the source's tier and area makes the dashboard reconcile directly
+// to the JBP Customer Performance vs Target workbook.
+model PrincipalKpiJbpTarget {
+  id           String   @id @default(cuid())
+  principal    String
+  fiscalYear   String
+  periodKey    String
+  periodNo     Int
+  customerId   String
+  customerName String?
+  category     String
+  tier         String?
+  area         String?
+  casesTarget  Float    @default(0)
+  ssuTarget    Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([principal, fiscalYear, periodKey, customerId, category])
+  @@index([principal, fiscalYear, periodNo, category])
+  @@index([principal, customerId])
+}
+
 // Productive Report is a separate, SKU-level target model supplied by Mars.
 // It is deliberately not folded into the sales-value target: its target is
 // the number of productive outlet/SKU combinations expected from each rep.
@@ -581,31 +607,6 @@ model PrincipalKpiRtmCustomer {
 
   @@unique([principal, customerId])
   @@index([principal, location, rtmType])
-}
-
-// Joint Business Plan customer targets, from the "JBP Targets" sheet's
-// "Total Target" rows (source sheet "Overall") — the workbook's own
-// outlet-level total, not a sum of the sheet's per-category (4P/2P/10P/
-// Orbit) rows, which were confirmed against real data NOT to add up to the
-// "Total Target" figure for the same customer/period. Not fiscal-year-keyed,
-// same as PrincipalKpiRtmCustomer/PrincipalKpiProductiveTarget above — this
-// sheet only carries a bare period label (no year column), and like those
-// two tables it's replaced wholesale on every import rather than merged.
-model PrincipalKpiJbpTarget {
-  id           String   @id @default(cuid())
-  principal    String
-  customerId   String
-  customerName String?
-  tier         String?
-  area         String?
-  periodKey    String // P01 … P13
-  targetCases  Float
-  targetSsu    Float
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([principal, customerId, periodKey])
-  @@index([principal, periodKey])
 }
 
 // One source sales line.  It preserves the item, seller and fiscal-period
