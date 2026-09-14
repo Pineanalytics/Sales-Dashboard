@@ -35,13 +35,13 @@ foreach ($legacyTaskName in $legacyTaskNames) {
   Disable-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue | Out-Null
 }
 
-$actionArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -ProjectPath `"$ProjectPath`" -Window Smart"
+$actionArgs = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`" -ProjectPath `"$ProjectPath`" -Window Smart"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $actionArgs
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-NextFiveMinuteBoundary) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 5)
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Sales & Returns Smart reconciliation every five minutes; legacy overlapping tasks disabled." -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Sales & Returns Smart reconciliation every five minutes, silently in the background; legacy overlapping tasks disabled." -Force | Out-Null
 
 Get-ScheduledTask -TaskName ($legacyTaskNames + $TaskName) |
   Select-Object TaskName, State |
