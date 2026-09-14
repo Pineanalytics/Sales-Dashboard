@@ -21,6 +21,11 @@
   branch-scoped VPS manifest with local state, repairs the oldest missing or
   changed CSV, and naturally advances to the latest populated delivery date.
 
+.PARAMETER LookbackDays
+  Number of prior calendar dates to include with today in a Smart manifest
+  check. Normal frequent runs use one prior date (today + yesterday). The
+  Server-PC recovery schedules use seven prior dates to detect late postings.
+
 .PARAMETER ArchiveFolder
   Folder where the downstream watcher moves successfully consumed CSV files.
   Smart mode accepts a matching archived file as delivered instead of treating
@@ -65,6 +70,8 @@ param(
   [string]$DestFolder = "D:\UKL_INTEGRATION\UPLOADS",
   [string]$ApiKey = $env:UKL_SALES_EXPORT_KEY,
   [string]$Date,
+  [ValidateRange(1, 35)]
+  [int]$LookbackDays = 1,
   [string]$Distributor,
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
   [string]$ArchiveFolder,
@@ -268,11 +275,9 @@ function Save-ManifestState {
 
   $nairobiNow = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(3))
   $today = $nairobiNow.ToString("yyyy-MM-dd")
-  $yesterday = $nairobiNow.AddDays(-1).ToString("yyyy-MM-dd")
-  $afterPreviousDayCutoff = $nairobiNow.Hour -ge 6
-  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$yesterday&to=$today"
-  $previousDayMode = if ($afterPreviousDayCutoff) { "late-change detection only" } else { "close-period reconciliation until 06:00" }
-  Write-Log "Checking $Branch export manifest: today $today first; yesterday $yesterday is $previousDayMode."
+  $lookbackStart = $nairobiNow.AddDays(-$LookbackDays).ToString("yyyy-MM-dd")
+  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$lookbackStart&to=$today"
+  Write-Log "Checking $Branch export manifest: $lookbackStart through $today ($LookbackDays prior day(s) plus today), newest first."
   $manifest = Invoke-RestMethod -Uri $manifestUri -Headers @{ "x-ukl-export-key" = $ApiKey }
   # Today is operationally urgent. Descending order also prevents a changing
   # previous-day partition from starving today's export.
@@ -314,9 +319,9 @@ function Save-ManifestState {
   }
 
   foreach ($repair in $repairs) {
-    $isPreviousDay = [string]$repair.date -ne $today
-    if ($isPreviousDay -and $afterPreviousDayCutoff) {
-      Write-Log "Late previous-day change detected after 06:00; replacing $($repair.date) automatically."
+    $isHistoricalDay = [string]$repair.date -ne $today
+    if ($isHistoricalDay) {
+      Write-Log "Late historical change detected; replacing $($repair.date) automatically."
     }
     Write-Log "Repairing missing or content-changed local export: $($repair.date) ($($repair.rowCount) VPS rows)."
     Save-Export -ExportDate ([string]$repair.date)
