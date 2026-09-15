@@ -9,8 +9,8 @@
   The five-minute branch offset preserves the puller's single mutex and avoids
   two writers touching the watched folder at the same time. Normal hourly
   extraction resumes automatically at 18:05 (Nairobi) and 18:25 (Nyeri).
-  Separate twice-daily recovery tasks check the prior seven dates plus today,
-  recreating only files that are missing or whose VPS content changed.
+  Every scheduled run writes one numbered snapshot. Dedicated historical
+  recovery tasks are intentionally not installed.
 #>
 param(
   [string]$ScriptPath = "C:\ukl-sales-export-pull.ps1",
@@ -20,18 +20,15 @@ param(
   [string]$NairobiTaskName = "UKL-SalesExport-Pull",
   [string]$NyeriTaskName = "UKL-SalesExport-Pull-Nyeri",
   [string]$NairobiBoostTaskName = "UKL-SalesExport-Pull-Nairobi-Boost",
-  [string]$NyeriBoostTaskName = "UKL-SalesExport-Pull-Nyeri-Boost",
-  [string]$NairobiRecoveryTaskName = "UKL-SalesExport-Pull-Nairobi-Recovery",
-  [string]$NyeriRecoveryTaskName = "UKL-SalesExport-Pull-Nyeri-Recovery"
+  [string]$NyeriBoostTaskName = "UKL-SalesExport-Pull-Nyeri-Boost"
 )
 
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path -LiteralPath $ScriptPath)) { throw "Missing UKL puller: $ScriptPath" }
 if (-not [Environment]::GetEnvironmentVariable('UKL_SALES_EXPORT_KEY', 'Machine')) { throw 'UKL_SALES_EXPORT_KEY is not set at machine scope.' }
 
-function New-UklAction([string]$Branch, [int]$LookbackDays = 1) {
-  $lookbackArgument = if ($LookbackDays -gt 1) { " -LookbackDays $LookbackDays" } else { "" }
-  $args = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Branch $Branch -DestFolder `"$DestFolder`" -ArchiveFolder `"$ArchiveFolder`" -StateFolder `"$StateFolder`"$lookbackArgument"
+function New-UklAction([string]$Branch) {
+  $args = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Branch $Branch -DestFolder `"$DestFolder`" -ArchiveFolder `"$ArchiveFolder`" -StateFolder `"$StateFolder`" -AlwaysExport"
   return New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args
 }
 function New-UklDailyTrigger([int]$Hour, [int]$Minute) {
@@ -52,13 +49,6 @@ function New-UklBoostTriggers([int]$MinuteOffset) {
   }
   return $triggers
 }
-function New-UklRecoveryTriggers([int]$Minute) {
-  return @(
-    New-UklDailyTrigger -Hour 6 -Minute $Minute
-    New-UklDailyTrigger -Hour 20 -Minute $Minute
-  )
-}
-
 $userId = "$env:USERDOMAIN\$env:USERNAME"
 $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 10)
@@ -67,9 +57,10 @@ Register-ScheduledTask -TaskName $NairobiTaskName -Action (New-UklAction 'NAIROB
 Register-ScheduledTask -TaskName $NyeriTaskName -Action (New-UklAction 'NYERI') -Trigger (New-UklNormalHourlyTriggers 25) -Settings $settings -Principal $principal -Description 'UKL Nyeri Sales & Returns export, hourly at :25 outside the 14:00–18:00 boost window.' -Force | Out-Null
 Register-ScheduledTask -TaskName $NairobiBoostTaskName -Action (New-UklAction 'NAIROBI') -Trigger (New-UklBoostTriggers 0) -Settings $settings -Principal $principal -Description 'UKL Nairobi Sales & Returns export every 10 minutes, 14:00–18:00 Africa/Nairobi.' -Force | Out-Null
 Register-ScheduledTask -TaskName $NyeriBoostTaskName -Action (New-UklAction 'NYERI') -Trigger (New-UklBoostTriggers 5) -Settings $settings -Principal $principal -Description 'UKL Nyeri Sales & Returns export every 10 minutes, 14:00–18:00 Africa/Nairobi.' -Force | Out-Null
-Register-ScheduledTask -TaskName $NairobiRecoveryTaskName -Action (New-UklAction 'NAIROBI' 7) -Trigger (New-UklRecoveryTriggers 10) -Settings $settings -Principal $principal -Description 'UKL Nairobi seven-prior-day recovery scan at 06:10 and 20:10 Africa/Nairobi.' -Force | Out-Null
-Register-ScheduledTask -TaskName $NyeriRecoveryTaskName -Action (New-UklAction 'NYERI' 7) -Trigger (New-UklRecoveryTriggers 15) -Settings $settings -Principal $principal -Description 'UKL Nyeri seven-prior-day recovery scan at 06:15 and 20:15 Africa/Nairobi.' -Force | Out-Null
+foreach ($retiredTaskName in @('UKL-SalesExport-Pull-Nairobi-Recovery', 'UKL-SalesExport-Pull-Nyeri-Recovery')) {
+  Disable-ScheduledTask -TaskName $retiredTaskName -ErrorAction SilentlyContinue | Out-Null
+}
 
-Get-ScheduledTask -TaskName $NairobiTaskName, $NyeriTaskName, $NairobiBoostTaskName, $NyeriBoostTaskName, $NairobiRecoveryTaskName, $NyeriRecoveryTaskName |
+Get-ScheduledTask -TaskName $NairobiTaskName, $NyeriTaskName, $NairobiBoostTaskName, $NyeriBoostTaskName |
   Get-ScheduledTaskInfo |
   Format-Table TaskName, LastRunTime, LastTaskResult, NextRunTime -AutoSize

@@ -50,6 +50,12 @@
   environment variable of the same name; if that's unset, alerting is just
   skipped — it never blocks or fails the actual pull.
 
+.PARAMETER AlwaysExport
+  Saves a new, numbered snapshot of the newest populated delivery date on
+  every invocation. The scheduled Server-PC cadence uses this mode so every
+  configured hourly or ten-minute run produces a distinct hand-off file.
+  The sequence is allocated across both UPLOADS and Archive.
+
 .PARAMETER ClaimQueuedTrigger
   Used only by the dedicated Server-PC trigger task. Claims one
   administrator-selected exact-date export, if any; normal Smart runs are
@@ -76,6 +82,7 @@ param(
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
   [string]$ArchiveFolder,
   [string]$StateFolder,
+  [switch]$AlwaysExport,
   [switch]$ClaimQueuedTrigger
 )
 
@@ -284,6 +291,13 @@ function Save-ManifestState {
   $availableDays = @($manifest.days | Sort-Object date -Descending)
   if ($availableDays.Count -eq 0) {
     Write-Log "No populated VPS delivery dates are available for $Branch yet."
+    return
+  }
+
+  if ($AlwaysExport) {
+    $snapshot = $availableDays[0]
+    Write-Log "Cadence snapshot requested; writing a new numbered export for $($snapshot.date) ($($snapshot.rowCount) VPS rows)."
+    Save-Export -ExportDate ([string]$snapshot.date)
     return
   }
 
