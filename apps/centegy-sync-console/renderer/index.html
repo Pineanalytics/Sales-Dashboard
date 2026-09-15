@@ -1,0 +1,7 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pinefrost Centegy Sync Console</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><img src="pinefrost-icon.png"><div><h1>Centegy Sync Console</h1><p id="scope">Loading local configuration...</p></div><span id="health">Checking...</span></header>
+<section class="card"><h2>Local task health</h2><div id="tasks" class="tasks"></div><button id="refresh">Refresh status</button></section>
+<section class="card"><h2>Smart controls</h2><div class="actions"><button data-action="start">Start now</button><button data-action="stop" class="danger">Stop running</button><button data-action="pause" class="danger">Pause schedule</button><button data-action="resume">Resume schedule</button></div></section>
+<section class="card"><h2>Selected-date backfill</h2><p>Runs the existing guarded Sales &amp; Returns wrapper for one date. A live Catchup pause remains authoritative and will reject historical upload safely.</p><div class="actions"><input id="date" type="date"><button id="backfill">Backfill selected date</button></div></section>
+<section class="card"><h2>Live output</h2><pre id="output">Ready.</pre></section></main><script src="renderer.js"></script></body></html>
