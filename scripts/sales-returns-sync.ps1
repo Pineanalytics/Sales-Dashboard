@@ -25,7 +25,8 @@ param(
   [string]$AppUrl = "https://pinefrostdb.com",
   [string]$Distributor = $env:SALES_RETURNS_DISTRIBUTOR,
   [ValidateSet("Smart", "Today", "Yesterday", "Catchup")]
-  [string]$Window = "Smart"
+  [string]$Window = "Smart",
+  [string]$BackfillDate
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +43,12 @@ function Get-DotEnvValue {
 
 $apiKey = Get-DotEnvValue -Name "UPLOAD_API_KEY"
 $Distributor = if ($Distributor) { $Distributor } else { Get-DotEnvValue -Name "SALES_RETURNS_DISTRIBUTOR" }
+$selectedDate = $null
+if ($BackfillDate) {
+  if ($BackfillDate -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not [datetime]::TryParseExact($BackfillDate, 'yyyy-MM-dd', $null, [Globalization.DateTimeStyles]::None, [ref]$selectedDate)) {
+    throw "BackfillDate must be a real YYYY-MM-DD date."
+  }
+}
 $lockScript = Join-Path $PSScriptRoot "sales-returns-sync-lock.ps1"
 . $lockScript
 $syncLock = Enter-SalesReturnsSyncLock -Distributor $Distributor
@@ -54,7 +61,11 @@ if (-not $syncLock.Held) {
 $effectiveWindow = $Window
 $control = $null
 try {
-  if ($apiKey -and $Distributor) {
+  if ($BackfillDate) {
+    $env:SALES_RETURNS_BACKFILL_FROM = $BackfillDate
+    $effectiveWindow = "Selected date $BackfillDate"
+  }
+  elseif ($apiKey -and $Distributor) {
     try {
       $control = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control?distributor=$Distributor" -Method Get `
         -Headers @{ "x-upload-api-key" = $apiKey }
@@ -98,5 +109,6 @@ try {
   }
 }
 finally {
+  Remove-Item Env:SALES_RETURNS_BACKFILL_FROM -ErrorAction SilentlyContinue
   Exit-SalesReturnsSyncLock -Lock $syncLock
 }
