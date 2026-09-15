@@ -10,7 +10,7 @@
   D:\UKL_INTEGRATION\UPLOADS) with no direct path to either. Only needs
   outbound HTTPS to the dashboard. Every saved export has a globally unique
   run identifier for its branch and report date:
-  UKL_<BRANCH>_<DD.MM.YYYY>_<UTC timestamp>_<GUID>.csv.
+  UKL_<BRANCH>_<DD.MM.YYYY>_<UTC date>_<UTC time and GUID>.csv.
   The identifier is generated at write time, so it is never reused if the
   downstream receiver deletes or archives every prior CSV.
 
@@ -193,9 +193,11 @@ function Get-ExportFiles {
 function New-ExportPath {
   param([string]$ExportDate)
   $prefix = Get-ExportPrefix -ExportDate $ExportDate
-  # The timestamp is sortable; the full GUID prevents collisions if system time
-  # changes or the downstream receiver deletes every previous file.
-  $runId = "{0}_{1}" -f [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffffffZ"), [guid]::NewGuid().ToString("N")
+  # The UTC date is a separate filename segment. The time and full GUID form
+  # the unique code, preventing collisions if system time changes or the
+  # downstream receiver deletes every previous file.
+  $now = [DateTimeOffset]::UtcNow
+  $runId = "{0}_{1}" -f $now.ToString("yyyyMMdd"), ("T{0}_{1}" -f $now.ToString("HHmmssfffffffZ"), [guid]::NewGuid().ToString("N"))
   return Join-Path $DestFolder ("{0}_{1}.csv" -f $prefix, $runId)
 }
 
