@@ -20,7 +20,10 @@ $ErrorActionPreference = 'Stop'
 if (-not $Role) { throw 'Specify -Role Nairobi, -Role Nyeri, or -Role Server.' }
 
 $sourceConsole = Join-Path $PSScriptRoot 'operations-console.ps1'
-$sourceIcon = Join-Path $PSScriptRoot '..\assets\operations-console-icon.png'
+$sourceIcon = @(
+  (Join-Path $PSScriptRoot '..\assets\operations-console-icon.png'),
+  (Join-Path $PSScriptRoot 'operations-console-icon.png')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not (Test-Path -LiteralPath $sourceConsole)) {
   throw "Missing console source: $sourceConsole"
 }
