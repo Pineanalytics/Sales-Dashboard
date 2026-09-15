@@ -146,6 +146,10 @@ $form.ClientSize = [System.Drawing.Size]::new(1010, 610)
 $form.MinimumSize = [System.Drawing.Size]::new(1010, 610)
 $form.BackColor = [System.Drawing.Color]::White
 $form.Font = [System.Drawing.Font]::new('Segoe UI', 9)
+$iconPath = Join-Path $PSScriptRoot 'operations-console.ico'
+if (Test-Path -LiteralPath $iconPath) {
+  try { $form.Icon = [System.Drawing.Icon]::new($iconPath) } catch { }
+}
 
 $title = [System.Windows.Forms.Label]::new()
 $title.Text = 'Pinefrost Operations Console'

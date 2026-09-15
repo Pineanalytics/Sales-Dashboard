@@ -20,8 +20,12 @@ $ErrorActionPreference = 'Stop'
 if (-not $Role) { throw 'Specify -Role Nairobi, -Role Nyeri, or -Role Server.' }
 
 $sourceConsole = Join-Path $PSScriptRoot 'operations-console.ps1'
+$sourceIcon = Join-Path $PSScriptRoot '..\assets\operations-console-icon.png'
 if (-not (Test-Path -LiteralPath $sourceConsole)) {
   throw "Missing console source: $sourceConsole"
+}
+if (-not (Test-Path -LiteralPath $sourceIcon)) {
+  throw "Missing console icon: $sourceIcon"
 }
 if ($Role -ne 'Server' -and -not (Test-Path -LiteralPath (Join-Path $ProjectPath 'scripts\sales-returns-sync.ps1'))) {
   throw "Sales & Returns project or sync wrapper not found at $ProjectPath."
@@ -33,6 +37,29 @@ if ($Role -eq 'Server' -and -not (Test-Path -LiteralPath $ServerPullerPath)) {
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
 $installedConsole = Join-Path $InstallRoot 'operations-console.ps1'
 Copy-Item -LiteralPath $sourceConsole -Destination $installedConsole -Force
+$installedIcon = Join-Path $InstallRoot 'operations-console.ico'
+
+# Desktop shortcuts use .ico files. Build one from the transparent Pinefrost
+# network-mark PNG at install time so the source remains a high-resolution
+# project asset while Windows receives a native shortcut icon.
+Add-Type -AssemblyName System.Drawing
+$sourceImage = [System.Drawing.Image]::FromFile($sourceIcon)
+$iconBitmap = [System.Drawing.Bitmap]::new(256, 256)
+$graphics = [System.Drawing.Graphics]::FromImage($iconBitmap)
+try {
+  $graphics.Clear([System.Drawing.Color]::Transparent)
+  $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $graphics.DrawImage($sourceImage, [System.Drawing.Rectangle]::new(0, 0, 256, 256))
+  $icon = [System.Drawing.Icon]::FromHandle($iconBitmap.GetHicon())
+  $iconStream = [System.IO.File]::Open($installedIcon, [System.IO.FileMode]::Create)
+  try { $icon.Save($iconStream) }
+  finally { $iconStream.Dispose(); $icon.Dispose() }
+}
+finally {
+  $graphics.Dispose()
+  $iconBitmap.Dispose()
+  $sourceImage.Dispose()
+}
 
 $config = [ordered]@{
   role = $Role
@@ -50,7 +77,7 @@ $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershe
 $shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installedConsole`""
 $shortcut.WorkingDirectory = $InstallRoot
 $shortcut.Description = "Pinefrost Operations Console - $Role"
-$shortcut.IconLocation = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe,0"
+$shortcut.IconLocation = "$installedIcon,0"
 $shortcut.Save()
 
 [pscustomobject]@{
