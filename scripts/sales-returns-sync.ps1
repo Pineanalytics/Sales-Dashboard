@@ -60,13 +60,19 @@ function Get-DotEnvValue {
 
 $apiKey = Get-DotEnvValue -Name "UPLOAD_API_KEY"
 $Distributor = if ($Distributor) { $Distributor } else { Get-DotEnvValue -Name "SALES_RETURNS_DISTRIBUTOR" }
-$selectedDate = $null
+# [datetime]::TryParseExact's [ref] out-parameter must be pre-typed as
+# [datetime], not left as an untyped $null — on Windows PowerShell 5.1 an
+# untyped ref makes the method binder unable to pick an overload at all
+# ("Cannot find an overload ... argument count: 5"), confirmed live on a
+# field machine. $selectedDate/$selectedToDate's initial value is discarded
+# either way; only the type annotation matters.
+[datetime]$selectedDate = [datetime]::MinValue
 if ($BackfillDate) {
   if ($BackfillDate -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not [datetime]::TryParseExact($BackfillDate, 'yyyy-MM-dd', $null, [Globalization.DateTimeStyles]::None, [ref]$selectedDate)) {
     throw "BackfillDate must be a real YYYY-MM-DD date."
   }
 }
-$selectedToDate = $null
+[datetime]$selectedToDate = [datetime]::MinValue
 if ($BackfillTo) {
   if (-not $BackfillDate) { throw "BackfillTo requires BackfillDate." }
   if ($BackfillTo -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not [datetime]::TryParseExact($BackfillTo, 'yyyy-MM-dd', $null, [Globalization.DateTimeStyles]::None, [ref]$selectedToDate)) {
