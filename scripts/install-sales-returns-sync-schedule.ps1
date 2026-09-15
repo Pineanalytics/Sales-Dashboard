@@ -43,6 +43,17 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAv
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Sales & Returns Smart reconciliation every five minutes, silently in the background; legacy overlapping tasks disabled." -Force | Out-Null
 
+# TriggerPoll is a separate, optional task used to claim dashboard-queued
+# selected-date runs. Keep its existing trigger/settings, but ensure it cannot
+# show a console window every time it polls.
+$triggerPollTaskName = 'SalesDashboard-TriggerPoll'
+$triggerPollScriptPath = Join-Path $ProjectPath 'scripts\sales-returns-trigger-poll.ps1'
+if ((Get-ScheduledTask -TaskName $triggerPollTaskName -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $triggerPollScriptPath)) {
+  $triggerPollArgs = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$triggerPollScriptPath`" -ProjectPath `"$ProjectPath`""
+  $triggerPollAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $triggerPollArgs
+  Set-ScheduledTask -TaskName $triggerPollTaskName -Action $triggerPollAction | Out-Null
+}
+
 Get-ScheduledTask -TaskName ($legacyTaskNames + $TaskName) |
   Select-Object TaskName, State |
   Format-Table -AutoSize
