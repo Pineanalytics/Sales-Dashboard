@@ -18,6 +18,18 @@
 // DISTRIBUTOR (already joined for the DSR lookup) is surfaced in the output
 // too — needed once a second branch (e.g. Nyeri) feeds this same shared
 // table, so its PJP/DSR codes can't collide with another branch's.
+//
+// OutletCode is built from the POP master's own TOWN/LOCALITY/SLOCALITY/POP
+// (joined the same way query.ts's "Customer Code" is: matched against
+// CASHMEMO's copies of those four fields), not from CASHMEMO's own copies
+// directly. An earlier version concatenated CASHMEMO's fields with no POP
+// join at all — for any transaction whose town/locality/slocality/pop didn't
+// resolve to a registered POP outlet, that produced an under-normalized (or
+// outright blank) code shared across otherwise-distinct outlets, undercounting
+// OUTLETS_VISITED even on freshly-synced days. Matching query.ts's join keeps
+// this report's outlet identity consistent with SalesReturnLine.customerCode
+// (and therefore with getLeverageMonthlyCoverageRollup's own outlet coverage
+// figure in lib/jpAdherence.ts) instead of a second, looser definition.
 import sql from "mssql";
 
 export interface PjpDsrDailyActivityRow {
@@ -76,12 +88,14 @@ export async function fetchPjpDsrDailyActivity(
               c.DISTRIBUTOR,
               c.DATE_ENTRY,
               c.HHT_SRNO,
-              c.town + c.locality + c.SLOCALITY + c.pop AS OutletCode,
+              p.TOWN + p.LOCALITY + p.SLOCALITY + p.POP AS OutletCode,
               LAG(c.DATE_ENTRY) OVER (
                 PARTITION BY CAST(c.DELV_DATE AS DATE), c.PJP, c.DSR
                 ORDER BY c.DATE_ENTRY
               ) AS PrevEntryTime
           FROM CASHMEMO c
+          INNER JOIN POP p ON p.COMPANY = c.COMPANY AND p.DISTRIBUTOR = c.DISTRIBUTOR
+            AND p.TOWN = c.TOWN AND p.LOCALITY = c.LOCALITY AND p.SLOCALITY = c.SLOCALITY AND p.POP = c.POP
           WHERE c.DELV_DATE >= @StartDate AND c.DELV_DATE <= @EndDate
             AND c.VISIT_TYPE = '02'
             AND c.DISTRIBUTOR = @Distributor

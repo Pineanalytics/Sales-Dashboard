@@ -18,6 +18,22 @@
   signatures, repairs the oldest mismatch first, and does no extraction when
   nothing changed. The API's distributor-scoped delete-and-replace keeps
   Nairobi and Nyeri isolated.
+
+.PARAMETER BackfillDate
+  One exact date (YYYY-MM-DD) to force-repair regardless of Smart's own
+  mismatch detection. Add -BackfillTo to widen this into an explicit range
+  covering every day from BackfillDate through BackfillTo inclusive, in one
+  run — needed to repair PjpDsrDailyActivity/OutletSkuDailySales history for
+  a branch whose invoice-line signatures were already stable before those
+  companion reports existed (Smart mode alone never revisits such a day).
+  Run this manually on each branch's own machine; it never touches the other
+  branch. Keep a single request to about a month given a live SQL Server
+  query per report across the full range.
+
+.EXAMPLE
+  ./sales-returns-sync.ps1 -BackfillDate 2026-03-01 -BackfillTo 2026-03-31
+  Repairs every report, including PjpDsrDailyActivity, for March 2026 on
+  this machine's own branch in one run.
 #>
 
 param(
@@ -26,7 +42,8 @@ param(
   [string]$Distributor = $env:SALES_RETURNS_DISTRIBUTOR,
   [ValidateSet("Smart", "Today", "Yesterday", "Catchup")]
   [string]$Window = "Smart",
-  [string]$BackfillDate
+  [string]$BackfillDate,
+  [string]$BackfillTo
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,6 +66,14 @@ if ($BackfillDate) {
     throw "BackfillDate must be a real YYYY-MM-DD date."
   }
 }
+$selectedToDate = $null
+if ($BackfillTo) {
+  if (-not $BackfillDate) { throw "BackfillTo requires BackfillDate." }
+  if ($BackfillTo -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not [datetime]::TryParseExact($BackfillTo, 'yyyy-MM-dd', $null, [Globalization.DateTimeStyles]::None, [ref]$selectedToDate)) {
+    throw "BackfillTo must be a real YYYY-MM-DD date."
+  }
+  if ($selectedToDate -lt $selectedDate) { throw "BackfillTo must not be earlier than BackfillDate." }
+}
 $lockScript = Join-Path $PSScriptRoot "sales-returns-sync-lock.ps1"
 . $lockScript
 $syncLock = Enter-SalesReturnsSyncLock -Distributor $Distributor
@@ -63,7 +88,13 @@ $control = $null
 try {
   if ($BackfillDate) {
     $env:SALES_RETURNS_BACKFILL_FROM = $BackfillDate
-    $effectiveWindow = "Selected date $BackfillDate"
+    if ($BackfillTo) {
+      $env:SALES_RETURNS_BACKFILL_TO = $BackfillTo
+      $effectiveWindow = "Selected range $BackfillDate to $BackfillTo"
+    }
+    else {
+      $effectiveWindow = "Selected date $BackfillDate"
+    }
   }
   elseif ($apiKey -and $Distributor) {
     try {
@@ -110,5 +141,6 @@ try {
 }
 finally {
   Remove-Item Env:SALES_RETURNS_BACKFILL_FROM -ErrorAction SilentlyContinue
+  Remove-Item Env:SALES_RETURNS_BACKFILL_TO -ErrorAction SilentlyContinue
   Exit-SalesReturnsSyncLock -Lock $syncLock
 }

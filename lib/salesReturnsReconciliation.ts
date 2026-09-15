@@ -18,26 +18,50 @@ function nairobiMidnight(now: Date, daysAgo: number): Date {
   return new Date(Date.UTC(nairobi.getUTCFullYear(), nairobi.getUTCMonth(), nairobi.getUTCDate() - daysAgo));
 }
 
+function parseBackfillBoundary(envVar: string, value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`${envVar} must be YYYY-MM-DD.`);
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`${envVar} must be a real YYYY-MM-DD date.`);
+  }
+  return parsed;
+}
+
 /**
- * Resolves an explicitly requested manual run. A backfill date is deliberately
- * one calendar day, not "from this date through yesterday"; after this process
- * exits, the independent five-minute scheduled task resumes its configured
- * Smart/Catchup mode normally.
+ * Resolves an explicitly requested manual run. A bare backfill date is
+ * deliberately one calendar day, not "from this date through yesterday";
+ * after this process exits, the independent five-minute scheduled task
+ * resumes its configured Smart/Catchup mode normally.
+ *
+ * `backfillToDate` (SALES_RETURNS_BACKFILL_TO) is opt-in and widens that same
+ * single day into an explicit [from, to] range in one run — for repairing a
+ * companion report (PjpDsrDailyActivity, OutletSkuDailySales) whose per-day
+ * grain (see pjpDsrDailyActivityQuery.ts's header) only ever gets populated
+ * on a day smart-mode's invoice-line signature actually repairs. A report
+ * added after a branch's invoice data was already stable can otherwise miss
+ * its entire backlog: no day ever mismatches, so uploadWindow never runs for
+ * it. This does not change signature-driven Smart reconciliation at all —
+ * every date in the range still overwrites via each upload route's own
+ * delete-and-replace-by-window, so re-running it is always safe to repeat.
+ * Keep an individual range to a single month or so; a very wide span means a
+ * correspondingly long live SQL Server query and upload.
  */
 export function resolveManualSalesReturnsWindow(
   window: string,
   backfillDate?: string,
-  now = new Date()
+  now = new Date(),
+  backfillToDate?: string
 ): { start: Date; end: Date } {
   if (backfillDate) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(backfillDate)) {
-      throw new Error("SALES_RETURNS_BACKFILL_FROM must be YYYY-MM-DD.");
+    const start = parseBackfillBoundary("SALES_RETURNS_BACKFILL_FROM", backfillDate);
+    if (!backfillToDate) return { start, end: start };
+    const end = parseBackfillBoundary("SALES_RETURNS_BACKFILL_TO", backfillToDate);
+    if (end.getTime() < start.getTime()) {
+      throw new Error("SALES_RETURNS_BACKFILL_TO must not be earlier than SALES_RETURNS_BACKFILL_FROM.");
     }
-    const selected = new Date(`${backfillDate}T00:00:00.000Z`);
-    if (Number.isNaN(selected.getTime()) || selected.toISOString().slice(0, 10) !== backfillDate) {
-      throw new Error("SALES_RETURNS_BACKFILL_FROM must be a real YYYY-MM-DD date.");
-    }
-    return { start: selected, end: selected };
+    return { start, end };
   }
 
   const today = nairobiMidnight(now, 0);
