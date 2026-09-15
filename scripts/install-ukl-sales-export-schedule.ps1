@@ -9,7 +9,7 @@
   The five-minute branch offset preserves the puller's single mutex and avoids
   two writers touching the watched folder at the same time. Normal hourly
   extraction resumes automatically at 18:05 (Nairobi) and 18:25 (Nyeri).
-  Every scheduled run writes one numbered snapshot. Dedicated historical
+  Every scheduled run writes one uniquely identified snapshot. Dedicated historical
   recovery tasks are intentionally not installed.
 #>
 param(

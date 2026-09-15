@@ -8,9 +8,11 @@
   Standalone — no dependency on the Sales-Dashboard repo, Node.js, or the
   Centegy DMS SQL Server, since this runs on a third machine (the one hosting
   D:\UKL_INTEGRATION\UPLOADS) with no direct path to either. Only needs
-  outbound HTTPS to the dashboard. Every saved export has a monotonically
-  increasing, three-digit run sequence for its branch and report date:
-  UKL_<BRANCH>_<DD.MM.YYYY>_<NNN>.csv (e.g. UKL_NAIROBI_10.08.2026_001.csv).
+  outbound HTTPS to the dashboard. Every saved export has a globally unique
+  run identifier for its branch and report date:
+  UKL_<BRANCH>_<DD.MM.YYYY>_<UTC timestamp>_<GUID>.csv.
+  The identifier is generated at write time, so it is never reused if the
+  downstream receiver deletes or archives every prior CSV.
 
 .PARAMETER Branch
   Differentiates files once multiple branches (Nairobi, later Nyeri) feed the
@@ -51,10 +53,9 @@
   skipped — it never blocks or fails the actual pull.
 
 .PARAMETER AlwaysExport
-  Saves a new, numbered snapshot of the newest populated delivery date on
+  Saves a new, uniquely identified snapshot of the newest populated delivery date on
   every invocation. The scheduled Server-PC cadence uses this mode so every
   configured hourly or ten-minute run produces a distinct hand-off file.
-  The sequence is allocated across both UPLOADS and Archive.
 
 .PARAMETER ClaimQueuedTrigger
   Used only by the dedicated Server-PC trigger task. Claims one
@@ -184,25 +185,23 @@ function Get-ExportFiles {
   if (Test-Path -LiteralPath $ArchiveFolder) {
     $files += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter "$prefix*.csv" -File -Recurse -ErrorAction SilentlyContinue)
   }
-  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(_\\d+)?\\.csv$" })
+  # Includes legacy _001 files and the timestamp/GUID IDs. This is used only
+  # for Smart-mode delivery verification, never to allocate a new run ID.
+  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(?:_[A-Za-z0-9_-]+)?\\.csv$" })
 }
 
-function Get-NextExportPath {
+function New-ExportPath {
   param([string]$ExportDate)
   $prefix = Get-ExportPrefix -ExportDate $ExportDate
-  $pattern = "^$([regex]::Escape($prefix))_(?<sequence>\\d+)\\.csv$"
-  $highestSequence = 0
-  foreach ($file in Get-ExportFiles -ExportDate $ExportDate) {
-    if ($file.Name -match $pattern) {
-      $highestSequence = [Math]::Max($highestSequence, [int]$Matches.sequence)
-    }
-  }
-  return Join-Path $DestFolder ("{0}_{1:D3}.csv" -f $prefix, ($highestSequence + 1))
+  # The timestamp is sortable; the full GUID prevents collisions if system time
+  # changes or the downstream receiver deletes every previous file.
+  $runId = "{0}_{1}" -f [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffffffZ"), [guid]::NewGuid().ToString("N")
+  return Join-Path $DestFolder ("{0}_{1}.csv" -f $prefix, $runId)
 }
 
 function Save-Export {
   param([string]$ExportDate)
-  $destFile = Get-NextExportPath -ExportDate $ExportDate
+  $destFile = New-ExportPath -ExportDate $ExportDate
   $tempFile = "$destFile.tmp"
 
   try {
@@ -296,7 +295,7 @@ function Save-ManifestState {
 
   if ($AlwaysExport) {
     $snapshot = $availableDays[0]
-    Write-Log "Cadence snapshot requested; writing a new numbered export for $($snapshot.date) ($($snapshot.rowCount) VPS rows)."
+    Write-Log "Cadence snapshot requested; writing a new unique export for $($snapshot.date) ($($snapshot.rowCount) VPS rows)."
     Save-Export -ExportDate ([string]$snapshot.date)
     return
   }
