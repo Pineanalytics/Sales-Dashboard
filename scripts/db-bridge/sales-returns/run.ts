@@ -4,6 +4,12 @@
 // compares a bounded set of exact daily signatures with the VPS, repairs the
 // oldest mismatch, verifies it, and only then records a successful heartbeat.
 // Manual today/yesterday/catchup/backfill windows remain available.
+// SALES_RETURNS_BACKFILL_FROM plus SALES_RETURNS_BACKFILL_TO widens a single
+// backfill day into an explicit range in one run — for repairing
+// PjpDsrDailyActivity/OutletSkuDailySales history that Smart mode alone never
+// touches once a branch's invoice-line signatures are already stable (see
+// resolveManualSalesReturnsWindow's own doc comment in
+// lib/salesReturnsReconciliation.ts). Keep a single request to about a month.
 process.loadEnvFile();
 
 import sql from "mssql";
@@ -281,7 +287,9 @@ async function main() {
 
     const { start, end } = resolveManualSalesReturnsWindow(
       mode,
-      process.env.SALES_RETURNS_BACKFILL_FROM
+      process.env.SALES_RETURNS_BACKFILL_FROM,
+      undefined,
+      process.env.SALES_RETURNS_BACKFILL_TO
     );
     const latestSourceDate = (await fetchLatestSalesReturnDate(pool, distributor, nairobiMidnight(0))) ?? end;
     const summary = await uploadWindow(pool, start, end, distributor, latestSourceDate, end);
