@@ -49,7 +49,7 @@ $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installedConsole`""
 $shortcut.WorkingDirectory = $InstallRoot
-$shortcut.Description = "Pinefrost Operations Console — $Role"
+$shortcut.Description = "Pinefrost Operations Console - $Role"
 $shortcut.IconLocation = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe,0"
 $shortcut.Save()
 
@@ -60,4 +60,3 @@ $shortcut.Save()
   ProjectPath = if ($Role -eq 'Server') { 'Not used on Server PC' } else { $ProjectPath }
   ServerPullerPath = if ($Role -eq 'Server') { $ServerPullerPath } else { 'Not used on Centegy PCs' }
 } | Format-List
-

@@ -62,17 +62,17 @@ function Get-TaskStatusRows {
     try {
       $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
       $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-      $result = if ($info.LastTaskResult -eq 0) { '0 (success)' } elseif ($null -eq $info.LastTaskResult) { '—' } else { [string]$info.LastTaskResult }
+      $result = if ($info.LastTaskResult -eq 0) { '0 (success)' } elseif ($null -eq $info.LastTaskResult) { '-' } else { [string]$info.LastTaskResult }
       $rows += [pscustomobject]@{
         Task = $task.TaskName
         State = [string]$task.State
-        LastRun = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('dd MMM yyyy HH:mm:ss') } else { '—' }
+        LastRun = if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('dd MMM yyyy HH:mm:ss') } else { '-' }
         Result = $result
-        NextRun = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('dd MMM yyyy HH:mm:ss') } else { '—' }
+        NextRun = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) { $info.NextRunTime.ToString('dd MMM yyyy HH:mm:ss') } else { '-' }
       }
     }
     catch {
-      $rows += [pscustomobject]@{ Task = $taskName; State = 'Missing'; LastRun = '—'; Result = $_.Exception.Message; NextRun = '—' }
+      $rows += [pscustomobject]@{ Task = $taskName; State = 'Missing'; LastRun = '-'; Result = $_.Exception.Message; NextRun = '-' }
     }
   }
   return $rows
@@ -140,7 +140,7 @@ function Invoke-LocalScript {
 }
 
 $form = [System.Windows.Forms.Form]::new()
-$form.Text = "Pinefrost Operations Console — $role"
+$form.Text = "Pinefrost Operations Console - $role"
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = [System.Drawing.Size]::new(1010, 610)
 $form.MinimumSize = [System.Drawing.Size]::new(1010, 610)
@@ -156,7 +156,7 @@ $title.AutoSize = $true
 $form.Controls.Add($title)
 
 $subtitle = [System.Windows.Forms.Label]::new()
-$subtitle.Text = "$role PC — local controls only. Existing task locks and permissions remain in force."
+$subtitle.Text = "$role PC - local controls only. Existing task locks and permissions remain in force."
 $subtitle.Location = [System.Drawing.Point]::new(26, 55)
 $subtitle.AutoSize = $true
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(83, 104, 96)
