@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
@@ -5,11 +6,16 @@ import { prisma } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Per-rep, per-customer invoice/return browsing for the Leverage timestamp
-// page's customer leaderboard drawer — same shape as
-// /api/eabl-call-performance/rep-detail, but every row here is a completed
-// SalesReturnLine transaction (no isProductive/timeIn/timeOut fields exist
-// in this source; see customers/route.ts's own header comment).
+// Per-rep detail for the Leverage timestamp page's customer leaderboard
+// drawer — same overall/dailyTrend/weeklyTrend/visits shape as Pine's own
+// rep detail (lib/timestampSummary.ts's getTimestampRepDetail /
+// app/api/timestamps/rep-detail), including the same "Week N" (day-of-month
+// ÷ 7) bucketing convention, so the Leverage drawer reads like Pine's rep
+// journey panel. Every row here is a completed SalesReturnLine transaction —
+// no isProductive/timeIn/timeOut/outletId fields exist in this source, so
+// "overall"/trend rows use Customers/Net sales/Pieces instead of
+// Strike rate/Outlets Covered (see customers/route.ts's header comment for
+// why a strike rate can't be computed from this source at all).
 
 function monthWindow(month: string | null) {
   const now = new Date();
@@ -29,6 +35,8 @@ function dayWindow(date: string) {
   return { start, end };
 }
 
+const number = (value: bigint | number | null | undefined) => (value == null ? 0 : Number(value));
+
 export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
@@ -44,19 +52,58 @@ export async function GET(request: NextRequest) {
 
   const monthRange = monthWindow(month);
   const range = selectedDate ? dayWindow(selectedDate) : monthRange;
+  const where = Prisma.sql`"salesRepName" = ${salesRepName} AND "deliveryDate" >= ${range.start} AND "deliveryDate" < ${range.end}`;
+
+  type OverallRow = { customers: bigint; transactions: bigint; activeDays: bigint; netSales: number; saleQtyPieces: number; freeQtyPieces: number };
+  type TrendRow = { label: string; customers: bigint; transactions: bigint; netSales: number; saleQtyPieces: number };
 
   try {
-    const visits = await prisma.salesReturnLine.findMany({
-      where: { salesRepName, deliveryDate: { gte: range.start, lt: range.end } },
-      orderBy: [{ deliveryDate: "asc" }, { invoiceNo: "asc" }],
-      select: {
-        deliveryDate: true, customerCode: true, route: true, routeName: true,
-        invoiceNo: true, documentType: true, documentTypeDesc: true,
-        saleQtyPieces: true, freeQtyPieces: true, netSale: true,
-      },
-    });
+    const [overallRows, dailyTrend, weeklyTrend, visits] = await Promise.all([
+      prisma.$queryRaw<OverallRow[]>(Prisma.sql`
+        SELECT COUNT(DISTINCT "customerCode") AS customers, COUNT(*)::int AS transactions,
+          COUNT(DISTINCT "deliveryDate"::date) AS "activeDays",
+          COALESCE(SUM("netSale"), 0)::double precision AS "netSales",
+          COALESCE(SUM("saleQtyPieces"), 0)::double precision AS "saleQtyPieces",
+          COALESCE(SUM("freeQtyPieces"), 0)::double precision AS "freeQtyPieces"
+        FROM "SalesReturnLine" WHERE ${where}`),
+      prisma.$queryRaw<TrendRow[]>(Prisma.sql`
+        SELECT to_char("deliveryDate", 'YYYY-MM-DD') AS label, COUNT(DISTINCT "customerCode") AS customers,
+          COUNT(*)::int AS transactions, COALESCE(SUM("netSale"), 0)::double precision AS "netSales",
+          COALESCE(SUM("saleQtyPieces"), 0)::double precision AS "saleQtyPieces"
+        FROM "SalesReturnLine" WHERE ${where}
+        GROUP BY "deliveryDate" ORDER BY "deliveryDate"`),
+      // Same "Week N" (calendar day-of-month ÷ 7) bucketing as Pine's own
+      // weeklyTrend (lib/timestampSummary.ts's getTimestampRepDetail).
+      prisma.$queryRaw<TrendRow[]>(Prisma.sql`
+        SELECT CONCAT('Week ', CEIL(EXTRACT(DAY FROM "deliveryDate")::numeric / 7)::integer) AS label,
+          COUNT(DISTINCT "customerCode") AS customers, COUNT(*)::int AS transactions,
+          COALESCE(SUM("netSale"), 0)::double precision AS "netSales",
+          COALESCE(SUM("saleQtyPieces"), 0)::double precision AS "saleQtyPieces"
+        FROM "SalesReturnLine" WHERE ${where}
+        GROUP BY CEIL(EXTRACT(DAY FROM "deliveryDate")::numeric / 7)::integer
+        ORDER BY CEIL(EXTRACT(DAY FROM "deliveryDate")::numeric / 7)::integer`),
+      prisma.salesReturnLine.findMany({
+        where: { salesRepName, deliveryDate: { gte: range.start, lt: range.end } },
+        orderBy: [{ deliveryDate: "asc" }, { invoiceNo: "asc" }],
+        select: {
+          deliveryDate: true, customerCode: true, route: true, routeName: true,
+          invoiceNo: true, documentType: true, documentTypeDesc: true,
+          saleQtyPieces: true, freeQtyPieces: true, netSale: true,
+        },
+      }),
+    ]);
+
+    const overall = overallRows[0];
+    const transactions = number(overall?.transactions);
     return NextResponse.json({
       salesRepName,
+      overall: {
+        customers: number(overall?.customers), transactions, activeDays: number(overall?.activeDays),
+        netSales: overall?.netSales ?? 0, saleQtyPieces: overall?.saleQtyPieces ?? 0, freeQtyPieces: overall?.freeQtyPieces ?? 0,
+        avgNetSalePerTransaction: transactions > 0 ? (overall?.netSales ?? 0) / transactions : null,
+      },
+      dailyTrend: dailyTrend.map((r) => ({ label: r.label, customers: number(r.customers), transactions: number(r.transactions), netSales: r.netSales, saleQtyPieces: r.saleQtyPieces })),
+      weeklyTrend: weeklyTrend.map((r) => ({ label: r.label, customers: number(r.customers), transactions: number(r.transactions), netSales: r.netSales, saleQtyPieces: r.saleQtyPieces })),
       visits: visits.map((v) => ({
         date: v.deliveryDate.toISOString().slice(0, 10),
         customerCode: v.customerCode,
