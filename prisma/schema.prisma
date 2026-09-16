@@ -562,7 +562,16 @@ model PrincipalKpiJbpTarget {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([principal, fiscalYear, periodKey, customerId, category])
+  // The @@unique([principal, fiscalYear, periodKey, customerId, category])
+  // declared here from 2026-09-14 to 2026-09-16 never actually reached
+  // production: `prisma db push` refused it outright ("there might be data
+  // loss") because live rows already violated it, which blocks the *entire*
+  // schema diff atomically — including every other, unrelated pending
+  // change. Dropped to unblock deploys; see
+  // /api/principal-kpis/mars/jbp/duplicates for what's colliding. Re-add
+  // once those rows are cleared (most likely: re-running
+  // scripts/principal-kpis/import-mars.ts, which already de-duplicates on
+  // this exact key before its own full deleteMany+createMany replace).
   @@index([principal, fiscalYear, periodNo, category])
   @@index([principal, customerId])
 }
