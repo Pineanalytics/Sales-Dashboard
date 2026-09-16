@@ -772,6 +772,12 @@ model StockActual {
   principal     String
   item          String
   itemCode      String
+  // SAP's own OMRC "Manufacturer" master (queried as "Brand/Manufacturer" in
+  // scripts/db-bridge/queries/stockBalance.ts) — this business repurposes it
+  // to record product brand, since SAP Business One has no dedicated brand
+  // field. Null wherever that SAP master record is blank; lib/datasetStore.ts's
+  // overlayStock falls back to Product.series in that case.
+  brand         String?
   openingVolume Float
   openingPcs    Float
   openingValue  Float

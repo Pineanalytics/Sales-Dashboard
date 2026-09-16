@@ -33,6 +33,11 @@ function finite(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function nullableText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 /** Sundays are excluded, matching the current Standard Stock query's selling
  * calendar. Public-holiday exclusions remain intentionally empty until they are
  * supplied as an authoritative maintained list rather than guessed in code. */
@@ -94,6 +99,7 @@ export function buildDirectStock(
     principal: string;
     item: string;
     itemCode: string;
+    brand: string | null;
     openingVolume: number;
     openingPcs: number;
     openingValue: number;
@@ -124,6 +130,7 @@ export function buildDirectStock(
         principal: principal.principal,
         item,
         itemCode: row.itemCode,
+        brand: nullableText(row.brand),
         openingVolume: 0,
         openingPcs: 0,
         openingValue: 0,
@@ -165,6 +172,10 @@ export function buildDirectStock(
       principal: principal.principal,
       item,
       itemCode: demandRow.itemCode,
+      // No StockBalanceRow exists for this SKU (zero stock, demand-only) so
+      // there is no SAP Brand/Manufacturer value to read here; overlayStock's
+      // Product.series fallback is the only brand source for this row.
+      brand: null,
       openingVolume: 0,
       openingPcs: 0,
       openingValue: 0,
@@ -198,6 +209,7 @@ export function buildDirectStock(
         principal: row.principal,
         key: normalizePrincipalKey(row.principal),
         item: row.item,
+        brand: row.brand,
         openingVolume,
         openingPcs,
         openingValue,

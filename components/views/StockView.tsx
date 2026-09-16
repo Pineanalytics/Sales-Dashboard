@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import type { ViewProps } from "./types";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -9,7 +10,7 @@ import { StockStatusPill } from "@/components/ui/StockPill";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, stockActionTier, tierBarColor } from "@/lib/format";
-import { aggregateStockByPrincipal } from "@/lib/stock";
+import { aggregateStockByPrincipal, aggregateStockByBrand, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
@@ -35,17 +36,33 @@ function matchesStatus(action: string, filter: StatusFilter): boolean {
 export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const rollups = aggregateStockByPrincipal(dataset);
+  const allRollups = aggregateStockByPrincipal(dataset);
+  // Principals with no Sales revenue in the most recent three months move to
+  // Dormant Stock instead of cluttering operational Stock Balance — except a
+  // handful of newly onboarded/"emerging" principals (see
+  // classifyDormantPrincipals's own doc comment).
+  const { dormantKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
+  const rollups = allRollups.filter((r) => !dormantKeys.has(r.key));
+  const dormantRollups = allRollups.filter((r) => dormantKeys.has(r.key));
+  // The portfolio ("all principals") baseline must exclude dormant stock too —
+  // dataset.stockTotal is a raw, unfiltered dataset-wide fact used elsewhere
+  // (e.g. Overview) and must keep its own meaning, so this page recomputes
+  // its own active-only total instead of reusing it directly.
+  const activeStockTotal = sumStockRollups(rollups);
+
   // selectedPrincipalKey is the raw Principal string (e.g. "EABL-Nyeri") — Stock has no
   // location split in its source sheet, so it always rolls up by normalized brand key.
-  const selectedRollup = selectedPrincipalKey ? rollups.find((r) => r.key === normalizePrincipalKey(selectedPrincipalKey)) ?? null : null;
+  const normalizedSelectedKey = selectedPrincipalKey ? normalizePrincipalKey(selectedPrincipalKey) : null;
+  const selectedRollup = normalizedSelectedKey ? rollups.find((r) => r.key === normalizedSelectedKey) ?? null : null;
+  const selectedIsDormant = normalizedSelectedKey !== null && dormantKeys.has(normalizedSelectedKey);
+  const selectedDormantRollup = selectedIsDormant ? dormantRollups.find((r) => r.key === normalizedSelectedKey) ?? null : null;
 
-  const stockValue = selectedRollup ? selectedRollup.value : dataset.stockTotal.value;
-  const daysStock = selectedRollup ? selectedRollup.daysStock : dataset.stockTotal.daysStock;
-  const outOfStockCount = selectedRollup ? selectedRollup.outOfStockCount : dataset.stockTotal.outOfStockCount;
-  const runningOutCount = selectedRollup ? selectedRollup.runningOutCount : dataset.stockTotal.runningOutCount;
-  const noDataCount = selectedRollup ? selectedRollup.noDataCount : dataset.stockTotal.noDataCount;
-  const action = selectedRollup ? selectedRollup.action : dataset.stockTotal.action;
+  const stockValue = selectedRollup ? selectedRollup.value : activeStockTotal.value;
+  const daysStock = selectedRollup ? selectedRollup.daysStock : activeStockTotal.daysStock;
+  const outOfStockCount = selectedRollup ? selectedRollup.outOfStockCount : activeStockTotal.outOfStockCount;
+  const runningOutCount = selectedRollup ? selectedRollup.runningOutCount : activeStockTotal.runningOutCount;
+  const noDataCount = selectedRollup ? selectedRollup.noDataCount : activeStockTotal.noDataCount;
+  const action = selectedRollup ? selectedRollup.action : activeStockTotal.action;
 
   const principalItemsAll = selectedRollup
     ? [...dataset.stockItems.filter((i) => i.key === selectedRollup.key)].sort((a, b) => b.openingValue - a.openingValue)
@@ -54,14 +71,18 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
 
   const filteredRollups = rollups.filter((r) => matchesStatus(r.action, statusFilter));
 
+  const brandRollups = [...aggregateStockByBrand(dataset, selectedRollup?.key ?? null)]
+    .filter((b) => !dormantKeys.has(b.principalKey))
+    .sort((a, b) => b.value - a.value);
+
   // "Item Count" reflects the active tab's filtered rows — every other KPI stays a
-  // portfolio/selected-principal fact from dataset.stockTotal / selectedRollup, never
+  // portfolio/selected-principal fact from activeStockTotal / selectedRollup, never
   // recomputed from a filtered subset.
   const itemCount =
     statusFilter === "all"
       ? selectedRollup
         ? selectedRollup.itemCount
-        : dataset.stockTotal.itemCount
+        : activeStockTotal.itemCount
       : selectedRollup
         ? principalItems.length
         : filteredRollups.reduce((sum, r) => sum + r.itemCount, 0);
@@ -103,11 +124,33 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
           { value: 0, volume: 0, pcs: 0, itemCount: 0, outOfStockCount: 0, runningOutCount: 0, noDataCount: 0 }
         );
 
+  if (selectedIsDormant) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SectionCard title={`${selectedDormantRollup?.name ?? "This principal"} has no active sales`}>
+          <p className="p-1 text-sm text-muted">
+            No Sales revenue in the last three months, so its stock has moved out of operational Stock Balance.
+            {selectedDormantRollup ? ` ${formatNumber(selectedDormantRollup.itemCount)} item(s) worth ${formatCompact(selectedDormantRollup.value)} remain on hand.` : ""}
+            {" "}<Link href="/dormant-stock" className="font-semibold text-primary-blue hover:underline">View it in Dormant Stock →</Link>
+          </p>
+        </SectionCard>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {dataset.stockSource?.kind === "sap-direct" && (
         <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
           <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module.</p>
+        </SectionCard>
+      )}
+      {!selectedRollup && dormantRollups.length > 0 && (
+        <SectionCard title="Dormant principals excluded" action={<Link href="/dormant-stock" className="text-xs font-semibold text-primary-blue hover:underline">Open Dormant Stock →</Link>}>
+          <p className="p-1 text-sm text-muted">
+            {dormantRollups.length} principal{dormantRollups.length === 1 ? "" : "s"} with no Sales revenue in the last three months (
+            {dormantRollups.map((r) => r.name).sort().join(", ")}) are excluded from the figures below and shown in Dormant Stock instead.
+          </p>
         </SectionCard>
       )}
       <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5 w-fit">
@@ -152,11 +195,47 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
         </ResponsiveContainer>
       </SectionCard>
 
+      <SectionCard
+        title={selectedRollup ? `${selectedRollup.name} — Stock by Brand` : "Stock by Brand (all principals)"}
+        action={<span className="text-xs text-muted">{brandRollups.length} brand{brandRollups.length === 1 ? "" : "s"} · Product Master&apos;s Series field</span>}
+      >
+        <TableWrap>
+          <Thead>
+            {!selectedRollup && <Th>Principal</Th>}
+            <Th>Brand</Th>
+            <Th align="right">Stock Value</Th>
+            <Th align="right">Volume</Th>
+            <Th align="right">Pcs</Th>
+            <Th align="right">Items</Th>
+            <Th align="right">Cover Days</Th>
+            <Th align="center">Status</Th>
+          </Thead>
+          <tbody>
+            {brandRollups.slice(0, 60).map((b) => (
+              <tr key={`${b.principalKey}-${b.brand}`}>
+                {!selectedRollup && <Td>{b.principalName}</Td>}
+                <Td>{b.brand}</Td>
+                <Td align="right">{formatCompact(b.value)}</Td>
+                <Td align="right">{formatNumber(b.volume)}</Td>
+                <Td align="right">{formatNumber(b.pcs)}</Td>
+                <Td align="right">{formatNumber(b.itemCount)}</Td>
+                <Td align="right">{b.daysStock.toFixed(1)}</Td>
+                <Td align="center"><StockStatusPill action={b.action} /></Td>
+              </tr>
+            ))}
+            {brandRollups.length === 0 && (
+              <tr><td colSpan={selectedRollup ? 6 : 7} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
+            )}
+          </tbody>
+        </TableWrap>
+      </SectionCard>
+
       {selectedRollup ? (
         <SectionCard title={`${selectedRollup.name} — Item Detail (top ${Math.min(80, principalItems.length)} of ${principalItems.length})`}>
           <TableWrap>
             <Thead>
               <Th>Item</Th>
+              <Th>Brand</Th>
               <Th align="right">Stock Value</Th>
               <Th align="right">Volume</Th>
               <Th align="right">Pcs</Th>
@@ -170,6 +249,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                   <Td className="max-w-[220px] truncate" title={i.item}>
                     {i.item}
                   </Td>
+                  <Td>{i.brand?.trim() || "Unspecified"}</Td>
                   <Td align="right">{formatCompact(i.openingValue)}</Td>
                   <Td align="right">{formatNumber(i.openingVolume)}</Td>
                   <Td align="right">{formatNumber(i.openingPcs)}</Td>
@@ -182,6 +262,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
               ))}
               <TotalRow>
                 <Td>Total ({principalItems.length} items)</Td>
+                <Td>{null}</Td>
                 <Td align="right">{formatCompact(itemTotal ? itemTotal.value : selectedRollup.value)}</Td>
                 <Td align="right">{formatNumber(itemTotal ? itemTotal.volume : selectedRollup.volume)}</Td>
                 <Td align="right">{formatNumber(itemTotal ? itemTotal.pcs : selectedRollup.pcs)}</Td>
@@ -230,16 +311,16 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                 ))}
               <TotalRow>
                 <Td>Total</Td>
-                <Td align="right">{formatCompact(principalTotal ? principalTotal.value : dataset.stockTotal.value)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.volume : dataset.stockTotal.volume)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.pcs : dataset.stockTotal.pcs)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.itemCount : dataset.stockTotal.itemCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.outOfStockCount : dataset.stockTotal.outOfStockCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.runningOutCount : dataset.stockTotal.runningOutCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.noDataCount : dataset.stockTotal.noDataCount)}</Td>
-                <Td align="right">{principalTotal ? "—" : dataset.stockTotal.daysStock.toFixed(1)}</Td>
-                <Td align="right">{principalTotal ? "—" : formatCompact(dataset.stockTotal.rrWeekValue)}</Td>
-                <Td align="center">{principalTotal ? "—" : <StockStatusPill action={dataset.stockTotal.action} />}</Td>
+                <Td align="right">{formatCompact(principalTotal ? principalTotal.value : activeStockTotal.value)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.volume : activeStockTotal.volume)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.pcs : activeStockTotal.pcs)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.itemCount : activeStockTotal.itemCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.outOfStockCount : activeStockTotal.outOfStockCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.runningOutCount : activeStockTotal.runningOutCount)}</Td>
+                <Td align="right">{formatNumber(principalTotal ? principalTotal.noDataCount : activeStockTotal.noDataCount)}</Td>
+                <Td align="right">{principalTotal ? "—" : activeStockTotal.daysStock.toFixed(1)}</Td>
+                <Td align="right">{principalTotal ? "—" : formatCompact(activeStockTotal.rrWeekValue)}</Td>
+                <Td align="center">{principalTotal ? "—" : <StockStatusPill action={activeStockTotal.action} />}</Td>
               </TotalRow>
             </tbody>
           </TableWrap>

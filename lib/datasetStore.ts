@@ -547,10 +547,20 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
   const rows = await prisma.stockActual.findMany({ orderBy: { sourceDate: "desc" } });
   if (rows.length === 0) return dataset;
 
+  // row.brand (SAP's own OMRC "Manufacturer" master, see StockActual's schema
+  // comment) is the primary brand source. Product Master's "series" is a
+  // secondary fallback for whatever it's blank on - the next-closest real,
+  // admin-maintained grouping this pipeline has, joined in by itemCode/itemNo.
+  // Left as null when neither source has anything; the UI groups those under
+  // "Unspecified" rather than dropping the item.
+  const products = await prisma.product.findMany({ select: { itemNo: true, series: true } });
+  const seriesByItemCode = new Map(products.map((p) => [p.itemNo, p.series]));
+
   const stockItems: StockItem[] = rows.map((row) => ({
     principal: row.principal,
     key: normalizePrincipalKey(row.principal),
     item: row.item,
+    brand: row.brand?.trim() || seriesByItemCode.get(row.itemCode) || null,
     openingVolume: row.openingVolume,
     openingPcs: row.openingPcs,
     openingValue: row.openingValue,

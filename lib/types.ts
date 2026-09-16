@@ -92,6 +92,13 @@ export interface StockItem {
   principal: string;
   key: string;
   item: string;
+  /** SAP's own OMRC "Manufacturer" master (queried as "Brand/Manufacturer" in
+   *  scripts/db-bridge/queries/stockBalance.ts - this business repurposes it
+   *  to record product brand), falling back to Product Master's "series"
+   *  field when that's blank (see lib/datasetStore.ts's overlayStock). Null
+   *  for the legacy Excel Snapshot stock path (which carries no item code to
+   *  join on) and for any live SAP item neither source has brand data for. */
+  brand?: string | null;
   openingVolume: number;
   openingPcs: number;
   openingValue: number;
