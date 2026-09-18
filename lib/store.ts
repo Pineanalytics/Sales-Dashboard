@@ -24,6 +24,11 @@ interface DashboardState {
   // reloads, not just client-side navigation. Hovering over a collapsed rail temporarily
   // reveals labels without changing this — see Sidebar.tsx's own hover state.
   sidebarCollapsed: boolean;
+  // Hides Sidebar/Header/GlobalFilterBar for a clean, presentation-ready view
+  // (see AnalyticsShell.tsx). Deliberately session-only, unlike sidebarCollapsed —
+  // always defaults off so a reload never leaves someone stuck in a chrome-less
+  // view they didn't just ask for.
+  presentationMode: boolean;
   history: DatasetSnapshotSummary[];
   // Global Day Name filter (Executive Overview's Week 1-4/Daily Projection cards,
   // which are the only tiles with a day-of-week dimension to filter — see
@@ -42,6 +47,7 @@ interface DashboardState {
   clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setPresentationMode: (enabled: boolean) => void;
 
   fetchLatest: () => Promise<void>;
   /** Silently re-fetches the latest dataset in the background — unlike fetchLatest(),
@@ -81,6 +87,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   hasUserSelectedPeriod: false,
   sidebarOpen: false,
   sidebarCollapsed: false,
+  presentationMode: false,
   history: [],
   selectedDayNames: new Set(ALL_DAY_NAMES),
   salesSection: "cockpit",
@@ -139,6 +146,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
     set({ sidebarCollapsed: collapsed });
   },
+  setPresentationMode: (enabled) => set({ presentationMode: enabled }),
 
   fetchLatest: async () => {
     set({ status: "loading", error: null });

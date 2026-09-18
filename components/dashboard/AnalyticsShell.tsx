@@ -35,6 +35,7 @@ export function AnalyticsShell({
   const status = useDashboardStore((s) => s.status);
   const setDataset = useDashboardStore((s) => s.setDataset);
   const fetchLatest = useDashboardStore((s) => s.fetchLatest);
+  const presentationMode = useDashboardStore((s) => s.presentationMode);
   const pathname = usePathname();
   // Principal KPIs and Coaching have compact, source-specific APIs. They must
   // never make the shell hydrate the portfolio-sized workbook dataset first.
@@ -78,10 +79,22 @@ export function AnalyticsShell({
   return (
     <UserProvider value={user}>
       <div className="flex flex-1 min-h-0">
-        <Sidebar user={user} />
+        {!presentationMode ? (
+          <div className="no-print">
+            <Sidebar user={user} />
+          </div>
+        ) : null}
         <div className="flex-1 flex flex-col min-w-0">
-          <Header user={user} />
-          {requiresDataset ? <GlobalFilterBar /> : null}
+          {!presentationMode ? (
+            <div className="no-print">
+              <Header user={user} />
+            </div>
+          ) : null}
+          {requiresDataset && !presentationMode ? (
+            <div className="no-print">
+              <GlobalFilterBar />
+            </div>
+          ) : null}
           <main className="flex-1 p-3 md:p-4 flex flex-col gap-4">
             {requiresDataset && status === "loading" && !dataset ? (
               <FullPageSpinner label="Loading dashboard data…" />
