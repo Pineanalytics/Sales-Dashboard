@@ -89,7 +89,9 @@ function SalesCockpit() {
           accent="mission"
           label={`${period.kind} Target`}
           value={currentSummary.target !== null ? <AnimatedValue value={currentSummary.target} format={formatCompact} /> : "N/A"}
-          sublabel={targetBalance !== null ? `${targetBalance >= 0 ? "Balance" : "Ahead by"} ${formatCompact(Math.abs(targetBalance))}` : "No target loaded"}
+          sublabel={targetBalance !== null
+            ? `${targetBalance >= 0 ? "Balance" : "Ahead by"} ${formatCompact(Math.abs(targetBalance))}${currentSummary.mtdTargetPacing ? ` · ${currentSummary.mtdTargetPacing.elapsedDays}/${currentSummary.mtdTargetPacing.daysInMonth} days elapsed` : ""}`
+            : "No target loaded"}
         />
         <KpiCard
           accent="mission"

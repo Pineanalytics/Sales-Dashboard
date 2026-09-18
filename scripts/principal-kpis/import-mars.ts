@@ -79,42 +79,46 @@ function buildRtmCustomers(workbook: XLSX.WorkBook) {
     rtmType: nullable(field(row, "Type")), assignedRep: nullable(field(row, "User Name", "Assigned Rep")),
   }));
 }
-/** JBP (Joint Business Plan) customer targets, from the "JBP Targets"
- * sheet's own pre-computed outlet-level "Total Target" rows (source sheet
- * "Overall") — NOT a sum of the sheet's per-category rows (4P/2P/10P/
- * Orbit): confirmed against the live workbook that those don't add up to
- * the same customer/period's "Total Target" figure, so recomputing it here
- * would silently diverge from what the sheet itself reports as the
- * outlet's overall target. Customer ID 0 rows are Excel aggregation
- * artifacts in the "Overall" sheet, not real outlets, and are dropped. */
-function buildJbpTargets(workbook: XLSX.WorkBook) {
-  const combined = new Map<string, { customerId: string; customerName: string | null; tier: string | null; area: string | null; periodKey: string; targetCases: number; targetSsu: number }>();
-  for (const row of rows(workbook, "JBP Targets")) {
-    if (string(field(row, "Category")).toLowerCase() !== "total target") continue;
-    const customerId = string(field(row, "Customer ID", "CustomerID"));
-    if (!customerId || customerId === "0") continue;
-    const mapped = {
-      customerId,
-      customerName: nullable(field(row, "Customer Name", "CustomerName")),
-      tier: nullable(field(row, "Tier")),
-      area: nullable(field(row, "AREA", "Area")),
-      periodKey: periodKey(field(row, "Period")),
-      targetCases: numeric(field(row, "Cases")),
-      targetSsu: numeric(field(row, "SSUs", "SSU")),
+
+/**
+ * The JBP workbook uses a compact, human-readable Period Key rather than the
+ * operational Productive Target layout.  Import it separately so that its
+ * customer/category targets remain traceable to the exact source format.
+ */
+function buildJbpPeriods(workbook: XLSX.WorkBook) {
+  return rows(workbook, "Period Key").map((row) => {
+    const fiscalYear = string(field(row, "MarsYear", "Fiscal Year", "Year"));
+    const key = periodKey(field(row, "Period", "PO", "Period Key"));
+    if (!fiscalYear) throw new Error(`JBP Period Key row ${key} is missing MarsYear.`);
+    return {
+      fiscalYear, periodKey: key, periodNo: periodNo(key),
+      startDate: isoDate(field(row, "StartDate", "Start Date")),
+      endDate: isoDate(field(row, "EndDate", "End Date")),
     };
-    const key = `${mapped.customerId}|${mapped.periodKey}`;
-    const existing = combined.get(key);
-    // A handful of outlets carry two "Total Target" rows for the same
-    // period in the live workbook — summed rather than one silently
-    // overwriting the other, same duplicate-row rule buildTargets() above
-    // already applies to its own sheet.
-    if (!existing) combined.set(key, mapped);
-    else {
-      existing.targetCases += mapped.targetCases;
-      existing.targetSsu += mapped.targetSsu;
-      if (!existing.customerName) existing.customerName = mapped.customerName;
-    }
+  });
+}
+
+function buildJbpTargets(workbook: XLSX.WorkBook, periods: ReturnType<typeof buildJbpPeriods>) {
+  const periodByKey = new Map(periods.map((period) => [period.periodKey, period]));
+  const combined = new Map<string, { fiscalYear: string; periodKey: string; periodNo: number; customerId: string; customerName: string | null; category: string; tier: string | null; area: string | null; casesTarget: number; ssuTarget: number }>();
+  for (const [index, row] of rows(workbook, "Target Data").entries()) {
+    const customerId = string(field(row, "Customer ID", "CustomerID", "Customer Id"));
+    const category = string(field(row, "Category"));
+    if (!customerId || !category) continue;
+    const key = periodKey(field(row, "Period", "PO", "Period Key"));
+    const period = periodByKey.get(key);
+    if (!period) throw new Error(`JBP Target Data row ${index + 2} references ${key}, which is not in Period Key.`);
+    const rowKey = `${period.fiscalYear}|${key}|${customerId}|${category}`;
+    const existing = combined.get(rowKey) ?? {
+      fiscalYear: period.fiscalYear, periodKey: key, periodNo: period.periodNo, customerId,
+      customerName: nullable(field(row, "Customer Name", "CustomerName")), category,
+      tier: nullable(field(row, "Tier")), area: nullable(field(row, "AREA", "Area")), casesTarget: 0, ssuTarget: 0,
+    };
+    existing.casesTarget += numeric(field(row, "Cases", "Cases Target"));
+    existing.ssuTarget += numeric(field(row, "SSUs", "SSU", "SSU Target"));
+    combined.set(rowKey, existing);
   }
+  if (combined.size === 0) throw new Error("JBP Target Data contains no customer/category/period targets.");
   return [...combined.values()];
 }
 function buildProductiveTargets(workbook: XLSX.WorkBook) {
@@ -286,13 +290,24 @@ async function main() {
   if (!apiKey) throw new Error("Missing UPLOAD_API_KEY in .env.");
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const args = process.argv.slice(2);
-  const dir = args.find((arg) => !arg.startsWith("--")) || DEFAULT_DIR;
+  const jbpFlag = args.indexOf("--jbp");
+  const positional = args.filter((arg, index) => !arg.startsWith("--") && !(jbpFlag >= 0 && index === jbpFlag + 1));
+  const dir = positional[0] || DEFAULT_DIR;
+  const jbpPath = jbpFlag >= 0 ? args[jbpFlag + 1] : process.env.MARS_JBP_WORKBOOK;
+  if (jbpFlag >= 0 && (!jbpPath || jbpPath.startsWith("--"))) throw new Error("--jbp requires a path to JBP_Customer_Performance_vs_Target.xlsx.");
   const targets = read(`${dir}\\Productive Target.xlsx`);
   const products = read(`${dir}\\ProductMasterData.xlsx`);
   const rawPath = `${dir}\\Mars Raw Data_PTD.xlsx`;
-  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets), jbpTargets: buildJbpTargets(targets) };
-  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers, ${reference.jbpTargets.length} JBP customer targets.`);
+  const reference = { kind: "reference", periods: buildPeriods(targets), products: buildProducts(products), roster: buildRoster(targets), targets: buildTargets(targets), productiveTargets: buildProductiveTargets(targets), rtmCustomers: buildRtmCustomers(targets) };
+  console.log(`[mars-kpis] Reference: ${reference.periods.length} periods, ${reference.products.length} products, ${reference.roster.length} roster rows, ${reference.targets.length} SSU targets, ${reference.productiveTargets.length} productive targets, ${reference.rtmCustomers.length} RTM customers.`);
   await post(appUrl, apiKey, reference);
+  if (jbpPath) {
+    const jbpWorkbook = read(jbpPath);
+    const periods = buildJbpPeriods(jbpWorkbook);
+    const jbpTargets = buildJbpTargets(jbpWorkbook, periods);
+    await post(appUrl, apiKey, { kind: "jbp-reference", periods, targets: jbpTargets });
+    console.log(`[mars-kpis] JBP reference: ${periods.length} fiscal periods, ${jbpTargets.length} customer/category targets.`);
+  }
   if (args.includes("--reference-only")) {
     console.log("[mars-kpis] Reference import complete; workbook actuals were intentionally not replaced.");
     return;

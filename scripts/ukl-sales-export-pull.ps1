@@ -8,9 +8,11 @@
   Standalone — no dependency on the Sales-Dashboard repo, Node.js, or the
   Centegy DMS SQL Server, since this runs on a third machine (the one hosting
   D:\UKL_INTEGRATION\UPLOADS) with no direct path to either. Only needs
-  outbound HTTPS to the dashboard. Every saved export has a monotonically
-  increasing, three-digit run sequence for its branch and report date:
-  UKL_<BRANCH>_<DD.MM.YYYY>_<NNN>.csv (e.g. UKL_NAIROBI_10.08.2026_001.csv).
+  outbound HTTPS to the dashboard. Every saved export has a globally unique
+  run identifier for its branch and report date:
+  UKL_<BRANCH>_<DD.MM.YYYY>_<UTC date>_<UTC time and GUID>.csv.
+  The identifier is generated at write time, so it is never reused if the
+  downstream receiver deletes or archives every prior CSV.
 
 .PARAMETER Branch
   Differentiates files once multiple branches (Nairobi, later Nyeri) feed the
@@ -20,6 +22,11 @@
   Optional YYYY-MM-DD manual override. When omitted, Smart mode compares a
   branch-scoped VPS manifest with local state, repairs the oldest missing or
   changed CSV, and naturally advances to the latest populated delivery date.
+
+.PARAMETER LookbackDays
+  Number of prior calendar dates to include with today in a Smart manifest
+  check. Normal frequent runs use one prior date (today + yesterday). The
+  Server-PC recovery schedules use seven prior dates to detect late postings.
 
 .PARAMETER ArchiveFolder
   Folder where the downstream watcher moves successfully consumed CSV files.
@@ -45,6 +52,11 @@
   environment variable of the same name; if that's unset, alerting is just
   skipped — it never blocks or fails the actual pull.
 
+.PARAMETER AlwaysExport
+  Saves a new, uniquely identified snapshot of the newest populated delivery date on
+  every invocation. The scheduled Server-PC cadence uses this mode so every
+  configured hourly or ten-minute run produces a distinct hand-off file.
+
 .PARAMETER ClaimQueuedTrigger
   Used only by the dedicated Server-PC trigger task. Claims one
   administrator-selected exact-date export, if any; normal Smart runs are
@@ -65,10 +77,13 @@ param(
   [string]$DestFolder = "D:\UKL_INTEGRATION\UPLOADS",
   [string]$ApiKey = $env:UKL_SALES_EXPORT_KEY,
   [string]$Date,
+  [ValidateRange(1, 35)]
+  [int]$LookbackDays = 1,
   [string]$Distributor,
   [string]$AlertKey = $env:PIPELINE_ALERT_KEY,
   [string]$ArchiveFolder,
   [string]$StateFolder,
+  [switch]$AlwaysExport,
   [switch]$ClaimQueuedTrigger
 )
 
@@ -171,38 +186,39 @@ function Get-ExportFiles {
     $files += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter "$prefix*.csv" -File -Recurse -ErrorAction SilentlyContinue)
   }
   # Double-quoted PowerShell strings do not interpret backslash escapes, so a
-  # literal "\d" (not "\\d") is required here for the regex engine to see a
-  # digit-class escape instead of two literal backslashes matching nothing.
-  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(_\d+)?\.csv$" })
+  # literal "\." (not "\\.") is required here for the regex engine to see an
+  # escaped dot instead of two literal backslashes matching nothing. Matches
+  # both legacy _NNN files and the current timestamp/GUID run IDs; used only
+  # for Smart-mode delivery verification, never to allocate a new run ID.
+  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(?:_[A-Za-z0-9_-]+)?\.csv$" })
 }
 
-function Get-NextExportPath {
+function New-ExportPath {
   param([string]$ExportDate)
   $prefix = Get-ExportPrefix -ExportDate $ExportDate
-  $pattern = "^$([regex]::Escape($prefix))_(?<sequence>\d+)\.csv$"
-  $highestSequence = 0
-  foreach ($file in Get-ExportFiles -ExportDate $ExportDate) {
-    if ($file.Name -match $pattern) {
-      $highestSequence = [Math]::Max($highestSequence, [int]$Matches.sequence)
-    }
-  }
-  return Join-Path $DestFolder ("{0}_{1:D3}.csv" -f $prefix, ($highestSequence + 1))
+  # The UTC date is a separate filename segment. The time and full GUID form
+  # the unique code, preventing collisions if system time changes or the
+  # downstream receiver deletes every previous file.
+  $now = [DateTimeOffset]::UtcNow
+  $runId = "{0}_{1}" -f $now.ToString("yyyyMMdd"), ("T{0}_{1}" -f $now.ToString("HHmmssfffffffZ"), [guid]::NewGuid().ToString("N"))
+  return Join-Path $DestFolder ("{0}_{1}.csv" -f $prefix, $runId)
 }
 
 # Guards against a repeat of the 2026-09-07 regression, where doubled
 # backslashes in a double-quoted string ("\\d+"/"\\.csv") silently made the
 # filter above match nothing: every run then treated every export as
-# undelivered and could never advance past "_001", regardless of what was
-# already on disk. Run once at startup so a broken pattern fails loudly
-# instead of quietly starving the sequence again.
+# undelivered, so Find-DeliveredFile could never confirm a file was already
+# saved and Smart mode could never self-heal. Run once at startup so a
+# broken pattern fails loudly instead of quietly starving delivery
+# verification again.
 function Assert-ExportFilenamePatternWorks {
   $probeDate = "2026-01-01"
   $probePrefix = Get-ExportPrefix -ExportDate $probeDate
-  $probeName = "${probePrefix}_001.csv"
-  $filterPattern = "^$([regex]::Escape($probePrefix))(_\d+)?\.csv$"
-  $sequencePattern = "^$([regex]::Escape($probePrefix))_(?<sequence>\d+)\.csv$"
-  if ($probeName -notmatch $filterPattern -or $probeName -notmatch $sequencePattern) {
-    throw "UKL export filename pattern is broken: '$probeName' does not match the expected sequence regex. Check Get-ExportFiles/Get-NextExportPath for accidental double-backslash escaping."
+  $legacyProbeName = "${probePrefix}_001.csv"
+  $currentProbeName = Split-Path -Leaf (New-ExportPath -ExportDate $probeDate)
+  $filterPattern = "^$([regex]::Escape($probePrefix))(?:_[A-Za-z0-9_-]+)?\.csv$"
+  if ($legacyProbeName -notmatch $filterPattern -or $currentProbeName -notmatch $filterPattern) {
+    throw "UKL export filename pattern is broken: '$legacyProbeName' / '$currentProbeName' do not match the expected Get-ExportFiles filter regex. Check Get-ExportFiles/New-ExportPath for accidental double-backslash escaping."
   }
 }
 
@@ -210,7 +226,7 @@ Assert-ExportFilenamePatternWorks
 
 function Save-Export {
   param([string]$ExportDate)
-  $destFile = Get-NextExportPath -ExportDate $ExportDate
+  $destFile = New-ExportPath -ExportDate $ExportDate
   $tempFile = "$destFile.tmp"
 
   try {
@@ -290,17 +306,22 @@ function Save-ManifestState {
 
   $nairobiNow = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(3))
   $today = $nairobiNow.ToString("yyyy-MM-dd")
-  $yesterday = $nairobiNow.AddDays(-1).ToString("yyyy-MM-dd")
-  $afterPreviousDayCutoff = $nairobiNow.Hour -ge 6
-  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$yesterday&to=$today"
-  $previousDayMode = if ($afterPreviousDayCutoff) { "late-change detection only" } else { "close-period reconciliation until 06:00" }
-  Write-Log "Checking $Branch export manifest: today $today first; yesterday $yesterday is $previousDayMode."
+  $lookbackStart = $nairobiNow.AddDays(-$LookbackDays).ToString("yyyy-MM-dd")
+  $manifestUri = "$AppUrl/api/integrations/ukl/sales-export?mode=manifest&distributor=$Distributor&from=$lookbackStart&to=$today"
+  Write-Log "Checking $Branch export manifest: $lookbackStart through $today ($LookbackDays prior day(s) plus today), newest first."
   $manifest = Invoke-RestMethod -Uri $manifestUri -Headers @{ "x-ukl-export-key" = $ApiKey }
   # Today is operationally urgent. Descending order also prevents a changing
   # previous-day partition from starving today's export.
   $availableDays = @($manifest.days | Sort-Object date -Descending)
   if ($availableDays.Count -eq 0) {
     Write-Log "No populated VPS delivery dates are available for $Branch yet."
+    return
+  }
+
+  if ($AlwaysExport) {
+    $snapshot = $availableDays[0]
+    Write-Log "Cadence snapshot requested; writing a new unique export for $($snapshot.date) ($($snapshot.rowCount) VPS rows)."
+    Save-Export -ExportDate ([string]$snapshot.date)
     return
   }
 
@@ -336,9 +357,9 @@ function Save-ManifestState {
   }
 
   foreach ($repair in $repairs) {
-    $isPreviousDay = [string]$repair.date -ne $today
-    if ($isPreviousDay -and $afterPreviousDayCutoff) {
-      Write-Log "Late previous-day change detected after 06:00; replacing $($repair.date) automatically."
+    $isHistoricalDay = [string]$repair.date -ne $today
+    if ($isHistoricalDay) {
+      Write-Log "Late historical change detected; replacing $($repair.date) automatically."
     }
     Write-Log "Repairing missing or content-changed local export: $($repair.date) ($($repair.rowCount) VPS rows)."
     Save-Export -ExportDate ([string]$repair.date)

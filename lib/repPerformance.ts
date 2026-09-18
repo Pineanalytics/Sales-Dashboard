@@ -212,8 +212,9 @@ export function computeRepTarget(
   months: { year: string; monthIndex: number }[],
   principalKey: string | null
 ): number {
+  const normalizedPrincipalKey = principalKey ? normalizePrincipalKey(principalKey) : null;
   const monthKeys = new Set(months.map((m) => `${m.year}|${m.monthIndex}`));
-  const relevant = principalKey ? contributions.filter((c) => normalizePrincipalKey(c.principal) === principalKey) : contributions;
+  const relevant = normalizedPrincipalKey ? contributions.filter((c) => normalizePrincipalKey(c.principal) === normalizedPrincipalKey) : contributions;
   let total = 0;
   for (const contribution of relevant) {
     for (const t of targets) {
@@ -236,7 +237,8 @@ export interface BuildRepPerformanceRowsParams {
   sapRows: SapRepActualInput[];
   repLines: RepLinesInput[];
   months: { year: string; monthIndex: number }[];
-  /** Normalized (lib/normalize.ts's normalizePrincipalKey), or null for "All Principals". */
+  /** A dashboard principal value (for example "Upfield-Nairobi") or a
+   * normalized key ("upfield"), or null for All Principals. */
   principalKey: string | null;
   teamLeaderFilter: string | null;
   salesRoleFilter: "Primary Sales" | "Secondary Sales" | null;
@@ -249,6 +251,10 @@ export interface BuildRepPerformanceRowsParams {
  *  sum of every principal a Primary rep serves. */
 export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): RepPerformanceRow[] {
   const { employees, coverageByRepMonth, targets, sapRows, repLines, months, principalKey, teamLeaderFilter, salesRoleFilter } = params;
+  // The global multi-select stores raw principal labels while legacy callers
+  // use normalized brand keys. Normalize once at this boundary so both shapes
+  // drive the same EmployeeMaster, SAP, target, and product-line filters.
+  const normalizedPrincipalKey = principalKey ? normalizePrincipalKey(principalKey) : null;
   const monthKeys = new Set(months.map((m) => `${m.year}|${m.monthIndex}`));
 
   const rows = new Map<string, RepPerformanceRow & { employeeCode: string }>();
@@ -257,11 +263,11 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
     if (teamLeaderFilter && employee.teamLeader !== teamLeaderFilter) continue;
     if (salesRoleFilter && employee.salesRole !== salesRoleFilter) continue;
 
-    const absoluteMatches = !principalKey || normalizePrincipalKey(employee.absolutePrincipal) === principalKey;
-    const matchingContributions = principalKey
-      ? employee.contributions.filter((c) => normalizePrincipalKey(c.principal) === principalKey)
+    const absoluteMatches = !normalizedPrincipalKey || normalizePrincipalKey(employee.absolutePrincipal) === normalizedPrincipalKey;
+    const matchingContributions = normalizedPrincipalKey
+      ? employee.contributions.filter((c) => normalizePrincipalKey(c.principal) === normalizedPrincipalKey)
       : employee.contributions;
-    if (principalKey && !absoluteMatches && matchingContributions.length === 0) continue;
+    if (normalizedPrincipalKey && !absoluteMatches && matchingContributions.length === 0) continue;
 
     let coverage: number | null = null;
     let productiveCalls: number | null = null;
@@ -274,7 +280,7 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
       productivityPct = avg.productivityPct;
     }
 
-    const target = employee.salesRole === "Primary Sales" ? computeRepTarget(matchingContributions, targets, months, principalKey) : null;
+    const target = employee.salesRole === "Primary Sales" ? computeRepTarget(matchingContributions, targets, months, normalizedPrincipalKey) : null;
 
     rows.set(employee.employeeCode, {
       employeeCode: employee.employeeCode,
@@ -301,7 +307,7 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
 
   for (const row of sapRows) {
     if (!monthKeys.has(`${row.year}|${row.monthIndex}`)) continue;
-    if (principalKey && normalizePrincipalKey(row.principal) !== principalKey) continue;
+    if (normalizedPrincipalKey && normalizePrincipalKey(row.principal) !== normalizedPrincipalKey) continue;
 
     const label = row.employeeName || row.sapName;
     const matchedCode = row.employeeCode ?? employeeByFallbackKey.get(nameFallbackKey(label));
@@ -354,7 +360,7 @@ export function buildRepPerformanceRows(params: BuildRepPerformanceRowsParams): 
   // double-counts the same brand within one.
   for (const row of repLines) {
     if (!monthKeys.has(`${row.year}|${row.monthIndex}`)) continue;
-    if (principalKey && normalizePrincipalKey(row.principal) !== principalKey) continue;
+    if (normalizedPrincipalKey && normalizePrincipalKey(row.principal) !== normalizedPrincipalKey) continue;
 
     const matchedCode = employeeByFallbackKey.get(nameFallbackKey(row.sapName));
     const existing = matchedCode ? rows.get(matchedCode) : undefined;

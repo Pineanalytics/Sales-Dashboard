@@ -176,8 +176,7 @@ export default async function AdminTeamLeadersPage({
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Team Leaders</h1>
         <p className="mt-1 text-sm text-white/70">
-          The roster and rep/principal assignment fact table that drives the Weekly Targets grid — a Team Leader only gets a Weekly
-          entry row for a Principal once a rep of theirs is assigned to it here.
+          The roster is the editable rep/principal allocation and activity source for executive target attribution. Active Primary assignments and Contribution % determine how the full-month mission is allocated to Team Leaders and sales reps.
         </p>
       </div>
 
@@ -221,7 +220,7 @@ export default async function AdminTeamLeadersPage({
             Employee Code, Employee (Sales Edge Name), SAP Name, Channel, Team Leader, Principal, * Contribution %, Active
             (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated. The download
             above produces the same 18-column shape this upload expects (Sales Supervisor/Manager format), pre-filled with
-            every current assignment — edit it and re-upload to update in bulk.
+            every current assignment — edit Active, Primary/Secondary role, Principal, or Contribution % here to update allocation and re-upload in bulk.
           </p>
           <form action={uploadRosterCsvAction} className="mt-4 flex flex-wrap items-center gap-4">
             <input
@@ -266,11 +265,12 @@ export default async function AdminTeamLeadersPage({
               name: tl.name,
               supervisorId: tl.supervisorId,
               assignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).length,
+              activeAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => assignment.active).length,
+              inactiveAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => !assignment.active).length,
             }))}
             supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
             renamingId={renaming?.id}
             inputClass={inputClass}
-            labelClass={labelClass}
           />
         </div>
         ) : null}
@@ -602,7 +602,7 @@ export default async function AdminTeamLeadersPage({
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Assign a rep to a Team Leader × Principal</h2>
           <p className="mt-1 text-[13px] text-muted">
-            A rep can appear under multiple principals, and under different Team Leaders for different principals.
+            Saving creates an active visibility assignment immediately. A rep can be shared across multiple Team Leaders and principals; each Team Leader has their own visibility assignment.
           </p>
           <form action={createAssignmentAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
             <div className="flex flex-col gap-2">
@@ -661,14 +661,14 @@ export default async function AdminTeamLeadersPage({
                 type="submit"
                 className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
-                Add assignment
+                Assign &amp; make visible
               </button>
             </div>
           </form>
           <p className="mt-2 text-[13px] text-muted">
             Contribution % is the admin-declared share of this rep&apos;s Team Leader&apos;s Weekly Target — leave blank to keep using the
             computed share (each rep&apos;s actual trailing-revenue share) until you&apos;re ready to declare one. Declared %s should sum to
-            100% across a Principal&apos;s active reps.
+            100% across a Principal&apos;s active reps. Saving an existing inactive assignment reactivates it; globally inactive Employee Roster reps must be activated there first.
           </p>
 
           <datalist id="known-reps-codes">

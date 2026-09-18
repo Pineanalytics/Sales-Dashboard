@@ -40,4 +40,20 @@ describe("parseProductsWorkbook", () => {
   it("rejects missing required columns", () => {
     expect(() => parseProductsWorkbook(workbook([["Item", "Supplier"], ["SKU-1", "Mars"]]))).toThrow(/Item No\. and Principal/);
   });
+
+  it("accepts the exported Product Master CSV shape", () => {
+    const csv = new TextEncoder().encode("Item No.,Item Description,Principal\nSKU-CSV,CSV product,Upfield\n");
+
+    expect(parseProductsWorkbook(csv.buffer)).toEqual([{
+      itemNo: "SKU-CSV",
+      itemDescription: "CSV product",
+      series: null,
+      size: null,
+      packSize: null,
+      principal: "Upfield",
+      costPrice: null,
+      classification: null,
+      ssuConversion: null,
+    }]);
+  });
 });

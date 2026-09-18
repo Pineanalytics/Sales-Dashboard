@@ -8,10 +8,11 @@
 // a new workbook version is supplied — every upload route upserts
 // idempotently, so re-running never duplicates or loses rows. Roster is
 // uploaded first so every Team Leader named in Weekly already exists by the
-// time that upload runs. Pass --weekly-only to use just the Weekly sheet,
-// leaving Roster and Targets Per Principal untouched; --dry-run validates the
-// selected rows without calling the dashboard. The source workbook is never
-// copied into the web container; the database holds the durable master.
+// time that upload runs. Pass --weekly-only to use just the Weekly sheet, or
+// --targets-only to correct only the monthly Target values. Both leave the
+// other workbook tabs untouched; --dry-run validates the selected rows without
+// calling the dashboard. The source workbook is never copied into the web
+// container; the database holds the durable master.
 process.loadEnvFile();
 
 import { readFileSync } from "node:fs";
@@ -285,11 +286,17 @@ async function run() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const args = process.argv.slice(2);
   const weeklyOnly = args.includes("--weekly-only");
+  const targetsOnly = args.includes("--targets-only");
   const dryRun = args.includes("--dry-run");
-  const workbookPath = args.find((arg) => arg !== "--weekly-only" && arg !== "--dry-run") || DEFAULT_WORKBOOK_PATH;
+  const workbookPath = args.find((arg) => arg !== "--weekly-only" && arg !== "--targets-only" && arg !== "--dry-run") || DEFAULT_WORKBOOK_PATH;
+
+  if (weeklyOnly && targetsOnly) {
+    throw new Error("Choose either --weekly-only or --targets-only, not both.");
+  }
 
   if (isCsvPath(workbookPath)) {
     if (weeklyOnly) throw new Error("--weekly-only requires the full Target Management workbook, not a Roster CSV.");
+    if (targetsOnly) throw new Error("--targets-only requires the full Target Management workbook, not a Roster CSV.");
     const { rows: roster, format } = parseRosterCsv(readFileSync(workbookPath));
     console.log(`[target-management] Read ${roster.length} Roster rows (format ${format}) from CSV ${workbookPath}.`);
     let rosterUploaded = 0;
@@ -305,10 +312,11 @@ async function run() {
   }
 
   const workbook = XLSX.readFile(workbookPath, { cellDates: false });
-  const roster = weeklyOnly ? [] : parseRoster(workbook);
+  const roster = weeklyOnly || targetsOnly ? [] : parseRoster(workbook);
   const targets = weeklyOnly ? [] : parseTargets(workbook);
-  const weekly = parseWeekly(workbook);
-  console.log(`[target-management] Read ${roster.length} Roster rows, ${targets.length} Target rows, ${weekly.length} Weekly rows from ${workbookPath}${weeklyOnly ? " (weekly-only mode)" : ""}.`);
+  const weekly = targetsOnly ? [] : parseWeekly(workbook);
+  const mode = weeklyOnly ? " (weekly-only mode)" : targetsOnly ? " (targets-only mode)" : "";
+  console.log(`[target-management] Read ${roster.length} Roster rows, ${targets.length} Target rows, ${weekly.length} Weekly rows from ${workbookPath}${mode}.`);
   if (dryRun) {
     console.log("[target-management] Dry run complete; no dashboard data was changed.");
     return;
@@ -318,7 +326,7 @@ async function run() {
   // weekly-only mode those Team Leaders are intentionally expected to have
   // been imported already; the weekly upload route validates that invariant.
   let rosterUploaded = 0;
-  if (!weeklyOnly) {
+  if (!weeklyOnly && !targetsOnly) {
     for (const batch of chunk(roster, BATCH_SIZE)) {
       if (batch.length === 0) continue;
       const result = await postJson(appUrl, apiKey, "/api/team-leaders/upload", { rows: batch });

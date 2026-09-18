@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { lockSalesReturnsUpload } from "@/lib/salesReturnsUploadLock";
 
 export const runtime = "nodejs";
 
@@ -100,12 +100,7 @@ export async function POST(req: NextRequest) {
         // Serialize only the same branch/month replacement so two transactions
         // cannot both delete the snapshot and then race to insert identical
         // unique keys. Different branches and months remain parallel.
-        for (const branch of [...distributors].sort()) {
-          const lockKey = `pjp-sku:${month.toISOString()}:${branch}`;
-          await tx.$queryRaw(Prisma.sql`
-            SELECT pg_advisory_xact_lock(hashtext(${lockKey})) IS NULL AS "lockAcquired"
-          `);
-        }
+        await lockSalesReturnsUpload(tx, `pjp-sku:${month.toISOString()}`, distributors);
         if (distributors.length > 0) {
           await tx.pjpSkuPerformance.deleteMany({ where: { month, distributor: { in: distributors } } });
         }

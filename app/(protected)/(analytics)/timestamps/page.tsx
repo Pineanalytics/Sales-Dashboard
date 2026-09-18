@@ -663,7 +663,7 @@ export default function TimestampsPage() {
   return (
     <div className="flex flex-col gap-4">
       <SfaReportNavigator current="pine" />
-      <SectionCard title="SalesEdge timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · summary-first loading</span>}>
+      <SectionCard title="SalesEdge timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · Mon–Fri, excluding Kenyan holidays</span>}>
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">
@@ -880,7 +880,7 @@ export default function TimestampsPage() {
         title={isMonthlyAverage ? "Rep Monthly Average" : "Rep Daily Summary"}
         action={
           <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs text-muted">
-            {isMonthlyAverage ? <span className="font-semibold text-primary-blue">First/Last Call averaged per rep across {reportMonthLabel}</span> : null}
+            {isMonthlyAverage ? <span className="font-semibold text-primary-blue">First/Last Call averaged per rep across working days in {reportMonthLabel}</span> : null}
             <span><strong className="font-semibold text-muted-strong">Date:</strong> {reportDateLabel}</span>
             <span><strong className="font-semibold text-muted-strong">Sales role:</strong> {reportRoleLabel}</span>
             {selectedRegion ? <span><strong className="font-semibold text-muted-strong">Region:</strong> {selectedRegion}</span> : null}

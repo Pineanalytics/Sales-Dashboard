@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { kenyaWorkingDayClause } from "@/lib/timestampSummary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,14 @@ function window(month: string, selectedDate: string | null) {
   return { start, end: new Date(`${nextYear}-${String(nextMonth).padStart(2, "0")}-01T00:00:00+03:00`) };
 }
 
+function calendarMonthWindow(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return {
+    start: new Date(Date.UTC(year, monthNumber - 1, 1)),
+    end: new Date(Date.UTC(year, monthNumber, 1)),
+  };
+}
+
 const number = (value: bigint | number | null | undefined) => value == null ? 0 : Number(value);
 
 export async function GET(request: NextRequest) {
@@ -39,6 +48,8 @@ export async function GET(request: NextRequest) {
   if (selectedDate && !selectedDate.startsWith(`${month}-`)) return NextResponse.json({ error: '"date" must fall within the selected month.' }, { status: 400 });
 
   const range = window(month, selectedDate);
+  const calendarRange = calendarMonthWindow(month);
+  const localTransactionDate = Prisma.sql`DATE("txnDate" + ${NAIROBI_OFFSET})`;
   type DocumentRow = {
     date: Date; customerCode: string; customerName: string; invoiceNo: string; type: string;
     firstTransaction: Date; lastTransaction: Date; lines: bigint; products: bigint; netSales: number; units: number;
@@ -56,6 +67,7 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(qty), 0)::double precision AS units
       FROM "UpfieldTransaction"
       WHERE "txnDate" >= ${range.start} AND "txnDate" < ${range.end}
+        AND ${kenyaWorkingDayClause(localTransactionDate, calendarRange)}
         AND ${REP_EXPRESSION} = ${rep}
         AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'
       GROUP BY 1, 2, 3, 4, 5
@@ -70,7 +82,7 @@ export async function GET(request: NextRequest) {
         lastTransaction: row.lastTransaction.toISOString(),
         lines: number(row.lines), products: number(row.products),
       })),
-      definition: "Each row is one DataEdge sales or return document at an outlet; timestamps are source transaction times, not GPS check-ins.",
+      definition: "Each row is one DataEdge sales or return document at an outlet on a dashboard working day; timestamps are source transaction times, not GPS check-ins. Non-working-day source rows are retained but not visualised here.",
     });
   } catch (error) {
     console.error("Failed to load Upfield rep transaction detail", error);

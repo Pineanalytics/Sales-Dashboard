@@ -12,12 +12,26 @@ interface WeeklyTargetRow {
   weekStartDate: string;
   principal: string;
   targetValue: number;
+  expectedRunRate?: number;
+  workingDays?: number;
 }
 
 interface DailyTargetRow {
   date: string;
   principal: string;
   targetValue: number;
+}
+
+interface PacingMetrics {
+  fullMonthTarget: number;
+  fullMonthBalance: number;
+  mtdActual: number;
+  rateOfSale: number | null;
+  projection: number | null;
+  dailyRunRate: number | null;
+  totalWorkingDays: number;
+  elapsedWorkingDays: number;
+  remainingWorkingDays: number;
 }
 
 function toDateKey(d: Date): string {
@@ -63,6 +77,7 @@ export function WeekDailyActuals({
   monthActuals: {
     revenue: number;
     target: number | null;
+    fullMonthTarget: number | null;
     achievementPct: number | null;
     balance: number | null;
     momPct: number | null;
@@ -72,6 +87,9 @@ export function WeekDailyActuals({
   const [weeklyTargets, setWeeklyTargets] = useState<WeeklyTargetRow[]>([]);
   const [dailyTargets, setDailyTargets] = useState<DailyTargetRow[]>([]);
   const [dailyActuals, setDailyActuals] = useState<{ date: string; revenue: number }[]>([]);
+  const [asOfDate, setAsOfDate] = useState<string | null>(null);
+  const [isRebalanced, setIsRebalanced] = useState(false);
+  const [pacing, setPacing] = useState<PacingMetrics | null>(null);
   const principalKey = principals.join(",");
 
   useEffect(() => {
@@ -97,6 +115,9 @@ export function WeekDailyActuals({
           setWeeklyTargets(targetsBody.weeklyTargets ?? []);
           setDailyTargets(targetsBody.dailyTargets ?? []);
           setDailyActuals(actualsBody.daily ?? []);
+          setAsOfDate(targetsBody.asOfDate ?? null);
+          setIsRebalanced(Boolean(targetsBody.isRebalanced));
+          setPacing(targetsBody.pacing ?? null);
           setStatus("idle");
         }
       } catch {
@@ -122,7 +143,9 @@ export function WeekDailyActuals({
   }
 
   const weeks: WeekInfo[] = getWeeksInMonth(Number(year), monthIndex);
-  const today = new Date();
+  // The API chooses the operational date in Nairobi, so a browser in another
+  // timezone cannot move the highlighted week or rebalanced daily target.
+  const today = new Date(`${asOfDate ?? toDateKey(new Date())}T00:00:00Z`);
 
   const weekCards = weeks.map((w, i) => {
     const weekStart = w.weekStartDate;
@@ -138,7 +161,10 @@ export function WeekDailyActuals({
     const variance = actual - projection;
     const achievedPct = projection > 0 ? (actual / projection) * 100 : null;
     const isCurrentWeek = today >= weekStart && today <= weekEnd;
-    return { label: w.weekLabel, index: i + 1, range: formatWeekRange(weekStart), projection, actual, variance, achievedPct, isCurrentWeek };
+    const expectedRunRate = weeklyTargets
+      .filter((wt) => toDateKey(new Date(wt.weekStartDate)) === toDateKey(w.weekStartDate))
+      .reduce((s, wt) => s + (wt.expectedRunRate ?? 0), 0);
+    return { label: w.weekLabel, index: i + 1, range: formatWeekRange(weekStart), projection, expectedRunRate, actual, variance, achievedPct, isCurrentWeek };
   });
 
   const currentWeek = weekCards.find((w) => w.isCurrentWeek) ?? weekCards[weekCards.length - 1];
@@ -148,16 +174,15 @@ export function WeekDailyActuals({
   // with a real chance of being fully posted. A month that has already ended
   // has no "today"/"yesterday" of its own at all, so it shows the month's
   // per-day average instead of chasing a single date outside its range.
-  const isLiveMonth = Number(year) === today.getUTCFullYear() && monthIndex === today.getUTCMonth();
+  const isLiveMonth = isRebalanced;
   let dailyTitle: string;
   let dailyProjection: number;
   let dailyActual: number;
   if (isLiveMonth) {
-    const yesterday = new Date(today.getTime() - 86400000);
-    const yesterdayKey = toDateKey(yesterday);
-    dailyTitle = "Daily Projection vs Target (Yesterday)";
-    dailyProjection = targetByDate.get(yesterdayKey) ?? 0;
-    dailyActual = revenueByDate.get(yesterdayKey) ?? 0;
+    const todayKey = toDateKey(today);
+    dailyTitle = "Daily Projection vs Target";
+    dailyProjection = targetByDate.get(todayKey) ?? 0;
+    dailyActual = revenueByDate.get(todayKey) ?? 0;
   } else {
     const targetDayCount = new Set(filteredDailyTargets.map((r) => toDateKey(new Date(r.date)))).size;
     const actualDayCount = revenueByDate.size;
@@ -176,9 +201,10 @@ export function WeekDailyActuals({
     <div className="flex flex-col gap-3 md:gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <ProgressCard title="This Month Actuals" pct={monthActuals.achievementPct} accent="green">
-          <Row label="MTD Revenue" value={formatCompact(monthActuals.revenue)} />
-          <Row label="Monthly Mission" value={monthActuals.target !== null ? formatCompact(monthActuals.target) : "N/A"} />
-          <Row label="MoM" value={monthActuals.momPct !== null ? `${monthActuals.momPct >= 0 ? "+" : ""}${monthActuals.momPct.toFixed(0)}%` : "N/A"} negative={monthActuals.momPct !== null && monthActuals.momPct < 0} />
+          <Row label="MTD Revenue" value={pacing ? formatCompact(pacing.mtdActual) : formatCompact(monthActuals.revenue)} />
+          <Row label="Full Month Balance" value={pacing ? formatCompact(pacing.fullMonthBalance) : "…"} negative={(pacing?.fullMonthBalance ?? 0) > 0} />
+          <Row label="ROS / Working Day" value={pacing?.rateOfSale !== null && pacing?.rateOfSale !== undefined ? formatCompact(pacing.rateOfSale) : "N/A"} />
+          <Row label="Projection" value={pacing?.projection !== null && pacing?.projection !== undefined ? formatCompact(pacing.projection) : "N/A"} />
         </ProgressCard>
         <ProgressCard title="MTD % Achieved" pct={monthActuals.achievementPct} accent="red">
           <Row label="MTD Mission" value={monthActuals.target !== null ? formatCompact(monthActuals.target) : "N/A"} />
@@ -186,11 +212,13 @@ export function WeekDailyActuals({
         </ProgressCard>
         <ProgressCard title={`This Week Projection${currentWeek ? ` (${currentWeek.range})` : ""}`} pct={currentWeek?.achievedPct ?? null} accent="navy" loading={status === "loading"}>
           <Row label="Weekly Target" value={status === "loading" ? "…" : formatCompact(currentWeek?.projection ?? 0)} />
+          <Row label="Expected Run Rate" value={status === "loading" ? "…" : formatCompact(currentWeek?.expectedRunRate ?? 0)} />
           <Row label="Actual" value={status === "loading" ? "…" : formatCompact(currentWeek?.actual ?? 0)} />
           <Row label="Variance" value={status === "loading" ? "…" : formatCompact(currentWeek?.variance ?? 0)} negative={(currentWeek?.variance ?? 0) < 0} />
         </ProgressCard>
         <ProgressCard title={dailyTitle} pct={dailyAchievedPct} accent="navy" loading={status === "loading"}>
           <Row label={isLiveMonth ? "Daily Target" : "Avg Daily Target"} value={status === "loading" ? "…" : formatCompact(dailyProjection)} />
+          <Row label="Required Run Rate" value={isLiveMonth ? (pacing?.dailyRunRate !== null && pacing?.dailyRunRate !== undefined ? formatCompact(pacing.dailyRunRate) : "N/A") : "—"} />
           <Row label={isLiveMonth ? "Actual" : "Avg Actual"} value={status === "loading" ? "…" : formatCompact(dailyActual)} />
           <Row label="Variance" value={status === "loading" ? "…" : formatCompact(dailyVariance)} negative={dailyVariance < 0} />
         </ProgressCard>
@@ -205,7 +233,8 @@ export function WeekDailyActuals({
               <div className="flex items-center gap-3">
                 <AchievementGauge pct={w.achievedPct} size={62} />
                 <div className="min-w-0 flex-1 space-y-1 text-sm">
-                  <Row label="Projection" value={formatCompact(w.projection)} />
+                  <Row label="Weekly Target" value={formatCompact(w.projection)} />
+                  <Row label="Expected Run Rate" value={formatCompact(w.expectedRunRate)} />
                   <Row label="Actual" value={formatCompact(w.actual)} />
                   <Row label="Variance" value={formatCompact(w.variance)} negative={w.variance < 0} />
                 </div>

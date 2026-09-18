@@ -48,6 +48,7 @@ export async function createProductAction(formData: FormData) {
         ssuConversion: num(formData, "ssuConversion"),
       },
     });
+    await prisma.unmappedProductSale.deleteMany({ where: { itemNo } });
   } catch (err: unknown) {
     const message =
       typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
@@ -57,7 +58,7 @@ export async function createProductAction(formData: FormData) {
   }
 
   invalidateDatasetCache();
-  redirect("/admin/products?success=" + encodeURIComponent(`Added ${itemNo}.`));
+  redirect("/admin/products?success=" + encodeURIComponent(`Added ${itemNo}. The next current-month sync will map new activity; run the controlled Sales backfill for earlier months.`));
 }
 
 export async function updateProductAction(formData: FormData) {
@@ -65,6 +66,8 @@ export async function updateProductAction(formData: FormData) {
   const id = str(formData, "productId");
 
   try {
+    const target = await prisma.product.findUnique({ where: { id }, select: { itemNo: true } });
+    if (!target) redirect("/admin/products?error=" + encodeURIComponent("Product not found."));
     await prisma.product.update({
       where: { id },
       data: {
@@ -78,34 +81,36 @@ export async function updateProductAction(formData: FormData) {
         ssuConversion: num(formData, "ssuConversion"),
       },
     });
+    await prisma.unmappedProductSale.deleteMany({ where: { itemNo: target.itemNo } });
   } catch {
     redirect("/admin/products?error=" + encodeURIComponent("Failed to update the product."));
   }
 
   invalidateDatasetCache();
-  redirect("/admin/products?success=" + encodeURIComponent("Product updated."));
+  redirect("/admin/products?success=" + encodeURIComponent("Product updated. The next current-month sync will use this mapping; run the controlled Sales backfill for earlier months."));
 }
 
 export async function uploadProductsAction(formData: FormData) {
   await requireAdmin();
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    redirect("/admin/products?error=" + encodeURIComponent("Attach a ProductMasterData workbook to upload."));
+    redirect("/admin/products?error=" + encodeURIComponent("Attach a Product Master CSV or workbook to upload."));
   }
 
   let result: Awaited<ReturnType<typeof importProductMaster>>;
   try {
     const rows = parseProductsWorkbook(await file.arrayBuffer());
     result = await importProductMaster(rows);
+    await prisma.unmappedProductSale.deleteMany({ where: { itemNo: { in: rows.map((row) => row.itemNo) } } });
   } catch (error) {
-    const message = error instanceof ProductsParseError ? error.message : "Failed to import the product master workbook.";
+    const message = error instanceof ProductsParseError ? error.message : "Failed to import the Product Master file.";
     redirect("/admin/products?error=" + encodeURIComponent(message));
   }
   invalidateDatasetCache();
   redirect(
     "/admin/products?success=" +
       encodeURIComponent(
-        `Imported ${result.total} products: ${result.inserted} new, ${result.updated} updated, across ${result.principals.length} product principals.`
+        `Imported ${result.total} products: ${result.inserted} new, ${result.updated} updated, across ${result.principals.length} product principals. Run the controlled Sales backfill to update earlier-month sales.`
       )
   );
 }

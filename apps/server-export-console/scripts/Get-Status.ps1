@@ -1,0 +1,6 @@
+param([Parameter(Mandatory)][string]$PullerPath,[Parameter(Mandatory)][string]$UploadsFolder,[Parameter(Mandatory)][string]$ArchiveFolder)
+$ErrorActionPreference='Stop'
+$names=@('UKL-SalesExport-Pull','UKL-SalesExport-Pull-Nyeri','UKL-SalesExport-Pull-Nairobi-Boost','UKL-SalesExport-Pull-Nyeri-Boost')
+$tasks=foreach($name in $names){try{$task=Get-ScheduledTask -TaskName $name -ErrorAction Stop;$info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop;[pscustomobject]@{name=$name;state=[string]$task.State;lastRunTime=if($info.LastRunTime.Year -gt 2000){$info.LastRunTime.ToString('o')}else{$null};lastTaskResult=$info.LastTaskResult;nextRunTime=if($info.NextRunTime.Year -gt 2000){$info.NextRunTime.ToString('o')}else{$null}}}catch{[pscustomobject]@{name=$name;state='Missing';error=$_.Exception.Message}}}
+function Newest([string]$Path){if(-not(Test-Path -LiteralPath $Path)){return $null};Get-ChildItem -LiteralPath $Path -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1 @{n='name';e={$_.Name}},@{n='lastWriteTime';e={$_.LastWriteTime.ToString('o')}},Length}
+[pscustomobject]@{pullerExists=(Test-Path -LiteralPath $PullerPath);tasks=@($tasks);newestUpload=Newest $UploadsFolder;newestArchive=Newest $ArchiveFolder;checkedAt=(Get-Date).ToString('o')}|ConvertTo-Json -Depth 5

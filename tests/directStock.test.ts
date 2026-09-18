@@ -28,6 +28,28 @@ describe("direct SAP stock transform", () => {
     })]);
   });
 
+  it("passes SAP's own Brand/Manufacturer field through to the dashboard item, and null when SAP has none", () => {
+    const result = buildDirectStock(
+      [
+        { itemCode: "SKU-BRANDED", itemName: "Branded widget", itemGroup: null, brand: " Omo ", whsCode: "W1", whsName: "Nairobi", onhandQty: 10, avgPrice: 10, stockValue: 100 },
+        { itemCode: "SKU-UNBRANDED", itemName: "Unbranded widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 10, avgPrice: 10, stockValue: 100 },
+      ],
+      [], [],
+      [
+        { itemNo: "SKU-BRANDED", packSize: 10, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+        { itemNo: "SKU-UNBRANDED", packSize: 10, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+      ],
+      [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
+      [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
+      new Date("2026-01-07T00:00:00Z")
+    );
+
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemCode: "SKU-BRANDED", brand: "Omo" }),
+      expect.objectContaining({ itemCode: "SKU-UNBRANDED", brand: null }),
+    ]));
+  });
+
   it("moves zero-value items with no invoice in three months to the dormant overview", () => {
     const result = buildDirectStock(
       [{ itemCode: "SKU-2", itemName: "Dormant widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 }],

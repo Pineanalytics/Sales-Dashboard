@@ -72,7 +72,7 @@ export default async function AdminTargetsPage({
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Targets</h1>
         <p className="mt-1 text-sm text-white/70">
-          Upload monthly targets independently of the full Sales/Stock/Coverage refresh. Re-uploading the same month/principal updates it in place.
+          The Value Target is the executive dashboard&apos;s editable full-month mission. Weekly and daily targets, required run rates, and projection are recalculated from it without overwriting this plan.
         </p>
       </div>
 
@@ -113,7 +113,7 @@ export default async function AdminTargetsPage({
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Add a target</h2>
           <p className="mt-1 text-[13px] text-muted">
-            One row per Principal per Month. Adding a target that already exists for that Month/Principal will fail — edit it in the table instead.
+            One row per Principal per Month. This Value Target governs the Executive module&apos;s working-day pacing; change it here rather than editing a derived weekly or daily run rate.
           </p>
           <form action={createTargetAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="flex flex-col gap-2">

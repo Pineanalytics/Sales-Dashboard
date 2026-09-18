@@ -17,7 +17,7 @@ interface RosterRow { employeeCode: string; employeeName: string; employeeGroup:
 interface TargetRow { fiscalYear: string; periodKey: string; periodNo: number; employeeCode: string; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; volumeTarget: number | null; valueTarget: number | null; universeTarget: number | null; coverageTarget: number | null; ssuTarget: number | null }
 interface ProductiveTargetRow { employeeCode: string; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; fsr: NullableText; itemName: string; brand: NullableText; universe: number | null; targetRate: number | null; targetOutlets: number | null }
 interface RtmCustomerRow { customerId: string; customerName: NullableText; location: NullableText; territory: NullableText; rtmType: NullableText; assignedRep: NullableText }
-interface JbpTargetRow { customerId: string; customerName: NullableText; tier: NullableText; area: NullableText; periodKey: string; targetCases: number; targetSsu: number }
+interface JbpTargetRow { fiscalYear: string; periodKey: string; periodNo: number; customerId: string; customerName: NullableText; category: string; tier: NullableText; area: NullableText; casesTarget: number; ssuTarget: number }
 interface SaleLineRow { sourceKey: string; fiscalYear: string; periodKey: string; periodNo: number; date: string; employeeCode: NullableText; employeeName: NullableText; employeeGroup: NullableText; location: NullableText; teamLeader: NullableText; fsr: NullableText; sellerType: NullableText; customerId: string; customerName: NullableText; channel: NullableText; territory: NullableText; itemNo: NullableText; itemName: NullableText; brand: NullableText; classification: NullableText; qty: number; cases: number; ssu: number; revenue: number; invoiceNo: NullableText }
 
 function validKey(req: NextRequest) {
@@ -40,7 +40,7 @@ function isRoster(row: unknown): row is RosterRow { if (!row || typeof row !== "
 function isTarget(row: unknown): row is TargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.fiscalYear) && periodKey(r.periodKey) && whole(r.periodNo) && text(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && nullableNumber(r.volumeTarget) && nullableNumber(r.valueTarget) && nullableNumber(r.universeTarget) && nullableNumber(r.coverageTarget) && nullableNumber(r.ssuTarget); }
 function isProductiveTarget(row: unknown): row is ProductiveTargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.fsr) && text(r.itemName) && nullableText(r.brand) && nullableNumber(r.universe) && nullableNumber(r.targetRate) && nullableNumber(r.targetOutlets); }
 function isRtmCustomer(row: unknown): row is RtmCustomerRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.customerId) && nullableText(r.customerName) && nullableText(r.location) && nullableText(r.territory) && nullableText(r.rtmType) && nullableText(r.assignedRep); }
-function isJbpTarget(row: unknown): row is JbpTargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.customerId) && nullableText(r.customerName) && nullableText(r.tier) && nullableText(r.area) && periodKey(r.periodKey) && number(r.targetCases) && number(r.targetSsu); }
+function isJbpTarget(row: unknown): row is JbpTargetRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.fiscalYear) && periodKey(r.periodKey) && whole(r.periodNo) && text(r.customerId) && nullableText(r.customerName) && text(r.category) && nullableText(r.tier) && nullableText(r.area) && number(r.casesTarget) && number(r.ssuTarget); }
 function isSaleLine(row: unknown): row is SaleLineRow { if (!row || typeof row !== "object") return false; const r = row as Record<string, unknown>; return text(r.sourceKey) && text(r.fiscalYear) && periodKey(r.periodKey) && whole(r.periodNo) && text(r.date) && nullableText(r.employeeCode) && nullableText(r.employeeName) && nullableText(r.employeeGroup) && nullableText(r.location) && nullableText(r.teamLeader) && nullableText(r.fsr) && nullableText(r.sellerType) && text(r.customerId) && nullableText(r.customerName) && nullableText(r.channel) && nullableText(r.territory) && nullableText(r.itemNo) && nullableText(r.itemName) && nullableText(r.brand) && nullableText(r.classification) && number(r.qty) && number(r.cases) && number(r.ssu) && number(r.revenue) && nullableText(r.invoiceNo); }
 
 /** Imports the Mars workbook's fiscal dimensions, roster/targets and source
@@ -53,8 +53,8 @@ export async function POST(req: NextRequest) {
   const kind = body.kind;
   try {
     if (kind === "reference") {
-      const periods = body.periods, products = body.products, roster = body.roster, targets = body.targets, productiveTargets = body.productiveTargets ?? [], rtmCustomers = body.rtmCustomers ?? [], jbpTargets = body.jbpTargets ?? [];
-      if (!Array.isArray(periods) || !Array.isArray(products) || !Array.isArray(roster) || !Array.isArray(targets) || !Array.isArray(productiveTargets) || !Array.isArray(rtmCustomers) || !Array.isArray(jbpTargets) || !periods.every(isPeriod) || !products.every(isProduct) || !roster.every(isRoster) || !targets.every(isTarget) || !productiveTargets.every(isProductiveTarget) || !rtmCustomers.every(isRtmCustomer) || !jbpTargets.every(isJbpTarget)) return NextResponse.json({ error: "Invalid Mars reference payload." }, { status: 400 });
+      const periods = body.periods, products = body.products, roster = body.roster, targets = body.targets, productiveTargets = body.productiveTargets ?? [], rtmCustomers = body.rtmCustomers ?? [];
+      if (!Array.isArray(periods) || !Array.isArray(products) || !Array.isArray(roster) || !Array.isArray(targets) || !Array.isArray(productiveTargets) || !Array.isArray(rtmCustomers) || !periods.every(isPeriod) || !products.every(isProduct) || !roster.every(isRoster) || !targets.every(isTarget) || !productiveTargets.every(isProductiveTarget) || !rtmCustomers.every(isRtmCustomer)) return NextResponse.json({ error: "Invalid Mars reference payload." }, { status: 400 });
       await prisma.$transaction(async (tx) => {
         for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
         for (const row of products as ProductRow[]) await tx.principalKpiProduct.upsert({ where: { principal_itemNo: { principal: PRINCIPAL, itemNo: row.itemNo } }, update: row, create: { ...row, principal: PRINCIPAL } });
@@ -76,16 +76,17 @@ export async function POST(req: NextRequest) {
           prisma.principalKpiProductiveTarget.createMany({ data: (productiveTargets as ProductiveTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
         ]);
       }
-      // JBP targets carry no fiscal year (the sheet only has a bare period
-      // label) and, like RTM/productive targets above, are a reference list
-      // rather than an append-only transaction log — replace wholesale.
-      if ((jbpTargets as JbpTargetRow[]).length > 0) {
-        await prisma.$transaction([
-          prisma.principalKpiJbpTarget.deleteMany({ where: { principal: PRINCIPAL } }),
-          prisma.principalKpiJbpTarget.createMany({ data: (jbpTargets as JbpTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
-        ]);
-      }
-      return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, productiveTargets: productiveTargets.length, rtmCustomers: rtmCustomers.length, jbpTargets: jbpTargets.length });
+      return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, productiveTargets: productiveTargets.length, rtmCustomers: rtmCustomers.length });
+    }
+    if (kind === "jbp-reference") {
+      const periods = body.periods, targets = body.targets;
+      if (!Array.isArray(periods) || !Array.isArray(targets) || !periods.every(isPeriod) || !targets.every(isJbpTarget)) return NextResponse.json({ error: "Invalid Mars JBP reference payload." }, { status: 400 });
+      await prisma.$transaction(async (tx) => {
+        for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
+        await tx.principalKpiJbpTarget.deleteMany({ where: { principal: PRINCIPAL } });
+        if ((targets as JbpTargetRow[]).length > 0) await tx.principalKpiJbpTarget.createMany({ data: (targets as JbpTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) });
+      });
+      return NextResponse.json({ periods: periods.length, targets: targets.length });
     }
     if (kind === "actuals") {
       const rows = body.rows;
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
       const result = await prisma.principalKpiSaleLine.createMany({ data: (rows as SaleLineRow[]).map((row) => ({ ...row, principal: PRINCIPAL, date: new Date(row.date) })), skipDuplicates: true });
       return NextResponse.json({ inserted: result.count });
     }
-    return NextResponse.json({ error: 'Unsupported import kind. Use "reference" or "actuals".' }, { status: 400 });
+    return NextResponse.json({ error: 'Unsupported import kind. Use "reference", "jbp-reference", or "actuals".' }, { status: 400 });
   } catch (error) {
     console.error("Mars KPI import failed", error);
     return NextResponse.json({ error: "Failed to save Mars KPI data." }, { status: 500 });
@@ -116,12 +117,14 @@ export async function GET(req: NextRequest) {
   const liveState = await prisma.syncWatermark.findUnique({ where: { bridge: "mars-kpis-pine" }, select: { lastFullResyncAt: true } });
   const defaultSource = liveState?.lastFullResyncAt ? "PINE" : "WORKBOOK";
   const requestedYear = req.nextUrl.searchParams.get("year");
-  const latest = requestedYear ? null : await prisma.principalKpiSaleLine.findFirst({ where: { principal: PRINCIPAL, source: defaultSource }, orderBy: [{ fiscalYear: "desc" }, { periodNo: "desc" }, { date: "desc" }], select: { fiscalYear: true, periodNo: true } });
+  const latest = requestedYear ? null : await prisma.principalKpiSaleLine.findFirst({ where: { principal: PRINCIPAL, source: defaultSource }, orderBy: [{ fiscalYear: "desc" }, { periodNo: "desc" }, { date: "desc" }], select: { fiscalYear: true, periodNo: true, date: true } });
   const fiscalYear = requestedYear ?? latest?.fiscalYear;
   if (!fiscalYear) return NextResponse.json({ principal: PRINCIPAL, available: false });
   const requestedPeriod = Number(req.nextUrl.searchParams.get("period"));
   const selectedPeriod = Number.isInteger(requestedPeriod) && requestedPeriod >= 1 && requestedPeriod <= 13 ? requestedPeriod : latest?.fiscalYear === fiscalYear ? latest.periodNo : 13;
-  const selectedPeriodKey = `P${String(selectedPeriod).padStart(2, "0")}`;
+  const timeMode = req.nextUrl.searchParams.get("mode") === "MONTH" ? "MONTH" : "FISCAL";
+  const requestedMonth = req.nextUrl.searchParams.get("month");
+  const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth ?? "") ? requestedMonth! : `${latest?.date.getUTCFullYear() ?? Number(fiscalYear)}-${String((latest?.date.getUTCMonth() ?? 0) + 1).padStart(2, "0")}`;
   const priorYear = String(Number(fiscalYear) - 1);
   const pineForYear = liveState?.lastFullResyncAt ? await prisma.principalKpiSaleLine.count({ where: { principal: PRINCIPAL, source: "PINE", fiscalYear } }) : 0;
   const source = pineForYear > 0 ? "PINE" : "WORKBOOK";
@@ -141,32 +144,44 @@ export async function GET(req: NextRequest) {
   const base = Prisma.sql`${Prisma.join([Prisma.sql`"principal" = ${PRINCIPAL}`, Prisma.sql`"source" = ${source}`, ...dimensions], " AND ")}`;
   const targetBase = Prisma.sql`${Prisma.join([Prisma.sql`"principal" = ${PRINCIPAL}`, ...dimensions], " AND ")}`;
   const actualBase = Prisma.sql`${Prisma.join([Prisma.sql`"principal" = ${PRINCIPAL}`, Prisma.sql`(("fiscalYear" = ${fiscalYear} AND "source" = ${source}) OR ("fiscalYear" = ${priorYear} AND "source" = ${priorSource}))`, ...dimensions], " AND ")}`;
+  const monthStart = new Date(`${selectedMonth}-01T00:00:00.000Z`);
+  const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
+  const selectedActual = timeMode === "MONTH" ? Prisma.sql`date >= ${monthStart} AND date < ${monthEnd}` : Prisma.sql`"periodNo" = ${selectedPeriod}`;
+  const ytdActual = timeMode === "MONTH" ? selectedActual : Prisma.sql`"periodNo" <= ${selectedPeriod}`;
+  const priorMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear() - 1, monthStart.getUTCMonth(), 1));
+  const priorMonthEnd = new Date(Date.UTC(monthEnd.getUTCFullYear() - 1, monthEnd.getUTCMonth(), 1));
+  const summaryPtdActual = timeMode === "MONTH" ? Prisma.sql`(("fiscalYear" = ${fiscalYear} AND date >= ${monthStart} AND date < ${monthEnd}) OR ("fiscalYear" = ${priorYear} AND date >= ${priorMonthStart} AND date < ${priorMonthEnd}))` : selectedActual;
+  const summaryYtdActual = timeMode === "MONTH" ? summaryPtdActual : ytdActual;
   const currentAsOf = await prisma.principalKpiSaleLine.aggregate({ where: { principal: PRINCIPAL, source, fiscalYear, periodNo: { lte: selectedPeriod } }, _max: { date: true } });
   // Mars operates a 52-week (364-day) calendar.  When P09 is still in
   // progress, prior-year comparisons must stop on the equivalent fiscal day,
   // not use a completed LY P09 and make growth look artificially weak.
   const priorAsOf = currentAsOf._max.date ? new Date(currentAsOf._max.date.getTime() - 364 * 86_400_000) : null;
-  const priorAsOfFilter = priorAsOf ? Prisma.sql`AND ("fiscalYear" <> ${priorYear} OR "date" <= ${priorAsOf})` : Prisma.empty;
-  const [actualRows, targetRows, periods, byPeriod, bySeller, byBrand, roster, rtmPerformance, rtmUniverse, locationActuals, locationTargets, productiveTargets, repProductivity, jbpTargetRows, jbpActualRows] = await Promise.all([
+  const priorAsOfFilter = timeMode === "MONTH" ? Prisma.empty : priorAsOf ? Prisma.sql`AND ("fiscalYear" <> ${priorYear} OR "date" <= ${priorAsOf})` : Prisma.empty;
+  const [actualRows, targetRows, calendarTargetRows, periods, byPeriod, bySeller, byBrand, roster, rtmPerformance, rtmUniverse, locationActuals, locationTargets, productiveTargets, repProductivity] = await Promise.all([
     prisma.$queryRaw<{ fiscalYear: string; ptdSsu: number; ytdSsu: number; ptdCases: number; ytdCases: number; ptdRevenue: number; ytdRevenue: number; ptdOutlets: number; ytdOutlets: number; ptdProductive: number; ytdProductive: number; ptdReturns: number; ytdReturns: number }[]>(Prisma.sql`
       SELECT "fiscalYear",
-        COALESCE(SUM(ssu) FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsu",
-        COALESCE(SUM(ssu) FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdSsu",
-        COALESCE(SUM(cases) FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdCases",
-        COALESCE(SUM(cases) FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdCases",
-        COALESCE(SUM(revenue) FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdRevenue",
-        COALESCE(SUM(revenue) FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdRevenue",
-        COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod})::int AS "ptdOutlets",
-        COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" <= ${selectedPeriod})::int AS "ytdOutlets",
-        COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" = ${selectedPeriod} AND qty > 0 AND NOT "isReturn")::int AS "ptdProductive",
-        COUNT(DISTINCT "customerId") FILTER (WHERE "periodNo" <= ${selectedPeriod} AND qty > 0 AND NOT "isReturn")::int AS "ytdProductive",
-        COALESCE(SUM(ssu) FILTER (WHERE "periodNo" = ${selectedPeriod} AND "isReturn"),0)::double precision AS "ptdReturns",
-        COALESCE(SUM(ssu) FILTER (WHERE "periodNo" <= ${selectedPeriod} AND "isReturn"),0)::double precision AS "ytdReturns"
+        COALESCE(SUM(ssu) FILTER (WHERE ${summaryPtdActual}),0)::double precision AS "ptdSsu",
+        COALESCE(SUM(ssu) FILTER (WHERE ${summaryYtdActual}),0)::double precision AS "ytdSsu",
+        COALESCE(SUM(cases) FILTER (WHERE ${summaryPtdActual}),0)::double precision AS "ptdCases",
+        COALESCE(SUM(cases) FILTER (WHERE ${summaryYtdActual}),0)::double precision AS "ytdCases",
+        COALESCE(SUM(revenue) FILTER (WHERE ${summaryPtdActual}),0)::double precision AS "ptdRevenue",
+        COALESCE(SUM(revenue) FILTER (WHERE ${summaryYtdActual}),0)::double precision AS "ytdRevenue",
+        COUNT(DISTINCT "customerId") FILTER (WHERE ${summaryPtdActual})::int AS "ptdOutlets",
+        COUNT(DISTINCT "customerId") FILTER (WHERE ${summaryYtdActual})::int AS "ytdOutlets",
+        COUNT(DISTINCT "customerId") FILTER (WHERE ${summaryPtdActual} AND qty > 0 AND NOT "isReturn")::int AS "ptdProductive",
+        COUNT(DISTINCT "customerId") FILTER (WHERE ${summaryYtdActual} AND qty > 0 AND NOT "isReturn")::int AS "ytdProductive",
+        COALESCE(SUM(ssu) FILTER (WHERE ${summaryPtdActual} AND "isReturn"),0)::double precision AS "ptdReturns",
+        COALESCE(SUM(ssu) FILTER (WHERE ${summaryYtdActual} AND "isReturn"),0)::double precision AS "ytdReturns"
       FROM "PrincipalKpiSaleLine" WHERE ${actualBase} ${priorAsOfFilter} GROUP BY "fiscalYear"
     `),
     prisma.$queryRaw<{ fiscalYear: string; ptdSsuTarget: number; ytdSsuTarget: number; fullSsuTarget: number; ptdValueTarget: number; ytdValueTarget: number; fullValueTarget: number; ptdUniverseTarget: number; ytdCoverageTarget: number }[]>(Prisma.sql`
       SELECT "fiscalYear", COALESCE(SUM("ssuTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdSsuTarget", COALESCE(SUM("ssuTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdSsuTarget", COALESCE(SUM("ssuTarget"),0)::double precision AS "fullSsuTarget", COALESCE(SUM("valueTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdValueTarget", COALESCE(SUM("valueTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdValueTarget", COALESCE(SUM("valueTarget"),0)::double precision AS "fullValueTarget", COALESCE(SUM("universeTarget") FILTER (WHERE "periodNo" = ${selectedPeriod}),0)::double precision AS "ptdUniverseTarget", COALESCE(SUM("coverageTarget") FILTER (WHERE "periodNo" <= ${selectedPeriod}),0)::double precision AS "ytdCoverageTarget"
       FROM "PrincipalKpiTarget" WHERE ${targetBase} AND "fiscalYear" = ${fiscalYear} GROUP BY "fiscalYear"
+    `),
+    prisma.$queryRaw<{ periodKey: string; ssuTarget: number; valueTarget: number; universeTarget: number; coverageTarget: number }[]>(Prisma.sql`
+      SELECT "periodKey", COALESCE(SUM("ssuTarget"),0)::double precision AS "ssuTarget", COALESCE(SUM("valueTarget"),0)::double precision AS "valueTarget", COALESCE(SUM("universeTarget"),0)::double precision AS "universeTarget", COALESCE(SUM("coverageTarget"),0)::double precision AS "coverageTarget"
+      FROM "PrincipalKpiTarget" WHERE ${targetBase} AND "fiscalYear" = ${fiscalYear} GROUP BY "periodKey"
     `),
     prisma.principalKpiPeriod.findMany({ where: { principal: PRINCIPAL, fiscalYear }, orderBy: { periodNo: "asc" }, select: { periodKey: true, periodNo: true, startDate: true, endDate: true } }),
     prisma.$queryRaw<{ periodKey: string; periodNo: number; ssu: number; revenue: number; outlets: number }[]>(Prisma.sql`SELECT "periodKey", "periodNo", COALESCE(SUM(ssu),0)::double precision AS ssu, COALESCE(SUM(revenue),0)::double precision AS revenue, COUNT(DISTINCT "customerId")::int AS outlets FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" <= ${selectedPeriod} GROUP BY "periodKey", "periodNo" ORDER BY "periodNo"`),
@@ -207,17 +222,9 @@ export async function GET(req: NextRequest) {
         COUNT(DISTINCT ("customerId", "itemName")) FILTER (WHERE qty > 0 AND NOT "isReturn")::int AS productive
       FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" = ${selectedPeriod}
       GROUP BY 1, 2, 3 ORDER BY productive DESC`),
-    prisma.principalKpiJbpTarget.findMany({ where: { principal: PRINCIPAL, periodKey: selectedPeriodKey }, orderBy: [{ tier: "asc" }, { customerName: "asc" }] }),
-    // Net (sale minus return) actual Cases/SSU per outlet for the selected
-    // period only - "JBP totals" per the source request: this outlet's
-    // overall performance, not broken down by category/brand.
-    prisma.$queryRaw<{ customerId: string; actualCases: number; actualSsu: number }[]>(Prisma.sql`
-      SELECT "customerId", COALESCE(SUM(cases),0)::double precision AS "actualCases", COALESCE(SUM(ssu),0)::double precision AS "actualSsu"
-      FROM "PrincipalKpiSaleLine" WHERE ${base} AND "fiscalYear" = ${fiscalYear} AND "periodNo" = ${selectedPeriod}
-      GROUP BY "customerId"`),
   ]);
   const actual = new Map(actualRows.map((row) => [row.fiscalYear, row]));
-  const rawTarget = targetRows[0] ?? { ptdSsuTarget: 0, ytdSsuTarget: 0, fullSsuTarget: 0, ptdValueTarget: 0, ytdValueTarget: 0, fullValueTarget: 0, ptdUniverseTarget: 0, ytdCoverageTarget: 0 };
+  let rawTarget = targetRows[0] ?? { ptdSsuTarget: 0, ytdSsuTarget: 0, fullSsuTarget: 0, ptdValueTarget: 0, ytdValueTarget: 0, fullValueTarget: 0, ptdUniverseTarget: 0, ytdCoverageTarget: 0 };
   // The workbook's PTD target is a current-period target paced to the fiscal
   // days elapsed; reporting the full 28-day target mid-period understates
   // achievement. Completed periods retain their full target.
@@ -225,7 +232,24 @@ export async function GET(req: NextRequest) {
   const periodStart = selectedWindow?.startDate.getTime() ?? 0;
   const periodEnd = selectedWindow?.endDate.getTime() ?? 0;
   const cutoff = currentAsOf._max.date ? Math.min(currentAsOf._max.date.getTime(), periodEnd) : periodEnd;
-  const pacing = periodStart && periodEnd && cutoff >= periodStart ? Math.min(1, (Math.floor((cutoff - periodStart) / 86_400_000) + 1) / (Math.floor((periodEnd - periodStart) / 86_400_000) + 1)) : 1;
+  const pacing = timeMode === "MONTH" ? 1 : periodStart && periodEnd && cutoff >= periodStart ? Math.min(1, (Math.floor((cutoff - periodStart) / 86_400_000) + 1) / (Math.floor((periodEnd - periodStart) / 86_400_000) + 1)) : 1;
+  if (timeMode === "MONTH") {
+    const targetByPeriod = new Map(calendarTargetRows.map((row) => [row.periodKey, row]));
+    const monthly = periods.reduce((result, period) => {
+      const overlapStart = Math.max(period.startDate.getTime(), monthStart.getTime());
+      const overlapEnd = Math.min(period.endDate.getTime() + 86_400_000, monthEnd.getTime());
+      if (overlapEnd <= overlapStart) return result;
+      const weight = (overlapEnd - overlapStart) / ((period.endDate.getTime() + 86_400_000 - period.startDate.getTime()));
+      const target = targetByPeriod.get(period.periodKey);
+      if (!target) return result;
+      result.ptdSsuTarget += target.ssuTarget * weight;
+      result.ptdValueTarget += target.valueTarget * weight;
+      result.ptdUniverseTarget += target.universeTarget * weight;
+      result.ytdCoverageTarget += target.coverageTarget * weight;
+      return result;
+    }, { ptdSsuTarget: 0, ptdValueTarget: 0, ptdUniverseTarget: 0, ytdCoverageTarget: 0 });
+    rawTarget = { ...rawTarget, ...monthly, ytdSsuTarget: monthly.ptdSsuTarget, ytdValueTarget: monthly.ptdValueTarget };
+  }
   const target = { ...rawTarget, ptdSsuTarget: rawTarget.ptdSsuTarget * pacing, ptdValueTarget: rawTarget.ptdValueTarget * pacing };
   const current = actual.get(fiscalYear) ?? { ptdSsu: 0, ytdSsu: 0, ptdCases: 0, ytdCases: 0, ptdRevenue: 0, ytdRevenue: 0, ptdOutlets: 0, ytdOutlets: 0, ptdProductive: 0, ytdProductive: 0, ptdReturns: 0, ytdReturns: 0 };
   const prior = actual.get(priorYear) ?? { ptdSsu: 0, ytdSsu: 0, ptdCases: 0, ytdCases: 0, ptdRevenue: 0, ytdRevenue: 0, ptdOutlets: 0, ytdOutlets: 0, ptdProductive: 0, ytdProductive: 0, ptdReturns: 0, ytdReturns: 0 };
@@ -248,24 +272,5 @@ export async function GET(req: NextRequest) {
   }
   const productiveActualByRep = new Map(repProductivity.map((row) => [row.employeeCode, row]));
   const repProductivityScorecards = [...new Set([...productiveTargetByRep.keys(), ...productiveActualByRep.keys()])].map((employeeCode) => { const targetRow = productiveTargetByRep.get(employeeCode); const actualRow = productiveActualByRep.get(employeeCode); return { employeeCode, employeeName: targetRow?.employeeName ?? actualRow?.employeeName ?? employeeCode, location: targetRow?.location ?? actualRow?.location ?? "Unassigned", target: targetRow?.target ?? 0, productive: actualRow?.productive ?? 0 }; }).sort((a, b) => b.productive - a.productive);
-
-  // JBP customer performance: every JBP-targeted outlet for the selected
-  // period, this outlet's overall (not per-brand) Cases/SSU target from the
-  // "JBP Targets" sheet's own "Total Target" rows, against its net actual
-  // Cases/SSU for that same period - a customer with a target but zero
-  // matching actuals still appears, at 0% achievement, rather than being
-  // dropped (the whole point of a JBP scorecard is to surface exactly that).
-  const jbpActualByCustomer = new Map(jbpActualRows.map((row) => [row.customerId, row]));
-  const jbpCustomers = jbpTargetRows.map((row) => {
-    const actualRow = jbpActualByCustomer.get(row.customerId);
-    const actualCases = actualRow?.actualCases ?? 0;
-    const actualSsu = actualRow?.actualSsu ?? 0;
-    return {
-      customerId: row.customerId, customerName: row.customerName ?? row.customerId, tier: row.tier ?? "Unclassified", area: row.area ?? "Unassigned",
-      targetCases: row.targetCases, actualCases, casesAchievement: pct(actualCases, row.targetCases),
-      targetSsu: row.targetSsu, actualSsu, ssuAchievement: pct(actualSsu, row.targetSsu),
-    };
-  }).sort((a, b) => (b.ssuAchievement ?? -1) - (a.ssuAchievement ?? -1));
-
-  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, periods, source, priorSource, asOf: currentAsOf._max.date?.toISOString() ?? null, priorAsOf: priorAsOf?.toISOString() ?? null, filterOptions, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget), ptdStrikeRate: pct(current.ptdProductive, current.ptdOutlets), ptdConversion: pct(current.ptdProductive, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand, rtmPerformance, rtmUniverse: rtmUniverse.map((row) => ({ name: row.rtmType ?? "Unclassified", customers: row._count.customerId })), locationScorecards, repProductivityScorecards, jbpCustomers });
+  return NextResponse.json({ principal: PRINCIPAL, available: true, fiscalYear, priorYear, selectedPeriod, timeMode, selectedMonth, periods, source, priorSource, asOf: currentAsOf._max.date?.toISOString() ?? null, priorAsOf: priorAsOf?.toISOString() ?? null, filterOptions, summary: { current, prior, target, ptdAchievement: pct(current.ptdSsu, target.ptdSsuTarget), ytdAchievement: pct(current.ytdSsu, target.ytdSsuTarget), fullYearAchievement: pct(current.ytdSsu, target.fullSsuTarget), ptdGrowth: prior.ptdSsu > 0 ? ((current.ptdSsu / prior.ptdSsu) - 1) * 100 : null, ytdGrowth: prior.ytdSsu > 0 ? ((current.ytdSsu / prior.ytdSsu) - 1) * 100 : null, ptdCoverage: pct(current.ptdOutlets, target.ptdUniverseTarget), ptdStrikeRate: pct(current.ptdProductive, current.ptdOutlets), ptdConversion: pct(current.ptdProductive, target.ptdUniverseTarget) }, byPeriod, bySeller, byBrand, rtmPerformance, rtmUniverse: rtmUniverse.map((row) => ({ name: row.rtmType ?? "Unclassified", customers: row._count.customerId })), locationScorecards, repProductivityScorecards });
 }

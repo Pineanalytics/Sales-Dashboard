@@ -36,6 +36,45 @@ export interface PeriodSelection {
   toMonth?: string;
 }
 
+/** The MTD target must use the same calendar window as the actuals. We use the
+ * Nairobi business date rather than the browser's locale so every viewer sees
+ * the same pacing factor. Calendar days (not working days) are intentional:
+ * sales can post on any day and the monthly commercial target is a calendar
+ * commitment. */
+export interface MtdTargetPacing {
+  elapsedDays: number;
+  daysInMonth: number;
+  factor: number;
+}
+
+function nairobiDateParts(asOf: Date): { year: number; monthIndex: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(asOf);
+  const part = (type: "year" | "month" | "day") => Number(parts.find((item) => item.type === type)?.value ?? 0);
+  return { year: part("year"), monthIndex: part("month") - 1, day: part("day") };
+}
+
+/** Returns the calendar-day pacing for an MTD selection. Past months are fully
+ * elapsed, future months have no elapsed target, and the live month includes
+ * today (for example, 9 September is 9/30 of September's target). */
+export function getMtdTargetPacing(selection: PeriodSelection, asOf: Date = new Date()): MtdTargetPacing | null {
+  if (selection.kind !== "MTD" || !selection.month) return null;
+  const monthIndex = CANONICAL_MONTHS.indexOf(selection.month);
+  const year = Number(selection.year);
+  if (monthIndex < 0 || !Number.isInteger(year)) return null;
+
+  const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  const today = nairobiDateParts(asOf);
+  const selectedKey = year * 12 + monthIndex;
+  const todayKey = today.year * 12 + today.monthIndex;
+  const elapsedDays = selectedKey < todayKey ? daysInMonth : selectedKey > todayKey ? 0 : Math.min(Math.max(today.day, 0), daysInMonth);
+  return { elapsedDays, daysInMonth, factor: elapsedDays / daysInMonth };
+}
+
 interface MonthRef {
   year: string;
   monthIndex: number;
@@ -173,9 +212,11 @@ export interface PeriodSalesSummary {
   grossMarginPct: number | null;
   achievementPct: number | null;
   monthsIncluded: number;
+  /** Present only for MTD, so UI can explain the live target's day pacing. */
+  mtdTargetPacing: MtdTargetPacing | null;
 }
 
-function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[]): PeriodSalesSummary {
+function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[], selection: PeriodSelection, asOf?: Date): PeriodSalesSummary {
   const keys = periodKeySet(months);
   const matched = rows.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
   const monthsWithData = new Set(matched.map((r) => rowKey(r.year, r.monthIndex)));
@@ -202,12 +243,15 @@ function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[]): Period
   // NOT go back to null just because one row among many (e.g. a single principal
   // not yet targeted for a given month) lacks one; summing whatever targets exist
   // is far more useful than blanking the whole period over one row's gap.
-  const target = hasAnyTarget ? targetSum : null;
+  const mtdTargetPacing = getMtdTargetPacing(selection, asOf);
+  const target = hasAnyTarget
+    ? targetSum * (mtdTargetPacing?.factor ?? 1)
+    : null;
 
   const grossMarginPct = revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
   const achievementPct = target !== null && target > 0 ? round1((revenue / target) * 100) : null;
 
-  return { revenue, target, cogs, grossProfit, grossMarginPct, achievementPct, monthsIncluded: monthsWithData.size };
+  return { revenue, target, cogs, grossProfit, grossMarginPct, achievementPct, monthsIncluded: monthsWithData.size, mtdTargetPacing };
 }
 
 /** `principalKey` here is the raw Principal string (e.g. "EABL-Nyeri"), matched exactly —
@@ -215,18 +259,20 @@ function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[]): Period
 export function summarizeSalesForPeriod(
   dataset: Dataset,
   selection: PeriodSelection,
-  principalKey: string | null
+  principalKey: string | null,
+  asOf?: Date,
 ): PeriodSalesSummary {
   const months = resolvePeriodMonths(selection);
   const rows = principalKey ? dataset.monthlySales.filter((r) => r.principal === principalKey) : dataset.monthlySales;
-  return summarizeSalesRows(rows, months);
+  return summarizeSalesRows(rows, months, selection, asOf);
 }
 
 /** Groups by the raw Principal string, not the normalized brand key, so same-brand
  *  different-location principals (e.g. "EABL-Nyeri"/"EABL-Nyahururu") list separately. */
 export function summarizeSalesByPrincipal(
   dataset: Dataset,
-  selection: PeriodSelection
+  selection: PeriodSelection,
+  asOf?: Date,
 ): Map<string, PeriodSalesSummary & { principal: string; principalKey: string }> {
   const months = resolvePeriodMonths(selection);
   const keys = periodKeySet(months);
@@ -240,7 +286,7 @@ export function summarizeSalesByPrincipal(
 
   const result = new Map<string, PeriodSalesSummary & { principal: string; principalKey: string }>();
   for (const [principal, rows] of byKey) {
-    result.set(principal, { ...summarizeSalesRows(rows, months), principal, principalKey: principal });
+    result.set(principal, { ...summarizeSalesRows(rows, months, selection, asOf), principal, principalKey: principal });
   }
   return result;
 }

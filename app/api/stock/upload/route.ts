@@ -10,6 +10,7 @@ interface StockUploadRow {
   principal: string;
   item: string;
   itemCode: string;
+  brand?: string | null;
   openingVolume: number;
   openingPcs: number;
   openingValue: number;
@@ -45,10 +46,20 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+// Optional (undefined allowed, not just null): the field-machine stock-sync
+// script deploys independently of the VPS (see docs/automation-registry.md) —
+// an old, not-yet-updated script will still POST rows with no "brand" key at
+// all, and that must keep working exactly as before rather than rejecting
+// the whole snapshot.
+function nullableOptionalText(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || (typeof value === "string" && value.trim().length > 0);
+}
+
 function isValidRow(value: unknown): value is StockUploadRow {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
   return nonBlankText(row.principal) && nonBlankText(row.item) && nonBlankText(row.itemCode) && nonBlankText(row.action)
+    && nullableOptionalText(row.brand)
     && finiteNumber(row.openingVolume) && finiteNumber(row.openingPcs) && finiteNumber(row.openingValue)
     && finiteNumber(row.rrWeekValue) && finiteNumber(row.rrWeekVolume) && finiteNumber(row.daysCover);
 }

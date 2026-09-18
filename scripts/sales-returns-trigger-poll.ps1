@@ -62,17 +62,30 @@ $Distributor = if ($Distributor) { $Distributor } else { Get-DotEnvValue -Name "
 if (-not $apiKey) { throw "UPLOAD_API_KEY not found in .env at $ProjectPath." }
 if (-not $Distributor) { throw "No distributor provided. Pass -Distributor, or set SALES_RETURNS_DISTRIBUTOR in this machine's environment or .env file." }
 
+# Acquire before checking the queue. If a scheduled sync owns the mutex, this
+# poll exits without claiming a request, leaving it safely pending for the
+# next poll instead of racing the scheduled upload.
+. (Join-Path $PSScriptRoot "sales-returns-sync-lock.ps1")
+$syncLock = Enter-SalesReturnsSyncLock -Distributor $Distributor
+if (-not $syncLock.Held) {
+  Write-Log "Another Sales & Returns sync is already running for distributor $Distributor; leaving trigger requests pending."
+  Exit-SalesReturnsSyncLock -Lock $syncLock
+  exit 0
+}
+
 try {
   $pending = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/trigger/pending?distributor=$Distributor" -Method Get `
     -Headers @{ "x-upload-api-key" = $apiKey }
 }
 catch {
   Write-Log "Could not reach the trigger queue: $($_.Exception.Message)"
+  Exit-SalesReturnsSyncLock -Lock $syncLock
   exit 0
 }
 
 if (-not $pending.pending) {
   Write-Log "No pending trigger for distributor $Distributor."
+  Exit-SalesReturnsSyncLock -Lock $syncLock
   exit 0
 }
 
@@ -109,3 +122,5 @@ catch {
 }
 
 if ($status -eq "FAILED") { exit 1 }
+
+Exit-SalesReturnsSyncLock -Lock $syncLock

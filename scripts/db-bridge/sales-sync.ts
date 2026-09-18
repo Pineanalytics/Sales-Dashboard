@@ -46,6 +46,7 @@ import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
 import { loadEmployeeMaster, loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildMonthlySales } from "./transform/buildMonthlySales";
 import { buildDailySales } from "./transform/buildDailySales";
+import { buildUnmappedProductSales } from "./transform/buildUnmappedProductSales";
 import {
   buildDailyCustomerSales,
   buildDailyRepSales,
@@ -141,10 +142,14 @@ async function main() {
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
   const monthlyCustomerSales = buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
   const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
+  const unmappedProductSales = buildUnmappedProductSales(monthlyInputRows, products);
   const monthlyReplacePeriods = replacementPeriodsFromMonthlyRows(monthlyCustomerSales);
+  const unmappedProductReplacePeriods = isBackfill
+    ? replacementPeriodsFromMonthlyRows(monthlyInputRows.map((row) => ({ year: String(row.year), monthIndex: row.monthNo - 1 })))
+    : replacementPeriodsFromDailyWindows(dailyWindowsToRead);
   const dailyReplacePeriods = replacementPeriodsFromDailyWindows(dailyWindowsToRead);
   console.log(
-    `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, and ${dailyCustomerSales.length} customer-day rows.`
+    `[sales-sync] Built ${monthlySales.length} principal-month rows, ${dailySales.length} principal-day rows, ${monthlyRepSales.length} rep-month rows, ${dailyRepSales.length} rep-day rows, ${monthlyCustomerSales.length} customer-month rows, ${dailyCustomerSales.length} customer-day rows, and ${unmappedProductSales.length} unmapped product-month/warehouse rows.`
   );
 
   // The comparison repair is deliberately daily-principal only. Do not touch
@@ -172,6 +177,22 @@ async function main() {
     console.log(`[sales-sync] Comparison history upload succeeded. Saved ${dailyBody.count} daily rows.`);
     return;
   }
+
+  // The Product Master worklist uses the same complete monthly source windows
+  // as the other SAP aggregates. It is intentionally skipped by the compact
+  // comparison repair above, whose partial MTD windows must never replace a
+  // complete historical month.
+  console.log(`[sales-sync] Uploading unmapped Product Master sales to ${appUrl}/api/sales/upload-unmapped-products...`);
+  const unmappedProductsResponse = await fetch(`${appUrl}/api/sales/upload-unmapped-products`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+    body: JSON.stringify({ rows: unmappedProductSales, replacePeriods: unmappedProductReplacePeriods }),
+  });
+  const unmappedProductsBody = await unmappedProductsResponse.json();
+  if (!unmappedProductsResponse.ok) {
+    throw new Error(`Unmapped product upload rejected (HTTP ${unmappedProductsResponse.status}): ${JSON.stringify(unmappedProductsBody)}`);
+  }
+  console.log(`[sales-sync] Unmapped Product Master upload succeeded. Saved ${unmappedProductsBody.rows} rows across ${unmappedProductsBody.replacePeriods} complete month(s).`);
 
   const rows = monthlySales.map((r) => ({
     year: r.year,

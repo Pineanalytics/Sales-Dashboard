@@ -63,4 +63,20 @@ describe("Sales & Returns manual windows", () => {
   it("rejects impossible calendar dates", () => {
     expect(() => resolveManualSalesReturnsWindow("smart", "2026-02-31", now)).toThrow("real YYYY-MM-DD");
   });
+
+  it("widens a single backfill day into an explicit range when BackfillTo is given", () => {
+    const selected = resolveManualSalesReturnsWindow("smart", "2026-08-01", now, "2026-08-29");
+    expect(selected.start.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(selected.end.toISOString()).toBe("2026-08-29T00:00:00.000Z");
+  });
+
+  it("rejects a backfill range that ends before it starts", () => {
+    expect(() => resolveManualSalesReturnsWindow("smart", "2026-08-29", now, "2026-08-01")).toThrow(
+      "must not be earlier than"
+    );
+  });
+
+  it("rejects an invalid BackfillTo date", () => {
+    expect(() => resolveManualSalesReturnsWindow("smart", "2026-08-01", now, "2026-02-31")).toThrow("real YYYY-MM-DD");
+  });
 });

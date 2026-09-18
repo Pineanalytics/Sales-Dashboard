@@ -426,6 +426,37 @@ model Product {
   createdAt      DateTime @default(now())
 }
 
+// SAP sales rows whose Item Code is absent from Product Master. These facts are
+// deliberately retained at product/month/warehouse grain so the Product Master
+// worklist can show the revenue currently excluded from mapped sales without
+// inferring or writing a principal back to SAP. A confirmed Product Master
+// mapping removes the code from this worklist and the next replacement sync
+// stops producing rows for it.
+model UnmappedProductSale {
+  id              String   @id @default(cuid())
+  year            String
+  month           String
+  monthIndex      Int
+  itemNo          String
+  itemDescription String
+  warehouseCode   String   @default("")
+  // Read-only SAP product-reference attributes. `packDetail` is SAP's
+  // pack/UOM description; Product Master's editable `size` field may use it
+  // as a starting value because SAP has no separate physical-size column.
+  packSize        Float?
+  costPrice       Float?
+  packDetail      String?
+  revenue         Float
+  grossMargin     Float
+  quantity        Float
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([year, monthIndex, itemNo, warehouseCode])
+  @@index([itemNo])
+  @@index([year, monthIndex])
+}
+
 // Principal KPI workspace — an additive, fiscal-calendar-aware layer for
 // principal-specific scorecards.  The company-wide `Target`, `Product`, and
 // `EmployeeMaster` tables intentionally remain the shared sources for the
@@ -510,6 +541,41 @@ model PrincipalKpiTarget {
   @@index([principal, fiscalYear, periodNo])
 }
 
+// Customer-level Mars JBP targets are deliberately separate from the rep
+// scorecard target model above.  One customer can have both a category target
+// (4P/2P/10P/Orbit) and an "Overall Target" for the same fiscal period.
+// Keeping the source's tier and area makes the dashboard reconcile directly
+// to the JBP Customer Performance vs Target workbook.
+model PrincipalKpiJbpTarget {
+  id           String   @id @default(cuid())
+  principal    String
+  fiscalYear   String
+  periodKey    String
+  periodNo     Int
+  customerId   String
+  customerName String?
+  category     String
+  tier         String?
+  area         String?
+  casesTarget  Float    @default(0)
+  ssuTarget    Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // The @@unique([principal, fiscalYear, periodKey, customerId, category])
+  // declared here from 2026-09-14 to 2026-09-16 never actually reached
+  // production: `prisma db push` refused it outright ("there might be data
+  // loss") because live rows already violated it, which blocks the *entire*
+  // schema diff atomically — including every other, unrelated pending
+  // change. Dropped to unblock deploys; see
+  // /api/principal-kpis/mars/jbp/duplicates for what's colliding. Re-add
+  // once those rows are cleared (most likely: re-running
+  // scripts/principal-kpis/import-mars.ts, which already de-duplicates on
+  // this exact key before its own full deleteMany+createMany replace).
+  @@index([principal, fiscalYear, periodNo, category])
+  @@index([principal, customerId])
+}
+
 // Productive Report is a separate, SKU-level target model supplied by Mars.
 // It is deliberately not folded into the sales-value target: its target is
 // the number of productive outlet/SKU combinations expected from each rep.
@@ -550,31 +616,6 @@ model PrincipalKpiRtmCustomer {
 
   @@unique([principal, customerId])
   @@index([principal, location, rtmType])
-}
-
-// Joint Business Plan customer targets, from the "JBP Targets" sheet's
-// "Total Target" rows (source sheet "Overall") — the workbook's own
-// outlet-level total, not a sum of the sheet's per-category (4P/2P/10P/
-// Orbit) rows, which were confirmed against real data NOT to add up to the
-// "Total Target" figure for the same customer/period. Not fiscal-year-keyed,
-// same as PrincipalKpiRtmCustomer/PrincipalKpiProductiveTarget above — this
-// sheet only carries a bare period label (no year column), and like those
-// two tables it's replaced wholesale on every import rather than merged.
-model PrincipalKpiJbpTarget {
-  id           String   @id @default(cuid())
-  principal    String
-  customerId   String
-  customerName String?
-  tier         String?
-  area         String?
-  periodKey    String // P01 … P13
-  targetCases  Float
-  targetSsu    Float
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([principal, customerId, periodKey])
-  @@index([principal, periodKey])
 }
 
 // One source sales line.  It preserves the item, seller and fiscal-period
@@ -740,6 +781,12 @@ model StockActual {
   principal     String
   item          String
   itemCode      String
+  // SAP's own OMRC "Manufacturer" master (queried as "Brand/Manufacturer" in
+  // scripts/db-bridge/queries/stockBalance.ts) — this business repurposes it
+  // to record product brand, since SAP Business One has no dedicated brand
+  // field. Null wherever that SAP master record is blank; lib/datasetStore.ts's
+  // overlayStock falls back to Product.series in that case.
+  brand         String?
   openingVolume Float
   openingPcs    Float
   openingValue  Float

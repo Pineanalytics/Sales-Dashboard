@@ -72,6 +72,7 @@ async function main() {
         itemCode: item.itemCode,
         principal: item.principal,
         item: item.item,
+        brand: item.brand,
         openingVolume: item.openingVolume,
         openingPcs: item.openingPcs,
         openingValue: item.openingValue,
