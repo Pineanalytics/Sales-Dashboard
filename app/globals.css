@@ -157,3 +157,12 @@ table tbody tr:hover {
     animation: none;
   }
 }
+
+/* Applied to Sidebar/Header/GlobalFilterBar (see AnalyticsShell.tsx) so
+   Ctrl+P / Save-as-PDF produces a clean export even without switching the
+   Executive Summary page's presentation-mode toggle on first. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

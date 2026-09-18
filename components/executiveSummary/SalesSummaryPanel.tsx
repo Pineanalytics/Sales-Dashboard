@@ -5,7 +5,7 @@ import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { GrowthComparison } from "@/components/overview/GrowthComparison";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
-import { summarizeSalesForPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
+import { summarizeSalesForPeriod, getPreviousMonthPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
 import { computeSalesRunRate } from "@/lib/executiveSummary";
 import type { Dataset } from "@/lib/types";
 
@@ -21,11 +21,31 @@ export function SalesSummaryPanel({
   const summary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
   const runRate = computeSalesRunRate(summary, period);
 
+  // Trailing 6-month revenue trend for the Revenue KpiCard's sparkline, built
+  // by walking getPreviousMonthPeriod (already used elsewhere for MoM growth)
+  // back from the selected period's anchor month, rather than a new
+  // aggregation helper. Skipped for a period with no single anchor month
+  // (shouldn't occur for MTD/MONTH/QTD/YTD, all of which carry `.month`).
+  const anchorMonthPeriod: PeriodSelection | null = period.month ? { kind: "MONTH", year: period.year, month: period.month } : null;
+  const revenueTrend: number[] = [];
+  if (anchorMonthPeriod) {
+    let cursor: PeriodSelection | null = anchorMonthPeriod;
+    for (let i = 0; i < 6 && cursor; i++) {
+      revenueTrend.unshift(summarizeSalesForPeriod(dataset, cursor, selectedPrincipalKey).revenue);
+      cursor = getPreviousMonthPeriod(cursor);
+    }
+  }
+
   return (
     <SectionCard title="Sales vs. Target" accent="blue">
       <div className="flex flex-col gap-4">
         <KpiGrid>
-          <KpiCard accent="revenue" label="Revenue" value={formatCompact(summary.revenue)} />
+          <KpiCard
+            accent="revenue"
+            label="Revenue"
+            value={formatCompact(summary.revenue)}
+            sparkline={revenueTrend.length > 1 ? revenueTrend : undefined}
+          />
           <KpiCard accent="mission" label="Target" value={summary.target !== null ? formatCompact(summary.target) : "N/T"} />
           <KpiCard
             accent="quarter"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSalesRunRate, computeOverstock, computeOverstockByPrincipal, periodToDateRange } from "@/lib/executiveSummary";
+import { computeSalesRunRate, computeOverstock, computeOverstockByPrincipal, periodToDateRange, averageActiveOutletsForPeriod } from "@/lib/executiveSummary";
 import type { PeriodSalesSummary, PeriodSelection } from "@/lib/timeIntelligence";
 import type { Dataset, StockItem } from "@/lib/types";
 
@@ -119,5 +119,49 @@ describe("periodToDateRange", () => {
   it("spans a full year for YTD through December", () => {
     const range = periodToDateRange({ kind: "YTD", year: "2026", month: "December" });
     expect(range).toEqual({ dateFrom: "2026-01-01", dateTo: "2026-12-31" });
+  });
+});
+
+describe("averageActiveOutletsForPeriod", () => {
+  it("averages across months rather than summing, to avoid double-counting repeat outlets", () => {
+    const monthly = [
+      { year: "2026", monthIndex: 6, distinctOutlets: 100 },
+      { year: "2026", monthIndex: 7, distinctOutlets: 200 },
+    ];
+    const months = [{ year: "2026", monthIndex: 6 }, { year: "2026", monthIndex: 7 }];
+    expect(averageActiveOutletsForPeriod(monthly, months)).toBe(150);
+  });
+
+  it("sums same-month rows (e.g. Primary + Secondary) before averaging across months", () => {
+    const monthly = [
+      { year: "2026", monthIndex: 6, distinctOutlets: 100 },
+      { year: "2026", monthIndex: 6, distinctOutlets: 40 },
+      { year: "2026", monthIndex: 7, distinctOutlets: 200 },
+    ];
+    const months = [{ year: "2026", monthIndex: 6 }, { year: "2026", monthIndex: 7 }];
+    // July+Aug totals: 140, 200 -> average 170
+    expect(averageActiveOutletsForPeriod(monthly, months)).toBe(170);
+  });
+
+  it("ignores rows outside the requested months", () => {
+    const monthly = [
+      { year: "2026", monthIndex: 6, distinctOutlets: 100 },
+      { year: "2025", monthIndex: 6, distinctOutlets: 999 },
+    ];
+    const months = [{ year: "2026", monthIndex: 6 }];
+    expect(averageActiveOutletsForPeriod(monthly, months)).toBe(100);
+  });
+
+  it("only divides by the months that actually have data, not the full period length", () => {
+    const monthly = [{ year: "2026", monthIndex: 6, distinctOutlets: 90 }];
+    // Period spans two months, but only one has any data.
+    const months = [{ year: "2026", monthIndex: 6 }, { year: "2026", monthIndex: 7 }];
+    expect(averageActiveOutletsForPeriod(monthly, months)).toBe(90);
+  });
+
+  it("returns null when no month in the period has any matching data", () => {
+    const monthly = [{ year: "2025", monthIndex: 0, distinctOutlets: 50 }];
+    const months = [{ year: "2026", monthIndex: 6 }];
+    expect(averageActiveOutletsForPeriod(monthly, months)).toBeNull();
   });
 });

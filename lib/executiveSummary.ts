@@ -89,6 +89,39 @@ export function periodToDateRange(selection: PeriodSelection): { dateFrom: strin
   return { dateFrom, dateTo };
 }
 
+export interface ActiveOutletsMonthlyRow {
+  year: string;
+  monthIndex: number;
+  distinctOutlets: number;
+}
+
+/** Active Outlets' `distinctOutlets` is a per-month unique-outlet count —
+ *  like Coverage (see lib/timeIntelligence.ts's `averageMonthlyTotals`),
+ *  summing it across multiple months would double-count any outlet active
+ *  in more than one of them, inflating a QTD/YTD figure. This averages
+ *  instead, matching the same fix this app already shipped for Coverage
+ *  (see summarizeCoverageRows's own comment on why coverage is averaged,
+ *  not summed, across months). Rows sharing a (year, monthIndex) — e.g.
+ *  separate Primary/Secondary rows from /api/active-outlets's `monthly`
+ *  array — are summed together first into that month's total, then those
+ *  per-month totals are averaged across however many of the period's
+ *  months actually have data. Returns null if none do. */
+export function averageActiveOutletsForPeriod(
+  monthlyRows: ActiveOutletsMonthlyRow[],
+  months: { year: string; monthIndex: number }[]
+): number | null {
+  const monthKeys = new Set(months.map((m) => `${m.year}|${m.monthIndex}`));
+  const perMonthTotal = new Map<string, number>();
+  for (const row of monthlyRows) {
+    const key = `${row.year}|${row.monthIndex}`;
+    if (!monthKeys.has(key)) continue;
+    perMonthTotal.set(key, (perMonthTotal.get(key) ?? 0) + row.distinctOutlets);
+  }
+  if (perMonthTotal.size === 0) return null;
+  const total = Array.from(perMonthTotal.values()).reduce((sum, v) => sum + v, 0);
+  return Math.round(total / perMonthTotal.size);
+}
+
 export interface PrincipalOverstock {
   key: string;
   name: string;
