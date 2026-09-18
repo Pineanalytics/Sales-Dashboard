@@ -22,6 +22,10 @@ type Props = {
   canViewReceivables: boolean;
   canViewProfitability: boolean;
   initialTab?: FinancialsTab;
+  /** Seeds Customer Credit Exposure's search box to "Over limit" and expands
+   *  its list — the deep-link target for Executive Summary's "N customer(s)
+   *  over credit limit" exception/link (see FinancialsPanel.tsx). */
+  initialCreditStatus?: "over-limit";
   receivables: ReceivablesDashboard | null;
 };
 
@@ -36,6 +40,7 @@ export function FinancialsView({
   canViewReceivables,
   canViewProfitability,
   initialTab,
+  initialCreditStatus,
   receivables,
 }: Props) {
   const dataset = useDashboardStore((state) => state.dataset);
@@ -93,7 +98,7 @@ export function FinancialsView({
 
       <div role="tabpanel">
         {activeTab === "receivables-summary" && receivables && <ReceivablesSummary data={receivables} />}
-        {activeTab === "credit-exposure" && receivables && <CustomerCreditExposure data={receivables} />}
+        {activeTab === "credit-exposure" && receivables && <CustomerCreditExposure data={receivables} initialStatus={initialCreditStatus} />}
         {activeTab === "open-items" && receivables && <LargestOpenItems data={receivables} />}
         {activeTab === "profitability" && (
           <div className="flex flex-col gap-4">

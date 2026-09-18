@@ -3,21 +3,34 @@
 import { useEffect, useState } from "react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
-import { formatCompact, formatPercent, achievementTier, tierTextClass } from "@/lib/format";
+import { formatCompact, formatPercent } from "@/lib/format";
 import { summarizeSalesByPrincipal, CANONICAL_MONTHS, type PeriodSelection } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
-import type { PrincipalRevenueInput, TlRankingRow, SupervisorRankingResult, ManagerRankingResult, UnattributedPrincipal } from "@/lib/tlRanking";
+import type { PrincipalRevenueInput, TlCompositeRow, SupervisorRankingResult, ManagerRankingResult, UnattributedPrincipal } from "@/lib/tlRanking";
 
 type TlRankingResponse =
-  | { mode: "flat"; rankings: TlRankingRow[]; unattributedPrincipals: UnattributedPrincipal[] }
+  | { mode: "flat"; rankings: TlCompositeRow[]; unattributedPrincipals: UnattributedPrincipal[] }
   | { mode: "hierarchy"; managerRanking: ManagerRankingResult; supervisorRanking: SupervisorRankingResult; unattributedPrincipals: UnattributedPrincipal[] };
 
-function flattenRankings(result: TlRankingResponse): TlRankingRow[] {
+function flattenRankings(result: TlRankingResponse): TlCompositeRow[] {
   if (result.mode === "flat") return result.rankings;
-  return [...result.supervisorRanking.rankings.flatMap((s) => s.teamLeaders), ...result.supervisorRanking.unassignedTeamLeaders];
+  // buildSupervisorRanking/buildManagerRanking only know about the base
+  // TlRankingRow shape, but the route passes composite-scored rows through
+  // them, so the nested teamLeaders rows still carry the composite fields at
+  // runtime — safe to widen back to TlCompositeRow here.
+  return [...result.supervisorRanking.rankings.flatMap((s) => s.teamLeaders), ...result.supervisorRanking.unassignedTeamLeaders] as TlCompositeRow[];
 }
 
-function TeamLeaderStatCard({ label, row, accent }: { label: string; row: TlRankingRow; accent: "revenue" | "growth" }) {
+function scoreTier(score: number | null): "good" | "warn" | "bad" {
+  if (score === null) return "warn";
+  if (score >= 80) return "good";
+  if (score >= 60) return "warn";
+  return "bad";
+}
+
+const SCORE_TEXT_CLASS = { good: "text-accent-green", warn: "text-accent-amber", bad: "text-accent-red" } as const;
+
+function TeamLeaderStatCard({ label, row, accent }: { label: string; row: TlCompositeRow; accent: "revenue" | "growth" }) {
   return (
     <KpiCard
       accent={accent}
@@ -25,25 +38,25 @@ function TeamLeaderStatCard({ label, row, accent }: { label: string; row: TlRank
       value={row.teamLeaderName}
       size="md"
       sublabel={
-        <span className={tierTextClass[achievementTier(row.achievedPct)]}>
-          {formatPercent(row.achievedPct)} of {formatCompact(row.mtdTarget)} — {formatCompact(row.mtdRevenue)} MTD revenue
+        <span className={SCORE_TEXT_CLASS[scoreTier(row.compositeScore)]}>
+          {row.compositeScore !== null ? `${row.compositeScore.toFixed(1)} composite score` : "Composite score unavailable"} — {formatPercent(row.achievedPct)} of{" "}
+          {formatCompact(row.mtdTarget)} target
         </span>
       }
     />
   );
 }
 
-/** MTD-only target-attainment ranking, reusing POST /api/dashboard/tl-ranking
- *  (lib/tlRanking.ts's buildTlRanking) exactly as-is — the same data already
- *  shown on /dashboard, so this adds no new access exposure. Deliberately
- *  NOT a strike-rate/SFE score: no rep-level rollup to Team Leader exists
- *  today, and building one would mean pulling currently-ADMIN-only
- *  PerformanceTracker rep data into this page's broader viewer audience.
- *  Always uses the real current calendar month — achievedPct is inherently
- *  MTD (target prorated by elapsed days), not QTD/YTD-able. */
+/** Composite ranking — Target Attainment 35% + Strike Rate 25% + Distribution
+ *  20% + JP Adherence 20% (see lib/tlRanking.ts's computeTlCompositeScores),
+ *  reusing POST /api/dashboard/tl-ranking as before, plus the three extra
+ *  metric inputs the route now also fetches. All four are already broadly
+ *  visible elsewhere in the app (Rep Performance, JP Adherence) — never the
+ *  ADMIN-only PerformanceTracker scorecard. Always uses the real current
+ *  calendar month — every component here is inherently MTD, not QTD/YTD-able. */
 export function TeamLeaderPerformancePanel({ dataset, selectedPrincipalKey }: { dataset: Dataset; selectedPrincipalKey: string | null }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
-  const [rankings, setRankings] = useState<TlRankingRow[]>([]);
+  const [rankings, setRankings] = useState<TlCompositeRow[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,22 +94,27 @@ export function TeamLeaderPerformancePanel({ dataset, selectedPrincipalKey }: { 
   }, [dataset, selectedPrincipalKey]);
 
   const ranked = [...rankings].sort((a, b) => {
-    if (a.achievedPct === null) return 1;
-    if (b.achievedPct === null) return -1;
-    return b.achievedPct - a.achievedPct;
+    if (a.compositeScore === null && b.compositeScore === null) return b.mtdRevenue - a.mtdRevenue;
+    if (a.compositeScore === null) return 1;
+    if (b.compositeScore === null) return -1;
+    return b.compositeScore - a.compositeScore;
   });
   const best = ranked[0];
   const worst = ranked.length > 1 ? ranked[ranked.length - 1] : null;
 
   return (
     <div id="team-leader-performance" className="@container">
-      <SectionCard title="Team Leader Performance" accent="purple" action={<span className="text-xs text-muted">MTD target attainment — not a strike-rate/SFE score</span>}>
+      <SectionCard
+        title="Team Leader Performance"
+        accent="purple"
+        action={<span className="text-xs text-muted">Composite: Target 35% · Strike Rate 25% · Distribution 20% · JP Adherence 20%</span>}
+      >
         {status === "loading" ? (
           <p className="text-xs text-muted">Loading Team Leader ranking…</p>
         ) : status === "error" ? (
           <p className="text-xs text-muted">Couldn&apos;t load Team Leader ranking.</p>
-        ) : !best || best.achievedPct === null ? (
-          <p className="text-xs text-muted">No Team Leaders with a resolvable MTD target for this selection.</p>
+        ) : !best || best.compositeScore === null ? (
+          <p className="text-xs text-muted">No Team Leaders with a resolvable composite score for this selection.</p>
         ) : (
           <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
             <TeamLeaderStatCard label="Best" row={best} accent="revenue" />

@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { buildTlRanking, buildSupervisorRanking, buildManagerRanking, canonicalTeamLeaderIdMap, type TlRankingRow } from "../lib/tlRanking";
+import {
+  buildTlRanking,
+  buildSupervisorRanking,
+  buildManagerRanking,
+  canonicalTeamLeaderIdMap,
+  computeTlCompositeScores,
+  rollupRepMetricsByTeamLeader,
+  rollupJpAdherenceByTeamLeader,
+  sortByCompositeScore,
+  type TlRankingRow,
+} from "../lib/tlRanking";
 
 const teamLeaders = [
   { id: "tl-josephat", name: "Josephat" },
@@ -289,5 +299,95 @@ describe("buildManagerRanking", () => {
     const result = buildManagerRanking(supervisorRanking.rankings, supervisorsWithManager, [{ id: "mgr-eve-full", name: "Eve Wanjiru" }]);
     expect(result.rankings).toHaveLength(1);
     expect(result.rankings[0].managerId).toBe("mgr-eve-full");
+  });
+});
+
+describe("rollupRepMetricsByTeamLeader", () => {
+  it("averages strike rate and LPPC per Team Leader, skipping nulls and unassigned reps", () => {
+    const result = rollupRepMetricsByTeamLeader([
+      { teamLeader: "Josephat", productivityPct: 80, lppc: 4 },
+      { teamLeader: "Josephat", productivityPct: 60, lppc: null },
+      { teamLeader: "Emmy", productivityPct: 90, lppc: 6 },
+      { teamLeader: null, productivityPct: 100, lppc: 10 },
+    ]);
+    expect(result.get("Josephat")).toEqual({ strikeRatePct: 70, lppc: 4 });
+    expect(result.get("Emmy")).toEqual({ strikeRatePct: 90, lppc: 6 });
+    expect(result.has(null as unknown as string)).toBe(false);
+  });
+});
+
+describe("rollupJpAdherenceByTeamLeader", () => {
+  it("volume-weights adherence (visited/planned), matching aggregateKpis's own derivation", () => {
+    const result = rollupJpAdherenceByTeamLeader([
+      { teamLeader: "Josephat", outletsPlanned: 100, outletsVisited: 90 },
+      { teamLeader: "Josephat", outletsPlanned: 50, outletsVisited: 30 },
+      { teamLeader: "Emmy", outletsPlanned: 0, outletsVisited: 0 },
+    ]);
+    // (90+30)/(100+50) = 80%, not a plain average of 90% and 60%
+    expect(result.get("Josephat")).toBe(80);
+    expect(result.get("Emmy")).toBeNull();
+  });
+});
+
+describe("computeTlCompositeScores", () => {
+  it("weights target 35% + strike rate 25% + distribution 20% + JP adherence 20% when all four resolve", () => {
+    const rankings = [tlRow("tl-a", "A", 100000, 100000)]; // achievedPct = 100
+    const repMetrics = new Map([["A", { strikeRatePct: 80, lppc: 5 }]]);
+    const jpAdherence = new Map([["A", 60]]);
+    const [scored] = computeTlCompositeScores(rankings, repMetrics, jpAdherence);
+    // Single Team Leader: distribution min-max normalizes to 100 (its own min = max).
+    // 100*0.35 + 80*0.25 + 100*0.2 + 60*0.2 = 35 + 20 + 20 + 12 = 87
+    expect(scored.compositeScore).toBe(87);
+  });
+
+  it("min-max normalizes distribution across Team Leaders, not against an absolute target", () => {
+    const rankings = [tlRow("tl-a", "A", 100000, 100000), tlRow("tl-b", "B", 100000, 100000)];
+    const repMetrics = new Map([
+      ["A", { strikeRatePct: 100, lppc: 2 }],
+      ["B", { strikeRatePct: 100, lppc: 8 }],
+    ]);
+    const jpAdherence = new Map([
+      ["A", 100],
+      ["B", 100],
+    ]);
+    const [a, b] = computeTlCompositeScores(rankings, repMetrics, jpAdherence);
+    expect(a.distributionScore).toBe(0); // lowest LPPC this period
+    expect(b.distributionScore).toBe(100); // highest LPPC this period
+    expect(b.compositeScore!).toBeGreaterThan(a.compositeScore!);
+  });
+
+  it("re-normalizes weights over whatever components resolve, rather than nulling the whole score", () => {
+    const rankings = [tlRow("tl-a", "A", 100000, 80000)]; // achievedPct = 80
+    const scored = computeTlCompositeScores(rankings, new Map(), new Map());
+    // Only target attainment resolves (no rep/JP data for this TL at all) — its
+    // 0.35 weight becomes the only weight, so it fully determines the score.
+    expect(scored[0].compositeScore).toBe(80);
+    expect(scored[0].strikeRatePct).toBeNull();
+    expect(scored[0].distributionScore).toBeNull();
+    expect(scored[0].jpAdherencePct).toBeNull();
+  });
+
+  it("returns a null compositeScore only when nothing resolves at all", () => {
+    const rankings = [{ ...tlRow("tl-a", "A", 0, 0), achievedPct: null }];
+    const scored = computeTlCompositeScores(rankings, new Map(), new Map());
+    expect(scored[0].compositeScore).toBeNull();
+  });
+
+  it("caps an over-100% component so one outlier metric can't dominate the score", () => {
+    const rankings = [tlRow("tl-a", "A", 100000, 200000)]; // achievedPct = 200
+    const scored = computeTlCompositeScores(rankings, new Map(), new Map());
+    expect(scored[0].compositeScore).toBe(100); // capped, not 200
+  });
+});
+
+describe("sortByCompositeScore", () => {
+  it("ranks best-to-worst by compositeScore, unranked rows last", () => {
+    const rows = computeTlCompositeScores(
+      [tlRow("tl-a", "A", 100000, 60000), tlRow("tl-b", "B", 100000, 90000), { ...tlRow("tl-c", "C", 0, 0), achievedPct: null }],
+      new Map(),
+      new Map()
+    );
+    const sorted = sortByCompositeScore(rows);
+    expect(sorted.map((r) => r.teamLeaderId)).toEqual(["tl-b", "tl-a", "tl-c"]);
   });
 });

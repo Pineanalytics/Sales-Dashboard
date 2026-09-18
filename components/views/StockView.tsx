@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import type { ViewProps } from "./types";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -10,31 +11,42 @@ import { StockStatusPill } from "@/components/ui/StockPill";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, stockActionTier, tierBarColor } from "@/lib/format";
-import { aggregateStockByPrincipal, aggregateStockByBrand, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
+import { aggregateStockByPrincipal, aggregateStockByBrand, classifyDormantPrincipals, sumStockRollups, isOverstocked, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
-type StatusFilter = "all" | "runningOut" | "outOfStock" | "noData";
+type StatusFilter = "all" | "runningOut" | "outOfStock" | "overstocked" | "noData";
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All Stock" },
   { key: "runningOut", label: "Running Out" },
   { key: "outOfStock", label: "Out of Stock" },
+  { key: "overstocked", label: "Overstocked" },
   { key: "noData", label: "No Sales Data" },
 ];
 
-// Same emoji-marker convention lib/format.ts's stockActionTier already uses —
-// filters which already-computed rows are displayed, never recomputes them.
-function matchesStatus(action: string, filter: StatusFilter): boolean {
+function isValidStatusFilter(value: string | null): value is StatusFilter {
+  return value !== null && STATUS_TABS.some((tab) => tab.key === value);
+}
+
+// Same emoji-marker convention lib/format.ts's stockActionTier already uses for
+// the first three tiers — filters which already-computed rows are displayed,
+// never recomputes them. "overstocked" is a different axis (excess cover, not
+// shortage — see lib/stock.ts's isOverstocked), so it's checked separately
+// rather than folded into the action-emoji string.
+function matchesStatus(row: { action: string; rrWeekValue: number; daysCover: number }, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "runningOut") return action.includes("🟡");
-  if (filter === "outOfStock") return action.includes("🔴");
+  if (filter === "runningOut") return row.action.includes("🟡");
+  if (filter === "outOfStock") return row.action.includes("🔴");
+  if (filter === "overstocked") return isOverstocked(row, OVERSTOCK_DAYS_THRESHOLD);
   // "noData": neither Out of Stock, Running Out, nor OK
-  return !action.includes("🔴") && !action.includes("🟡") && !action.includes("🟢");
+  return !row.action.includes("🔴") && !row.action.includes("🟡") && !row.action.includes("🟢");
 }
 
 export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get("status");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(isValidStatusFilter(initialStatus) ? initialStatus : "all");
 
   const allRollups = aggregateStockByPrincipal(dataset);
   // Principals with no Sales revenue in the most recent three months move to
@@ -67,9 +79,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const principalItemsAll = selectedRollup
     ? [...dataset.stockItems.filter((i) => i.key === selectedRollup.key)].sort((a, b) => b.openingValue - a.openingValue)
     : [];
-  const principalItems = principalItemsAll.filter((i) => matchesStatus(i.action, statusFilter));
+  const principalItems = principalItemsAll.filter((i) => matchesStatus(i, statusFilter));
 
-  const filteredRollups = rollups.filter((r) => matchesStatus(r.action, statusFilter));
+  const filteredRollups = rollups.filter((r) => matchesStatus({ action: r.action, rrWeekValue: r.rrWeekValue, daysCover: r.daysStock }, statusFilter));
 
   // Product/item-level listing across every active principal at once — the
   // "all principals" view previously stopped at Stock by Principal, with no
@@ -77,7 +89,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   // selected first.
   const activeItems = selectedRollup
     ? []
-    : dataset.stockItems.filter((i) => !dormantKeys.has(i.key) && matchesStatus(i.action, statusFilter));
+    : dataset.stockItems.filter((i) => !dormantKeys.has(i.key) && matchesStatus(i, statusFilter));
   const allItemsSorted = [...activeItems].sort((a, b) => b.openingValue - a.openingValue);
   const ALL_ITEMS_LIMIT = 150;
 

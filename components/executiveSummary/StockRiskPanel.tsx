@@ -1,16 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
-import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { formatCompact, formatNumber } from "@/lib/format";
-import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
+import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, computeOverstock, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import { computeOverstock, computeOverstockByPrincipal, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/executiveSummary";
 import type { Dataset } from "@/lib/types";
 
-const WORST_PRINCIPALS_LIMIT = 5;
+const DRILLDOWN_LINK_CLASS = "font-semibold text-primary-blue hover:underline";
 
+/** Full detail listings (which SKUs, which principals) now live in Stock
+ *  Balance itself — see components/views/StockView.tsx's Out of
+ *  Stock/Overstocked tabs and its cross-principal "Stock by Item" table —
+ *  reached here via ?status= deep links, rather than duplicating those same
+ *  tables inline in this at-a-glance KPI summary. */
 export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dataset; selectedPrincipalKey: string | null }) {
   // Stock has no period dimension (it's a point-in-time snapshot, not a
   // monthly time series like Sales), and its rows key by normalized brand,
@@ -26,79 +30,45 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
   const total = sumStockRollups(scopedRollups);
   const overstock = computeOverstock(dataset, normalizedKey);
 
-  const worstPrincipals = [...activeRollups]
-    .filter((r) => r.outOfStockCount + r.runningOutCount > 0)
-    .sort((a, b) => b.outOfStockCount + b.runningOutCount - (a.outOfStockCount + a.runningOutCount))
-    .slice(0, WORST_PRINCIPALS_LIMIT);
-  const overstockByPrincipal = computeOverstockByPrincipal(dataset).slice(0, WORST_PRINCIPALS_LIMIT);
-
   return (
     <div id="stock-risk" className="@container">
-      <SectionCard title="Stock Risk" accent="amber">
-      <div className="flex flex-col gap-4">
+      <SectionCard
+        title="Stock Risk"
+        accent="amber"
+        action={
+          <Link href="/stock" className={`text-xs ${DRILLDOWN_LINK_CLASS}`}>
+            Open Stock Balance →
+          </Link>
+        }
+      >
         {/* Sized to this panel's own (container-query) width, not the
             viewport — KpiGrid's viewport breakpoints misfire when nested in
             a half-width xl:grid-cols-2 pairing (see ExecutiveSummaryClient),
             cramming 4 cards into a 6-track grid sized for the full page. */}
         <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
           <KpiCard accent="revenue" label="Stock Value" value={formatCompact(total.value)} />
-          <KpiCard accent="growth" label="Out of Stock" value={formatNumber(total.outOfStockCount)} />
+          <KpiCard
+            accent="growth"
+            label="Out of Stock"
+            value={formatNumber(total.outOfStockCount)}
+            sublabel={
+              <Link href="/stock?status=outOfStock" className={DRILLDOWN_LINK_CLASS}>
+                View SKUs →
+              </Link>
+            }
+          />
           <KpiCard accent="growth" label="Running Out" value={formatNumber(total.runningOutCount)} />
           <KpiCard
             accent="quarter"
             label="Overstocked"
             value={formatNumber(overstock.itemCount)}
-            sublabel={`${formatCompact(overstock.value)} tied up · cover > ${OVERSTOCK_DAYS_THRESHOLD}d`}
+            sublabel={
+              <Link href="/stock?status=overstocked" className={DRILLDOWN_LINK_CLASS}>
+                {formatCompact(overstock.value)} tied up · cover &gt; {OVERSTOCK_DAYS_THRESHOLD}d — View SKUs →
+              </Link>
+            }
           />
         </div>
-
-        {!normalizedKey && (worstPrincipals.length > 0 || overstockByPrincipal.length > 0) ? (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {worstPrincipals.length > 0 ? (
-              <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Most at risk</h4>
-                <TableWrap>
-                  <Thead>
-                    <Th>Principal</Th>
-                    <Th align="right">Out of Stock</Th>
-                    <Th align="right">Running Out</Th>
-                  </Thead>
-                  <tbody>
-                    {worstPrincipals.map((r) => (
-                      <tr key={r.key}>
-                        <Td>{r.name}</Td>
-                        <Td align="right">{formatNumber(r.outOfStockCount)}</Td>
-                        <Td align="right">{formatNumber(r.runningOutCount)}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </TableWrap>
-              </div>
-            ) : null}
-            {overstockByPrincipal.length > 0 ? (
-              <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Most overstocked</h4>
-                <TableWrap>
-                  <Thead>
-                    <Th>Principal</Th>
-                    <Th align="right">Items</Th>
-                    <Th align="right">Value</Th>
-                  </Thead>
-                  <tbody>
-                    {overstockByPrincipal.map((r) => (
-                      <tr key={r.key}>
-                        <Td>{r.name}</Td>
-                        <Td align="right">{formatNumber(r.itemCount)}</Td>
-                        <Td align="right">{formatCompact(r.value)}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </TableWrap>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
       </SectionCard>
     </div>
   );

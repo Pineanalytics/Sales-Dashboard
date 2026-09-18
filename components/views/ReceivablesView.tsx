@@ -100,10 +100,15 @@ function CustomerTable({ rows, onSelect, selectedCode }: { rows: ReceivablesDash
   </TableWrap></ScrollableTable>;
 }
 
-export function CustomerCreditExposure({ data }: { data: ReceivablesDashboard }) {
-  const [query, setQuery] = useState("");
+export function CustomerCreditExposure({ data, initialStatus }: { data: ReceivablesDashboard; initialStatus?: "over-limit" }) {
+  // Reuses the existing free-text search (already matched against name, code,
+  // AND status — see `filtered` below) as the "status filter" a deep link
+  // needs, rather than adding a separate status-chip UI: seeding the search
+  // box with "Over limit" and expanding the list does exactly what a
+  // dedicated filter would, with no new filtering logic to keep in sync.
+  const [query, setQuery] = useState(initialStatus === "over-limit" ? "Over limit" : "");
   const [page, setPage] = useState(0);
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(initialStatus === "over-limit");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();

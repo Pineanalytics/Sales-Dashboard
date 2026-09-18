@@ -7,9 +7,12 @@ import { formatNumber } from "@/lib/format";
 interface Exception {
   label: string;
   count: number;
-  /** Anchors to the panel section below that already lists this exception's
-   *  detail (principals, SKUs, customers) — jumps down the page rather than
-   *  navigating away, so a presentation never leaves this one screen. */
+  /** Either an in-page anchor (for detail that still lives on this page,
+   *  e.g. Sales vs. Target's off-target table) or a deep link straight to
+   *  the real module that now owns this exception's full listing (Stock
+   *  Balance's status tabs, Financials' credit exposure tab) — see
+   *  StockRiskPanel.tsx/FinancialsPanel.tsx, which dropped their own inline
+   *  copies of these same tables in favor of one shared source. */
   href: string;
 }
 
@@ -30,9 +33,9 @@ export function ExceptionsStrip({
 }) {
   const exceptions: Exception[] = [
     { label: "principal(s) well off target", count: offTargetPrincipals, href: "#sales-summary" },
-    { label: "SKU(s) out of stock", count: outOfStockCount, href: "#stock-risk" },
-    { label: "SKU(s) overstocked", count: overstockedCount, href: "#stock-risk" },
-    { label: "customer(s) over credit limit", count: creditLimitBreaches, href: "#financials" },
+    { label: "SKU(s) out of stock", count: outOfStockCount, href: "/stock?status=outOfStock" },
+    { label: "SKU(s) overstocked", count: overstockedCount, href: "/stock?status=overstocked" },
+    { label: "customer(s) over credit limit", count: creditLimitBreaches, href: "/financials?tab=credit-exposure&status=over-limit" },
   ].filter((e) => e.count > 0);
 
   if (exceptions.length === 0) {

@@ -1,15 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
-import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { formatCompact, formatPercent, marginTier, tierTextClass } from "@/lib/format";
 import { summarizeSalesForPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
 import type { ReceivablesDashboard } from "@/lib/receivables";
 
 const RISK_BUCKETS = ["61–90 days", "Over 90 days"] as const;
-const OVER_LIMIT_TABLE_LIMIT = 10;
+const CREDIT_EXPOSURE_HREF = "/financials?tab=credit-exposure&status=over-limit";
 
 export function FinancialsPanel({
   dataset,
@@ -26,15 +26,20 @@ export function FinancialsPanel({
 }) {
   const summary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
   const atRiskBalance = receivables ? RISK_BUCKETS.reduce((sum, bucket) => sum + receivables.buckets[bucket], 0) : 0;
-  // Detail for the exceptions strip's "N customer(s) over credit limit" item
-  // (#financials) — the KPI card above only ever showed the count.
-  const overLimitCustomers = receivables
-    ? [...receivables.customers].filter((c) => c.status === "Over limit").sort((a, b) => b.outstanding - a.outstanding).slice(0, OVER_LIMIT_TABLE_LIMIT)
-    : [];
 
   return (
     <div id="financials" className="@container">
-      <SectionCard title="Financials" accent="navy">
+      <SectionCard
+        title="Financials"
+        accent="navy"
+        action={
+          canViewReceivables ? (
+            <Link href={CREDIT_EXPOSURE_HREF} className="text-xs font-semibold text-primary-blue hover:underline">
+              View credit exposure →
+            </Link>
+          ) : undefined
+        }
+      >
       <div className="flex flex-col gap-4">
         {/* Container-relative, not viewport-relative — see StockRiskPanel's
             matching comment; this panel is paired half-width the same way. */}
@@ -60,36 +65,21 @@ export function FinancialsPanel({
             <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
               <KpiCard accent="mission" label="Outstanding" value={formatCompact(receivables.masterBalance)} sublabel={`${receivables.customerCount} customers`} />
               <KpiCard accent="growth" label="61+ Days Overdue" value={formatCompact(atRiskBalance)} />
-              <KpiCard accent="quarter" label="Credit Limit Breaches" value={receivables.creditLimitBreaches} />
+              <KpiCard
+                accent="quarter"
+                label="Credit Limit Breaches"
+                value={receivables.creditLimitBreaches}
+                sublabel={
+                  receivables.creditLimitBreaches > 0 ? (
+                    <Link href={CREDIT_EXPOSURE_HREF} className="font-semibold text-primary-blue hover:underline">
+                      View customers →
+                    </Link>
+                  ) : undefined
+                }
+              />
             </div>
           )}
         </div>
-
-        {overLimitCustomers.length > 0 ? (
-          <div>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Over credit limit (top {Math.min(OVER_LIMIT_TABLE_LIMIT, overLimitCustomers.length)})
-            </h4>
-            <TableWrap>
-              <Thead>
-                <Th>Customer</Th>
-                <Th align="right">Outstanding</Th>
-                <Th align="right">Credit Limit</Th>
-                <Th align="right">Utilisation</Th>
-              </Thead>
-              <tbody>
-                {overLimitCustomers.map((c) => (
-                  <tr key={c.code}>
-                    <Td>{c.name}</Td>
-                    <Td align="right">{formatCompact(c.outstanding)}</Td>
-                    <Td align="right">{formatCompact(c.creditLimit)}</Td>
-                    <Td align="right">{formatPercent(c.utilisationPct)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableWrap>
-          </div>
-        ) : null}
       </div>
       </SectionCard>
     </div>

@@ -158,6 +158,66 @@ export function aggregateStockByBrand(dataset: Dataset, principalKey?: string | 
   return rollups;
 }
 
+/** No existing stock status tier flags an *excess* — OK/Running Out/Out of
+ *  Stock/No Sales Data all skew toward shortage. This is a new threshold,
+ *  not a value carried in the source data: an item counts as overstocked
+ *  once its cover exceeds this many days, provided it still has a real run
+ *  rate to measure against (a zero-run-rate item is "No Sales Data" risk,
+ *  a different problem, not overstock). Shared by Executive Summary's Stock
+ *  Risk KPI card and Stock Balance's own "Overstocked" tab, so the two never
+ *  disagree on the definition. */
+export const OVERSTOCK_DAYS_THRESHOLD = 60;
+
+export interface OverstockSummary {
+  itemCount: number;
+  value: number;
+}
+
+export function isOverstocked(item: { rrWeekValue: number; daysCover: number }, thresholdDays: number = OVERSTOCK_DAYS_THRESHOLD): boolean {
+  return item.rrWeekValue > 0 && item.daysCover > thresholdDays;
+}
+
+/** Overstock count/value across `dataset.stockItems`, optionally scoped to
+ *  one normalized principal key (matches StockItem.key). Pass null for the
+ *  company-wide total. */
+export function computeOverstock(dataset: Dataset, principalKey: string | null, thresholdDays: number = OVERSTOCK_DAYS_THRESHOLD): OverstockSummary {
+  let itemCount = 0;
+  let value = 0;
+  for (const item of dataset.stockItems) {
+    if (principalKey && item.key !== principalKey) continue;
+    if (!isOverstocked(item, thresholdDays)) continue;
+    itemCount += 1;
+    value += item.openingValue;
+  }
+  return { itemCount, value };
+}
+
+export interface PrincipalOverstock {
+  key: string;
+  name: string;
+  itemCount: number;
+  value: number;
+}
+
+/** Per-principal overstock breakdown, sorted by value descending, for a
+ *  "worst offenders" table. Principal display name mirrors this file's own
+ *  convention (the part of the Principal string before its location suffix,
+ *  e.g. "EABL-Nyeri" -> "EABL"). */
+export function computeOverstockByPrincipal(dataset: Dataset, thresholdDays: number = OVERSTOCK_DAYS_THRESHOLD): PrincipalOverstock[] {
+  const byKey = new Map<string, PrincipalOverstock>();
+  for (const item of dataset.stockItems) {
+    if (!isOverstocked(item, thresholdDays)) continue;
+    let agg = byKey.get(item.key);
+    if (!agg) {
+      agg = { key: item.key, name: item.principal.split("-")[0].trim(), itemCount: 0, value: 0 };
+      byKey.set(item.key, agg);
+    }
+    agg.itemCount += 1;
+    agg.value += item.openingValue;
+  }
+  return Array.from(byKey.values()).sort((a, b) => b.value - a.value);
+}
+
 // Newly onboarded principals with little or no sales history yet - not dead
 // accounts, just early. Exempt from dormancy regardless of recent revenue so
 // they aren't wrongly buried in Dormant Stock the moment they're added.
