@@ -7,6 +7,7 @@
 export const ALL_PAGE_KEYS = [
   "frost",
   "insights",
+  "executive-summary",
   "dashboard",
   "sales",
   "time-intelligence",
@@ -34,6 +35,7 @@ export type PageKey = (typeof ALL_PAGE_KEYS)[number];
 export const PAGE_LABELS: Record<PageKey, string> = {
   frost: "Frost",
   insights: "Insights",
+  "executive-summary": "Executive Summary",
   dashboard: "Executive Overview",
   sales: "Sales Performance",
   "time-intelligence": "Time Intelligence",
