@@ -1,7 +1,7 @@
 "use client";
 
 import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { formatCompact, formatNumber } from "@/lib/format";
 import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
@@ -33,9 +33,14 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
   const overstockByPrincipal = computeOverstockByPrincipal(dataset).slice(0, WORST_PRINCIPALS_LIMIT);
 
   return (
-    <SectionCard title="Stock Risk" accent="amber">
+    <div id="stock-risk" className="@container">
+      <SectionCard title="Stock Risk" accent="amber">
       <div className="flex flex-col gap-4">
-        <KpiGrid>
+        {/* Sized to this panel's own (container-query) width, not the
+            viewport — KpiGrid's viewport breakpoints misfire when nested in
+            a half-width xl:grid-cols-2 pairing (see ExecutiveSummaryClient),
+            cramming 4 cards into a 6-track grid sized for the full page. */}
+        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
           <KpiCard accent="revenue" label="Stock Value" value={formatCompact(total.value)} />
           <KpiCard accent="growth" label="Out of Stock" value={formatNumber(total.outOfStockCount)} />
           <KpiCard accent="growth" label="Running Out" value={formatNumber(total.runningOutCount)} />
@@ -45,7 +50,7 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
             value={formatNumber(overstock.itemCount)}
             sublabel={`${formatCompact(overstock.value)} tied up · cover > ${OVERSTOCK_DAYS_THRESHOLD}d`}
           />
-        </KpiGrid>
+        </div>
 
         {!normalizedKey && (worstPrincipals.length > 0 || overstockByPrincipal.length > 0) ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -94,6 +99,7 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
           </div>
         ) : null}
       </div>
-    </SectionCard>
+      </SectionCard>
+    </div>
   );
 }

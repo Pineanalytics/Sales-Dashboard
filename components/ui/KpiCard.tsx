@@ -64,7 +64,7 @@ export function KpiCard({ label, value, sublabel, accent = "revenue", icon, size
       className={`h-full rounded-xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-3.5 flex flex-col gap-1 min-w-0 shadow-[0_1px_3px_rgba(11,61,53,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(11,61,53,0.12)] hover:-translate-y-0.5`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted truncate">{label}</span>
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted truncate" title={label}>{label}</span>
         {resolvedIcon ? (
           <span className={`shrink-0 rounded-lg bg-secondary-blue/10 p-1 flex items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5 ${kpiAccentIconClass[accent]}`}>
             {resolvedIcon}

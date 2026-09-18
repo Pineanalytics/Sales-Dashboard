@@ -4,8 +4,9 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
 import { AchievementGauge } from "@/components/ui/AchievementGauge";
 import { GrowthComparison } from "@/components/overview/GrowthComparison";
+import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
-import { summarizeSalesForPeriod, getPreviousMonthPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
+import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getPreviousMonthPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
 import { computeSalesRunRate } from "@/lib/executiveSummary";
 import type { Dataset } from "@/lib/types";
 
@@ -36,7 +37,17 @@ export function SalesSummaryPanel({
     }
   }
 
+  // Detail for the exceptions strip's "N principal(s) well off target" item
+  // (#sales-summary) — only meaningful company-wide; a single selected
+  // principal already sees its own achievement in the KPI cards above.
+  const offTargetPrincipals = selectedPrincipalKey
+    ? []
+    : Array.from(summarizeSalesByPrincipal(dataset, period).values())
+        .filter((r) => achievementTier(r.achievementPct) === "bad")
+        .sort((a, b) => (a.achievementPct ?? 0) - (b.achievementPct ?? 0));
+
   return (
+    <div id="sales-summary">
     <SectionCard title="Sales vs. Target" accent="blue">
       <div className="flex flex-col gap-4">
         <KpiGrid>
@@ -81,7 +92,34 @@ export function SalesSummaryPanel({
             <p className="text-xs text-muted">No revenue-bearing month in this selection to pace a run rate from.</p>
           )}
         </div>
+
+        {offTargetPrincipals.length > 0 ? (
+          <div>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Well off target</h4>
+            <TableWrap>
+              <Thead>
+                <Th>Principal</Th>
+                <Th align="right">Achievement</Th>
+                <Th align="right">Revenue</Th>
+                <Th align="right">Target</Th>
+              </Thead>
+              <tbody>
+                {offTargetPrincipals.map((r) => (
+                  <tr key={r.principalKey}>
+                    <Td>{r.principal}</Td>
+                    <Td align="right">
+                      <span className={tierTextClass[achievementTier(r.achievementPct)]}>{formatPercent(r.achievementPct)}</span>
+                    </Td>
+                    <Td align="right">{formatCompact(r.revenue)}</Td>
+                    <Td align="right">{r.target !== null ? formatCompact(r.target) : "N/T"}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          </div>
+        ) : null}
       </div>
     </SectionCard>
+    </div>
   );
 }

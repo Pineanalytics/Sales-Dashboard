@@ -12,6 +12,7 @@ import { StockRiskPanel } from "./StockRiskPanel";
 import { OrderFulfillmentPanel } from "./OrderFulfillmentPanel";
 import { FieldBehaviorPanel } from "./FieldBehaviorPanel";
 import { FinancialsPanel } from "./FinancialsPanel";
+import { TeamLeaderPerformancePanel } from "./TeamLeaderPerformancePanel";
 import type { ReceivablesDashboard } from "@/lib/receivables";
 
 /** Matches ReportCatalog.tsx's own periodLabelFor exactly — small enough
@@ -70,6 +71,7 @@ export function ExecutiveSummaryClient({
         creditLimitBreaches={receivables?.creditLimitBreaches ?? 0}
       />
       <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+      <TeamLeaderPerformancePanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <StockRiskPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
         <OrderFulfillmentPanel period={period} />
