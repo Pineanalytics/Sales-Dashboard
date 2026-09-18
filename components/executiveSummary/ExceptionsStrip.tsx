@@ -7,6 +7,10 @@ import { formatNumber } from "@/lib/format";
 interface Exception {
   label: string;
   count: number;
+  /** Anchors to the panel section below that already lists this exception's
+   *  detail (principals, SKUs, customers) — jumps down the page rather than
+   *  navigating away, so a presentation never leaves this one screen. */
+  href: string;
 }
 
 /** A fast-scan risk summary for a presenter — built entirely from figures
@@ -25,10 +29,10 @@ export function ExceptionsStrip({
   creditLimitBreaches: number;
 }) {
   const exceptions: Exception[] = [
-    { label: "principal(s) well off target", count: offTargetPrincipals },
-    { label: "SKU(s) out of stock", count: outOfStockCount },
-    { label: "SKU(s) overstocked", count: overstockedCount },
-    { label: "customer(s) over credit limit", count: creditLimitBreaches },
+    { label: "principal(s) well off target", count: offTargetPrincipals, href: "#sales-summary" },
+    { label: "SKU(s) out of stock", count: outOfStockCount, href: "#stock-risk" },
+    { label: "SKU(s) overstocked", count: overstockedCount, href: "#stock-risk" },
+    { label: "customer(s) over credit limit", count: creditLimitBreaches, href: "#financials" },
   ].filter((e) => e.count > 0);
 
   if (exceptions.length === 0) {
@@ -43,12 +47,16 @@ export function ExceptionsStrip({
     <SectionCard accent="red">
       <div className="flex flex-wrap gap-4">
         {exceptions.map((e) => (
-          <div key={e.label} className="flex items-center gap-2">
+          <a
+            key={e.label}
+            href={e.href}
+            className="flex items-center gap-2 rounded-full transition-opacity duration-200 hover:opacity-70"
+          >
             <Warning20Regular className="text-accent-red" />
             <span className="text-sm">
-              <span className="font-bold tabular-nums">{formatNumber(e.count)}</span> <span className="text-muted-strong">{e.label}</span>
+              <span className="font-bold tabular-nums">{formatNumber(e.count)}</span> <span className="text-muted-strong underline decoration-dotted underline-offset-2">{e.label}</span>
             </span>
-          </div>
+          </a>
         ))}
       </div>
     </SectionCard>

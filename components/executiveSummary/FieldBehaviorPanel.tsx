@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { formatNumber, formatPercent, strikeRateTier, tierTextClass } from "@/lib/format";
 import { summarizeCoverageForPeriod, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
 import { periodToDateRange, averageActiveOutletsForPeriod, type ActiveOutletsMonthlyRow } from "@/lib/executiveSummary";
@@ -192,18 +192,22 @@ export function FieldBehaviorPanel({
   const coverage = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey);
 
   return (
-    <SectionCard title="Field & Rep Behavior" accent="green">
-      <KpiGrid>
-        <KpiCard
-          accent="coverage"
-          label="Strike Rate"
-          value={<span className={tierTextClass[strikeRateTier(coverage.productivityPct)]}>{formatPercent(coverage.productivityPct)}</span>}
-          sublabel={`${formatNumber(coverage.productiveCalls)} of ${formatNumber(coverage.coverage)} calls`}
-        />
-        <JpAdherenceTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
-        <TimeManagementTile selectedPrincipalKey={selectedPrincipalKey} />
-        <UniverseStatusTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
-      </KpiGrid>
-    </SectionCard>
+    <div id="field-behavior" className="@container">
+      <SectionCard title="Field & Rep Behavior" accent="green">
+        {/* Container-relative, not viewport-relative — see StockRiskPanel's
+            matching comment; this panel is paired half-width the same way. */}
+        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
+          <KpiCard
+            accent="coverage"
+            label="Strike Rate"
+            value={<span className={tierTextClass[strikeRateTier(coverage.productivityPct)]}>{formatPercent(coverage.productivityPct)}</span>}
+            sublabel={`${formatNumber(coverage.productiveCalls)} of ${formatNumber(coverage.coverage)} calls`}
+          />
+          <JpAdherenceTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
+          <TimeManagementTile selectedPrincipalKey={selectedPrincipalKey} />
+          <UniverseStatusTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
+        </div>
+      </SectionCard>
+    </div>
   );
 }
