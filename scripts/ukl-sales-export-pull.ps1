@@ -185,9 +185,12 @@ function Get-ExportFiles {
   if (Test-Path -LiteralPath $ArchiveFolder) {
     $files += @(Get-ChildItem -LiteralPath $ArchiveFolder -Filter "$prefix*.csv" -File -Recurse -ErrorAction SilentlyContinue)
   }
-  # Includes legacy _001 files and the timestamp/GUID IDs. This is used only
+  # Double-quoted PowerShell strings do not interpret backslash escapes, so a
+  # literal "\." (not "\\.") is required here for the regex engine to see an
+  # escaped dot instead of two literal backslashes matching nothing. Matches
+  # both legacy _NNN files and the current timestamp/GUID run IDs; used only
   # for Smart-mode delivery verification, never to allocate a new run ID.
-  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(?:_[A-Za-z0-9_-]+)?\\.csv$" })
+  return @($files | Where-Object { $_.Name -match "^$([regex]::Escape($prefix))(?:_[A-Za-z0-9_-]+)?\.csv$" })
 }
 
 function New-ExportPath {
@@ -200,6 +203,26 @@ function New-ExportPath {
   $runId = "{0}_{1}" -f $now.ToString("yyyyMMdd"), ("T{0}_{1}" -f $now.ToString("HHmmssfffffffZ"), [guid]::NewGuid().ToString("N"))
   return Join-Path $DestFolder ("{0}_{1}.csv" -f $prefix, $runId)
 }
+
+# Guards against a repeat of the 2026-09-07 regression, where doubled
+# backslashes in a double-quoted string ("\\d+"/"\\.csv") silently made the
+# filter above match nothing: every run then treated every export as
+# undelivered, so Find-DeliveredFile could never confirm a file was already
+# saved and Smart mode could never self-heal. Run once at startup so a
+# broken pattern fails loudly instead of quietly starving delivery
+# verification again.
+function Assert-ExportFilenamePatternWorks {
+  $probeDate = "2026-01-01"
+  $probePrefix = Get-ExportPrefix -ExportDate $probeDate
+  $legacyProbeName = "${probePrefix}_001.csv"
+  $currentProbeName = Split-Path -Leaf (New-ExportPath -ExportDate $probeDate)
+  $filterPattern = "^$([regex]::Escape($probePrefix))(?:_[A-Za-z0-9_-]+)?\.csv$"
+  if ($legacyProbeName -notmatch $filterPattern -or $currentProbeName -notmatch $filterPattern) {
+    throw "UKL export filename pattern is broken: '$legacyProbeName' / '$currentProbeName' do not match the expected Get-ExportFiles filter regex. Check Get-ExportFiles/New-ExportPath for accidental double-backslash escaping."
+  }
+}
+
+Assert-ExportFilenamePatternWorks
 
 function Save-Export {
   param([string]$ExportDate)
