@@ -6,21 +6,65 @@ import {
   buildSupervisorRanking,
   buildManagerRanking,
   canonicalTeamLeaderIdMap,
+  computeTlCompositeScores,
+  sortByCompositeScore,
+  rollupRepMetricsByTeamLeader,
+  rollupJpAdherenceByTeamLeader,
   type PrincipalRevenueInput,
   type SupervisorRankingResult,
   type ManagerRankingResult,
-  type TlRankingRow,
+  type TlCompositeRow,
   type UnattributedPrincipal,
 } from "@/lib/tlRanking";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { getMtdTargetByTeamLeader } from "@/lib/mtdTarget";
+import { getRepPerformanceData, buildRepPerformanceRows } from "@/lib/repPerformance";
+import { getJpAdherenceSummary, monthWindow } from "@/lib/jpAdherence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type TlRankingResponse =
-  | { mode: "flat"; rankings: TlRankingRow[]; unattributedPrincipals: UnattributedPrincipal[] }
+  | { mode: "flat"; rankings: TlCompositeRow[]; unattributedPrincipals: UnattributedPrincipal[] }
   | { mode: "hierarchy"; managerRanking: ManagerRankingResult; supervisorRanking: SupervisorRankingResult; unattributedPrincipals: UnattributedPrincipal[] };
+
+/** Strike Rate + Distribution (RepPerformanceRow, RepCall/BrandCustomerActual-
+ *  sourced) and JP Adherence (JpRepDaySummaryRow) for the current calendar
+ *  month, rolled up per Team Leader — the three extra composite-score inputs
+ *  beyond target attainment. Deliberately passes empty sapRows/targets to
+ *  buildRepPerformanceRows: strike rate and LPPC are already fully resolved
+ *  from RepCall/BrandCustomerActual alone (see its own field-by-field
+ *  derivation), so this avoids pulling in the separate SAP revenue feed
+ *  (/api/sales/rep-actuals) this route has no other reason to touch. */
+async function loadCompositeInputs(scope: Awaited<ReturnType<typeof resolveScopeForSession>>, year: string, monthLabel: string) {
+  const monthIndex = new Date(`${monthLabel} 1, ${year}`).getMonth();
+  const [repData, jpAdherence] = await Promise.all([
+    getRepPerformanceData(year, scope),
+    getJpAdherenceSummary(monthWindow(year, monthIndex), scope, {
+      principalKey: null,
+      date: null,
+      dayNames: null,
+      roleFilter: "all",
+      employeeCode: null,
+      teamLeader: null,
+    }),
+  ]);
+  const repRows = buildRepPerformanceRows({
+    employees: repData.employees,
+    coverageByRepMonth: repData.coverageByRepMonth,
+    targets: [],
+    sapRows: [],
+    repLines: repData.repLines,
+    months: [{ year, monthIndex }],
+    principalKey: null,
+    teamLeaderFilter: null,
+    salesRoleFilter: null,
+  });
+  return {
+    repMetricsByTeamLeader: rollupRepMetricsByTeamLeader(repRows),
+    jpAdherenceByTeamLeader: rollupJpAdherenceByTeamLeader(jpAdherence.repDaySummary),
+  };
+}
 
 /** The Excel/SQL-bridge-derived principal-level MTD revenue (dataset.monthlySales,
  *  via lib/timeIntelligence.ts's summarizeSalesByPrincipal) already runs client-side
@@ -93,13 +137,19 @@ export async function POST(req: NextRequest) {
   }));
   const result = buildTlRanking(principalRevenue, canonicalPrincipals, teamLeaders, canonicalMtdTargets);
 
+  // Composite-score inputs (Strike Rate, Distribution, JP Adherence) always
+  // reflect the real current calendar month, same as achievedPct's own MTD
+  // target — a QTD/YTD page selection has no bearing on this ranking.
+  const { repMetricsByTeamLeader, jpAdherenceByTeamLeader } = await loadCompositeInputs(scope, year, monthLabel);
+  const compositeRankings = sortByCompositeScore(computeTlCompositeScores(result.rankings, repMetricsByTeamLeader, jpAdherenceByTeamLeader));
+
   // TEAM_LEADER and a principal-scoped VIEWER keep today's flat shape — a single
   // Team Leader (or a flat multi-TL list with no meaningful supervisor grouping
   // narrowed further) doesn't benefit from the extra nesting.
   if (scope && (scope.teamLeaderId || !scope.supervisorId)) {
     if (scope.teamLeaderId) {
       const scopedTeamLeaderId = canonicalTeamLeaderIds.get(scope.teamLeaderId) ?? scope.teamLeaderId;
-      const rankings = result.rankings.filter((r) => r.teamLeaderId === scopedTeamLeaderId);
+      const rankings = compositeRankings.filter((r) => r.teamLeaderId === scopedTeamLeaderId);
       return NextResponse.json({ mode: "flat", rankings, unattributedPrincipals: [] } satisfies TlRankingResponse);
     }
     // Principal-restricted VIEWER (no single TL identity of their own): show every
@@ -110,11 +160,16 @@ export async function POST(req: NextRequest) {
     const allowedTeamLeaderIds = new Set(
       canonicalPrincipals.filter((p) => p.teamLeaderId && scope.principals.includes(p.principal)).map((p) => p.teamLeaderId!)
     );
-    const rankings = result.rankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
+    const rankings = compositeRankings.filter((r) => allowedTeamLeaderIds.has(r.teamLeaderId));
     return NextResponse.json({ mode: "flat", rankings, unattributedPrincipals: [] } satisfies TlRankingResponse);
   }
 
-  const supervisorRanking = buildSupervisorRanking(result.rankings, teamLeaders, supervisors);
+  // compositeRankings carries every TlRankingRow field plus the composite-score
+  // fields, so passing it here still produces a valid SupervisorRankingResult/
+  // ManagerRankingResult — the nested teamLeaders rows keep their composite
+  // fields at runtime even though these two builders only know about the base
+  // TlRankingRow shape.
+  const supervisorRanking = buildSupervisorRanking(compositeRankings, teamLeaders, supervisors);
   const managerRanking = buildManagerRanking(supervisorRanking.rankings, supervisors, managers);
 
   if (scope?.supervisorId) {

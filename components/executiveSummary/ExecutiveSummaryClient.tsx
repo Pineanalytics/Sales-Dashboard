@@ -3,8 +3,7 @@
 import { Presenter20Regular, PresenterOff20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { summarizeSalesByPrincipal, type PeriodSelection } from "@/lib/timeIntelligence";
-import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
-import { computeOverstock, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/executiveSummary";
+import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, computeOverstock, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
 import { achievementTier } from "@/lib/format";
 import { ExceptionsStrip } from "./ExceptionsStrip";
 import { SalesSummaryPanel } from "./SalesSummaryPanel";
@@ -70,14 +69,19 @@ export function ExecutiveSummaryClient({
         overstockedCount={overstock.itemCount}
         creditLimitBreaches={receivables?.creditLimitBreaches ?? 0}
       />
-      <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
-      <TeamLeaderPerformancePanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
+      {/* Every panel now pairs with another (none full-width/alone) — Sales
+          vs. Target with Stock Risk (both are at-a-glance KPI summaries that
+          link out to their own detail module), Order Fulfillment with
+          Field/Rep Behavior, and Financials with Team Leader Performance. */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
         <StockRiskPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
-        <OrderFulfillmentPanel period={period} />
       </div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <OrderFulfillmentPanel period={period} />
         <FieldBehaviorPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+      </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <FinancialsPanel
           dataset={dataset}
           selectedPrincipalKey={selectedPrincipalKey}
@@ -85,6 +89,7 @@ export function ExecutiveSummaryClient({
           receivables={receivables}
           canViewReceivables={canViewReceivables}
         />
+        <TeamLeaderPerformancePanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
       </div>
     </div>
   );

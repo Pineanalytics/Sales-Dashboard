@@ -77,7 +77,7 @@ export interface SyncHealthRow {
  *  by its raw code instead of a friendly name. */
 
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
-  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses, uklTriggerCounts, latestUklTrigger] = await Promise.all([
+  const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, order360Watermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses, uklTriggerCounts, latestUklTrigger] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
     prisma.stockSyncRun.findFirst({ orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
     prisma.pLEntry.aggregate({ _max: { updatedAt: true } }),
@@ -86,6 +86,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.syncWatermark.findUnique({ where: { bridge: "timestamps" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" } }),
     prisma.syncWatermark.findUnique({ where: { bridge: "upfield-visits" } }),
+    prisma.syncWatermark.findUnique({ where: { bridge: "order-360" } }),
     prisma.salesReturnLine.groupBy({ by: ["storageLocation"], _max: { createdAt: true } }),
     prisma.syncWatermark.findMany({ where: { bridge: { startsWith: "sales-returns:" } } }),
     prisma.salesReturnsControl.findMany(),
@@ -211,6 +212,13 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     // past that longest expected gap rather than the tighter between-run gaps.
     row("upfieldVisits", "Outlet Visits (Upfield DataEdge)", "4x daily (10:00/12:00/17:00/20:00)", upfieldVisitsWatermark?.updatedAt ?? null, 15),
     row("jpAdherence", "PJP Ownership Adherence (Pine)", "Active Outlets hourly + Timestamps every 5 minutes", activeOutletsWatermark?.updatedAt ?? null, 3),
+    // Runs once/day via Windows Task Scheduler (scripts/order-360-sync.ps1,
+    // 18:30 Africa/Nairobi) on a machine outside the VPS/Docker deploy
+    // pipeline — see docs/automation-registry.md. 30h allows the daily
+    // cadence plus a buffer for a late-running task before flagging stale;
+    // this is the only place that reads the SyncWatermark row run.ts already
+    // writes to, so it was previously invisible on this page entirely.
+    row("order360", "Order 360 (Pine)", "Daily at 18:30 Africa/Nairobi", order360Watermark?.updatedAt ?? null, 30),
     ...salesReturnsRows,
     uklRow,
     eablRow,

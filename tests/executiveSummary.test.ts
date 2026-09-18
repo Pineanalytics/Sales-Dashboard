@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeSalesRunRate, computeOverstock, computeOverstockByPrincipal, periodToDateRange, averageActiveOutletsForPeriod } from "@/lib/executiveSummary";
+import { computeSalesRunRate, periodToDateRange, averageActiveOutletsForPeriod } from "@/lib/executiveSummary";
+import { computeOverstock, computeOverstockByPrincipal } from "@/lib/stock";
 import type { PeriodSalesSummary, PeriodSelection } from "@/lib/timeIntelligence";
 import type { Dataset, StockItem } from "@/lib/types";
 

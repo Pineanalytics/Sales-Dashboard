@@ -155,6 +155,145 @@ function sortByAchievement<T extends { achievedPct: number | null; mtdRevenue: n
   });
 }
 
+// ---------------------------------------------------------------------------
+// Composite score — folds Strike Rate, Distribution (LPPC), and JP Adherence
+// in alongside target attainment, so ranking a Team Leader isn't revenue-vs-
+// target alone. All three extra metrics are sourced from data already
+// broadly visible elsewhere (lib/repPerformance.ts's RepPerformanceRow,
+// lib/jpAdherence.ts's JpRepDaySummaryRow), rolled up by the same
+// EmployeeMaster.teamLeader free-text join those reports already use — never
+// the ADMIN-only PerformanceTracker scorecard.
+// ---------------------------------------------------------------------------
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/** Per-Team-Leader rollup of the two rep-level metrics (lib/repPerformance.ts's
+ *  RepPerformanceRow, grouped by .teamLeader) that computeTlCompositeScores
+ *  needs. Plain arithmetic mean across that Team Leader's reps — good enough
+ *  for an at-a-glance executive score, not a precision appraisal metric. */
+export function rollupRepMetricsByTeamLeader(
+  repRows: { teamLeader: string | null; productivityPct: number | null; lppc: number | null }[]
+): Map<string, { strikeRatePct: number | null; lppc: number | null }> {
+  const byTeamLeader = new Map<string, { strikeRateSum: number; strikeRateCount: number; lppcSum: number; lppcCount: number }>();
+  for (const row of repRows) {
+    if (!row.teamLeader) continue;
+    const bucket = byTeamLeader.get(row.teamLeader) ?? { strikeRateSum: 0, strikeRateCount: 0, lppcSum: 0, lppcCount: 0 };
+    if (row.productivityPct !== null) {
+      bucket.strikeRateSum += row.productivityPct;
+      bucket.strikeRateCount += 1;
+    }
+    if (row.lppc !== null) {
+      bucket.lppcSum += row.lppc;
+      bucket.lppcCount += 1;
+    }
+    byTeamLeader.set(row.teamLeader, bucket);
+  }
+  return new Map(
+    Array.from(byTeamLeader.entries()).map(([teamLeader, b]) => [
+      teamLeader,
+      {
+        strikeRatePct: b.strikeRateCount > 0 ? round1(b.strikeRateSum / b.strikeRateCount) : null,
+        lppc: b.lppcCount > 0 ? round1(b.lppcSum / b.lppcCount) : null,
+      },
+    ])
+  );
+}
+
+/** Per-Team-Leader JP Adherence (lib/jpAdherence.ts's JpRepDaySummaryRow,
+ *  grouped by .teamLeader), volume-weighted the same way the report's own
+ *  top-level KPI is derived (aggregateKpis: outletsVisited / outletsPlanned),
+ *  not a plain average of each day's percentage. */
+export function rollupJpAdherenceByTeamLeader(
+  repDayRows: { teamLeader: string; outletsPlanned: number; outletsVisited: number }[]
+): Map<string, number | null> {
+  const byTeamLeader = new Map<string, { planned: number; visited: number }>();
+  for (const row of repDayRows) {
+    const bucket = byTeamLeader.get(row.teamLeader) ?? { planned: 0, visited: 0 };
+    bucket.planned += row.outletsPlanned;
+    bucket.visited += row.outletsVisited;
+    byTeamLeader.set(row.teamLeader, bucket);
+  }
+  return new Map(Array.from(byTeamLeader.entries()).map(([teamLeader, b]) => [teamLeader, b.planned > 0 ? round1((b.visited / b.planned) * 100) : null]));
+}
+
+/** Weights sum to 1. Target attainment stays the largest single factor (it's
+ *  the number with a real, orderable target), the other three split the
+ *  remainder roughly evenly. */
+const COMPOSITE_WEIGHTS = { target: 0.35, strikeRate: 0.25, distribution: 0.2, jpAdherence: 0.2 } as const;
+
+export interface TlCompositeRow extends TlRankingRow {
+  compositeScore: number | null;
+  strikeRatePct: number | null;
+  /** LPPC (Lines Per Productive Call) has no live per-Team-Leader target to
+   *  ratio against — the target-based version of this metric only exists in
+   *  the ADMIN-only, manually-entered PerformanceTracker scorecard. Instead
+   *  this is min-max normalized against every OTHER Team Leader in this same
+   *  ranking (0 = lowest LPPC this period, 100 = highest) — a relative-to-
+   *  peers score, not an absolute benchmark. Callers should label it as such. */
+  distributionScore: number | null;
+  jpAdherencePct: number | null;
+}
+
+/** Adds a compositeScore to every ranking row, folding in Strike Rate,
+ *  Distribution, and JP Adherence alongside target attainment. Joined by
+ *  teamLeaderName (TlRankingRow's identity) against the free-text
+ *  EmployeeMaster.teamLeader value the other two rollups key by — both are
+ *  sourced from the same TeamLeader/EmployeeMaster roster, so the names line
+ *  up in practice; a Team Leader with no matching rep-level rows simply
+ *  contributes fewer components rather than failing the whole score.
+ *
+ *  Components a Team Leader has no data for are dropped and the remaining
+ *  weights re-normalized (proportional to COMPOSITE_WEIGHTS) rather than
+ *  forcing the whole score to null — a Team Leader missing this month's JP
+ *  Adherence rows shouldn't lose a ranking entirely over one gap. Only when
+ *  NONE of the four resolve does compositeScore stay null. */
+export function computeTlCompositeScores(
+  rankings: TlRankingRow[],
+  repMetricsByTeamLeader: Map<string, { strikeRatePct: number | null; lppc: number | null }>,
+  jpAdherenceByTeamLeader: Map<string, number | null>
+): TlCompositeRow[] {
+  const lppcValues = rankings
+    .map((row) => repMetricsByTeamLeader.get(row.teamLeaderName)?.lppc)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const lppcMin = lppcValues.length > 0 ? Math.min(...lppcValues) : null;
+  const lppcMax = lppcValues.length > 0 ? Math.max(...lppcValues) : null;
+
+  return rankings.map((row) => {
+    const rep = repMetricsByTeamLeader.get(row.teamLeaderName) ?? null;
+    const strikeRatePct = rep?.strikeRatePct ?? null;
+    const jpAdherencePct = jpAdherenceByTeamLeader.get(row.teamLeaderName) ?? null;
+    const distributionScore =
+      rep?.lppc != null && lppcMin !== null && lppcMax !== null
+        ? lppcMax > lppcMin
+          ? round1(((rep.lppc - lppcMin) / (lppcMax - lppcMin)) * 100)
+          : 100 // every Team Leader tied on LPPC this period — treat as fully at par
+        : null;
+
+    const components: { value: number; weight: number }[] = [];
+    if (row.achievedPct !== null) components.push({ value: Math.min(row.achievedPct, 100), weight: COMPOSITE_WEIGHTS.target });
+    if (strikeRatePct !== null) components.push({ value: Math.min(strikeRatePct, 100), weight: COMPOSITE_WEIGHTS.strikeRate });
+    if (distributionScore !== null) components.push({ value: distributionScore, weight: COMPOSITE_WEIGHTS.distribution });
+    if (jpAdherencePct !== null) components.push({ value: Math.min(jpAdherencePct, 100), weight: COMPOSITE_WEIGHTS.jpAdherence });
+    const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+    const compositeScore = totalWeight > 0 ? round1(components.reduce((sum, c) => sum + c.value * c.weight, 0) / totalWeight) : null;
+
+    return { ...row, compositeScore, strikeRatePct, distributionScore, jpAdherencePct };
+  });
+}
+
+/** Best-to-worst by compositeScore, unranked (null) rows last — same
+ *  tie-break shape as sortByAchievement, just keyed on the composite. */
+export function sortByCompositeScore(rows: TlCompositeRow[]): TlCompositeRow[] {
+  return rows.slice().sort((a, b) => {
+    if (a.compositeScore === null && b.compositeScore === null) return b.mtdRevenue - a.mtdRevenue;
+    if (a.compositeScore === null) return 1;
+    if (b.compositeScore === null) return -1;
+    return b.compositeScore - a.compositeScore;
+  });
+}
+
 export interface HierarchyEntity {
   id: string;
   name: string;
