@@ -71,6 +71,16 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
 
   const filteredRollups = rollups.filter((r) => matchesStatus(r.action, statusFilter));
 
+  // Product/item-level listing across every active principal at once — the
+  // "all principals" view previously stopped at Stock by Principal, with no
+  // item/product name visible anywhere until a specific principal was
+  // selected first.
+  const activeItems = selectedRollup
+    ? []
+    : dataset.stockItems.filter((i) => !dormantKeys.has(i.key) && matchesStatus(i.action, statusFilter));
+  const allItemsSorted = [...activeItems].sort((a, b) => b.openingValue - a.openingValue);
+  const ALL_ITEMS_LIMIT = 150;
+
   const brandRollups = [...aggregateStockByBrand(dataset, selectedRollup?.key ?? null)]
     .filter((b) => !dormantKeys.has(b.principalKey))
     .sort((a, b) => b.value - a.value);
@@ -229,6 +239,43 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
           </tbody>
         </TableWrap>
       </SectionCard>
+
+      {!selectedRollup && (
+        <SectionCard
+          title={`Stock by Item (top ${Math.min(ALL_ITEMS_LIMIT, allItemsSorted.length)} of ${allItemsSorted.length} by value, all principals)`}
+          action={<span className="text-xs text-muted">Select a principal above to see its full item list</span>}
+        >
+          <TableWrap>
+            <Thead>
+              <Th>Item</Th>
+              <Th>Principal</Th>
+              <Th>Brand</Th>
+              <Th align="right">Stock Value</Th>
+              <Th align="right">Volume</Th>
+              <Th align="right">Pcs</Th>
+              <Th align="right">Days Cover</Th>
+              <Th align="center">Status</Th>
+            </Thead>
+            <tbody>
+              {allItemsSorted.slice(0, ALL_ITEMS_LIMIT).map((i, idx) => (
+                <tr key={`${i.key}-${i.item}-${idx}`}>
+                  <Td className="max-w-[220px] truncate" title={i.item}>{i.item}</Td>
+                  <Td>{i.principal}</Td>
+                  <Td>{i.brand?.trim() || "Unspecified"}</Td>
+                  <Td align="right">{formatCompact(i.openingValue)}</Td>
+                  <Td align="right">{formatNumber(i.openingVolume)}</Td>
+                  <Td align="right">{formatNumber(i.openingPcs)}</Td>
+                  <Td align="right">{i.daysCover.toFixed(1)}</Td>
+                  <Td align="center"><StockStatusPill action={i.action} /></Td>
+                </tr>
+              ))}
+              {allItemsSorted.length === 0 && (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
+              )}
+            </tbody>
+          </TableWrap>
+        </SectionCard>
+      )}
 
       {selectedRollup ? (
         <SectionCard title={`${selectedRollup.name} — Item Detail (top ${Math.min(80, principalItems.length)} of ${principalItems.length})`}>
