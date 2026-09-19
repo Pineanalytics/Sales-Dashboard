@@ -1358,7 +1358,10 @@ model UpfieldSyncBatch {
 // source="upfield-visits" and its own SyncWatermark bridge="upfield-visits".
 model UpfieldVisit {
   sourceRecordId    String    @id
-  fsr               String
+  // Nullable: the DataEdge Timestamp Report export dropped this column
+  // entirely starting 2026-09-15 (confirmed live, consistently since) -
+  // was previously always populated.
+  fsr               String?
   distributor       String?
   pop               String
   startTime         DateTime
