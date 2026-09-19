@@ -1,3 +1,11 @@
+# Anchorage (unrelated project) shares this VPS's one Caddy instance. Its
+# site blocks live outside this repo at /opt/caddy-shared/conf.d, which the
+# pinefrost deploy pipeline never touches — /opt/pinefrost is not a git
+# checkout; a CI job wholesale-replaces this file with the tracked version on
+# every deploy, so anything appended here directly instead of imported gets
+# silently dropped on the next release (confirmed: happened three times).
+import /etc/caddy/conf.d/*.caddy
+
 # Migration plan Step 7: DOMAIN is now the real domain (pinefrostdb.com),
 # so Caddy automatically requests and renews a real Let's Encrypt certificate
 # and serves HTTPS — no manual TLS config needed.
