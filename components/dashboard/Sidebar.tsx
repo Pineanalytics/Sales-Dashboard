@@ -28,7 +28,7 @@ import {
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
-import { canAccessFinancials, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
@@ -91,6 +91,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
     : NAV_ITEMS.filter((item) => {
         if (item.href === "/financials") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
         const key = pageKeyForPathname(item.href);
+        if (key && isBaselinePage(key)) return true;
         return key ? (user?.allowedPages ?? []).includes(key) : true;
       });
 

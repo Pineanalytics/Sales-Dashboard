@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { renameTeamLeaderAction, deleteTeamLeaderAction, syncTeamLeaderVisibilityAction, updateTeamLeaderSupervisorAction } from "./actions";
+import {
+  renameTeamLeaderAction,
+  deleteTeamLeaderAction,
+  syncTeamLeaderVisibilityAction,
+  updateTeamLeaderSupervisorAction,
+  updateTeamLeaderVisiblePagesAction,
+} from "./actions";
+import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 
 export interface TeamLeaderRow {
   id: string;
@@ -11,6 +18,7 @@ export interface TeamLeaderRow {
   assignmentCount: number;
   activeAssignmentCount: number;
   inactiveAssignmentCount: number;
+  visiblePages: string[];
 }
 export interface SupervisorOption {
   id: string;
@@ -141,6 +149,29 @@ export function TeamLeaderRosterPanel({
                           className="self-start rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
                         >
                           Save
+                        </button>
+                      </form>
+                      <form action={updateTeamLeaderVisiblePagesAction} className="flex flex-col gap-2 border-t border-border/60 pt-3">
+                        <input type="hidden" name="teamLeaderId" value={tl.id} />
+                        <label className="text-[13px] font-medium text-muted-strong">
+                          Visible pages override
+                          <span className="ml-1 font-normal text-muted">
+                            — leave everything unchecked to use this person&apos;s own account permissions
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+                          {ALL_PAGE_KEYS.map((key) => (
+                            <label key={key} className="flex items-center gap-1.5 text-[13px] text-foreground">
+                              <input type="checkbox" name="pages" value={key} defaultChecked={tl.visiblePages.includes(key)} />
+                              {PAGE_LABELS[key]}
+                            </label>
+                          ))}
+                        </div>
+                        <button
+                          type="submit"
+                          className="self-start rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
+                        >
+                          Save visible pages
                         </button>
                       </form>
                       <div className="flex gap-2 border-t border-border/60 pt-3">

@@ -27,8 +27,10 @@ import {
   renameDirectorAction,
   deleteDirectorAction,
   updateHodDirectorAction,
+  updateSupervisorVisiblePagesAction,
 } from "./actions";
 import { TeamLeaderRosterPanel } from "./TeamLeaderRosterPanel";
+import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -267,6 +269,7 @@ export default async function AdminTeamLeadersPage({
               assignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).length,
               activeAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => assignment.active).length,
               inactiveAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => !assignment.active).length,
+              visiblePages: tl.visiblePages,
             }))}
             supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
             renamingId={renaming?.id}
@@ -305,19 +308,41 @@ export default async function AdminTeamLeadersPage({
                   </Link>
                 </form>
               ) : (
-                <div key={s.id} className="flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5">
-                  <span className="text-sm font-medium text-foreground">{s.name}</span>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <Link href={`/admin/team-leaders?renameSupervisor=${s.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
-                      Rename
-                    </Link>
-                    <form action={deleteSupervisorAction} className="inline">
+                <div key={s.id} className="flex flex-col gap-2 rounded-xl bg-background-elevated px-4 py-2.5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <span className="text-sm font-medium text-foreground">{s.name}</span>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Link href={`/admin/team-leaders?renameSupervisor=${s.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                        Rename
+                      </Link>
+                      <form action={deleteSupervisorAction} className="inline">
+                        <input type="hidden" name="supervisorId" value={s.id} />
+                        <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                  <details>
+                    <summary className="cursor-pointer text-[12px] font-medium text-primary-blue">
+                      Visible pages override {s.visiblePages.length > 0 ? `(${s.visiblePages.length} set)` : "(none — uses own account permissions)"}
+                    </summary>
+                    <form action={updateSupervisorVisiblePagesAction} className="mt-2 flex flex-col gap-2">
                       <input type="hidden" name="supervisorId" value={s.id} />
-                      <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
-                        Remove
+                      <p className="text-[12px] text-muted">Leave everything unchecked to use this person&apos;s own account permissions.</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+                        {ALL_PAGE_KEYS.map((key) => (
+                          <label key={key} className="flex items-center gap-1.5 text-[13px] text-foreground">
+                            <input type="checkbox" name="pages" value={key} defaultChecked={s.visiblePages.includes(key)} />
+                            {PAGE_LABELS[key]}
+                          </label>
+                        ))}
+                      </div>
+                      <button type="submit" className="self-start rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+                        Save visible pages
                       </button>
                     </form>
-                  </div>
+                  </details>
                 </div>
               )
             )}

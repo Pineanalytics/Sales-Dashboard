@@ -137,6 +137,12 @@ model TeamLeader {
   name         String   @unique
   supervisorId String?
   createdAt    DateTime @default(now())
+  // Admin-set override of which report pages this Team Leader's logged-in User
+  // sees, replacing that User's own allowedPages while non-empty. Empty (the
+  // default) means "no override" — the linked User's allowedPages governs as
+  // before. Lets the roster itself govern dashboard visibility for exceptions
+  // without having to separately edit the User record.
+  visiblePages String[] @default([])
 
   coveringReliefs     TeamLeaderRelief[]   @relation("CoveringReliefs")
   coveredReliefs      TeamLeaderRelief[]   @relation("CoveredReliefs")
@@ -187,10 +193,12 @@ model TeamLeaderRelief {
 // managerId is this Supervisor's own reporting line up to Manager — same
 // reasoning as TeamLeader.supervisorId above.
 model Supervisor {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  managerId String?
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  name         String   @unique
+  managerId    String?
+  createdAt    DateTime @default(now())
+  // Same override mechanism as TeamLeader.visiblePages, one tier up.
+  visiblePages String[] @default([])
 }
 
 // One row per Manager — a tier above Supervisor (e.g. Angela Sitati oversees

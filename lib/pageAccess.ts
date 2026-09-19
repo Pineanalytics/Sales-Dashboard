@@ -59,6 +59,16 @@ export function isPageKey(value: string): value is PageKey {
   return (ALL_PAGE_KEYS as readonly string[]).includes(value);
 }
 
+/** Pages every approved, logged-in user gets regardless of their allowedPages
+ * grant (or a Team Leader/Supervisor visiblePages override) — visibility here
+ * is universal, and the underlying DATA is scoped per-user instead (see
+ * resolveScopeForSession / lib/teamLeaderScope.ts). */
+export const BASELINE_PAGE_KEYS: readonly PageKey[] = ["principal-kpis"];
+
+export function isBaselinePage(pageKey: PageKey | null): boolean {
+  return pageKey !== null && (BASELINE_PAGE_KEYS as readonly string[]).includes(pageKey);
+}
+
 /** Financials combines the existing profitability and receivables permissions.
  * Existing user grants remain valid; no user needs a new permission merely
  * because the two reports are now presented in one major module. */

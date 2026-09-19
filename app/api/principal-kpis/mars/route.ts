@@ -4,11 +4,16 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { normalizePrincipalKey } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PRINCIPAL = "Mars";
+// Mars is the only principal this importer (and this route's folder name)
+// has ever written — kept as the import-time constant. GET reads are no
+// longer Mars-only: they take ?principal= and shadow this with the
+// requested principal (see the local `PRINCIPAL` declared inside GET).
+const MARS_PRINCIPAL = "Mars";
 
 type NullableText = string | null;
 interface PeriodRow { fiscalYear: string; periodKey: string; periodNo: number; startDate: string; endDate: string }
@@ -56,24 +61,24 @@ export async function POST(req: NextRequest) {
       const periods = body.periods, products = body.products, roster = body.roster, targets = body.targets, productiveTargets = body.productiveTargets ?? [], rtmCustomers = body.rtmCustomers ?? [];
       if (!Array.isArray(periods) || !Array.isArray(products) || !Array.isArray(roster) || !Array.isArray(targets) || !Array.isArray(productiveTargets) || !Array.isArray(rtmCustomers) || !periods.every(isPeriod) || !products.every(isProduct) || !roster.every(isRoster) || !targets.every(isTarget) || !productiveTargets.every(isProductiveTarget) || !rtmCustomers.every(isRtmCustomer)) return NextResponse.json({ error: "Invalid Mars reference payload." }, { status: 400 });
       await prisma.$transaction(async (tx) => {
-        for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
-        for (const row of products as ProductRow[]) await tx.principalKpiProduct.upsert({ where: { principal_itemNo: { principal: PRINCIPAL, itemNo: row.itemNo } }, update: row, create: { ...row, principal: PRINCIPAL } });
-        for (const row of roster as RosterRow[]) await tx.principalKpiRoster.upsert({ where: { principal_employeeCode: { principal: PRINCIPAL, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: PRINCIPAL } });
-        for (const row of targets as TargetRow[]) await tx.principalKpiTarget.upsert({ where: { principal_fiscalYear_periodKey_employeeCode: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: PRINCIPAL } });
+        for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: MARS_PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: MARS_PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
+        for (const row of products as ProductRow[]) await tx.principalKpiProduct.upsert({ where: { principal_itemNo: { principal: MARS_PRINCIPAL, itemNo: row.itemNo } }, update: row, create: { ...row, principal: MARS_PRINCIPAL } });
+        for (const row of roster as RosterRow[]) await tx.principalKpiRoster.upsert({ where: { principal_employeeCode: { principal: MARS_PRINCIPAL, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: MARS_PRINCIPAL } });
+        for (const row of targets as TargetRow[]) await tx.principalKpiTarget.upsert({ where: { principal_fiscalYear_periodKey_employeeCode: { principal: MARS_PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey, employeeCode: row.employeeCode } }, update: row, create: { ...row, principal: MARS_PRINCIPAL } });
       });
       // RTM is an absolute reference list, not a user-edited transaction
       // table. A replace + bulk insert is both atomic and avoids holding an
       // interactive transaction open for thousands of individual upserts.
       if ((rtmCustomers as RtmCustomerRow[]).length > 0) {
         await prisma.$transaction([
-          prisma.principalKpiRtmCustomer.deleteMany({ where: { principal: PRINCIPAL } }),
-          prisma.principalKpiRtmCustomer.createMany({ data: (rtmCustomers as RtmCustomerRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
+          prisma.principalKpiRtmCustomer.deleteMany({ where: { principal: MARS_PRINCIPAL } }),
+          prisma.principalKpiRtmCustomer.createMany({ data: (rtmCustomers as RtmCustomerRow[]).map((row) => ({ ...row, principal: MARS_PRINCIPAL })) }),
         ]);
       }
       if ((productiveTargets as ProductiveTargetRow[]).length > 0) {
         await prisma.$transaction([
-          prisma.principalKpiProductiveTarget.deleteMany({ where: { principal: PRINCIPAL } }),
-          prisma.principalKpiProductiveTarget.createMany({ data: (productiveTargets as ProductiveTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) }),
+          prisma.principalKpiProductiveTarget.deleteMany({ where: { principal: MARS_PRINCIPAL } }),
+          prisma.principalKpiProductiveTarget.createMany({ data: (productiveTargets as ProductiveTargetRow[]).map((row) => ({ ...row, principal: MARS_PRINCIPAL })) }),
         ]);
       }
       return NextResponse.json({ periods: periods.length, products: products.length, roster: roster.length, targets: targets.length, productiveTargets: productiveTargets.length, rtmCustomers: rtmCustomers.length });
@@ -82,17 +87,17 @@ export async function POST(req: NextRequest) {
       const periods = body.periods, targets = body.targets;
       if (!Array.isArray(periods) || !Array.isArray(targets) || !periods.every(isPeriod) || !targets.every(isJbpTarget)) return NextResponse.json({ error: "Invalid Mars JBP reference payload." }, { status: 400 });
       await prisma.$transaction(async (tx) => {
-        for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
-        await tx.principalKpiJbpTarget.deleteMany({ where: { principal: PRINCIPAL } });
-        if ((targets as JbpTargetRow[]).length > 0) await tx.principalKpiJbpTarget.createMany({ data: (targets as JbpTargetRow[]).map((row) => ({ ...row, principal: PRINCIPAL })) });
+        for (const row of periods as PeriodRow[]) await tx.principalKpiPeriod.upsert({ where: { principal_fiscalYear_periodKey: { principal: MARS_PRINCIPAL, fiscalYear: row.fiscalYear, periodKey: row.periodKey } }, update: { periodNo: row.periodNo, startDate: new Date(row.startDate), endDate: new Date(row.endDate) }, create: { ...row, principal: MARS_PRINCIPAL, startDate: new Date(row.startDate), endDate: new Date(row.endDate) } });
+        await tx.principalKpiJbpTarget.deleteMany({ where: { principal: MARS_PRINCIPAL } });
+        if ((targets as JbpTargetRow[]).length > 0) await tx.principalKpiJbpTarget.createMany({ data: (targets as JbpTargetRow[]).map((row) => ({ ...row, principal: MARS_PRINCIPAL })) });
       });
       return NextResponse.json({ periods: periods.length, targets: targets.length });
     }
     if (kind === "actuals") {
       const rows = body.rows;
       if (!Array.isArray(rows) || rows.length === 0 || rows.length > 1_000 || !rows.every(isSaleLine)) return NextResponse.json({ error: "Actuals must be 1-1,000 valid sales lines." }, { status: 400 });
-      if (body.reset === true) await prisma.principalKpiSaleLine.deleteMany({ where: { principal: PRINCIPAL } });
-      const result = await prisma.principalKpiSaleLine.createMany({ data: (rows as SaleLineRow[]).map((row) => ({ ...row, principal: PRINCIPAL, date: new Date(row.date) })), skipDuplicates: true });
+      if (body.reset === true) await prisma.principalKpiSaleLine.deleteMany({ where: { principal: MARS_PRINCIPAL } });
+      const result = await prisma.principalKpiSaleLine.createMany({ data: (rows as SaleLineRow[]).map((row) => ({ ...row, principal: MARS_PRINCIPAL, date: new Date(row.date) })), skipDuplicates: true });
       return NextResponse.json({ inserted: result.count });
     }
     return NextResponse.json({ error: 'Unsupported import kind. Use "reference", "jbp-reference", or "actuals".' }, { status: 400 });
@@ -107,9 +112,17 @@ function pct(actual: number, target: number) { return target > 0 ? (actual / tar
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
-  if (session.user.role !== "ADMIN" && !(session.user.allowedPages ?? []).includes("principal-kpis")) return NextResponse.json({ error: "You don't have access to Principal KPIs." }, { status: 403 });
+  // Every logged-in user gets the Principal KPIs page (lib/pageAccess.ts's
+  // BASELINE_PAGE_KEYS) — data below is scoped per-user instead of gated by
+  // allowedPages.
   const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
-  if (scope && !scope.principals.some((p) => p.trim().toLowerCase().includes("mars"))) return NextResponse.json({ error: "Mars isn't one of your assigned principals." }, { status: 403 });
+  const requestedPrincipal = req.nextUrl.searchParams.get("principal")?.trim() || MARS_PRINCIPAL;
+  if (scope && !scope.principals.some((p) => normalizePrincipalKey(p) === normalizePrincipalKey(requestedPrincipal))) {
+    return NextResponse.json({ error: `${requestedPrincipal} isn't one of your assigned principals.` }, { status: 403 });
+  }
+  // Shadows the module-level MARS_PRINCIPAL (the import-only constant) for
+  // every read below — this is what makes GET multi-principal.
+  const PRINCIPAL = requestedPrincipal;
 
   // The workbook stays visible until the direct Pine bridge has completed a
   // full comparable FY25/FY26 snapshot.  This makes a source interruption a
