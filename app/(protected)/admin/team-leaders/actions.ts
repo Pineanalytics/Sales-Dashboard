@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
 import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
 import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
+import { isPageKey } from "@/lib/pageAccess";
 import type { TeamLeaderAssignment } from "@prisma/client";
 
 async function requireAdmin() {
@@ -180,6 +181,40 @@ export async function updateTeamLeaderSupervisorAction(formData: FormData) {
   }
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
+/** Admin-only override of which report pages this Team Leader's own User sees
+ *  (TeamLeader.visiblePages), replacing their allowedPages while non-empty.
+ *  An empty submission (no checkboxes ticked) clears the override, falling
+ *  back to that person's own allowedPages. */
+export async function updateTeamLeaderVisiblePagesAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "teamLeaderId");
+  const pages = formData.getAll("pages").map(String).filter(isPageKey);
+
+  try {
+    await prisma.teamLeader.update({ where: { id }, data: { visiblePages: pages } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update visible pages."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Visible pages updated."));
+}
+
+/** Same override mechanism as updateTeamLeaderVisiblePagesAction, one tier up
+ *  (Supervisor.visiblePages). */
+export async function updateSupervisorVisiblePagesAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const pages = formData.getAll("pages").map(String).filter(isPageKey);
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { visiblePages: pages } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update visible pages."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Visible pages updated."));
 }
 
 /** Sets which Manager a Supervisor reports to — Supervisor.managerId, same role

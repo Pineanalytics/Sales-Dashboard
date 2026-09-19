@@ -30,26 +30,50 @@ export default function PrincipalKpisPage() {
   const [commercialSlide, setCommercialSlide] = useState("Primary / Wholesale");
   const [filters, setFilters] = useState<Record<FilterKey, string>>({ sellerType: "", employeeGroup: "", location: "", teamLeader: "", fsr: "" });
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [principal, setPrincipal] = useState<string | null>(null);
+  const [principalOptions, setPrincipalOptions] = useState<string[]>([]);
+  const [optionsState, setOptionsState] = useState<"loading" | "ready" | "error">("loading");
 
+  // Which principal(s) this user is scoped to — resolved once; the page then
+  // fetches that principal's own KPI data below.
   useEffect(() => {
     let cancelled = false;
+    fetch("/api/principal-kpis/principals", { cache: "no-store" })
+      .then(async (response) => { if (!response.ok) throw new Error("Unable to load available principals."); return response.json() as Promise<{ principals: string[] }>; })
+      .then(({ principals }) => {
+        if (cancelled) return;
+        setPrincipalOptions(principals);
+        setPrincipal((current) => current ?? principals[0] ?? null);
+        setOptionsState("ready");
+      })
+      .catch(() => { if (!cancelled) setOptionsState("error"); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!principal) return;
+    let cancelled = false;
     const params = new URLSearchParams();
+    params.set("principal", principal);
     if (period) params.set("period", String(period));
     params.set("mode", timeMode);
     if (month) params.set("month", month);
     for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
     Promise.all([
-      fetch(`/api/principal-kpis/mars?${params}`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error("Unable to load Mars KPI data."); return response.json() as Promise<MarsData>; }),
+      fetch(`/api/principal-kpis/mars?${params}`, { cache: "no-store" }).then(async (response) => { if (!response.ok) throw new Error("Unable to load Principal KPI data."); return response.json() as Promise<MarsData>; }),
       fetch(`/api/principal-kpis/mars/jbp?${params}`, { cache: "no-store" }).then(async (response) => response.ok ? response.json() as Promise<JbpData> : { available: false } as JbpData),
     ])
       .then(([body, jbp]) => { if (!cancelled) { setData(body); setJbpData(jbp); setState("ready"); } })
       .catch(() => { if (!cancelled) setState("error"); });
     return () => { cancelled = true; };
-  }, [period, month, timeMode, filters]);
+  }, [principal, period, month, timeMode, filters]);
 
+  if (optionsState === "loading") return <FullPageSpinner label="Loading Principal KPIs..." />;
+  if (optionsState === "error") return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page." />;
+  if (principalOptions.length === 0) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="No Principal KPI data available yet" description="Nothing has been imported for a principal you're assigned to. Ask your administrator if you expect to see data here." />;
   if (state === "loading" && !data) return <FullPageSpinner label="Loading Principal KPIs..." />;
-  if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the Mars reference import may need attention." />;
-  if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Mars KPI data is being prepared" description="The Mars fiscal calendar, targets, roster and Pine sales ledger are not loaded yet." />;
+  if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the reference import may need attention." />;
+  if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title={`${principal} KPI data is being prepared`} description="The fiscal calendar, targets, roster and sales ledger for this principal are not loaded yet." />;
 
   const { summary, periods = [], selectedPeriod = 1, fiscalYear = "", priorYear = "", byPeriod = [], bySeller = [], byBrand = [], rtmPerformance = [], rtmUniverse = [], locationScorecards = [], repProductivityScorecards = [], source, asOf, filterOptions } = data;
   const selected = periods.find((item) => item.periodNo === selectedPeriod);
@@ -63,9 +87,9 @@ export default function PrincipalKpisPage() {
   const selectedTimeLabel = timeMode === "MONTH" ? new Date(`${activeMonth}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : periodLabel;
 
   return <div className="flex flex-col gap-6">
-    <SectionCard title="Principal KPI workspace" action={<span className="text-xs text-muted">Mars is the first configured principal; each view uses the Mars fiscal calendar.</span>}>
+    <SectionCard title="Principal KPI workspace" action={<span className="text-xs text-muted">Each principal uses its own imported fiscal calendar and targets.</span>}>
       <div className="flex flex-wrap items-end gap-4">
-        <label className="grid gap-1 text-xs font-medium text-muted">Principal<select value="Mars" disabled className="h-10 min-w-40 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground disabled:opacity-100"><option>Mars</option></select></label>
+        <label className="grid gap-1 text-xs font-medium text-muted">Principal<select value={principal ?? ""} onChange={(event) => setPrincipal(event.target.value)} disabled={principalOptions.length <= 1} className="h-10 min-w-40 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground disabled:opacity-100">{principalOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
         <div className="grid gap-1 text-xs font-medium text-muted"><span>Time view</span><div className="flex rounded-xl border border-border bg-background-elevated p-1"><button type="button" onClick={() => setTimeMode("FISCAL")} className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${timeMode === "FISCAL" ? "bg-brand-navy text-white" : "text-muted"}`}>Mars periods</button><button type="button" onClick={() => setTimeMode("MONTH")} className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${timeMode === "MONTH" ? "bg-brand-navy text-white" : "text-muted"}`}>Calendar months</button></div></div>
         {timeMode === "FISCAL" ? <label className="grid gap-1 text-xs font-medium text-muted">Fiscal period<select value={selectedPeriod} onChange={(event) => setPeriod(Number(event.target.value))} className="h-10 min-w-60 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground">{periods.map((item) => <option value={item.periodNo} key={item.periodKey}>{item.periodKey} | {new Date(item.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - {new Date(item.endDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</option>)}</select></label> : <label className="grid gap-1 text-xs font-medium text-muted">Calendar month<select value={activeMonth} onChange={(event) => setMonth(event.target.value)} className="h-10 min-w-52 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground">{calendarMonths.map((value) => <option value={value} key={value}>{new Date(`${value}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</option>)}</select></label>}
         {([ ["sellerType", "Sales stream", filterOptions?.sellerTypes ?? []], ["employeeGroup", "Employee group", filterOptions?.employeeGroups ?? []], ["location", "Location / sub-region", filterOptions?.locations ?? []], ["teamLeader", "Team leader", filterOptions?.teamLeaders ?? []], ["fsr", "FSR", filterOptions?.fsrs ?? []] ] as Array<[FilterKey, string, string[]]>).map(([key, label, options]) => <label className="grid gap-1 text-xs font-medium text-muted" key={key}>{label}<select value={filters[key]} onChange={(event) => setFilters((current) => ({ ...current, [key]: event.target.value }))} className="h-10 min-w-40 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground"><option value="">All</option>{options.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>)}

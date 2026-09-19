@@ -3,11 +3,12 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { normalizePrincipalKey } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PRINCIPAL = "Mars";
+const DEFAULT_PRINCIPAL = "Mars";
 type Mode = "FISCAL" | "MONTH";
 type Period = { periodKey: string; periodNo: number; startDate: Date; endDate: Date };
 type Target = { periodKey: string; periodNo: number; customerId: string; customerName: string | null; category: string; tier: string | null; area: string | null; casesTarget: number; ssuTarget: number };
@@ -26,9 +27,11 @@ function overlapWeight(period: Period, start: Date, endExclusive: Date) {
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
-  if (session.user.role !== "ADMIN" && !(session.user.allowedPages ?? []).includes("principal-kpis")) return NextResponse.json({ error: "You don't have access to Principal KPIs." }, { status: 403 });
   const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
-  if (scope && !scope.principals.some((principal) => principal.trim().toLowerCase().includes("mars"))) return NextResponse.json({ error: "Mars isn't one of your assigned principals." }, { status: 403 });
+  const PRINCIPAL = req.nextUrl.searchParams.get("principal")?.trim() || DEFAULT_PRINCIPAL;
+  if (scope && !scope.principals.some((p) => normalizePrincipalKey(p) === normalizePrincipalKey(PRINCIPAL))) {
+    return NextResponse.json({ error: `${PRINCIPAL} isn't one of your assigned principals.` }, { status: 403 });
+  }
 
   const mode: Mode = req.nextUrl.searchParams.get("mode") === "MONTH" ? "MONTH" : "FISCAL";
   const liveState = await prisma.syncWatermark.findUnique({ where: { bridge: "mars-kpis-pine" }, select: { lastFullResyncAt: true } });

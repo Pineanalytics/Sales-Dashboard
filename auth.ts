@@ -6,6 +6,26 @@ import type { UserRole } from "@/types/next-auth";
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // how often jwt() re-checks role/allowedPages/status against the DB
 
+/** A Team Leader/Supervisor's roster row can carry an admin-set visiblePages
+ * override (see prisma/schema.prisma) — non-empty replaces their own User's
+ * allowedPages entirely, so the roster itself can govern what they see
+ * without a separate edit to the User record. Empty means no override. */
+async function resolveEffectiveAllowedPages(
+  role: string,
+  allowedPages: string[],
+  teamLeaderId: string | null,
+  supervisorId: string | null
+): Promise<string[]> {
+  if (role === "TEAM_LEADER" && teamLeaderId) {
+    const teamLeader = await prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { visiblePages: true } });
+    if (teamLeader && teamLeader.visiblePages.length > 0) return teamLeader.visiblePages;
+  } else if (role === "SUPERVISOR" && supervisorId) {
+    const supervisor = await prisma.supervisor.findUnique({ where: { id: supervisorId }, select: { visiblePages: true } });
+    if (supervisor && supervisor.visiblePages.length > 0) return supervisor.visiblePages;
+  }
+  return allowedPages;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   pages: {
@@ -62,7 +82,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id as string;
         token.role = user.role;
-        token.allowedPages = user.allowedPages;
+        token.allowedPages = await resolveEffectiveAllowedPages(
+          user.role as string,
+          user.allowedPages as string[],
+          user.teamLeaderId as string | null,
+          user.supervisorId as string | null
+        );
         token.teamLeaderId = user.teamLeaderId;
         token.supervisorId = user.supervisorId;
         token.allowedPrincipals = user.allowedPrincipals;
@@ -82,7 +107,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       token.role = dbUser.role;
-      token.allowedPages = dbUser.allowedPages;
+      token.allowedPages = await resolveEffectiveAllowedPages(dbUser.role, dbUser.allowedPages, dbUser.teamLeaderId, dbUser.supervisorId);
       token.teamLeaderId = dbUser.teamLeaderId;
       token.supervisorId = dbUser.supervisorId;
       token.allowedPrincipals = dbUser.allowedPrincipals;

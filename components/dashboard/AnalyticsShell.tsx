@@ -13,7 +13,7 @@ import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
-import { canAccessFinancials, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -55,7 +55,7 @@ export function AnalyticsShell({
   const isAdmin = user?.role === "ADMIN";
   const pageAllowed = isFinancials
     ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
-    : isAdmin || !requiredPage || (user?.allowedPages ?? []).includes(requiredPage);
+    : isAdmin || !requiredPage || isBaselinePage(requiredPage) || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {
     if (initialDataset) {
