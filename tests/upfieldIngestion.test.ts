@@ -130,6 +130,18 @@ describe("validateUpfieldVisitUploadBatch", () => {
     expect(validateUpfieldVisitUploadBatch(visitBatch({ records: [inProgress] }))).toMatchObject({ ok: true });
   });
 
+  // Confirmed live: DataEdge dropped FSR from the Timestamp Report export
+  // entirely starting 2026-09-15 - fsr is null going forward, not always populated.
+  it("accepts a null fsr (source dropped that column) with the matching empty-prefix id", () => {
+    const noFsr = visitRecord({ fsr: null, distributor: null, sourceRecordId: "|Greenspoon  Limited|2026-08-26T11:20:47.000+03:00" });
+    expect(validateUpfieldVisitUploadBatch(visitBatch({ records: [noFsr] }))).toMatchObject({ ok: true });
+  });
+
+  it("rejects a null fsr whose sourceRecordId doesn't use the matching empty prefix", () => {
+    const badId = visitRecord({ fsr: null, sourceRecordId: "Adrian Omondi|Greenspoon  Limited|2026-08-26T11:20:47.000+03:00" });
+    expect(validateUpfieldVisitUploadBatch(visitBatch({ records: [badId] }))).toMatchObject({ ok: false });
+  });
+
   it("accepts a |N-suffixed sourceRecordId for a repeated visit key", () => {
     const second = visitRecord({ sourceRecordId: "Adrian Omondi|Greenspoon  Limited|2026-08-26T11:20:47.000+03:00|2" });
     const result = validateUpfieldVisitUploadBatch(visitBatch({ records: [visitRecord(), second], recordCount: 2 }));

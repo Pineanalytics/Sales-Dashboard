@@ -127,7 +127,7 @@ export const UPFIELD_VISITS_SOURCE = "upfield-visits";
 
 export interface UpfieldVisitUploadRecord {
   sourceRecordId: string;
-  fsr: string;
+  fsr: string | null;
   distributor: string | null;
   pop: string;
   startTime: string;
@@ -157,15 +157,22 @@ export type UpfieldVisitBatchValidation =
 function validateVisitRecord(value: unknown, index: number): string | null {
   if (!value || typeof value !== "object") return `records[${index}] must be an object.`;
   const row = value as Record<string, unknown>;
-  for (const field of ["sourceRecordId", "fsr", "pop", "startTime"] as const) {
+  for (const field of ["sourceRecordId", "pop", "startTime"] as const) {
     if (!nonEmptyString(row[field])) return `records[${index}].${field} must be a non-empty string.`;
   }
+  // fsr is nullable: the DataEdge Timestamp Report export dropped this
+  // column entirely starting 2026-09-15 (confirmed live, consistently since)
+  // - was previously a required non-empty string.
+  if (!nullableString(row.fsr)) return `records[${index}].fsr must be a string or null.`;
   if (Number.isNaN(new Date(row.startTime as string).getTime())) {
     return `records[${index}].startTime must be a valid ISO timestamp.`;
   }
-  const expectedId = `${row.fsr}|${row.pop}|${row.startTime}`;
+  // `?? ""` must match the client's identical substitution when fsr is null
+  // (src/timestampBatches.js) - otherwise `${null}` here would literally be
+  // the 4-char text "null", never matching the client-built id.
+  const expectedId = `${row.fsr ?? ""}|${row.pop}|${row.startTime}`;
   if (!isSourceRecordIdMatch(row.sourceRecordId as string, expectedId)) {
-    return `records[${index}].sourceRecordId must equal fsr|pop|startTime, optionally suffixed with |N (N >= 2) for a repeated visit key.`;
+    return `records[${index}].sourceRecordId must equal fsr|pop|startTime (fsr empty when absent), optionally suffixed with |N (N >= 2) for a repeated visit key.`;
   }
   if (row.endTime !== null && !nonEmptyString(row.endTime)) {
     return `records[${index}].endTime must be a string or null.`;
