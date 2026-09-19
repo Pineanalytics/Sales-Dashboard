@@ -1,0 +1,112 @@
+// Pure tree-assembly for the Team Leader -> Sales Supervisor -> Manager ->
+// Head of Sales -> Director org hierarchy. Every parent link in the schema
+// (TeamLeader.supervisorId, Supervisor.managerId, Manager.hodId,
+// Hod.directorId) is a plain string id "by convention", not a Prisma
+// relation, so this walks them manually rather than via an `include`.
+// Consumed by the admin/team-leaders page to render one consolidated tree
+// instead of six separate flat lists — see docs/plans (Roster consolidation).
+
+export interface HierarchyTeamLeader {
+  id: string;
+  name: string;
+  supervisorId: string | null;
+}
+export interface HierarchySupervisor {
+  id: string;
+  name: string;
+  managerId: string | null;
+}
+export interface HierarchyManager {
+  id: string;
+  name: string;
+  hodId: string | null;
+}
+export interface HierarchyHod {
+  id: string;
+  name: string;
+  directorId: string | null;
+}
+export interface HierarchyDirector {
+  id: string;
+  name: string;
+}
+
+export interface SupervisorNode extends HierarchySupervisor {
+  teamLeaders: HierarchyTeamLeader[];
+}
+export interface ManagerNode extends HierarchyManager {
+  supervisors: SupervisorNode[];
+}
+export interface HodNode extends HierarchyHod {
+  managers: ManagerNode[];
+}
+export interface DirectorNode extends HierarchyDirector {
+  hods: HodNode[];
+}
+
+export interface RosterHierarchy {
+  directors: DirectorNode[];
+  // Every tier below the top can be missing its parent (never assigned, or a
+  // dangling id from partial admin setup) — surfaced separately rather than
+  // silently dropped, mirroring this codebase's reject-deletes/don't-hide-gaps
+  // convention elsewhere (e.g. lib/repContribution.ts's unassignedRevenueReps).
+  unassignedHods: HodNode[];
+  unassignedManagers: ManagerNode[];
+  unassignedSupervisors: SupervisorNode[];
+  unassignedTeamLeaders: HierarchyTeamLeader[];
+}
+
+function groupByParent<T>(items: T[], parentId: (item: T) => string | null): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = parentId(item);
+    if (key === null) continue;
+    const list = map.get(key) ?? [];
+    list.push(item);
+    map.set(key, list);
+  }
+  return map;
+}
+
+export function buildRosterHierarchy(
+  teamLeaders: HierarchyTeamLeader[],
+  supervisors: HierarchySupervisor[],
+  managers: HierarchyManager[],
+  hods: HierarchyHod[],
+  directors: HierarchyDirector[]
+): RosterHierarchy {
+  const teamLeadersBySupervisor = groupByParent(teamLeaders, (tl) => tl.supervisorId);
+  const supervisorsByManager = groupByParent(supervisors, (s) => s.managerId);
+  const managersByHod = groupByParent(managers, (m) => m.hodId);
+  const hodsByDirector = groupByParent(hods, (h) => h.directorId);
+
+  const validSupervisorIds = new Set(supervisors.map((s) => s.id));
+  const validManagerIds = new Set(managers.map((m) => m.id));
+  const validHodIds = new Set(hods.map((h) => h.id));
+  const validDirectorIds = new Set(directors.map((d) => d.id));
+
+  const supervisorNode = (s: HierarchySupervisor): SupervisorNode => ({
+    ...s,
+    teamLeaders: teamLeadersBySupervisor.get(s.id) ?? [],
+  });
+  const managerNode = (m: HierarchyManager): ManagerNode => ({
+    ...m,
+    supervisors: (supervisorsByManager.get(m.id) ?? []).map(supervisorNode),
+  });
+  const hodNode = (h: HierarchyHod): HodNode => ({
+    ...h,
+    managers: (managersByHod.get(h.id) ?? []).map(managerNode),
+  });
+  const directorNode = (d: HierarchyDirector): DirectorNode => ({
+    ...d,
+    hods: (hodsByDirector.get(d.id) ?? []).map(hodNode),
+  });
+
+  return {
+    directors: directors.map(directorNode),
+    unassignedHods: hods.filter((h) => !h.directorId || !validDirectorIds.has(h.directorId)).map(hodNode),
+    unassignedManagers: managers.filter((m) => !m.hodId || !validHodIds.has(m.hodId)).map(managerNode),
+    unassignedSupervisors: supervisors.filter((s) => !s.managerId || !validManagerIds.has(s.managerId)).map(supervisorNode),
+    unassignedTeamLeaders: teamLeaders.filter((tl) => !tl.supervisorId || !validSupervisorIds.has(tl.supervisorId)),
+  };
+}
