@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { updateAssignmentAction, deactivateAssignmentAction, deleteAssignmentAction } from "./actions";
+import { updateAssignmentAction, deactivateAssignmentAction, deleteAssignmentAction, transferPrincipalAssignmentsAction } from "./actions";
 import { principalsForTeamLeader, assignmentsForTeamLeaderAndPrincipal, groupAssignmentsByEmployeeCode } from "@/lib/rosterCascade";
 import { RepDetailDrawer, type DrawerIdentity, type DrawerContributionRow } from "./RepDetailDrawer";
 
@@ -213,6 +213,32 @@ export function RosterAssignmentsCascade({
           {selectedTeamLeader?.supervisorId ? supervisorNameById.get(selectedTeamLeader.supervisorId) ?? "—" : <span className="text-accent-amber">no Supervisor</span>}
         </p>
       ) : null}
+      {teamLeaderId && principal && !searching && rows.some((a) => a.active) ? (
+        <form action={transferPrincipalAssignmentsAction} className="mx-6 mt-3 flex flex-wrap items-end gap-2 rounded-xl bg-background-elevated px-4 py-3">
+          <input type="hidden" name="fromTeamLeaderId" value={teamLeaderId} />
+          <input type="hidden" name="principal" value={principal} />
+          <div className="flex flex-col gap-1">
+            <label className="text-[13px] font-medium text-muted-strong">
+              Transfer {rows.filter((a) => a.active).length} active rep{rows.filter((a) => a.active).length === 1 ? "" : "s"} on {principal} to
+            </label>
+            <select name="toTeamLeaderId" required defaultValue="" className={inputClass}>
+              <option value="" disabled>
+                Choose Team Leader
+              </option>
+              {teamLeaders
+                .filter((tl) => tl.id !== teamLeaderId)
+                .map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+            Transfer
+          </button>
+        </form>
+      ) : null}
       {searching ? (
         <p className="px-6 pt-2 text-[13px] text-muted">
           Showing every assignment matching &quot;{search}&quot;, across every Team Leader and Principal.
@@ -349,6 +375,7 @@ export function RosterAssignmentsCascade({
           identity={identityByEmployeeCode.get(selectedEmployeeCode) ?? null}
           assignments={assignmentsByEmployeeCode.get(selectedEmployeeCode) ?? []}
           contributions={contributionsByEmployeeCode.get(selectedEmployeeCode) ?? []}
+          teamLeaders={teamLeaders}
           teamLeaderNameById={teamLeaderNameById}
           supervisorNameById={supervisorNameById}
           filterSuffix={filterSuffix}
