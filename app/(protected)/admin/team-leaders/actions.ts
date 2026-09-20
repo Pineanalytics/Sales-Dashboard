@@ -892,3 +892,142 @@ export async function deleteReliefAction(formData: FormData) {
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Relief assignment removed."));
 }
+
+/** Bulk book-transfer: moves every active rep a Team Leader has on one
+ *  Principal to a different Team Leader in one action — for a handover
+ *  between two specific Team Leaders, not a company-wide reassignment (a
+ *  Principal can legitimately have several Team Leaders sharing it at
+ *  once, e.g. one Principal split across 5 Team Leaders in Nairobi; this
+ *  only touches the source Team Leader's own rows on that Principal).
+ *  Preserves each row's own channel/contributionPct/salesRole/id — only
+ *  teamLeaderId changes, so history and audit trail stay attached to the
+ *  same assignment rather than a delete+recreate. A rep the destination
+ *  Team Leader already has on this Principal is left alone (not
+ *  overwritten) and reported back as skipped, so an admin resolves that
+ *  one by hand instead of silently losing either row. */
+export async function transferPrincipalAssignmentsAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const fromTeamLeaderId = str(formData, "fromTeamLeaderId");
+  const toTeamLeaderId = str(formData, "toTeamLeaderId");
+  const principal = str(formData, "principal");
+  const backSuffix = `&filterTeamLeader=${encodeURIComponent(fromTeamLeaderId)}&filterPrincipal=${encodeURIComponent(principal)}`;
+
+  if (!fromTeamLeaderId || !toTeamLeaderId || !principal) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a destination Team Leader.") + backSuffix);
+  }
+  if (fromTeamLeaderId === toTeamLeaderId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a different Team Leader to transfer to.") + backSuffix);
+  }
+  assertOwnsTeamLeader(scope, fromTeamLeaderId, backSuffix);
+  assertOwnsTeamLeader(scope, toTeamLeaderId, backSuffix);
+
+  const [fromTeamLeader, toTeamLeader] = await Promise.all([
+    prisma.teamLeader.findUnique({ where: { id: fromTeamLeaderId }, select: { name: true } }),
+    prisma.teamLeader.findUnique({ where: { id: toTeamLeaderId }, select: { name: true } }),
+  ]);
+  if (!fromTeamLeader || !toTeamLeader) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader not found.") + backSuffix);
+  }
+
+  const rows = await prisma.teamLeaderAssignment.findMany({ where: { teamLeaderId: fromTeamLeaderId, principal, active: true } });
+  if (rows.length === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${fromTeamLeader.name} has no active reps on ${principal} to transfer.`) + backSuffix);
+  }
+
+  const conflicting = await prisma.teamLeaderAssignment.findMany({
+    where: { teamLeaderId: toTeamLeaderId, principal, employeeCode: { in: rows.map((r) => r.employeeCode) } },
+    select: { employeeCode: true },
+  });
+  const blockedCodes = new Set(conflicting.map((r) => r.employeeCode));
+
+  let transferred = 0;
+  for (const row of rows) {
+    if (blockedCodes.has(row.employeeCode)) continue;
+    await prisma.teamLeaderAssignment.update({ where: { id: row.id }, data: { teamLeaderId: toTeamLeaderId } });
+    await prisma.teamLeaderAssignmentAuditLog.create({
+      data: {
+        userEmail: user.email!,
+        action: "UPDATE",
+        teamLeaderId: toTeamLeaderId,
+        principal,
+        employeeCode: row.employeeCode,
+        changes: { teamLeaderId: { old: fromTeamLeaderId, new: toTeamLeaderId } },
+      },
+    });
+    transferred += 1;
+  }
+  await recomputeDerived();
+
+  const skipped = rows.length - transferred;
+  const message =
+    skipped > 0
+      ? `Transferred ${transferred} rep(s) from ${fromTeamLeader.name} to ${toTeamLeader.name} on ${principal}. Skipped ${skipped} rep(s) already assigned to ${toTeamLeader.name} on this Principal — resolve those manually.`
+      : `Transferred ${transferred} rep(s) from ${fromTeamLeader.name} to ${toTeamLeader.name} on ${principal}.`;
+  redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}${backSuffix}`);
+}
+
+/** Central multi-add point for a rep who serves more than one Principal:
+ *  given a rep already on the roster, checks off any of their recognized
+ *  EmployeePrincipalContribution principals (the same source-of-truth
+ *  createAssignmentAction already validates a single addition against)
+ *  they don't yet have an active assignment for, and creates/reactivates
+ *  all of them under one chosen Team Leader in one submission — instead of
+ *  repeating the single "Assign a rep" form once per Principal. */
+export async function addRepPrincipalsAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const employeeCode = str(formData, "employeeCode");
+  const teamLeaderId = str(formData, "teamLeaderId");
+  const principals = formData.getAll("principals").map(String).filter(Boolean);
+
+  if (!employeeCode || !teamLeaderId || principals.length === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a Team Leader and at least one Principal."));
+  }
+  assertOwnsTeamLeader(scope, teamLeaderId);
+
+  const master = await prisma.employeeMaster.findUnique({
+    where: { employeeCode },
+    include: { contributions: { select: { principal: true } } },
+  });
+  if (!master) redirect("/admin/team-leaders?error=" + encodeURIComponent("Employee not found on the Employee Master roster."));
+  if (!master.active) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${master.pineName} is inactive in Employee Roster. Activate the rep there first.`));
+  }
+
+  const recognizedPrincipals = new Set(master.contributions.map((c) => c.principal));
+  const validPrincipals = principals.filter((p) => recognizedPrincipals.has(p));
+  if (validPrincipals.length === 0) {
+    redirect(
+      "/admin/team-leaders?error=" +
+        encodeURIComponent(`None of the selected Principals are recognized for ${master.pineName} in the Employee Roster Contribution sheet.`)
+    );
+  }
+
+  const salesRole = master.salesRole === "Primary Sales" ? "PRIMARY" : "SECONDARY";
+  let added = 0;
+  let reactivated = 0;
+  for (const principal of validPrincipals) {
+    const existing = await prisma.teamLeaderAssignment.findUnique({
+      where: { teamLeaderId_employeeCode_principal: { teamLeaderId, employeeCode, principal } },
+    });
+    if (existing) {
+      if (!existing.active) {
+        await prisma.teamLeaderAssignment.update({
+          where: { id: existing.id },
+          data: { active: true, employeeName: master.pineName, sapName: master.sapName },
+        });
+        await logAssignmentAudit(user.email!, "REACTIVATE", existing, { active: false }, { active: true });
+        reactivated += 1;
+      }
+      continue; // already active — nothing to do
+    }
+    await prisma.teamLeaderAssignment.create({
+      data: { teamLeaderId, employeeCode, employeeName: master.pineName, sapName: master.sapName, principal, active: true, salesRole },
+    });
+    added += 1;
+  }
+  await recomputeDerived();
+
+  const parts = [added > 0 ? `added ${added}` : null, reactivated > 0 ? `reactivated ${reactivated}` : null].filter(Boolean);
+  const message = parts.length > 0 ? `${master.pineName}: ${parts.join(", ")} Principal assignment(s).` : `${master.pineName} already has all selected Principals.`;
+  redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}&filterTeamLeader=${encodeURIComponent(teamLeaderId)}#assignments`);
+}

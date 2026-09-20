@@ -105,7 +105,19 @@ export default async function AdminTeamLeadersPage({
   const [employeeIdentities, repContributions] = await Promise.all([
     prisma.employeeMaster.findMany({
       where: { employeeCode: { in: drawerEmployeeCodes } },
-      select: { employeeCode: true, pineName: true, sapName: true, absolutePrincipal: true, salesRole: true, region: true, subRegion: true, active: true, teamLeaderId: true, supervisorId: true },
+      select: {
+        employeeCode: true,
+        pineName: true,
+        sapName: true,
+        absolutePrincipal: true,
+        salesRole: true,
+        region: true,
+        subRegion: true,
+        active: true,
+        teamLeaderId: true,
+        supervisorId: true,
+        contributions: { select: { principal: true } },
+      },
     }),
     prisma.repContribution.findMany({
       where: { employeeCode: { in: drawerEmployeeCodes } },
@@ -444,7 +456,7 @@ export default async function AdminTeamLeadersPage({
           teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId }))}
           supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
           knownPrincipals={knownPrincipals}
-          employeeIdentities={employeeIdentities}
+          employeeIdentities={employeeIdentities.map((e) => ({ ...e, contributionPrincipals: e.contributions.map((c) => c.principal) }))}
           repContributions={repContributions}
           initialTeamLeaderId={filterTeamLeader ?? ""}
           initialPrincipal={filterPrincipal ?? ""}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { addRepPrincipalsAction } from "./actions";
 
 export interface DrawerAssignmentRow {
   id: string;
@@ -21,6 +22,12 @@ export interface DrawerIdentity {
   active: boolean;
   teamLeaderId: string | null;
   supervisorId: string | null;
+  // Every Principal this rep is recognized to contribute to in the Employee
+  // Roster Contribution sheet — the same source-of-truth
+  // createAssignmentAction validates a single addition against. Used to
+  // scope the "add more Principals" multi-select below to Principals this
+  // rep is actually allowed to be added to, not the full universe.
+  contributionPrincipals: string[];
 }
 export interface DrawerContributionRow {
   principal: string;
@@ -49,6 +56,7 @@ export function RepDetailDrawer({
   identity,
   assignments,
   contributions,
+  teamLeaders,
   teamLeaderNameById,
   supervisorNameById,
   filterSuffix,
@@ -59,11 +67,14 @@ export function RepDetailDrawer({
   identity: DrawerIdentity | null;
   assignments: DrawerAssignmentRow[];
   contributions: DrawerContributionRow[];
+  teamLeaders: { id: string; name: string }[];
   teamLeaderNameById: Map<string, string>;
   supervisorNameById: Map<string, string>;
   filterSuffix: string;
   onClose: () => void;
 }) {
+  const assignedPrincipals = new Set(assignments.filter((a) => a.active).map((a) => a.principal));
+  const availablePrincipals = (identity?.contributionPrincipals ?? []).filter((p) => !assignedPrincipals.has(p));
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 md:p-8" onClick={onClose}>
       <div
@@ -164,6 +175,41 @@ export function RepDetailDrawer({
             </table>
           </div>
         </div>
+
+        {availablePrincipals.length > 0 ? (
+          <div className="mt-4 rounded-xl bg-background-elevated p-4">
+            <h3 className="text-sm font-semibold text-foreground">Add Principals</h3>
+            <p className="mt-1 text-[12px] text-muted">
+              Recognized for this rep in the Employee Roster Contribution sheet but not yet assigned. Pick a Team Leader and check as many as apply — one submission covers all of them.
+            </p>
+            <form action={addRepPrincipalsAction} className="mt-2 flex flex-col gap-3">
+              <input type="hidden" name="employeeCode" value={employeeCode} />
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {availablePrincipals.map((p) => (
+                  <label key={p} className="flex items-center gap-1.5 text-[13px] text-foreground">
+                    <input type="checkbox" name="principals" value={p} />
+                    {p}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-end gap-2">
+                <select name="teamLeaderId" required defaultValue={identity?.teamLeaderId ?? ""} className="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground">
+                  <option value="" disabled>
+                    Choose Team Leader
+                  </option>
+                  {teamLeaders.map((tl) => (
+                    <option key={tl.id} value={tl.id}>
+                      {tl.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                  Add selected
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-xl bg-background-elevated p-4">
           <h3 className="text-sm font-semibold text-foreground">Trailing-revenue contribution</h3>
