@@ -98,6 +98,21 @@ export default async function AdminTeamLeadersPage({
     assignmentsByTeamLeader.set(a.teamLeaderId, list);
   }
 
+  // Rep-detail drawer data: this session's own scope-filtered assignments
+  // already tell us every employeeCode that could be opened, so these two
+  // queries stay just as scoped as everything else on this page.
+  const drawerEmployeeCodes = Array.from(new Set(assignments.map((a) => a.employeeCode)));
+  const [employeeIdentities, repContributions] = await Promise.all([
+    prisma.employeeMaster.findMany({
+      where: { employeeCode: { in: drawerEmployeeCodes } },
+      select: { employeeCode: true, pineName: true, sapName: true, absolutePrincipal: true, salesRole: true, region: true, subRegion: true, active: true, teamLeaderId: true, supervisorId: true },
+    }),
+    prisma.repContribution.findMany({
+      where: { employeeCode: { in: drawerEmployeeCodes } },
+      select: { employeeCode: true, principal: true, teamLeaderId: true, quarterRevenue: true, sharePct: true },
+    }),
+  ]);
+
   // Targets context for whichever Team Leader x Principal is currently
   // selected in the Assignments cascade — only when both are set, and only
   // for a Team Leader within this session's own scope (teamLeaderNameById is
@@ -429,6 +444,8 @@ export default async function AdminTeamLeadersPage({
           teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId }))}
           supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
           knownPrincipals={knownPrincipals}
+          employeeIdentities={employeeIdentities}
+          repContributions={repContributions}
           initialTeamLeaderId={filterTeamLeader ?? ""}
           initialPrincipal={filterPrincipal ?? ""}
           initialEmployeeSearch={filterEmployee ?? ""}

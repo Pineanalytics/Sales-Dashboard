@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { updateAssignmentAction, deactivateAssignmentAction, deleteAssignmentAction } from "./actions";
-import { principalsForTeamLeader, assignmentsForTeamLeaderAndPrincipal } from "@/lib/rosterCascade";
+import { principalsForTeamLeader, assignmentsForTeamLeaderAndPrincipal, groupAssignmentsByEmployeeCode } from "@/lib/rosterCascade";
+import { RepDetailDrawer, type DrawerIdentity, type DrawerContributionRow } from "./RepDetailDrawer";
 
 export interface CascadeAssignmentRow {
   id: string;
@@ -26,6 +27,12 @@ export interface CascadeSupervisor {
   id: string;
   name: string;
 }
+export interface CascadeEmployeeIdentity extends DrawerIdentity {
+  employeeCode: string;
+}
+export interface CascadeContributionRow extends DrawerContributionRow {
+  employeeCode: string;
+}
 
 /** The admin/team-leaders "Assignments" table: a dynamic Team Leader ->
  *  Principal cascade (picking a Team Leader narrows the Principal options to
@@ -46,6 +53,8 @@ export function RosterAssignmentsCascade({
   teamLeaders,
   supervisors,
   knownPrincipals,
+  employeeIdentities,
+  repContributions,
   initialTeamLeaderId,
   initialPrincipal,
   initialEmployeeSearch,
@@ -57,6 +66,8 @@ export function RosterAssignmentsCascade({
   teamLeaders: CascadeTeamLeader[];
   supervisors: CascadeSupervisor[];
   knownPrincipals: string[];
+  employeeIdentities: CascadeEmployeeIdentity[];
+  repContributions: CascadeContributionRow[];
   initialTeamLeaderId: string;
   initialPrincipal: string;
   initialEmployeeSearch: string;
@@ -69,9 +80,21 @@ export function RosterAssignmentsCascade({
   const [teamLeaderId, setTeamLeaderId] = useState(initialTeamLeaderId);
   const [principal, setPrincipal] = useState(initialPrincipal);
   const [search, setSearch] = useState(initialEmployeeSearch);
+  const [selectedEmployeeCode, setSelectedEmployeeCode] = useState<string | null>(null);
 
   const teamLeaderNameById = useMemo(() => new Map(teamLeaders.map((tl) => [tl.id, tl.name])), [teamLeaders]);
   const supervisorNameById = useMemo(() => new Map(supervisors.map((s) => [s.id, s.name])), [supervisors]);
+  const assignmentsByEmployeeCode = useMemo(() => groupAssignmentsByEmployeeCode(assignments), [assignments]);
+  const identityByEmployeeCode = useMemo(() => new Map(employeeIdentities.map((i) => [i.employeeCode, i])), [employeeIdentities]);
+  const contributionsByEmployeeCode = useMemo(() => {
+    const map = new Map<string, CascadeContributionRow[]>();
+    for (const c of repContributions) {
+      const list = map.get(c.employeeCode) ?? [];
+      list.push(c);
+      map.set(c.employeeCode, list);
+    }
+    return map;
+  }, [repContributions]);
   const principalOptions = useMemo(
     () => (teamLeaderId ? principalsForTeamLeader(assignments, teamLeaderId) : knownPrincipals),
     [assignments, teamLeaderId, knownPrincipals]
@@ -259,7 +282,15 @@ export function RosterAssignmentsCascade({
                 <tr key={a.id} className={a.active ? undefined : "opacity-50"}>
                   <td className="px-6 py-3 border-b border-border/60">{teamLeaderNameById.get(a.teamLeaderId) ?? "—"}</td>
                   <td className="px-6 py-3 border-b border-border/60">
-                    {a.employeeName} <span className="text-muted">({a.employeeCode})</span>
+                    <button type="button" onClick={() => setSelectedEmployeeCode(a.employeeCode)} className="text-left font-medium text-primary-blue hover:underline">
+                      {a.employeeName}
+                    </button>{" "}
+                    <span className="text-muted">({a.employeeCode})</span>
+                    {(assignmentsByEmployeeCode.get(a.employeeCode)?.length ?? 0) > 1 ? (
+                      <span className="ml-1.5 rounded-full bg-accent-blue-soft px-2 py-0.5 text-[11px] font-medium text-primary-blue">
+                        {assignmentsByEmployeeCode.get(a.employeeCode)!.length}×
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-6 py-3 border-b border-border/60">{a.principal}</td>
                   <td className="px-6 py-3 border-b border-border/60">{a.channel ?? "—"}</td>
@@ -311,6 +342,19 @@ export function RosterAssignmentsCascade({
           </tbody>
         </table>
       </div>
+      {selectedEmployeeCode ? (
+        <RepDetailDrawer
+          employeeCode={selectedEmployeeCode}
+          employeeName={assignmentsByEmployeeCode.get(selectedEmployeeCode)?.[0]?.employeeName ?? selectedEmployeeCode}
+          identity={identityByEmployeeCode.get(selectedEmployeeCode) ?? null}
+          assignments={assignmentsByEmployeeCode.get(selectedEmployeeCode) ?? []}
+          contributions={contributionsByEmployeeCode.get(selectedEmployeeCode) ?? []}
+          teamLeaderNameById={teamLeaderNameById}
+          supervisorNameById={supervisorNameById}
+          filterSuffix={filterSuffix}
+          onClose={() => setSelectedEmployeeCode(null)}
+        />
+      ) : null}
     </div>
   );
 }
