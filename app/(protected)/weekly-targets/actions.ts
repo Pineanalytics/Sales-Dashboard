@@ -31,6 +31,10 @@ export async function saveWeeklyTargetsAction(formData: FormData) {
   const teamLeaderId = String(formData.get("teamLeaderId") || "");
   const year = String(formData.get("year") || "");
   const month = String(formData.get("month") || "");
+  // Lets a caller other than the full /weekly-targets grid (e.g. the roster
+  // page's scoped panel) send the save back to its own view instead of
+  // always landing on /weekly-targets.
+  const returnTo = String(formData.get("returnTo") || "");
   assertOwnsTeamLeader(scope, teamLeaderId);
 
   // Cells are named "cell__<weeklyTargetId>" so we don't have to re-derive the
@@ -78,6 +82,10 @@ export async function saveWeeklyTargetsAction(formData: FormData) {
     await recomputeDailyTargets();
   }
 
+  const message = encodeURIComponent(changedCount > 0 ? `Saved ${changedCount} change(s).` : "No changes to save.");
+  if (returnTo) {
+    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${message}`);
+  }
   const suffix = `&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&teamLeader=${encodeURIComponent(teamLeaderId)}`;
-  redirect(`/weekly-targets?success=${encodeURIComponent(changedCount > 0 ? `Saved ${changedCount} change(s).` : "No changes to save.")}${suffix}`);
+  redirect(`/weekly-targets?success=${message}${suffix}`);
 }

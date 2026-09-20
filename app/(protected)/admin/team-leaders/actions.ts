@@ -217,6 +217,40 @@ export async function updateSupervisorVisiblePagesAction(formData: FormData) {
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Visible pages updated."));
 }
 
+/** Admin-only grant letting this Team Leader edit the shared, principal-level
+ *  Monthly Target (normally ADMIN-only — see targets-overview/actions.ts's
+ *  updateTargetValueAction). Off by default; toggled per person as needed,
+ *  not as a role-wide policy change. */
+export async function updateTeamLeaderCanEditTargetsAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "teamLeaderId");
+  const canEditTargets = formData.get("canEditTargets") === "on";
+
+  try {
+    await prisma.teamLeader.update({ where: { id }, data: { canEditTargets } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update Monthly Target permission."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Monthly Target permission updated."));
+}
+
+/** Same grant as updateTeamLeaderCanEditTargetsAction, one tier up
+ *  (Supervisor.canEditTargets). */
+export async function updateSupervisorCanEditTargetsAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const canEditTargets = formData.get("canEditTargets") === "on";
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { canEditTargets } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update Monthly Target permission."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Monthly Target permission updated."));
+}
+
 /** Sets which Manager a Supervisor reports to — Supervisor.managerId, same role
  *  one tier up as TeamLeader.supervisorId above. */
 export async function updateSupervisorManagerAction(formData: FormData) {

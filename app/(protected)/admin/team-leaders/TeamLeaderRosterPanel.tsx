@@ -8,6 +8,7 @@ import {
   syncTeamLeaderVisibilityAction,
   updateTeamLeaderSupervisorAction,
   updateTeamLeaderVisiblePagesAction,
+  updateTeamLeaderCanEditTargetsAction,
 } from "./actions";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 
@@ -19,6 +20,7 @@ export interface TeamLeaderRow {
   activeAssignmentCount: number;
   inactiveAssignmentCount: number;
   visiblePages: string[];
+  canEditTargets: boolean;
 }
 export interface SupervisorOption {
   id: string;
@@ -172,6 +174,19 @@ export function TeamLeaderRosterPanel({
                           className="self-start rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
                         >
                           Save visible pages
+                        </button>
+                      </form>
+                      <form action={updateTeamLeaderCanEditTargetsAction} className="flex items-center gap-2 border-t border-border/60 pt-3">
+                        <input type="hidden" name="teamLeaderId" value={tl.id} />
+                        <label className="flex items-center gap-1.5 text-[13px] text-foreground">
+                          <input type="checkbox" name="canEditTargets" defaultChecked={tl.canEditTargets} />
+                          Can edit Monthly Targets
+                        </label>
+                        <button
+                          type="submit"
+                          className="rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
+                        >
+                          Save
                         </button>
                       </form>
                       <div className="flex gap-2 border-t border-border/60 pt-3">

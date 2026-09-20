@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db";
 import { getKnownReps, getKnownPrincipals } from "@/lib/adminReference";
 import { validateContributionTotals } from "@/lib/repContribution";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { canEditMonthlyTarget } from "@/lib/targetPermission";
+import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { ensureWeeklyTargetGrid, getWeeksInMonth } from "@/lib/weeklyTargets";
 import {
   createAssignmentAction,
   uploadRosterCsvAction,
@@ -14,6 +17,7 @@ import {
 } from "./actions";
 import { RosterAssignmentsCascade } from "./RosterAssignmentsCascade";
 import { RosterHierarchyTree } from "./RosterHierarchyTree";
+import { RosterTargetsPanel } from "./RosterTargetsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +96,41 @@ export default async function AdminTeamLeadersPage({
     const list = assignmentsByTeamLeader.get(a.teamLeaderId) ?? [];
     list.push(a);
     assignmentsByTeamLeader.set(a.teamLeaderId, list);
+  }
+
+  // Targets context for whichever Team Leader x Principal is currently
+  // selected in the Assignments cascade — only when both are set, and only
+  // for a Team Leader within this session's own scope (teamLeaderNameById is
+  // already scope-filtered above, same guarantee the rest of this page relies on).
+  let targetsPanelData = null;
+  if (filterTeamLeader && filterPrincipal && teamLeaderNameById.has(filterTeamLeader)) {
+    const today = new Date();
+    const year = String(today.getUTCFullYear());
+    const month = CANONICAL_MONTHS[today.getUTCMonth()];
+    await ensureWeeklyTargetGrid([{ teamLeaderId: filterTeamLeader, principal: filterPrincipal }]);
+    const weeks = getWeeksInMonth(Number(year), CANONICAL_MONTHS.indexOf(month));
+    const weekStartDates = weeks.map((w) => w.weekStartDate);
+    const [monthlyTarget, sharedAssignments, weeklyRows, canEdit] = await Promise.all([
+      prisma.target.findUnique({ where: { year_month_principal: { year, month, principal: filterPrincipal } } }),
+      prisma.teamLeaderAssignment.findMany({ where: { principal: filterPrincipal, active: true }, distinct: ["teamLeaderId"], select: { teamLeaderId: true } }),
+      prisma.weeklyTarget.findMany({ where: { teamLeaderId: filterTeamLeader, principal: filterPrincipal, weekStartDate: { in: weekStartDates } } }),
+      canEditMonthlyTarget(session.user),
+    ]);
+    const weeklyRowByWeekStart = new Map(weeklyRows.map((r) => [r.weekStartDate.getTime(), r]));
+    targetsPanelData = {
+      teamLeaderId: filterTeamLeader,
+      teamLeaderName: teamLeaderNameById.get(filterTeamLeader) ?? filterTeamLeader,
+      principal: filterPrincipal,
+      year,
+      month,
+      monthlyTarget: monthlyTarget ? { valueTarget: monthlyTarget.valueTarget, volumeTarget: monthlyTarget.volumeTarget } : null,
+      sharedWithCount: sharedAssignments.length,
+      canEditMonthlyTarget: canEdit,
+      weeklyRows: weeks.map((w) => {
+        const row = weeklyRowByWeekStart.get(w.weekStartDate.getTime());
+        return { weekLabel: w.weekLabel, id: row?.id ?? null, targetValue: row?.targetValue ?? 0 };
+      }),
+    };
   }
 
   return (
@@ -175,8 +214,9 @@ export default async function AdminTeamLeadersPage({
               activeAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => assignment.active).length,
               inactiveAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => !assignment.active).length,
               visiblePages: tl.visiblePages,
+              canEditTargets: tl.canEditTargets,
             }))}
-            supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, managerId: s.managerId, visiblePages: s.visiblePages }))}
+            supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, managerId: s.managerId, visiblePages: s.visiblePages, canEditTargets: s.canEditTargets }))}
             managers={managers.map((m) => ({ id: m.id, name: m.name, hodId: m.hodId }))}
             hods={hods.map((h) => ({ id: h.id, name: h.name, directorId: h.directorId }))}
             directors={directors.map((d) => ({ id: d.id, name: d.name }))}
@@ -371,6 +411,8 @@ export default async function AdminTeamLeadersPage({
             ))}
           </datalist>
         </div>
+
+        {targetsPanelData ? <RosterTargetsPanel data={targetsPanelData} inputClass={inputClass} /> : null}
 
         <RosterAssignmentsCascade
           assignments={assignments.map((a) => ({
