@@ -143,6 +143,12 @@ model TeamLeader {
   // before. Lets the roster itself govern dashboard visibility for exceptions
   // without having to separately edit the User record.
   visiblePages String[] @default([])
+  // Admin-assignable grant letting this Team Leader edit the shared,
+  // principal-level Monthly Target (normally ADMIN-only — see
+  // updateTargetValueAction's own history of that being reverted once for
+  // every Team Leader). Off by default; an admin turns it on per person as
+  // needed, not as a role-wide policy change.
+  canEditTargets Boolean @default(false)
 
   coveringReliefs     TeamLeaderRelief[]   @relation("CoveringReliefs")
   coveredReliefs      TeamLeaderRelief[]   @relation("CoveredReliefs")
@@ -199,6 +205,8 @@ model Supervisor {
   createdAt    DateTime @default(now())
   // Same override mechanism as TeamLeader.visiblePages, one tier up.
   visiblePages String[] @default([])
+  // Same admin-assignable Monthly Target edit grant as TeamLeader.canEditTargets.
+  canEditTargets Boolean @default(false)
 }
 
 // One row per Manager — a tier above Supervisor (e.g. Angela Sitati oversees

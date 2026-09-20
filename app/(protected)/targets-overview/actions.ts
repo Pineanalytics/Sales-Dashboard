@@ -7,6 +7,7 @@ import { invalidateDatasetCache } from "@/lib/datasetStore";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
+import { canEditMonthlyTarget } from "@/lib/targetPermission";
 import type { Target, TeamLeaderAssignment } from "@prisma/client";
 
 async function requireViewer() {
@@ -99,25 +100,29 @@ async function logAssignmentAudit(
 
 /** Edits the shared, principal-level Monthly Target (Value/Volume/Coverage/
  *  Productivity) — the official company commitment for that principal.
- *  Admin-only: a Team Leader's own amend rights live at the rep level
- *  (updateAssignmentMetadataAction's contributionPct) and the Weekly Target
- *  level (app/(protected)/weekly-targets — a Team Leader's weekly
- *  projections must sum toward this same Monthly figure, but never edit it
- *  directly). Reverses an earlier version of this action that let any Team
- *  Leader sharing a principal edit the Monthly figure directly — per direct
- *  correction, that's now reserved for Admin. */
+ *  ADMIN-only by default: a Team Leader's own amend rights normally live at
+ *  the rep level (updateAssignmentMetadataAction's contributionPct) and the
+ *  Weekly Target level (app/(protected)/weekly-targets — a Team Leader's
+ *  weekly projections must sum toward this same Monthly figure, but never
+ *  edit it directly). An earlier version of this action let any Team Leader
+ *  sharing a principal edit the Monthly figure directly — per direct
+ *  correction, that was reserved for Admin. canEditMonthlyTarget() reopens
+ *  this per-person, admin-assigned basis (TeamLeader/Supervisor
+ *  .canEditTargets) rather than reverting to that blanket per-role access. */
 export async function updateTargetValueAction(formData: FormData) {
   const user = await requireViewer();
-  const suffix = filterSuffix(formData);
-  if (user.role !== "ADMIN") {
-    redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("Only an admin can edit the official Monthly Target.") + suffix);
+  const returnTo = str(formData, "returnTo");
+  const suffix = returnTo ? "" : filterSuffix(formData);
+  const base = returnTo || REDIRECT_BASE;
+  if (!(await canEditMonthlyTarget(user))) {
+    redirect(`${base}?error=` + encodeURIComponent("You don't have permission to edit the official Monthly Target.") + suffix);
   }
   const year = str(formData, "year");
   const month = str(formData, "month");
   const principal = str(formData, "principal");
 
   if (!year || !month || !principal) {
-    redirect(`${REDIRECT_BASE}?error=` + encodeURIComponent("Missing year/month/principal.") + suffix);
+    redirect(`${base}?error=` + encodeURIComponent("Missing year/month/principal.") + suffix);
   }
 
   const values = {
@@ -145,7 +150,7 @@ export async function updateTargetValueAction(formData: FormData) {
   );
   invalidateDatasetCache();
 
-  redirect(`${REDIRECT_BASE}?success=` + encodeURIComponent(`Updated ${principal} — ${month} ${year}.`) + suffix);
+  redirect(`${base}?success=` + encodeURIComponent(`Updated ${principal} — ${month} ${year}.`) + suffix);
 }
 
 /** Edits one rep's own roster metadata (channel, contribution %, region, sub

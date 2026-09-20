@@ -8,6 +8,7 @@ import {
   deleteSupervisorAction,
   updateSupervisorManagerAction,
   updateSupervisorVisiblePagesAction,
+  updateSupervisorCanEditTargetsAction,
   updateManagerHodAction,
   createHodAction,
   renameHodAction,
@@ -37,7 +38,7 @@ import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 // override) — these aliases thread that concrete shape through every
 // generic *Node type below instead of falling back to the bare defaults,
 // which would type it away by the time it reaches SupervisorNodeView.
-type TreeSupervisor = HierarchySupervisor & { visiblePages: string[] };
+type TreeSupervisor = HierarchySupervisor & { visiblePages: string[]; canEditTargets: boolean };
 type TreeSupervisorNode = SupervisorNode<HierarchyTeamLeader, TreeSupervisor>;
 type TreeManagerNode = ManagerNode<HierarchyTeamLeader, TreeSupervisor>;
 type TreeHodNode = HodNode<HierarchyTeamLeader, TreeSupervisor>;
@@ -565,6 +566,16 @@ function SupervisorNodeView({
             </button>
           </form>
         </details>
+        <form action={updateSupervisorCanEditTargetsAction} className="flex items-center gap-2">
+          <input type="hidden" name="supervisorId" value={supervisor.id} />
+          <label className="flex items-center gap-1.5 text-[13px] text-foreground">
+            <input type="checkbox" name="canEditTargets" defaultChecked={supervisor.canEditTargets} />
+            Can edit Monthly Targets
+          </label>
+          <button type="submit" className="rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+            Save
+          </button>
+        </form>
         <TeamLeaderRosterPanel
           teamLeaders={teamLeaderRowsFor(supervisor.teamLeaders)}
           supervisors={supervisorOptions}
