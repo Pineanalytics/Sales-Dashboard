@@ -96,11 +96,19 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
   }
 
   const assignmentKey = (principal: string, employeeCode: string) => `${principal}|${employeeCode}`;
-  const teamLeaderByAssignment = new Map<string, string>();
+  // Every Team Leader a rep is actively PRIMARY-assigned to for a principal,
+  // not just the first one encountered — a rep can genuinely be assigned
+  // under more than one Team Leader for the same principal (same real-world
+  // case DailyTarget's own unique key already accounts for), and each must
+  // get its own correctly-labeled RepContribution row below rather than
+  // being collapsed into one arbitrary match.
+  const teamLeaderIdsByAssignment = new Map<string, Set<string>>();
   const repsByPrincipal = new Map<string, Map<string, { employeeName: string; revenue: number }>>();
   for (const a of assignments) {
     const key = assignmentKey(a.principal, a.employeeCode);
-    if (!teamLeaderByAssignment.has(key)) teamLeaderByAssignment.set(key, a.teamLeaderId);
+    const teamLeaderIds = teamLeaderIdsByAssignment.get(key) ?? new Set<string>();
+    teamLeaderIds.add(a.teamLeaderId);
+    teamLeaderIdsByAssignment.set(key, teamLeaderIds);
     const reps = repsByPrincipal.get(a.principal) ?? new Map();
     if (!reps.has(a.employeeCode)) reps.set(a.employeeCode, { employeeName: a.employeeName, revenue: 0 });
     repsByPrincipal.set(a.principal, reps);
@@ -123,14 +131,22 @@ export async function recomputeRepContribution(): Promise<RepContributionResult>
     const revenueByRep = new Map(Array.from(reps, ([employeeCode, rep]) => [employeeCode, rep.revenue]));
     const shares = computeSharePcts(revenueByRep);
     for (const [employeeCode, rep] of reps) {
-      toCreate.push({
-        principal,
-        employeeCode,
-        employeeName: rep.employeeName,
-        teamLeaderId: teamLeaderByAssignment.get(assignmentKey(principal, employeeCode)) ?? null,
-        quarterRevenue: rep.revenue,
-        sharePct: shares.get(employeeCode)!,
-      });
+      // One row per Team Leader relationship — revenue/share are computed at
+      // the (principal, employeeCode) grain (the underlying SAP revenue has
+      // no Team-Leader dimension to split further), so every row for a
+      // multi-Team-Leader rep carries the same figures, just correctly
+      // attributed to each Team Leader that actually rosters them.
+      const teamLeaderIds = teamLeaderIdsByAssignment.get(assignmentKey(principal, employeeCode)) ?? new Set<string>();
+      for (const teamLeaderId of teamLeaderIds) {
+        toCreate.push({
+          principal,
+          employeeCode,
+          employeeName: rep.employeeName,
+          teamLeaderId,
+          quarterRevenue: rep.revenue,
+          sharePct: shares.get(employeeCode)!,
+        });
+      }
     }
   }
 

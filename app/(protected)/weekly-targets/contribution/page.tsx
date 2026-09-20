@@ -24,7 +24,11 @@ export default async function ContributionByRepPage() {
     prisma.teamLeaderAssignment.findMany(),
   ]);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
-  const assignmentByPrincipalRep = new Map(assignments.map((a) => [`${a.principal}|${a.employeeCode}`, a]));
+  // Keyed by teamLeaderId too, not just principal|employeeCode — a rep can be
+  // actively assigned to the same principal under more than one Team Leader,
+  // and each now gets its own RepContribution row (see lib/repContribution.ts),
+  // so this join must not collapse them back into one arbitrary match.
+  const assignmentByPrincipalRep = new Map(assignments.map((a) => [`${a.principal}|${a.employeeCode}|${a.teamLeaderId}`, a]));
   const unassigned = isAdmin ? await getUnassignedRevenueReps() : [];
   const noPrimaryReps = isAdmin ? await getWeeklyTargetsWithNoPrimaryReps() : [];
 
@@ -114,7 +118,7 @@ export default async function ContributionByRepPage() {
                   </thead>
                   <tbody>
                     {reps.map((r) => {
-                      const assignment = assignmentByPrincipalRep.get(`${r.principal}|${r.employeeCode}`);
+                      const assignment = assignmentByPrincipalRep.get(`${r.principal}|${r.employeeCode}|${r.teamLeaderId}`);
                       return (
                         <tr key={r.id}>
                           <td className="px-6 py-3 border-b border-border/60">

@@ -1628,12 +1628,24 @@ model RepContribution {
   principal      String
   employeeCode   String
   employeeName   String
+  // Part of the key, not just principal/employeeCode — a rep can genuinely be
+  // an active PRIMARY assignment under more than one Team Leader for the same
+  // principal (DailyTarget's own unique key already accounts for this, with
+  // a confirmed production collision once the updated Roster introduced
+  // multiple Team Leaders per principal). Previously excluded from the
+  // unique key, which silently collapsed a multi-Team-Leader rep into one
+  // row labeled with whichever Team Leader recomputeRepContribution happened
+  // to process first. Always non-null in practice (a row is only ever
+  // created for a rep that came from a real TeamLeaderAssignment row) but
+  // kept nullable at the DB level deliberately — only the unique index was
+  // reviewed and manually migrated in production; a NOT NULL column change
+  // was never part of that reviewed step.
   teamLeaderId   String?
   quarterRevenue Float
   sharePct       Float
   computedAt     DateTime @default(now())
 
-  @@unique([principal, employeeCode])
+  @@unique([principal, employeeCode, teamLeaderId])
   @@index([principal])
 }
 
