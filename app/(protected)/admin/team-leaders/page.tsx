@@ -9,9 +9,6 @@ import {
   createTeamLeaderAction,
   updateSupervisorManagerAction,
   createAssignmentAction,
-  updateAssignmentAction,
-  deactivateAssignmentAction,
-  deleteAssignmentAction,
   uploadRosterCsvAction,
   createReliefAction,
   endReliefAction,
@@ -30,6 +27,7 @@ import {
   updateSupervisorVisiblePagesAction,
 } from "./actions";
 import { TeamLeaderRosterPanel } from "./TeamLeaderRosterPanel";
+import { RosterAssignmentsCascade } from "./RosterAssignmentsCascade";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +52,6 @@ export default async function AdminTeamLeadersPage({
     filterTeamLeader?: string;
     filterEmployee?: string;
     filterPrincipal?: string;
-    filterSupervisor?: string;
-    filterManager?: string;
   }>;
 }) {
   const session = await auth();
@@ -78,8 +74,6 @@ export default async function AdminTeamLeadersPage({
     filterTeamLeader,
     filterEmployee,
     filterPrincipal,
-    filterSupervisor,
-    filterManager,
   } = await searchParams;
 
   const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, hods, directors, reliefs] = await Promise.all([
@@ -109,66 +103,15 @@ export default async function AdminTeamLeadersPage({
   const renamingSupervisor = renameSupervisor ? supervisors.find((s) => s.id === renameSupervisor) : undefined;
   const renamingHod = renameHod ? hods.find((h) => h.id === renameHod) : undefined;
   const renamingDirector = renameDirector ? directors.find((d) => d.id === renameDirector) : undefined;
-  const editing = edit ? assignments.find((a) => a.id === edit) : undefined;
   const contributionWarnings = validateContributionTotals(assignments);
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
-  const teamLeaderById = new Map(teamLeaders.map((tl) => [tl.id, tl]));
-  const supervisorById = new Map(supervisors.map((supervisor) => [supervisor.id, supervisor]));
-  const managerById = new Map(managers.map((manager) => [manager.id, manager]));
-  const supervisorIdForAssignment = (assignment: (typeof assignments)[number]) =>
-    assignment.supervisorId ?? teamLeaderById.get(assignment.teamLeaderId)?.supervisorId ?? "";
-  const managerIdForAssignment = (assignment: (typeof assignments)[number]) => {
-    const supervisorId = supervisorIdForAssignment(assignment);
-    return assignment.managerId ?? supervisorById.get(supervisorId)?.managerId ?? "";
-  };
-  const availableSupervisorIds = new Set(assignments.map(supervisorIdForAssignment).filter(Boolean));
-  const availableManagerIds = new Set(assignments.map(managerIdForAssignment).filter(Boolean));
-  const visibleSupervisors = supervisors.filter((supervisor) => availableSupervisorIds.has(supervisor.id));
-  const visibleManagers = managers.filter((manager) => availableManagerIds.has(manager.id));
   const assignmentsByTeamLeader = new Map<string, typeof assignments>();
   for (const a of assignments) {
     const list = assignmentsByTeamLeader.get(a.teamLeaderId) ?? [];
     list.push(a);
     assignmentsByTeamLeader.set(a.teamLeaderId, list);
   }
-
-  // Narrows the Assignments table to one Team Leader's roster and/or one Employee's spread
-  // across every Principal/Team Leader they're on — the same query-param-driven pattern the
-  // page already uses for edit/rename, just filtering what's already fetched.
-  const employeeNeedle = filterEmployee?.trim().toLowerCase();
-  const selectedPrincipal = filterPrincipal?.trim() ?? "";
-  const selectedSupervisor = filterSupervisor?.trim() ?? "";
-  const selectedManager = filterManager?.trim() ?? "";
-  const visibleAssignments = assignments.filter((a) => {
-    if (filterTeamLeader && a.teamLeaderId !== filterTeamLeader) return false;
-    if (selectedPrincipal && a.principal !== selectedPrincipal) return false;
-    if (selectedSupervisor && supervisorIdForAssignment(a) !== selectedSupervisor) return false;
-    if (selectedManager && managerIdForAssignment(a) !== selectedManager) return false;
-    if (employeeNeedle && !a.employeeCode.toLowerCase().includes(employeeNeedle) && !a.employeeName.toLowerCase().includes(employeeNeedle))
-      return false;
-    return true;
-  });
-  const isFiltered = Boolean(filterTeamLeader || selectedPrincipal || selectedSupervisor || selectedManager || employeeNeedle);
-  const filterQuery = new URLSearchParams(
-    Object.entries({
-      filterTeamLeader: filterTeamLeader ?? "",
-      filterPrincipal: selectedPrincipal,
-      filterSupervisor: selectedSupervisor,
-      filterManager: selectedManager,
-      filterEmployee: filterEmployee ?? "",
-    }).filter(([, value]) => Boolean(value))
-  ).toString();
-  const filterSuffix = filterQuery ? `&${filterQuery}` : "";
-  const FilterFields = () => (
-    <>
-      {filterTeamLeader ? <input type="hidden" name="filterTeamLeader" value={filterTeamLeader} /> : null}
-      {selectedPrincipal ? <input type="hidden" name="filterPrincipal" value={selectedPrincipal} /> : null}
-      {selectedSupervisor ? <input type="hidden" name="filterSupervisor" value={selectedSupervisor} /> : null}
-      {selectedManager ? <input type="hidden" name="filterManager" value={selectedManager} /> : null}
-      {filterEmployee ? <input type="hidden" name="filterEmployee" value={filterEmployee} /> : null}
-    </>
-  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -710,183 +653,28 @@ export default async function AdminTeamLeadersPage({
           </datalist>
         </div>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-lg font-semibold text-primary-blue">
-              Assignments ({visibleAssignments.length}
-              {isFiltered ? ` of ${assignments.length} total` : ""})
-            </h2>
-            <form method="get" className="flex flex-wrap items-center gap-2">
-              <select name="filterTeamLeader" defaultValue={filterTeamLeader ?? ""} className={inputClass}>
-                <option value="">All Team Leaders</option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
-              </select>
-              <select name="filterPrincipal" defaultValue={selectedPrincipal} className={inputClass}>
-                <option value="">All Principals</option>
-                {knownPrincipals.map((principal) => (
-                  <option key={principal} value={principal}>
-                    {principal}
-                  </option>
-                ))}
-              </select>
-              <select name="filterSupervisor" defaultValue={selectedSupervisor} className={inputClass}>
-                <option value="">All Supervisors</option>
-                {visibleSupervisors.map((supervisor) => (
-                  <option key={supervisor.id} value={supervisor.id}>
-                    {supervisor.name}
-                  </option>
-                ))}
-              </select>
-              <select name="filterManager" defaultValue={selectedManager} className={inputClass}>
-                <option value="">All Managers</option>
-                {visibleManagers.map((manager) => (
-                  <option key={manager.id} value={manager.id}>
-                    {manager.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                name="filterEmployee"
-                defaultValue={filterEmployee ?? ""}
-                list="known-reps-codes"
-                placeholder="Search by employee code or name"
-                className={inputClass}
-              />
-              <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
-                Filter
-              </button>
-              {isFiltered ? (
-                <Link href="/admin/team-leaders" className="rounded-full px-3 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
-                  Clear filter
-                </Link>
-              ) : null}
-            </form>
-          </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-6 py-3 text-left font-medium">Team Leader</th>
-                  <th className="px-6 py-3 text-left font-medium">Rep</th>
-                  <th className="px-6 py-3 text-left font-medium">Principal</th>
-                  <th className="px-6 py-3 text-left font-medium">Channel</th>
-                  <th className="px-6 py-3 text-right font-medium">Contribution %</th>
-                  <th className="px-6 py-3 text-left font-medium">Sales role</th>
-                  <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleAssignments.map((a) =>
-                  editing?.id === a.id ? (
-                    <tr key={a.id}>
-                      <td className="px-6 py-3 border-b border-border/60" colSpan={8}>
-                        <form action={updateAssignmentAction} className="flex flex-wrap items-end gap-3">
-                          <input type="hidden" name="assignmentId" value={a.id} />
-                          <FilterFields />
-                          <span className="text-sm font-medium text-foreground">
-                            {a.employeeName} ({a.employeeCode}) — {a.principal}
-                          </span>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Channel</label>
-                            <input name="channel" defaultValue={a.channel ?? ""} placeholder="KA" className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Contribution %</label>
-                            <input
-                              name="contributionPct"
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="0.01"
-                              defaultValue={a.contributionPct != null ? (a.contributionPct * 100).toFixed(2) : ""}
-                              className={inputClass}
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Sales role</label>
-                            <select name="salesRole" defaultValue={a.salesRole} className={inputClass}>
-                              <option value="PRIMARY">Primary</option>
-                              <option value="SECONDARY">Secondary</option>
-                            </select>
-                          </div>
-                          <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
-                            Save
-                          </button>
-                          <Link
-                            href={`/admin/team-leaders?${filterQuery}`}
-                            className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated"
-                          >
-                            Cancel
-                          </Link>
-                        </form>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={a.id} className={a.active ? undefined : "opacity-50"}>
-                      <td className="px-6 py-3 border-b border-border/60">{teamLeaderNameById.get(a.teamLeaderId) ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {a.employeeName} <span className="text-muted">({a.employeeCode})</span>
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">{a.principal}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{a.channel ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">
-                        {a.contributionPct != null ? `${(a.contributionPct * 100).toFixed(1)}%` : <span className="text-muted">not declared</span>}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">{a.salesRole === "PRIMARY" ? "Primary" : "Secondary"}</td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {a.active ? (
-                          <span className="text-accent-green">Active</span>
-                        ) : (
-                          <span className="text-accent-red">Inactive</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
-                        <Link
-                          href={`/admin/team-leaders?edit=${a.id}${filterSuffix}`}
-                          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
-                        >
-                          Edit
-                        </Link>
-                        <form action={deactivateAssignmentAction} className="inline">
-                          <input type="hidden" name="assignmentId" value={a.id} />
-                          <FilterFields />
-                          <button
-                            type="submit"
-                            className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft transition-colors duration-300"
-                          >
-                            {a.active ? "Deactivate" : "Reactivate"}
-                          </button>
-                        </form>
-                        <form action={deleteAssignmentAction} className="inline">
-                          <input type="hidden" name="assignmentId" value={a.id} />
-                          <FilterFields />
-                          <button
-                            type="submit"
-                            className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
-                          >
-                            Delete
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  )
-                )}
-                {visibleAssignments.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-muted">
-                      {isFiltered ? "No assignments match this filter." : "No assignments yet."}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <RosterAssignmentsCascade
+          assignments={assignments.map((a) => ({
+            id: a.id,
+            teamLeaderId: a.teamLeaderId,
+            employeeCode: a.employeeCode,
+            employeeName: a.employeeName,
+            principal: a.principal,
+            channel: a.channel,
+            contributionPct: a.contributionPct,
+            salesRole: a.salesRole,
+            active: a.active,
+          }))}
+          teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId }))}
+          supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
+          knownPrincipals={knownPrincipals}
+          initialTeamLeaderId={filterTeamLeader ?? ""}
+          initialPrincipal={filterPrincipal ?? ""}
+          initialEmployeeSearch={filterEmployee ?? ""}
+          editingId={edit}
+          inputClass={inputClass}
+          labelClass={labelClass}
+        />
       </div>
     </div>
   );
