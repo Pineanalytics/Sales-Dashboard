@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
+import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
 import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 import { isPageKey } from "@/lib/pageAccess";
@@ -72,6 +73,7 @@ function filterSuffix(formData: FormData): string {
 async function recomputeDerived() {
   await recomputeRepContribution();
   await recomputeDailyTargets();
+  await resolveEmployeeIdentities();
 }
 
 const ASSIGNMENT_AUDITED_FIELDS = ["channel", "contributionPct", "active", "salesRole"] as const;

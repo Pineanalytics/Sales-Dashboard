@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
+import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 
 export const runtime = "nodejs";
 
-// Recomputes Contribution-by-Rep and Daily Projection whenever the data they're
-// derived from changes — triggered independently by scripts/db-bridge/sales-sync.ts
+// Recomputes Contribution-by-Rep, Daily Projection, and EmployeeMaster's
+// resolved home Team Leader/Supervisor whenever the data they're derived
+// from changes — triggered independently by scripts/db-bridge/sales-sync.ts
 // (after every SAP sync), admin/team-leaders/actions.ts, and
 // admin/employee-master/actions.ts (after roster/assignment edits). No request
 // body: this is a signal, not a data upload (unlike the other jp-adherence routes).
@@ -28,7 +30,8 @@ export async function POST(req: NextRequest) {
   try {
     const contribution = await recomputeRepContribution();
     const daily = await recomputeDailyTargets();
-    return NextResponse.json({ contribution, daily }, { status: 200 });
+    const identities = await resolveEmployeeIdentities();
+    return NextResponse.json({ contribution, daily, identities }, { status: 200 });
   } catch (err) {
     console.error("Failed to recompute RepContribution/DailyTarget", err);
     return NextResponse.json({ error: "Failed to recompute derived Target data." }, { status: 500 });
