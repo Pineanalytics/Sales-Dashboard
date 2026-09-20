@@ -32,11 +32,24 @@ async function canonicalTeamLeaderId(teamLeaderId: string | null): Promise<strin
   return canonicalTeamLeaderIdMap(teamLeaders, supervisors).get(teamLeaderId) ?? teamLeaderId;
 }
 
+/** supervisorId is independently settable (see the schema comment on
+ *  Principal.supervisorId), but when an admin sets a Team Leader and leaves
+ *  Supervisor blank, default it to that Team Leader's own Supervisor rather
+ *  than leaving the principal's Supervisor empty for no reason — an
+ *  explicit choice always wins over this default. */
+async function resolveSupervisorId(explicitSupervisorId: string | null, teamLeaderId: string | null): Promise<string | null> {
+  if (explicitSupervisorId) return explicitSupervisorId;
+  if (!teamLeaderId) return null;
+  const teamLeader = await prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { supervisorId: true } });
+  return teamLeader?.supervisorId ?? null;
+}
+
 export async function createPrincipalAction(formData: FormData) {
   await requireAdmin();
 
   const principal = str(formData, "principal");
   const teamLeaderId = await canonicalTeamLeaderId(nullableStr(formData, "teamLeaderId"));
+  const supervisorId = await resolveSupervisorId(nullableStr(formData, "supervisorId"), teamLeaderId);
   if (!principal) {
     redirect("/admin/principals?error=" + encodeURIComponent("Principal is required."));
   }
@@ -50,6 +63,7 @@ export async function createPrincipalAction(formData: FormData) {
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
         teamLeaderId,
+        supervisorId,
       },
     });
   } catch (err: unknown) {
@@ -68,6 +82,7 @@ export async function updatePrincipalAction(formData: FormData) {
   await requireAdmin();
   const id = str(formData, "principalId");
   const teamLeaderId = await canonicalTeamLeaderId(nullableStr(formData, "teamLeaderId"));
+  const supervisorId = await resolveSupervisorId(nullableStr(formData, "supervisorId"), teamLeaderId);
 
   try {
     await prisma.principal.update({
@@ -78,6 +93,7 @@ export async function updatePrincipalAction(formData: FormData) {
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
         teamLeaderId,
+        supervisorId,
       },
     });
   } catch {

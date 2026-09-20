@@ -23,14 +23,36 @@ export default async function AdminPrincipalsPage({
   }
 
   const { error, success, edit } = await searchParams;
-  const [principals, allTeamLeaders, supervisors] = await Promise.all([
+  const [principals, allTeamLeaders, supervisors, managers, hods, activeAssignments] = await Promise.all([
     prisma.principal.findMany({ orderBy: { principal: "asc" } }),
     prisma.teamLeader.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, supervisorId: true } }),
-    prisma.supervisor.findMany({ select: { id: true, name: true } }),
+    prisma.supervisor.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, managerId: true } }),
+    prisma.manager.findMany({ select: { id: true, hodId: true } }),
+    prisma.hod.findMany({ select: { id: true, name: true } }),
+    // The real, multi-Team-Leader roster (distinct from Principal.teamLeaderId's
+    // single ranking-credit field below) — live count/list per principal, so a
+    // principal like Mars-Nairobi correctly shows every Team Leader actually
+    // working it instead of just the one credited for TL Ranking.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true, teamLeaderId: true } }),
   ]);
   const canonicalTeamLeaderIds = canonicalTeamLeaderIdMap(allTeamLeaders, supervisors);
   const teamLeaders = allTeamLeaders.filter((teamLeader) => canonicalTeamLeaderIds.get(teamLeader.id) === teamLeader.id);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
+  const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.name]));
+  const hodNameById = new Map(hods.map((h) => [h.id, h.name]));
+  const hodIdByManagerId = new Map(managers.map((m) => [m.id, m.hodId]));
+  const headOfSalesNameBySupervisorId = new Map(
+    supervisors.map((s) => {
+      const hodId = s.managerId ? hodIdByManagerId.get(s.managerId) : null;
+      return [s.id, hodId ? hodNameById.get(hodId) ?? null : null];
+    })
+  );
+  const rosterByPrincipal = new Map<string, Set<string>>();
+  for (const a of activeAssignments) {
+    const set = rosterByPrincipal.get(a.principal) ?? new Set<string>();
+    set.add(a.teamLeaderId);
+    rosterByPrincipal.set(a.principal, set);
+  }
   const editing = edit ? principals.find((p) => p.id === edit) : undefined;
 
   return (
@@ -41,7 +63,13 @@ export default async function AdminPrincipalsPage({
         </Link>
         <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Principals</h1>
         <p className="mt-1 text-sm text-white/70">
-          Principal → location reference data used by the SQL bridge, and which Team Leader heads each principal — drives TL Ranking&apos;s MTD Revenue attribution.
+          Principal → location reference data used by the SQL bridge. &quot;Team Leader (ranking)&quot; credits 100% of that principal&apos;s MTD revenue to one
+          Team Leader for TL Ranking — it is not the real roster. &quot;Roster&quot; shows every Team Leader actually working that principal today (from{" "}
+          <Link href="/admin/team-leaders" className="text-white underline decoration-white/40 hover:decoration-white">
+            Team Leaders
+          </Link>
+          ). Supervisor is independently settable — for a principal a Supervisor manages directly, with no Team Leader recorded — and defaults to the
+          ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it.
         </p>
       </div>
 
@@ -84,12 +112,23 @@ export default async function AdminPrincipalsPage({
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className={labelClass}>Team Leader (heads this principal)</label>
+              <label className={labelClass}>Team Leader (credited for TL Ranking)</label>
               <select name="teamLeaderId" defaultValue="" className={selectClass}>
                 <option value="">— none —</option>
                 {teamLeaders.map((tl) => (
                   <option key={tl.id} value={tl.id}>
                     {tl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Supervisor</label>
+              <select name="supervisorId" defaultValue="" className={selectClass}>
+                <option value="">— derive from Team Leader, if any —</option>
+                {supervisors.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </select>
@@ -117,7 +156,10 @@ export default async function AdminPrincipalsPage({
                   <th className="px-6 py-3 text-left font-medium">Main principal</th>
                   <th className="px-6 py-3 text-left font-medium">Location</th>
                   <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-left font-medium">Team Leader</th>
+                  <th className="px-6 py-3 text-left font-medium">Supervisor</th>
+                  <th className="px-6 py-3 text-left font-medium">Head of Sales</th>
+                  <th className="px-6 py-3 text-left font-medium">Team Leader (ranking)</th>
+                  <th className="px-6 py-3 text-left font-medium">Roster</th>
                   <th className="px-6 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -125,8 +167,8 @@ export default async function AdminPrincipalsPage({
                 {principals.map((p) =>
                   editing?.id === p.id ? (
                     <tr key={p.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={6} className="px-6 py-4 border-b border-border/60">
-                        <form action={updatePrincipalAction} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                      <td colSpan={9} className="px-6 py-4 border-b border-border/60">
+                        <form action={updatePrincipalAction} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
                           <input type="hidden" name="principalId" value={p.id} />
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Principal</label>
@@ -148,7 +190,18 @@ export default async function AdminPrincipalsPage({
                             </select>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Team Leader</label>
+                            <label className={labelClass}>Supervisor</label>
+                            <select name="supervisorId" defaultValue={p.supervisorId ?? ""} className={selectClass}>
+                              <option value="">— derive from Team Leader, if any —</option>
+                              {supervisors.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Team Leader (ranking)</label>
                             <select name="teamLeaderId" defaultValue={p.teamLeaderId ?? ""} className={selectClass}>
                               <option value="">— none —</option>
                               {teamLeaders.map((tl) => (
@@ -158,7 +211,7 @@ export default async function AdminPrincipalsPage({
                               ))}
                             </select>
                           </div>
-                          <div className="flex gap-2 sm:col-span-5">
+                          <div className="flex gap-2 sm:col-span-6">
                             <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
                               Save
                             </button>
@@ -176,7 +229,29 @@ export default async function AdminPrincipalsPage({
                       <td className="px-6 py-3 border-b border-border/60">{p.location}</td>
                       <td className="px-6 py-3 border-b border-border/60">{p.status}</td>
                       <td className="px-6 py-3 border-b border-border/60">
+                        {p.supervisorId ? supervisorNameById.get(p.supervisorId) ?? "—" : <span className="text-muted">—</span>}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">
+                        {p.supervisorId ? headOfSalesNameBySupervisorId.get(p.supervisorId) ?? <span className="text-muted">—</span> : <span className="text-muted">—</span>}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">
                         {p.teamLeaderId ? teamLeaderNameById.get(p.teamLeaderId) ?? "—" : <span className="text-accent-amber">Unowned</span>}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">
+                        {(() => {
+                          const roster = rosterByPrincipal.get(p.principal);
+                          if (!roster || roster.size === 0) return <span className="text-muted">No active reps</span>;
+                          const names = Array.from(roster).map((id) => teamLeaderNameById.get(id) ?? id).sort();
+                          return (
+                            <Link
+                              href={`/admin/team-leaders?filterPrincipal=${encodeURIComponent(p.principal)}#assignments`}
+                              title={names.join(", ")}
+                              className="text-primary-blue hover:underline"
+                            >
+                              {roster.size} Team Leader{roster.size === 1 ? "" : "s"} →
+                            </Link>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
                         <Link href={`/admin/principals?edit=${p.id}`} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
@@ -194,7 +269,7 @@ export default async function AdminPrincipalsPage({
                 )}
                 {principals.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={9} className="px-6 py-8 text-center text-muted">
                       No principals yet.
                     </td>
                   </tr>
