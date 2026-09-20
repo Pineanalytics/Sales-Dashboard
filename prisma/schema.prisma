@@ -719,11 +719,19 @@ model Principal {
   location      String
   locationCode  String?
   status        String   @default("Active") // "Active" | "Past"
-  teamLeaderId  String? // null for "Past"/unowned principals
+  teamLeaderId  String? // the Team Leader credited with 100% of this principal's MTD revenue for TL Ranking (lib/tlRanking.ts) — not the real multi-Team-Leader roster (TeamLeaderAssignment is). null for "Past"/unowned principals.
+  // Independently settable — not merely derived from teamLeaderId — so a
+  // Supervisor who manages a principal directly, with no Team Leader
+  // recorded above, still has an owner here. When a Team Leader is chosen
+  // with this left blank, the admin UI defaults it to that Team Leader's
+  // own Supervisor (see admin/principals/actions.ts), but an admin can
+  // override it independently of whichever Team Leader is credited above.
+  supervisorId  String?
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
 
   @@index([teamLeaderId])
+  @@index([supervisorId])
 }
 
 // Admin-editable reference data (rarely changes). Not currently consumed by
