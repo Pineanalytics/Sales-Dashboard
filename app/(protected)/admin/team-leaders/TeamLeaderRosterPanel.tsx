@@ -176,6 +176,12 @@ export function TeamLeaderRosterPanel({
                       </form>
                       <div className="flex gap-2 border-t border-border/60 pt-3">
                         <Link
+                          href={`/admin/team-leaders?filterTeamLeader=${tl.id}#assignments`}
+                          className="rounded-full px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
+                        >
+                          View roster
+                        </Link>
+                        <Link
                           href={`/admin/team-leaders?rename=${tl.id}`}
                           className="rounded-full px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
                         >

@@ -142,7 +142,7 @@ export function RosterAssignmentsCascade({
   const selectedTeamLeader = teamLeaderId ? teamLeaders.find((tl) => tl.id === teamLeaderId) : undefined;
 
   return (
-    <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+    <div id="assignments" className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)] scroll-mt-4">
       <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-lg font-semibold text-primary-blue">
           Assignments ({rows.length}

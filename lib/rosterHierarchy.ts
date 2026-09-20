@@ -31,29 +31,47 @@ export interface HierarchyDirector {
   name: string;
 }
 
-export interface SupervisorNode extends HierarchySupervisor {
-  teamLeaders: HierarchyTeamLeader[];
-}
-export interface ManagerNode extends HierarchyManager {
-  supervisors: SupervisorNode[];
-}
-export interface HodNode extends HierarchyHod {
-  managers: ManagerNode[];
-}
-export interface DirectorNode extends HierarchyDirector {
-  hods: HodNode[];
-}
+// Generic over each tier's own row shape (intersection, not just the base
+// Hierarchy* interface) so a caller can pass extra fields — e.g.
+// TeamLeader.visiblePages — and get them back intact on the nested node.
+// buildRosterHierarchy only ever reads the id/parent-link fields below; the
+// rest passes through untouched.
+export type SupervisorNode<TL extends HierarchyTeamLeader = HierarchyTeamLeader, S extends HierarchySupervisor = HierarchySupervisor> = S & {
+  teamLeaders: TL[];
+};
+export type ManagerNode<TL extends HierarchyTeamLeader = HierarchyTeamLeader, S extends HierarchySupervisor = HierarchySupervisor, M extends HierarchyManager = HierarchyManager> = M & {
+  supervisors: SupervisorNode<TL, S>[];
+};
+export type HodNode<
+  TL extends HierarchyTeamLeader = HierarchyTeamLeader,
+  S extends HierarchySupervisor = HierarchySupervisor,
+  M extends HierarchyManager = HierarchyManager,
+  H extends HierarchyHod = HierarchyHod,
+> = H & { managers: ManagerNode<TL, S, M>[] };
+export type DirectorNode<
+  TL extends HierarchyTeamLeader = HierarchyTeamLeader,
+  S extends HierarchySupervisor = HierarchySupervisor,
+  M extends HierarchyManager = HierarchyManager,
+  H extends HierarchyHod = HierarchyHod,
+  D extends HierarchyDirector = HierarchyDirector,
+> = D & { hods: HodNode<TL, S, M, H>[] };
 
-export interface RosterHierarchy {
-  directors: DirectorNode[];
+export interface RosterHierarchy<
+  TL extends HierarchyTeamLeader = HierarchyTeamLeader,
+  S extends HierarchySupervisor = HierarchySupervisor,
+  M extends HierarchyManager = HierarchyManager,
+  H extends HierarchyHod = HierarchyHod,
+  D extends HierarchyDirector = HierarchyDirector,
+> {
+  directors: DirectorNode<TL, S, M, H, D>[];
   // Every tier below the top can be missing its parent (never assigned, or a
   // dangling id from partial admin setup) — surfaced separately rather than
   // silently dropped, mirroring this codebase's reject-deletes/don't-hide-gaps
   // convention elsewhere (e.g. lib/repContribution.ts's unassignedRevenueReps).
-  unassignedHods: HodNode[];
-  unassignedManagers: ManagerNode[];
-  unassignedSupervisors: SupervisorNode[];
-  unassignedTeamLeaders: HierarchyTeamLeader[];
+  unassignedHods: HodNode<TL, S, M, H>[];
+  unassignedManagers: ManagerNode<TL, S, M>[];
+  unassignedSupervisors: SupervisorNode<TL, S>[];
+  unassignedTeamLeaders: TL[];
 }
 
 function groupByParent<T>(items: T[], parentId: (item: T) => string | null): Map<string, T[]> {
@@ -68,13 +86,13 @@ function groupByParent<T>(items: T[], parentId: (item: T) => string | null): Map
   return map;
 }
 
-export function buildRosterHierarchy(
-  teamLeaders: HierarchyTeamLeader[],
-  supervisors: HierarchySupervisor[],
-  managers: HierarchyManager[],
-  hods: HierarchyHod[],
-  directors: HierarchyDirector[]
-): RosterHierarchy {
+export function buildRosterHierarchy<
+  TL extends HierarchyTeamLeader = HierarchyTeamLeader,
+  S extends HierarchySupervisor = HierarchySupervisor,
+  M extends HierarchyManager = HierarchyManager,
+  H extends HierarchyHod = HierarchyHod,
+  D extends HierarchyDirector = HierarchyDirector,
+>(teamLeaders: TL[], supervisors: S[], managers: M[], hods: H[], directors: D[]): RosterHierarchy<TL, S, M, H, D> {
   const teamLeadersBySupervisor = groupByParent(teamLeaders, (tl) => tl.supervisorId);
   const supervisorsByManager = groupByParent(supervisors, (s) => s.managerId);
   const managersByHod = groupByParent(managers, (m) => m.hodId);
@@ -85,19 +103,19 @@ export function buildRosterHierarchy(
   const validHodIds = new Set(hods.map((h) => h.id));
   const validDirectorIds = new Set(directors.map((d) => d.id));
 
-  const supervisorNode = (s: HierarchySupervisor): SupervisorNode => ({
+  const supervisorNode = (s: S): SupervisorNode<TL, S> => ({
     ...s,
     teamLeaders: teamLeadersBySupervisor.get(s.id) ?? [],
   });
-  const managerNode = (m: HierarchyManager): ManagerNode => ({
+  const managerNode = (m: M): ManagerNode<TL, S, M> => ({
     ...m,
     supervisors: (supervisorsByManager.get(m.id) ?? []).map(supervisorNode),
   });
-  const hodNode = (h: HierarchyHod): HodNode => ({
+  const hodNode = (h: H): HodNode<TL, S, M, H> => ({
     ...h,
     managers: (managersByHod.get(h.id) ?? []).map(managerNode),
   });
-  const directorNode = (d: HierarchyDirector): DirectorNode => ({
+  const directorNode = (d: D): DirectorNode<TL, S, M, H, D> => ({
     ...d,
     hods: (hodsByDirector.get(d.id) ?? []).map(hodNode),
   });
