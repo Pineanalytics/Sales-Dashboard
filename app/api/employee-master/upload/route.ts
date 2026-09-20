@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
+import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 
 export const runtime = "nodejs";
 
@@ -226,6 +227,7 @@ export async function POST(req: NextRequest) {
     // Assignment role/status can affect existing target projections right away.
     const contribution = await recomputeRepContribution();
     const daily = await recomputeDailyTargets();
+    await resolveEmployeeIdentities();
     return NextResponse.json({ ...result, contribution, daily }, { status: 200 });
   } catch (err) {
     console.error("Failed to import Employee Roaster", err);

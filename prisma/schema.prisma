@@ -133,22 +133,22 @@ model TargetAuditLog {
 // buildSupervisorRanking's own comment). Admin-editable via
 // app/(protected)/admin/team-leaders.
 model TeamLeader {
-  id           String   @id @default(cuid())
-  name         String   @unique
-  supervisorId String?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  name           String   @unique
+  supervisorId   String?
+  createdAt      DateTime @default(now())
   // Admin-set override of which report pages this Team Leader's logged-in User
   // sees, replacing that User's own allowedPages while non-empty. Empty (the
   // default) means "no override" — the linked User's allowedPages governs as
   // before. Lets the roster itself govern dashboard visibility for exceptions
   // without having to separately edit the User record.
-  visiblePages String[] @default([])
+  visiblePages   String[] @default([])
   // Admin-assignable grant letting this Team Leader edit the shared,
   // principal-level Monthly Target (normally ADMIN-only — see
   // updateTargetValueAction's own history of that being reverted once for
   // every Team Leader). Off by default; an admin turns it on per person as
   // needed, not as a role-wide policy change.
-  canEditTargets Boolean @default(false)
+  canEditTargets Boolean  @default(false)
 
   coveringReliefs     TeamLeaderRelief[]   @relation("CoveringReliefs")
   coveredReliefs      TeamLeaderRelief[]   @relation("CoveredReliefs")
@@ -199,14 +199,14 @@ model TeamLeaderRelief {
 // managerId is this Supervisor's own reporting line up to Manager — same
 // reasoning as TeamLeader.supervisorId above.
 model Supervisor {
-  id           String   @id @default(cuid())
-  name         String   @unique
-  managerId    String?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  name           String   @unique
+  managerId      String?
+  createdAt      DateTime @default(now())
   // Same override mechanism as TeamLeader.visiblePages, one tier up.
-  visiblePages String[] @default([])
+  visiblePages   String[] @default([])
   // Same admin-assignable Monthly Target edit grant as TeamLeader.canEditTargets.
-  canEditTargets Boolean @default(false)
+  canEditTargets Boolean  @default(false)
 }
 
 // One row per Manager — a tier above Supervisor (e.g. Angela Sitati oversees
@@ -428,18 +428,18 @@ model TeamLeaderAssignmentAuditLog {
 // as the item->principal/pack-size join for the SQL bridge, replacing the
 // earlier network-share Excel read.
 model Product {
-  id             String   @id @default(cuid())
-  itemNo         String   @unique
+  id              String   @id @default(cuid())
+  itemNo          String   @unique
   itemDescription String?
-  series         String?
-  size           String?
-  packSize       Float?
-  principal      String
-  costPrice      Float?
-  classification String?
-  ssuConversion  Float?
-  updatedAt      DateTime @updatedAt
-  createdAt      DateTime @default(now())
+  series          String?
+  size            String?
+  packSize        Float?
+  principal       String
+  costPrice       Float?
+  classification  String?
+  ssuConversion   Float?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
 }
 
 // SAP sales rows whose Item Code is absent from Product Master. These facts are
@@ -866,12 +866,12 @@ model StockSyncRun {
 // Current SAP payment-term catalogue. SAP remains authoritative: this is a
 // read-only reporting mirror keyed by OCTG.GroupNum.
 model CreditTerm {
-  groupNum     Int                     @id
-  name         String
-  extraDays    Int                     @default(0)
-  extraMonths  Int                     @default(0)
-  updatedAt    DateTime                @updatedAt
-  customers    CustomerCreditProfile[]
+  groupNum    Int                     @id
+  name        String
+  extraDays   Int                     @default(0)
+  extraMonths Int                     @default(0)
+  updatedAt   DateTime                @updatedAt
+  customers   CustomerCreditProfile[]
 }
 
 // Customer credit-master mirror from SAP OCRD. Only customer partners
@@ -956,8 +956,21 @@ model EmployeeMaster {
   workGroup         String?
   region            String?
   subRegion         String?
+  // Free text, from the Roster import — kept as a display-only record of the
+  // last-imported value, not a source of truth for scoping/computation
+  // (teamLeaderId below is). teamLeader is also read by
+  // lib/teamLeaderScope.ts's teamLeaderSupervisesName fuzzy match for scope
+  // expansion — left untouched here, out of scope for this convergence.
   teamLeader        String?
   supervisor        String?
+  // The resolved "home" Team Leader/Supervisor — see lib/employeeIdentity.ts.
+  // Auto-filled once a rep resolves to exactly one distinct active
+  // TeamLeaderAssignment.teamLeaderId; left null (and surfaced on an
+  // admin worklist) when a rep has none or genuinely more than one. Once
+  // set (auto or by an admin resolving the worklist), never silently
+  // cleared by a later recompute — only a person changes it after that.
+  teamLeaderId      String?
+  supervisorId      String?
   active            Boolean  @default(true)
   costCenterCount   Int?
   salesPoint        String?
@@ -1522,17 +1535,17 @@ model OrderRecord {
   returnDocType String? // raw so.Doc_Type ("Credit Note") when isReturn
   returnedBy    String?
 
-  podStatus  String?
+  podStatus     String?
   // Confirmed payment methods, joined from Pine payments (for example
   // open_terms, cash, mpesa_on_delivery, cheque, mpesa_stk_checkout).
-  paymentModes String?
-  stk        Boolean
+  paymentModes  String?
+  stk           Boolean
   // Explicit STK Push state; never inferred from a POD/reference alone.
   stkPushStatus String?
   stkPaymentRef String?
   stkAmountPaid Float?
-  paymentRef String?
-  amountPaid Float?
+  paymentRef    String?
+  amountPaid    Float?
 
   createdAt DateTime @default(now())
 
@@ -1868,27 +1881,27 @@ model OutletSkuDailySales {
 // sourceRowKey and the delete-and-replace, so one branch's sync can never
 // wipe another's rows for the same day.
 model PjpDsrDailyActivity {
-  id           String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   // `${distributor}|${pjp}|${dsr}|${date}` — unique per the source query's grain.
-  sourceRowKey String   @unique
-  date         DateTime
-  distributor  String
-  pjp          String
-  route        String
-  dsr          String
-  dsrName      String
-  transactionCount          Int
-  outletsVisited            Int
+  sourceRowKey             String    @unique
+  date                     DateTime
+  distributor              String
+  pjp                      String
+  route                    String
+  dsr                      String
+  dsrName                  String
+  transactionCount         Int
+  outletsVisited           Int
   // How many of transactionCount actually came from a handheld device
   // (HHT_SRNO not null/'0') rather than manual/office entry — some PJPs
   // consistently show 0 here, meaning their timestamps below don't reflect
   // real field activity. Check this before trusting a given row's timing.
-  handheldTransactionCount  Int
-  firstEntryTime            DateTime?
-  lastEntryTime             DateTime?
-  activeSpanMinutes         Int?
-  avgGapMinutes             Float?
-  createdAt                 DateTime @default(now())
+  handheldTransactionCount Int
+  firstEntryTime           DateTime?
+  lastEntryTime            DateTime?
+  activeSpanMinutes        Int?
+  avgGapMinutes            Float?
+  createdAt                DateTime  @default(now())
 
   @@index([date])
   @@index([pjp, date])
@@ -1971,28 +1984,28 @@ model SalesReturnsControl {
 // deliberately not a transaction/fact table: Transactions.Sales stays in the
 // read-only PinefrostAnalytics SQL Server source.
 model EablSalesExportStatus {
-  machine                    String   @id
-  latestVpsTransactionDate   DateTime?
-  latestAvailableReportDate  DateTime?
-  lastSuccessfulDownloadAt   DateTime?
-  lastDeliveredFile          String?
-  deliveredLocation          String?  // "Root" | "Archive"
-  status                     String   @default("UNKNOWN")
-  lastError                  String?
-  nextScheduledRunAt         DateTime?
-  updatedAt                  DateTime @updatedAt
+  machine                   String    @id
+  latestVpsTransactionDate  DateTime?
+  latestAvailableReportDate DateTime?
+  lastSuccessfulDownloadAt  DateTime?
+  lastDeliveredFile         String?
+  deliveredLocation         String? // "Root" | "Archive"
+  status                    String    @default("UNKNOWN")
+  lastError                 String?
+  nextScheduledRunAt        DateTime?
+  updatedAt                 DateTime  @updatedAt
 }
 
 // Passwordless outbound polling queue for an administrator's exact-date
 // backfill request. The machine claims and completes jobs using the dedicated
 // EABL export API key; admins create them through the session-authenticated API.
 model EablSalesExportTriggerRequest {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   requestedDate DateTime?
-  mode          String   @default("SMART") // "SMART" | "DATE"
-  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  mode          String    @default("SMART") // "SMART" | "DATE"
+  status        String    @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
   requestedBy   String?
-  requestedAt   DateTime @default(now())
+  requestedAt   DateTime  @default(now())
   claimedAt     DateTime?
   completedAt   DateTime?
   resultSummary String?
@@ -2006,12 +2019,12 @@ model EablSalesExportTriggerRequest {
 // and reports the result. Keeping dates independent makes a selected month
 // resumable after a transient failure without repeating completed days.
 model UklSalesExportTriggerRequest {
-  id            String   @id @default(cuid())
-  branch        String   // "NAIROBI" | "NYERI"
+  id            String    @id @default(cuid())
+  branch        String // "NAIROBI" | "NYERI"
   requestedDate DateTime
-  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  status        String    @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
   requestedBy   String?
-  requestedAt   DateTime @default(now())
+  requestedAt   DateTime  @default(now())
   claimedAt     DateTime?
   completedAt   DateTime?
   resultSummary String?
@@ -2025,10 +2038,10 @@ model UklSalesExportTriggerRequest {
 // starts its existing uploader. Completion means the task was dispatched —
 // the Upfield watermark remains the authoritative proof that data landed.
 model UpfieldDataEdgeTriggerRequest {
-  id            String   @id @default(cuid())
-  status        String   @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
+  id            String    @id @default(cuid())
+  status        String    @default("PENDING") // "PENDING" | "CLAIMED" | "COMPLETED" | "FAILED"
   requestedBy   String?
-  requestedAt   DateTime @default(now())
+  requestedAt   DateTime  @default(now())
   claimedAt     DateTime?
   completedAt   DateTime?
   resultSummary String?

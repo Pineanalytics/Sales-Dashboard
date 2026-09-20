@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
+import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 
 export type RosterFormat = "V21" | "V18";
 
@@ -500,6 +501,7 @@ export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFo
 
   const contribution = await recomputeRepContribution();
   const daily = await recomputeDailyTargets();
+  await resolveEmployeeIdentities();
   return {
     teamLeaders: teamLeaderNames.length,
     supervisors: supervisorNames.length,

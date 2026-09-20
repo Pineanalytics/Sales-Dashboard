@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getKnownPrincipals, getKnownSapSalesReps } from "@/lib/adminReference";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
+import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 
 const PAGE = "/admin/employee-master";
 
@@ -35,6 +36,7 @@ async function assertCanEditEmployee(editor: Awaited<ReturnType<typeof requireRo
 async function recomputeDerived() {
   await recomputeRepContribution();
   await recomputeDailyTargets();
+  await resolveEmployeeIdentities();
 }
 
 export async function saveEmployeeMasterAction(formData: FormData) {
@@ -109,4 +111,28 @@ export async function toggleEmployeeMasterActiveAction(formData: FormData) {
   ]);
   await recomputeDerived();
   redirect(`${PAGE}?success=${encodeURIComponent(`${active ? "Activated" : "Deactivated"} ${employee.pineName}.`)}`);
+}
+
+/** Admin-only: manually resolves one rep's ambiguous "home" Team Leader from
+ *  the worklist (resolveEmployeeIdentities only auto-fills the unambiguous
+ *  case; a genuine multi-Team-Leader rep needs a person to pick one). Also
+ *  sets the derived supervisorId from that Team Leader's own reporting line.
+ *  Admin-only rather than TEAM_LEADER-scoped like the rest of this file —
+ *  deciding a rep's canonical identity across multiple Team Leaders is a
+ *  cross-Team-Leader call, not "your own roster." */
+export async function resolveEmployeeIdentityAction(formData: FormData) {
+  const session = await auth();
+  if (!session?.user || session.user.role !== "ADMIN") redirect("/");
+  const employeeCode = value(formData, "employeeCode");
+  const teamLeaderId = value(formData, "teamLeaderId");
+  if (!employeeCode || !teamLeaderId) redirect(`${PAGE}?error=${encodeURIComponent("Missing employee or Team Leader.")}`);
+
+  const teamLeader = await prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { id: true, supervisorId: true } });
+  if (!teamLeader) redirect(`${PAGE}?error=${encodeURIComponent("Team Leader not found.")}`);
+
+  await prisma.employeeMaster.update({
+    where: { employeeCode },
+    data: { teamLeaderId: teamLeader.id, supervisorId: teamLeader.supervisorId },
+  });
+  redirect(`${PAGE}?success=${encodeURIComponent("Identity resolved.")}`);
 }
