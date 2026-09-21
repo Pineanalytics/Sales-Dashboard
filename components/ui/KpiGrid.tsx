@@ -35,8 +35,13 @@ export function SectionCard({
 }) {
   if (accent) {
     return (
+      // h-full + flex-1 content: within a grid row (e.g. Executive Summary's
+      // paired panels), a shorter panel now stretches to match its taller
+      // sibling instead of leaving a visible gap of bare page background
+      // below its card. ring-1 + shadow-sm (vs. the old rgba glow shadow)
+      // reads as a crisper, more consistent card "lift" at any card height.
       <div
-        className={`rounded-xl border-l-4 ${ACCENT_BORDER[accent]} bg-surface p-4 shadow-[0_4px_14px_rgba(11,61,53,0.10)] transition-shadow duration-300 hover:shadow-[0_8px_24px_rgba(11,61,53,0.16)]`}
+        className={`flex h-full flex-col rounded-xl border-l-4 ${ACCENT_BORDER[accent]} bg-surface p-4 shadow-sm ring-1 ring-border/70 transition-shadow duration-300 hover:shadow-md`}
       >
         {title || action ? (
           <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -48,7 +53,7 @@ export function SectionCard({
             {action}
           </div>
         ) : null}
-        {children}
+        <div className="flex-1">{children}</div>
       </div>
     );
   }

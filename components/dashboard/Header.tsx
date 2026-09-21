@@ -51,7 +51,7 @@ export function Header({ user }: { user: Session["user"] | null }) {
           <Navigation20Regular />
         </button>
 
-        <Link href="/dashboard" className="flex min-w-0 items-center gap-3 shrink-0" aria-label="Pinefrost Analytics home">
+        <Link href="/executive-summary" className="flex min-w-0 items-center gap-3 shrink-0" aria-label="Pinefrost Analytics home">
           <Image
             src="/brand/pinefrost-distribution-logo.png"
             alt="Pinefrost Distribution"
