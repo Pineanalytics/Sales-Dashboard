@@ -31,7 +31,7 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
   const overstock = computeOverstock(dataset, normalizedKey);
 
   return (
-    <div id="stock-risk" className="@container">
+    <div id="stock-risk" className="@container h-full">
       <SectionCard
         title="Stock Risk"
         accent="amber"

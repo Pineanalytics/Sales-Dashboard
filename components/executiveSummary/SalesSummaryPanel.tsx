@@ -49,14 +49,19 @@ export function SalesSummaryPanel({
         .sort((a, b) => (a.achievementPct ?? 0) - (b.achievementPct ?? 0));
 
   return (
-    <div id="sales-summary" className="@container">
+    <div id="sales-summary" className="@container h-full">
       <SectionCard title="Sales vs. Target" accent="blue">
         <div className="flex flex-col gap-4">
           {/* Sized to this panel's own (container-query) width, not the
               viewport — now that this panel pairs half-width with Stock Risk
               (see ExecutiveSummaryClient), KpiGrid's viewport breakpoints
               would misfire the same way round 3 fixed for the other four
-              panels; this one just never needed it before while full-width. */}
+              panels; this one just never needed it before while full-width.
+              Run Rate's three tiles now share this same grid instead of
+              their own row below — GrowthComparison's MoM tile (its second,
+              `compact`-mode card) used to wrap alone into a near-empty row;
+              folding Run Rate in behind it fills that row instead of leaving
+              it mostly blank. */}
           <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-5">
             <KpiCard
               accent="revenue"
@@ -83,22 +88,15 @@ export function SalesSummaryPanel({
               sublabel={`GP ${formatCompact(summary.grossProfit)}`}
             />
             <GrowthComparison dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} compact />
-          </div>
-
-          <div>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Run Rate {runRate?.basis === "live" ? "(live pacing this month)" : "(period average)"}
-            </h4>
             {runRate ? (
-              <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
-                <KpiCard accent="revenue" size="md" label="Daily" value={formatCompact(runRate.daily)} />
-                <KpiCard accent="revenue" size="md" label="Weekly" value={formatCompact(runRate.weekly)} />
-                <KpiCard accent="revenue" size="md" label="Monthly" value={formatCompact(runRate.monthly)} />
-              </div>
-            ) : (
-              <p className="text-xs text-muted">No revenue-bearing month in this selection to pace a run rate from.</p>
-            )}
+              <>
+                <KpiCard accent="revenue" size="md" label={`Daily${runRate.basis === "live" ? " run rate" : " avg"}`} value={formatCompact(runRate.daily)} />
+                <KpiCard accent="revenue" size="md" label={`Weekly${runRate.basis === "live" ? " run rate" : " avg"}`} value={formatCompact(runRate.weekly)} />
+                <KpiCard accent="revenue" size="md" label={`Monthly${runRate.basis === "live" ? " run rate" : " avg"}`} value={formatCompact(runRate.monthly)} />
+              </>
+            ) : null}
           </div>
+          {!runRate ? <p className="text-xs text-muted">No revenue-bearing month in this selection to pace a run rate from.</p> : null}
 
           {offTargetPrincipals.length > 0 ? (
             <div>
