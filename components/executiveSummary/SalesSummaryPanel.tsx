@@ -49,7 +49,7 @@ export function SalesSummaryPanel({
         .sort((a, b) => (a.achievementPct ?? 0) - (b.achievementPct ?? 0));
 
   return (
-    <div id="sales-summary" className="@container">
+    <div id="sales-summary" className="@container h-full">
       <SectionCard title="Sales vs. Target" accent="blue">
         <div className="flex flex-col gap-4">
           {/* Sized to this panel's own (container-query) width, not the

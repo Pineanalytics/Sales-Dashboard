@@ -28,7 +28,7 @@ export function FinancialsPanel({
   const atRiskBalance = receivables ? RISK_BUCKETS.reduce((sum, bucket) => sum + receivables.buckets[bucket], 0) : 0;
 
   return (
-    <div id="financials" className="@container">
+    <div id="financials" className="@container h-full">
       <SectionCard
         title="Financials"
         accent="navy"

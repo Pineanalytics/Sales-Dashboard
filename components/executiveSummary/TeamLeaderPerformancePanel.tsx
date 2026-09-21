@@ -103,7 +103,7 @@ export function TeamLeaderPerformancePanel({ dataset, selectedPrincipalKey }: { 
   const worst = ranked.length > 1 ? ranked[ranked.length - 1] : null;
 
   return (
-    <div id="team-leader-performance" className="@container">
+    <div id="team-leader-performance" className="@container h-full">
       <SectionCard
         title="Team Leader Performance"
         accent="purple"

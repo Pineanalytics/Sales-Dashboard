@@ -75,7 +75,7 @@ export function OrderFulfillmentPanel({ period }: { period: PeriodSelection }) {
   const hasData = data ? requestedMonths.some((m) => data.availableMonths.includes(m)) : false;
 
   return (
-    <div id="order-fulfillment" className="@container">
+    <div id="order-fulfillment" className="@container h-full">
       <SectionCard
         title="Order Fulfillment"
         accent="purple"

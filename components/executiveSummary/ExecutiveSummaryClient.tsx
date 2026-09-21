@@ -73,15 +73,15 @@ export function ExecutiveSummaryClient({
           vs. Target with Stock Risk (both are at-a-glance KPI summaries that
           link out to their own detail module), Order Fulfillment with
           Field/Rep Behavior, and Financials with Team Leader Performance. */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
         <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
         <StockRiskPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
       </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
         <OrderFulfillmentPanel period={period} />
         <FieldBehaviorPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
       </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
         <FinancialsPanel
           dataset={dataset}
           selectedPrincipalKey={selectedPrincipalKey}
