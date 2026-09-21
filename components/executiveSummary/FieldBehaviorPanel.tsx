@@ -13,7 +13,7 @@ function StubTile({ label, href, note }: { label: string; href: string; note: st
   return (
     <Link
       href={href}
-      className="flex h-full flex-col justify-between gap-1 rounded-xl border-t-4 border-t-border bg-surface p-3.5 shadow-[0_1px_3px_rgba(11,61,53,0.06)] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(11,61,53,0.12)] hover:-translate-y-0.5"
+      className="flex h-full flex-col justify-between gap-1 rounded-xl border-t-4 border-t-border bg-surface p-3.5 shadow-sm ring-1 ring-border/60 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5"
     >
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</span>
       <span className="text-sm font-semibold text-muted-strong">View full report →</span>
