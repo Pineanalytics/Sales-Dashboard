@@ -173,6 +173,37 @@ services:
     cpus: 0.75
     mem_limit: 1024m
 
+  # Order 360 reads a large Pine order-fulfillment ledger and backfills 3
+  # months on its first run, so like Mars KPIs it stays isolated - a heavy
+  # daily read must never delay the real-time timestamps worker or the
+  # hourly outlet aggregation.
+  order-360-sync-worker:
+    build:
+      context: .
+      target: sync-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_started
+    env_file:
+      - .sync.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
+      CONTINUOUS_SYNC_JOBS: order-360
+      ORDER_360_DAILY_AT: "18:30"
+      # The source has been stale for weeks with no schedule ever driving it;
+      # run once immediately so this deploy doesn't leave it stale until the
+      # next 18:30 slot, matching Active Outlets' own reasoning.
+      ORDER_360_RUN_ON_START: "true"
+      TZ: Africa/Nairobi
+    cpus: 0.75
+    mem_limit: 1024m
+
   # SAP is reachable only through the office-originated reverse tunnel bound
   # to the VPS loopback interface. Host networking allows this container to
   # consume that private listener without publishing SAP to the internet.

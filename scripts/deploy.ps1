@@ -161,12 +161,13 @@ try {
 
     $deploymentJson = @{ commit = $commitSha; branch = "master"; builtAt = $builtAt; schemaFingerprint = $schemaFingerprint } | ConvertTo-Json -Compress
 
-    $services = "app live-sync-worker outlets-sync-worker mars-kpis-sync-worker sap-sync-worker"
+    $services = "app live-sync-worker outlets-sync-worker mars-kpis-sync-worker order-360-sync-worker sap-sync-worker"
     $images = @(
         "pinefrost-app",
         "pinefrost-live-sync-worker",
         "pinefrost-outlets-sync-worker",
         "pinefrost-mars-kpis-sync-worker",
+        "pinefrost-order-360-sync-worker",
         "pinefrost-sap-sync-worker"
     )
     $imageList = $images -join " "
