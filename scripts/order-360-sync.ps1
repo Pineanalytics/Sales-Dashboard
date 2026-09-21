@@ -1,18 +1,20 @@
 <#
 .SYNOPSIS
-    Wrapper for Task Scheduler: runs the Order 360 sync daily at 18:30.
+    Local manual runner for the Order 360 sync.
 
 .DESCRIPTION
-    The script calls Node directly because scheduled npm/npx invocation is not
+    Production runs this daily at 18:30 Africa/Nairobi as the
+    order-360-sync-worker Compose service on the VPS (see docker-compose.yml
+    and scripts/continuous-sync-worker.ts) - there is no Task Scheduler
+    installer for this bridge anymore. This script remains only for a local,
+    one-off manual run (e.g. ORDER360_FORCE_FULL=1 after a query.ts fix).
+
+    The script calls Node directly because npm/npx invocation is not
     reliable from this project's path, which contains an ampersand (same
     gotcha as scripts/timestamps-sync.ps1). The very first run backfills the
     trailing 3 months; every run after that only tops up that day's orders -
     scripts/db-bridge/order-360/run.ts decides the mode itself from the saved
     SyncWatermark, nothing to configure here.
-
-    Schedule this in Windows Task Scheduler: Trigger = Daily at 18:30,
-    Action = powershell.exe -ExecutionPolicy Bypass -File
-    "D:\Reports & Extractions\Sales Dashboard\scripts\order-360-sync.ps1"
 #>
 
 param(

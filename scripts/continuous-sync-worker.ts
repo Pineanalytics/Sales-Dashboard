@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "mars-kpis" | "sales" | "pl" | "stock" | "receivables";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "pl" | "stock" | "receivables";
 
 interface JobDefinition {
   name: JobName;
@@ -27,6 +27,10 @@ const jobs: Record<JobName, JobDefinition> = {
   // far less often than the 60s call sync above. Default 6 hours.
   "eabl-customers": { name: "eabl-customers", entry: "scripts/db-bridge/eabl-call-performance/sync-customers.ts", intervalEnv: "EABL_CUSTOMERS_INTERVAL_SECONDS", defaultSeconds: 21_600 },
   "active-outlets": { name: "active-outlets", entry: "scripts/db-bridge/active-outlets/run.ts", intervalEnv: "ACTIVE_OUTLETS_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "ACTIVE_OUTLETS_DAILY_AT", runOnStartEnv: "ACTIVE_OUTLETS_RUN_ON_START" },
+  // Reads the same Pine source as Active Outlets/Timestamps but a different,
+  // heavier ledger (SAP_Orders backfills 3 months on its first run), so it
+  // gets its own isolated worker rather than sharing one of theirs.
+  "order-360": { name: "order-360", entry: "scripts/db-bridge/order-360/run.ts", intervalEnv: "ORDER_360_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "ORDER_360_DAILY_AT", runOnStartEnv: "ORDER_360_RUN_ON_START" },
   // Mars reads a large principal-specific Pine ledger, so it stays isolated
   // from time-sensitive call feeds.  It performs a full safety refresh daily
   // and small current-period updates between those passes.

@@ -5,12 +5,15 @@
 // the user-supplied Order_360_Extractor.py documents and works around the same way).
 // INCREMENTAL mode (watermark already exists) just re-pulls today's window and
 // tops it up - it never touches or re-deletes anything older, so history already
-// loaded stays exactly as-is. Intended to run once daily at 18:30 via Task
-// Scheduler (scripts/order-360-sync.ps1) - see scripts/timestamps-sync.ps1 for the
-// wrapper pattern.
+// loaded stays exactly as-is. Runs daily at 18:30 Africa/Nairobi as the
+// order-360-sync-worker Compose service (scripts/continuous-sync-worker.ts);
+// scripts/order-360-sync.ps1 remains only for a local manual run.
 //
 // Run with: npm run order360:sync
-process.loadEnvFile();
+// Local runs rely on .env, while the VPS injects its bridge address through
+// Docker. Never load the fallback file when Docker has supplied the private
+// bridge address; it would overwrite that address and use the public proxy.
+if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 
 import mysql from "mysql2/promise";
 import { loadCoverageConfigFromEnv } from "../coverage/mysql";
