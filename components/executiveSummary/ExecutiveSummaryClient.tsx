@@ -69,27 +69,31 @@ export function ExecutiveSummaryClient({
         overstockedCount={overstock.itemCount}
         creditLimitBreaches={receivables?.creditLimitBreaches ?? 0}
       />
-      {/* Every panel now pairs with another (none full-width/alone) — Sales
-          vs. Target with Stock Risk (both are at-a-glance KPI summaries that
-          link out to their own detail module), Order Fulfillment with
-          Field/Rep Behavior, and Financials with Team Leader Performance. */}
-      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-        <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
-        <StockRiskPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
-      </div>
-      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-        <OrderFulfillmentPanel period={period} />
-        <FieldBehaviorPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
-      </div>
-      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
-        <FinancialsPanel
-          dataset={dataset}
-          selectedPrincipalKey={selectedPrincipalKey}
-          period={period}
-          receivables={receivables}
-          canViewReceivables={canViewReceivables}
-        />
-        <TeamLeaderPerformancePanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
+      {/* Two independent column stacks rather than fixed-height row pairs —
+          Sales vs. Target is naturally the tallest single panel, so
+          Financials stacks under it on the left; Stock Risk is naturally
+          the shortest, so the three lighter panels (Order Fulfillment,
+          Field & Rep Behavior, Team Leader Performance) stack under it on
+          the right to use that space instead of leaving it blank. Columns
+          size to their own content (items-start) — they're no longer meant
+          to match each other's height panel-for-panel. */}
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+        <div className="flex flex-col gap-4">
+          <SalesSummaryPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+          <FinancialsPanel
+            dataset={dataset}
+            selectedPrincipalKey={selectedPrincipalKey}
+            period={period}
+            receivables={receivables}
+            canViewReceivables={canViewReceivables}
+          />
+        </div>
+        <div className="flex flex-col gap-4">
+          <StockRiskPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
+          <OrderFulfillmentPanel period={period} />
+          <FieldBehaviorPanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} period={period} />
+          <TeamLeaderPerformancePanel dataset={dataset} selectedPrincipalKey={selectedPrincipalKey} />
+        </div>
       </div>
     </div>
   );
