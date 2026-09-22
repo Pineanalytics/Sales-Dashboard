@@ -8,6 +8,9 @@
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { FactLineRow, NoSaleVisitRow, OutletRow, ProductRow, UserRow } from "./query";
+import { classifySalesRole } from "../shared/salesRole";
+
+export { classifySalesRole };
 
 export interface PrincipalRow {
   key: string;
@@ -92,29 +95,6 @@ export function resolveCostCentre(sapCode: string, principals: PrincipalRow[]): 
     status: "Active",
     teamLeader: "",
   };
-}
-
-// ---------------------------------------------------------------------------
-// Sales Role — the source script's precise rule (classify_sales_role, lines
-// 975-996), NOT the existing coverage bridge's simplified MBSR/TDR-only rule.
-// ---------------------------------------------------------------------------
-
-const PRIMARY_GROUPS = new Set(["DSR", "KAMS", "TDR", "ADMIN"]);
-const SECONDARY_DSR_CODES = new Set(["1172", "1032"]);
-const MARS_COST_CENTRE = "mars";
-
-/** costCentre may be the bare brand ("Mars") or a location-suffixed principal
- *  string ("Mars-Nairobi") — checked with startsWith so either form correctly
- *  matches Mars, since resolveCostCentre always produces "<Brand>-<Location>". */
-export function classifySalesRole(userGroup: string, userId: string, costCentre: string): "Primary Sales" | "Secondary Sales" {
-  const group = userGroup.trim().toUpperCase();
-  const isPrimaryGroup = PRIMARY_GROUPS.has(group);
-  // A TDR call can contain several Cost Centres. Treat the whole call as
-  // Secondary when any product in that basket belongs to Mars, rather than
-  // letting whichever product happened to be processed first decide its role.
-  const excludedTdrMars = group === "TDR" && costCentre.split(",").some((centre) => centre.trim().toLowerCase().startsWith(MARS_COST_CENTRE));
-  const excludedDsrCode = group === "DSR" && SECONDARY_DSR_CODES.has(userId.trim());
-  return isPrimaryGroup && !excludedTdrMars && !excludedDsrCode ? "Primary Sales" : "Secondary Sales";
 }
 
 // ---------------------------------------------------------------------------
