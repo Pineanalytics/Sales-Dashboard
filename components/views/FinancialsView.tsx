@@ -11,6 +11,8 @@ import {
   ReceivablesSummary,
 } from "./ReceivablesView";
 import { SectionCard } from "@/components/ui/KpiGrid";
+import { useCurrentUser } from "@/components/dashboard/UserContext";
+import { InlineReportExport } from "@/components/reports/InlineReportExport";
 
 export type FinancialsTab =
   | "receivables-summary"
@@ -55,6 +57,12 @@ export function FinancialsView({
   const [selectedTab, setSelectedTab] = useState<FinancialsTab>(initial);
   const [profitabilityView, setProfitabilityView] = useState<"grossProfit" | "plStatement">("grossProfit");
   const activeTab = availableTabs.some((tab) => tab.id === selectedTab) ? selectedTab : initial;
+  const user = useCurrentUser();
+  // Both tabs' pageKeys correspond 1:1 with a report definition (see
+  // lib/reports/definitions.ts), unlike every other analytics page where
+  // GlobalFilterBar hosts this button — Financials packs two reports behind
+  // one URL, so it needs its own tab-aware placement instead.
+  const activeReportKey: "profitability" | "receivables" = activeTab === "profitability" ? "profitability" : "receivables";
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,9 +75,12 @@ export function FinancialsView({
               Use the tabs to move between financial views without a long scrolling page.
             </p>
           </div>
-          <p className="text-xs text-[#65766f]">
-            Receivables balances refresh from the dashboard SAP sync.
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-xs text-[#65766f]">
+              Receivables balances refresh from the dashboard SAP sync.
+            </p>
+            <InlineReportExport reportKey={activeReportKey} allowedPages={user?.allowedPages ?? []} isAdmin={user?.role === "ADMIN"} />
+          </div>
         </div>
       </header>
 

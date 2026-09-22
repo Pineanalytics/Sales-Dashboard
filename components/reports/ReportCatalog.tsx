@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { REPORT_DEFINITIONS, type ReportContext } from "@/lib/reports/definitions";
+import { periodLabelFor, slugify, triggerDownload } from "@/lib/reports/download";
 import { ReportFilters } from "@/components/reports/ReportFilters";
 import type { Dataset } from "@/lib/types";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
@@ -17,26 +18,6 @@ interface ReportCatalogProps {
   principalKey: string | null;
   allowedPages: string[];
   isAdmin: boolean;
-}
-
-function periodLabelFor(period: PeriodSelection): string {
-  if (period.kind === "H1" || period.kind === "H2" || period.kind.startsWith("Q")) return `${period.kind} ${period.year}`;
-  return `${period.kind} ${period.month ?? ""} ${period.year}`.replace(/\s+/g, " ").trim();
-}
-
-function slugify(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 /** Central "download the data behind any page" hub — every report reuses the exact
