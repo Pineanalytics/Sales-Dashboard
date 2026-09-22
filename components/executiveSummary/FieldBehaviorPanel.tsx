@@ -5,9 +5,35 @@ import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { formatNumber, formatPercent, strikeRateTier, tierTextClass } from "@/lib/format";
-import { summarizeCoverageForPeriod, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
+import { summarizeCoverageForPeriod, resolvePeriodMonths, type PeriodSelection, type RoleCategory } from "@/lib/timeIntelligence";
 import { periodToDateRange, averageActiveOutletsForPeriod, type ActiveOutletsMonthlyRow } from "@/lib/executiveSummary";
 import type { Dataset } from "@/lib/types";
+
+type FieldRole = "Primary Sales" | "Secondary Sales";
+const ROLE_CATEGORY: Record<FieldRole, RoleCategory> = { "Primary Sales": "primary", "Secondary Sales": "secondary" };
+
+/** Primary/Secondary only — every tile's source data genuinely splits along
+ *  this line and combining them means neither number is quite right for
+ *  either team, unlike RoleToggle's All/Primary/Secondary (used where a
+ *  combined view is still meaningful, e.g. Active Outlets' YTD totals). */
+function FieldRoleToggle({ value, onChange }: { value: FieldRole; onChange: (value: FieldRole) => void }) {
+  const options: FieldRole[] = ["Primary Sales", "Secondary Sales"];
+  return (
+    <div className="inline-flex gap-1 rounded-full bg-background-elevated p-0.5">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          onClick={() => onChange(opt)}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
+            value === opt ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"
+          }`}
+        >
+          {opt === "Primary Sales" ? "Primary" : "Secondary"}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function StubTile({ label, href, note }: { label: string; href: string; note: string }) {
   return (
@@ -31,7 +57,7 @@ function LoadingTile({ label }: { label: string }) {
  *  reuses it directly rather than adding a new endpoint. `principal` is the
  *  raw label, matching how every other panel on this page already passes
  *  `selectedPrincipalKey` straight through (the route normalizes internally). */
-function JpAdherenceTile({ selectedPrincipalKey, period }: { selectedPrincipalKey: string | null; period: PeriodSelection }) {
+function JpAdherenceTile({ selectedPrincipalKey, period, role }: { selectedPrincipalKey: string | null; period: PeriodSelection; role: FieldRole }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [pct, setPct] = useState<number | null>(null);
 
@@ -43,7 +69,7 @@ function JpAdherenceTile({ selectedPrincipalKey, period }: { selectedPrincipalKe
         setStatus("error");
         return;
       }
-      const params = new URLSearchParams({ from: range.dateFrom, to: range.dateTo });
+      const params = new URLSearchParams({ from: range.dateFrom, to: range.dateTo, role });
       if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
       try {
         const res = await fetch(`/api/jp-adherence?${params.toString()}`, { cache: "no-store", signal: controller.signal });
@@ -60,7 +86,7 @@ function JpAdherenceTile({ selectedPrincipalKey, period }: { selectedPrincipalKe
       }
     })();
     return () => controller.abort();
-  }, [period, selectedPrincipalKey]);
+  }, [period, selectedPrincipalKey, role]);
 
   if (status === "loading") return <LoadingTile label="JP Adherence" />;
   if (status === "error" || pct === null) {
@@ -85,18 +111,27 @@ function JpAdherenceTile({ selectedPrincipalKey, period }: { selectedPrincipalKe
  *  no addressable "universe" denominator outside the Mars-specific
  *  principal-kpis module, so this deliberately shows a reach count, not a
  *  coverage percentage. */
-function UniverseStatusTile({ selectedPrincipalKey, period }: { selectedPrincipalKey: string | null; period: PeriodSelection }) {
+// The API response's monthly rows carry salesRole too (needed to split this
+// tile by role); ActiveOutletsMonthlyRow itself omits it since most callers
+// only need the year/monthIndex/distinctOutlets shape it declares.
+type MonthlyRoleRow = ActiveOutletsMonthlyRow & { salesRole: string };
+
+function UniverseStatusTile({ selectedPrincipalKey, period, role }: { selectedPrincipalKey: string | null; period: PeriodSelection; role: FieldRole }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
-  const [monthly, setMonthly] = useState<ActiveOutletsMonthlyRow[]>([]);
+  const [monthly, setMonthly] = useState<MonthlyRoleRow[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
+      // The monthly aggregate is intentionally returned unfiltered by role
+      // (it carries its own salesRole per row, same as the Active Outlets
+      // page's own trend chart) — role is applied client-side below, not
+      // via the query string.
       const params = new URLSearchParams();
       if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
       try {
         const res = await fetch(`/api/active-outlets?${params.toString()}`, { cache: "no-store", signal: controller.signal });
-        const body = (await res.json()) as { monthly?: ActiveOutletsMonthlyRow[]; error?: string };
+        const body = (await res.json()) as { monthly?: MonthlyRoleRow[]; error?: string };
         if (!res.ok) throw new Error(body.error || "Failed to load Active Outlets data.");
         if (controller.signal.aborted) return;
         setMonthly(body.monthly ?? []);
@@ -115,7 +150,8 @@ function UniverseStatusTile({ selectedPrincipalKey, period }: { selectedPrincipa
   if (status === "error") {
     return <StubTile label="Universe Status" href="/active-outlets" note="Couldn't load for this selection — see full report" />;
   }
-  const avgOutlets = averageActiveOutletsForPeriod(monthly, resolvePeriodMonths(period));
+  const roleMonthly = monthly.filter((m) => m.salesRole === role);
+  const avgOutlets = averageActiveOutletsForPeriod(roleMonthly, resolvePeriodMonths(period));
   if (avgOutlets === null) {
     return <StubTile label="Universe Status" href="/active-outlets" note="No data for this period — see full report" />;
   }
@@ -136,7 +172,7 @@ function UniverseStatusTile({ selectedPrincipalKey, period }: { selectedPrincipa
  *  always fetches the real current month, not the page's selected period,
  *  and labels itself accordingly rather than silently showing a number that
  *  doesn't match what QTD/YTD implies. */
-function TimeManagementTile({ selectedPrincipalKey }: { selectedPrincipalKey: string | null }) {
+function TimeManagementTile({ selectedPrincipalKey, role }: { selectedPrincipalKey: string | null; role: FieldRole }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [avgIntervalMins, setAvgIntervalMins] = useState<number | null>(null);
   const [outletsCovered, setOutletsCovered] = useState<number | null>(null);
@@ -146,7 +182,7 @@ function TimeManagementTile({ selectedPrincipalKey }: { selectedPrincipalKey: st
     (async () => {
       const now = new Date();
       const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-      const params = new URLSearchParams({ month });
+      const params = new URLSearchParams({ month, role });
       if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
       try {
         const res = await fetch(`/api/timestamps/summary?${params.toString()}`, { cache: "no-store", signal: controller.signal });
@@ -164,7 +200,7 @@ function TimeManagementTile({ selectedPrincipalKey }: { selectedPrincipalKey: st
       }
     })();
     return () => controller.abort();
-  }, [selectedPrincipalKey]);
+  }, [selectedPrincipalKey, role]);
 
   if (status === "loading") return <LoadingTile label="Time Management" />;
   if (status === "error") {
@@ -189,11 +225,16 @@ export function FieldBehaviorPanel({
   selectedPrincipalKey: string | null;
   period: PeriodSelection;
 }) {
-  const coverage = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey);
+  // Every tile's source data is genuinely split by sales role (RepCall,
+  // ActiveOutletMonthly, JP Adherence's roster all carry it); showing a
+  // blended Primary+Secondary figure was never quite right for either team,
+  // so this switches the whole panel instead of adding a 5th "combined" tile.
+  const [role, setRole] = useState<FieldRole>("Primary Sales");
+  const coverage = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, ROLE_CATEGORY[role]);
 
   return (
     <div id="field-behavior" className="@container h-full">
-      <SectionCard title="Field & Rep Behavior" accent="green">
+      <SectionCard title="Field & Rep Behavior" accent="green" action={<FieldRoleToggle value={role} onChange={setRole} />}>
         {/* Container-relative, not viewport-relative — see StockRiskPanel's
             matching comment; this panel is paired half-width the same way. */}
         <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
@@ -203,9 +244,9 @@ export function FieldBehaviorPanel({
             value={<span className={tierTextClass[strikeRateTier(coverage.productivityPct)]}>{formatPercent(coverage.productivityPct)}</span>}
             sublabel={`${formatNumber(coverage.productiveCalls)} of ${formatNumber(coverage.coverage)} calls`}
           />
-          <JpAdherenceTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
-          <TimeManagementTile selectedPrincipalKey={selectedPrincipalKey} />
-          <UniverseStatusTile selectedPrincipalKey={selectedPrincipalKey} period={period} />
+          <JpAdherenceTile selectedPrincipalKey={selectedPrincipalKey} period={period} role={role} />
+          <TimeManagementTile selectedPrincipalKey={selectedPrincipalKey} role={role} />
+          <UniverseStatusTile selectedPrincipalKey={selectedPrincipalKey} period={period} role={role} />
         </div>
       </SectionCard>
     </div>
