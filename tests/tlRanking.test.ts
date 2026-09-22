@@ -85,15 +85,14 @@ describe("buildTlRanking", () => {
     expect(result.rankings[0].achievedPct).toBeCloseTo(100.32, 1);
   });
 
-  it("carries the full-month target alongside the (elapsed-days) MTD target", () => {
+  it("sums each Team Leader's targetValue (the full month's commitment, per lib/mtdTarget.ts — not pro-rated)", () => {
     const result = buildTlRanking(
       [{ principal: "Bic-Nairobi", revenue: 20000000 }],
       [{ principal: "Bic-Nairobi", teamLeaderId: "tl-josephat" }],
       teamLeaders,
-      [{ teamLeaderId: "tl-josephat", targetValue: 20500000, monthlyTargetValue: 87400000 }]
+      [{ teamLeaderId: "tl-josephat", targetValue: 87400000 }]
     );
-    expect(result.rankings[0].mtdTarget).toBe(20500000);
-    expect(result.rankings[0].monthlyTarget).toBe(87400000);
+    expect(result.rankings[0].mtdTarget).toBe(87400000);
   });
 
   it("sorts by achievedPct descending, unranked (no target) Team Leaders last", () => {
@@ -143,10 +142,9 @@ function tlRow(
   teamLeaderName: string,
   mtdTarget: number,
   mtdRevenue: number,
-  monthlyTarget: number = mtdTarget,
   principals: string[] = []
 ): TlRankingRow {
-  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, monthlyTarget, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null, principals };
+  return { teamLeaderId, teamLeaderName, mtdTarget, mtdRevenue, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null, principals };
 }
 
 const supervisors = [
@@ -178,8 +176,8 @@ describe("canonicalTeamLeaderIdMap", () => {
 });
 
 describe("buildSupervisorRanking", () => {
-  it("groups several Team Leaders under one Supervisor and sums their target/revenue, including the full-month target", () => {
-    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 90000, 400000), tlRow("tl-calvince", "Calvince Onditi", 50000, 60000, 200000)];
+  it("groups several Team Leaders under one Supervisor and sums their target/revenue", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 90000), tlRow("tl-calvince", "Calvince Onditi", 50000, 60000)];
     const teamLeaders = [
       { id: "tl-shekila", name: "Shekila Hassan", supervisorId: "sup-lucy" },
       { id: "tl-calvince", name: "Calvince Onditi", supervisorId: "sup-lucy" },
@@ -189,15 +187,14 @@ describe("buildSupervisorRanking", () => {
     expect(result.rankings[0].supervisorId).toBe("sup-lucy");
     expect(result.rankings[0].mtdTarget).toBe(150000);
     expect(result.rankings[0].mtdRevenue).toBe(150000);
-    expect(result.rankings[0].monthlyTarget).toBe(600000); // 400K + 200K - ties out to the overall month target
     expect(result.rankings[0].teamLeaders.map((tl) => tl.teamLeaderId)).toEqual(["tl-calvince", "tl-shekila"]); // best (120%) before worst (90%)
     expect(result.unassignedTeamLeaders).toHaveLength(0);
   });
 
   it("unions its Team Leaders' principals, deduped and sorted", () => {
     const tlRanking = [
-      tlRow("tl-shekila", "Shekila Hassan", 100000, 90000, 400000, ["Mars-Nairobi", "Wrigley-Nairobi"]),
-      tlRow("tl-calvince", "Calvince Onditi", 50000, 60000, 200000, ["Mars-Nairobi"]),
+      tlRow("tl-shekila", "Shekila Hassan", 100000, 90000, ["Mars-Nairobi", "Wrigley-Nairobi"]),
+      tlRow("tl-calvince", "Calvince Onditi", 50000, 60000, ["Mars-Nairobi"]),
     ];
     const teamLeaders = [
       { id: "tl-shekila", name: "Shekila Hassan", supervisorId: "sup-lucy" },
@@ -260,8 +257,8 @@ describe("buildSupervisorRanking", () => {
 });
 
 describe("buildManagerRanking", () => {
-  it("rolls several Supervisors up to one Manager, summing their target/revenue/monthlyTarget", () => {
-    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 120000, 300000), tlRow("tl-josephat", "Josephat", 50000, 40000, 150000)];
+  it("rolls several Supervisors up to one Manager, summing their target/revenue", () => {
+    const tlRanking = [tlRow("tl-shekila", "Shekila Hassan", 100000, 120000), tlRow("tl-josephat", "Josephat", 50000, 40000)];
     const teamLeaders = [
       { id: "tl-shekila", name: "Shekila Hassan", supervisorId: "sup-lucy" },
       { id: "tl-josephat", name: "Josephat", supervisorId: "sup-eve" },
@@ -276,7 +273,6 @@ describe("buildManagerRanking", () => {
     expect(result.rankings[0].managerId).toBe("mgr-angela");
     expect(result.rankings[0].mtdTarget).toBe(150000);
     expect(result.rankings[0].mtdRevenue).toBe(160000);
-    expect(result.rankings[0].monthlyTarget).toBe(450000);
     expect(result.rankings[0].supervisors).toHaveLength(2);
   });
 

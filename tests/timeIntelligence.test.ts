@@ -310,7 +310,7 @@ describe("summarizeSalesForPeriod — the null-target invariant", () => {
     expect(summary.grossMarginPct).toBe(15);
   });
 
-  it("prorates an MTD target and its achievement to elapsed calendar days", () => {
+  it("an MTD target is the full month's commitment, not pro-rated to elapsed calendar days — Achievement % is actuals-so-far vs. the whole month", () => {
     const dataset = buildDataset({
       monthlySales: [salesRow({ year: "2026", month: "September", monthIndex: 8, revenue: 30000, target: 100000 })],
     });
@@ -320,8 +320,10 @@ describe("summarizeSalesForPeriod — the null-target invariant", () => {
       null,
       new Date("2026-09-09T06:00:00.000Z"),
     );
-    expect(summary.target).toBe(30000);
-    expect(summary.achievementPct).toBe(100);
+    expect(summary.target).toBe(100000);
+    expect(summary.achievementPct).toBe(30);
+    // mtdTargetPacing is still computed and returned — Run Rate (lib/executiveSummary.ts)
+    // still needs elapsedDays/daysInMonth to pace actuals forward, unrelated to Target itself.
     expect(summary.mtdTargetPacing).toEqual({ elapsedDays: 9, daysInMonth: 30, factor: 0.3 });
   });
 

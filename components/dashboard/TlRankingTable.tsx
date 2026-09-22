@@ -17,7 +17,6 @@ type TlRankingResponse =
 interface RankRowShape {
   key: string;
   name: string;
-  monthlyTarget: number;
   mtdTarget: number;
   mtdRevenue: number;
   achievedPct: number | null;
@@ -62,7 +61,6 @@ function RankRow({ row, depth, expandable, expanded, onToggle }: { row: RankRowS
       <Td>
         <PrincipalList principals={row.principals} />
       </Td>
-      <Td align="right">{formatCompact(row.monthlyTarget)}</Td>
       <Td align="right">{formatCompact(row.mtdTarget)}</Td>
       <Td align="right">{formatCompact(row.mtdRevenue)}</Td>
       <Td align="center">
@@ -72,7 +70,7 @@ function RankRow({ row, depth, expandable, expanded, onToggle }: { row: RankRowS
   );
 }
 
-/** MTD Target vs MTD Revenue, ranked from best to poorest performance — grouped by
+/** Target vs MTD Revenue, ranked from best to poorest performance — grouped by
  *  Sales Supervisor by default (several Team Leaders can share one Supervisor; see
  *  lib/tlRanking.ts's buildSupervisorRanking), with Team Leader detail nested
  *  underneath each Supervisor row rather than as the primary grouping. A Manager
@@ -145,7 +143,6 @@ export function TlRankingTable({
   }
 
   if (result.mode === "flat") {
-    const totalMonthlyTarget = result.rankings.reduce((s, r) => s + r.monthlyTarget, 0);
     const totalTarget = result.rankings.reduce((s, r) => s + r.mtdTarget, 0);
     const totalRevenue = result.rankings.reduce((s, r) => s + r.mtdRevenue, 0);
     const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
@@ -155,16 +152,15 @@ export function TlRankingTable({
           <Thead>
             <Th>Team Leader</Th>
             <Th>Principal(s)</Th>
-            <Th align="right">Full Month Target</Th>
-            <Th align="right">MTD Target</Th>
-            <Th align="right">MTD Revenue</Th>
-            <Th align="center">Achieved vs MTD</Th>
+            <Th align="right">Target</Th>
+            <Th align="right">Revenue</Th>
+            <Th align="center">Achieved</Th>
           </Thead>
           <tbody>
             {result.rankings.map((r) => (
               <RankRow
                 key={r.teamLeaderId}
-                row={{ key: r.teamLeaderId, name: r.teamLeaderName, monthlyTarget: r.monthlyTarget, mtdTarget: r.mtdTarget, mtdRevenue: r.mtdRevenue, achievedPct: r.achievedPct, principals: r.principals }}
+                row={{ key: r.teamLeaderId, name: r.teamLeaderName, mtdTarget: r.mtdTarget, mtdRevenue: r.mtdRevenue, achievedPct: r.achievedPct, principals: r.principals }}
                 depth={0}
                 expandable={false}
                 expanded={false}
@@ -173,7 +169,6 @@ export function TlRankingTable({
             <TotalRow>
               <Td>Total Sales</Td>
               <Td>—</Td>
-              <Td align="right">{formatCompact(totalMonthlyTarget)}</Td>
               <Td align="right">{formatCompact(totalTarget)}</Td>
               <Td align="right">{formatCompact(totalRevenue)}</Td>
               <Td align="center">
@@ -190,18 +185,15 @@ export function TlRankingTable({
   const { managerRanking, supervisorRanking } = result;
   const isManagerLevel = level === "manager" && managerRanking.rankings.length > 0;
 
-  const totalMonthlyTarget =
-    supervisorRanking.rankings.reduce((s, r) => s + r.monthlyTarget, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.monthlyTarget, 0);
   const totalTarget = supervisorRanking.rankings.reduce((s, r) => s + r.mtdTarget, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdTarget, 0);
   const totalRevenue = supervisorRanking.rankings.reduce((s, r) => s + r.mtdRevenue, 0) + supervisorRanking.unassignedTeamLeaders.reduce((s, r) => s + r.mtdRevenue, 0);
   const totalPct = totalTarget > 0 ? (totalRevenue / totalTarget) * 100 : null;
   const unassignedSupervisorSummary = supervisorRanking.unassignedTeamLeaders.reduce(
     (summary, teamLeader) => ({
-      monthlyTarget: summary.monthlyTarget + teamLeader.monthlyTarget,
       mtdTarget: summary.mtdTarget + teamLeader.mtdTarget,
       mtdRevenue: summary.mtdRevenue + teamLeader.mtdRevenue,
     }),
-    { monthlyTarget: 0, mtdTarget: 0, mtdRevenue: 0 }
+    { mtdTarget: 0, mtdRevenue: 0 }
   );
   const unassignedSupervisorPrincipals = Array.from(new Set(supervisorRanking.unassignedTeamLeaders.flatMap((tl) => tl.principals))).sort();
   const unassignedSupervisorPct =
@@ -236,10 +228,9 @@ export function TlRankingTable({
         <Thead>
           <Th>{isManagerLevel ? "Manager" : "Sales Supervisor"}</Th>
           <Th>Principal(s)</Th>
-          <Th align="right">Full Month Target</Th>
-          <Th align="right">MTD Target</Th>
-          <Th align="right">MTD Revenue</Th>
-          <Th align="center">Achieved vs MTD</Th>
+          <Th align="right">Target</Th>
+          <Th align="right">Revenue</Th>
+          <Th align="center">Achieved</Th>
         </Thead>
         <tbody>
           {isManagerLevel
@@ -248,7 +239,7 @@ export function TlRankingTable({
                 return (
                   <Fragment key={m.managerId}>
                     <RankRow
-                      row={{ key: m.managerId, name: m.managerName, monthlyTarget: m.monthlyTarget, mtdTarget: m.mtdTarget, mtdRevenue: m.mtdRevenue, achievedPct: m.achievedPct }}
+                      row={{ key: m.managerId, name: m.managerName, mtdTarget: m.mtdTarget, mtdRevenue: m.mtdRevenue, achievedPct: m.achievedPct }}
                       depth={0}
                       expandable
                       expanded={mExpanded}
@@ -261,7 +252,7 @@ export function TlRankingTable({
                           return (
                             <Fragment key={sKey}>
                               <RankRow
-                                row={{ key: sKey, name: s.supervisorName, monthlyTarget: s.monthlyTarget, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct, principals: s.principals }}
+                                row={{ key: sKey, name: s.supervisorName, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct, principals: s.principals }}
                                 depth={1}
                                 expandable
                                 expanded={sExpanded}
@@ -271,7 +262,7 @@ export function TlRankingTable({
                                 ? s.teamLeaders.map((tl) => (
                                     <RankRow
                                       key={`${sKey}|${tl.teamLeaderId}`}
-                                      row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
+                                      row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
                                       depth={2}
                                       expandable={false}
                                       expanded={false}
@@ -290,7 +281,7 @@ export function TlRankingTable({
                 return (
                   <Fragment key={s.supervisorId}>
                     <RankRow
-                      row={{ key: s.supervisorId, name: s.supervisorName, monthlyTarget: s.monthlyTarget, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct, principals: s.principals }}
+                      row={{ key: s.supervisorId, name: s.supervisorName, mtdTarget: s.mtdTarget, mtdRevenue: s.mtdRevenue, achievedPct: s.achievedPct, principals: s.principals }}
                       depth={0}
                       expandable
                       expanded={sExpanded}
@@ -300,7 +291,7 @@ export function TlRankingTable({
                       ? s.teamLeaders.map((tl) => (
                           <RankRow
                             key={`${s.supervisorId}|${tl.teamLeaderId}`}
-                            row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
+                            row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
                             depth={1}
                             expandable={false}
                             expanded={false}
@@ -317,7 +308,6 @@ export function TlRankingTable({
                     row={{
                       key: "unassigned-supervisor",
                       name: "Needs Sales Supervisor assignment",
-                      monthlyTarget: unassignedSupervisorSummary.monthlyTarget,
                       mtdTarget: unassignedSupervisorSummary.mtdTarget,
                       mtdRevenue: unassignedSupervisorSummary.mtdRevenue,
                       achievedPct: unassignedSupervisorPct,
@@ -332,7 +322,7 @@ export function TlRankingTable({
                     ? supervisorRanking.unassignedTeamLeaders.map((tl) => (
                         <RankRow
                           key={tl.teamLeaderId}
-                          row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, monthlyTarget: tl.monthlyTarget, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
+                          row={{ key: tl.teamLeaderId, name: tl.teamLeaderName, mtdTarget: tl.mtdTarget, mtdRevenue: tl.mtdRevenue, achievedPct: tl.achievedPct, principals: tl.principals }}
                           depth={1}
                           expandable={false}
                           expanded={false}
@@ -345,7 +335,6 @@ export function TlRankingTable({
           <TotalRow>
             <Td>Total Sales</Td>
             <Td>—</Td>
-            <Td align="right">{formatCompact(totalMonthlyTarget)}</Td>
             <Td align="right">{formatCompact(totalTarget)}</Td>
             <Td align="right">{formatCompact(totalRevenue)}</Td>
             <Td align="center">
