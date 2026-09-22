@@ -243,10 +243,16 @@ function summarizeSalesRows(rows: MonthlySalesRow[], months: MonthRef[], selecti
   // NOT go back to null just because one row among many (e.g. a single principal
   // not yet targeted for a given month) lacks one; summing whatever targets exist
   // is far more useful than blanking the whole period over one row's gap.
+  //
+  // Deliberately NOT pro-rated by elapsed days (it used to be, via
+  // mtdTargetPacing.factor) — Achievement % is always actuals-so-far vs. the
+  // full month's commitment, not vs. a shrinking slice of it; a rep isn't
+  // "on track" just because day 5's actuals happen to clear day-5-of-30 of the
+  // target. mtdTargetPacing itself is kept and still returned below - Run Rate
+  // (lib/executiveSummary.ts) still needs elapsedDays/daysInMonth to pace
+  // actuals forward, which is a different, legitimate use of the same figures.
   const mtdTargetPacing = getMtdTargetPacing(selection, asOf);
-  const target = hasAnyTarget
-    ? targetSum * (mtdTargetPacing?.factor ?? 1)
-    : null;
+  const target = hasAnyTarget ? targetSum : null;
 
   const grossMarginPct = revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
   const achievementPct = target !== null && target > 0 ? round1((revenue / target) * 100) : null;
