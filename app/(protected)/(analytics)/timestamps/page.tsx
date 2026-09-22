@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
+import { useCurrentUser } from "@/components/dashboard/UserContext";
+import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
@@ -518,6 +520,7 @@ function RepJourneyPanel({ detail, status, onClose }: { detail: RepDetailRespons
 }
 
 export default function TimestampsPage() {
+  const currentUser = useCurrentUser();
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [summary, setSummary] = useState<TimestampSummaryResponse | null>(null);
@@ -663,7 +666,15 @@ export default function TimestampsPage() {
   return (
     <div className="flex flex-col gap-4">
       <SfaReportNavigator current="pine" />
-      <SectionCard title="SalesEdge timestamps" action={<span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · Mon–Fri, excluding Kenyan holidays</span>}>
+      <SectionCard
+        title="SalesEdge timestamps"
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · Mon–Fri, excluding Kenyan holidays</span>
+            <InlineReportExport reportKey="timestamps" repFilter={selectedRep} allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
+          </div>
+        }
+      >
         <div className="flex flex-wrap items-end gap-3">
           <PrincipalSelector />
           <div className="flex flex-col gap-1">

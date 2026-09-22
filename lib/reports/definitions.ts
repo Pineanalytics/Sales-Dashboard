@@ -6,6 +6,7 @@
 import type { Dataset } from "@/lib/types";
 import type { PageKey } from "@/lib/pageAccess";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
+import type { ReceivablesDashboard } from "@/lib/receivables";
 import {
   summarizeSalesForPeriod,
   summarizeSalesByPrincipal,
@@ -548,6 +549,279 @@ const jpAdherenceReport: ReportDefinition = {
   },
 };
 
+interface Order360MetaDto {
+  range: string;
+  totalOrders: number;
+  totalValue: number;
+  podConfirmedPct: number;
+}
+interface Order360BacklogRowDto {
+  ref: string;
+  date: string;
+  customer: string;
+  fsr: string;
+  amount: number;
+  age: number;
+  owner: string;
+}
+interface Order360ReturnRowDto {
+  ref: string;
+  date: string;
+  customer: string;
+  fsr: string;
+  type: string;
+  returnDate: string | null;
+  amount: number;
+  owner: string;
+}
+
+const order360Report: ReportDefinition = {
+  key: "order-360",
+  label: "Order 360",
+  description: "Order-fulfillment backlog and returns for the current period. Company-wide — no principal dimension in source data.",
+  pageKey: "order-360",
+  async build({ period, repFilter }) {
+    const bounds = dateBoundsForPeriod(period);
+    if (!bounds) return emptyReport("Order 360");
+    const params = new URLSearchParams({ dateFrom: bounds.from.toISOString().slice(0, 10), dateTo: bounds.to.toISOString().slice(0, 10) });
+    const res = await fetch(`/api/order-360?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return emptyReport("Order 360");
+    const body = (await res.json()) as {
+      meta: Order360MetaDto;
+      backlog: Record<"clearance" | "pick" | "dispatch" | "audit" | "delivery", Order360BacklogRowDto[]>;
+      returns: { rows: Order360ReturnRowDto[] };
+    };
+
+    const stages: Array<[string, Order360BacklogRowDto[]]> = [
+      ["Clearance", body.backlog.clearance],
+      ["Pick", body.backlog.pick],
+      ["Dispatch", body.backlog.dispatch],
+      ["Audit", body.backlog.audit],
+      ["Delivery", body.backlog.delivery],
+    ];
+    const backlogRows = stages.flatMap(([stage, rows]) =>
+      rows.filter((r) => matchesRep(r.fsr, repFilter)).map((r) => [stage, r.ref, new Date(r.date).toLocaleDateString(), r.customer, r.fsr, round2(r.amount), r.age, r.owner])
+    );
+    const returnRows = body.returns.rows.filter((r) => matchesRep(r.fsr, repFilter));
+
+    return {
+      title: `Order 360 — ${body.meta.range}`,
+      generatedAt: new Date(),
+      summary: [
+        { label: "Total Orders", value: body.meta.totalOrders.toLocaleString() },
+        { label: "Total Value", value: body.meta.totalValue.toLocaleString() },
+        { label: "POD Confirmed %", value: `${body.meta.podConfirmedPct}%` },
+      ],
+      sections: [
+        {
+          title: "Open Backlog",
+          columns: ["Stage", "Ref", "Date", "Customer", "FSR", "Amount", "Age (days)", "Owner"],
+          rows: backlogRows,
+        },
+        {
+          title: "Returns",
+          columns: ["Ref", "Date", "Customer", "FSR", "Type", "Return Date", "Amount", "Owner"],
+          rows: returnRows.map((r) => [r.ref, new Date(r.date).toLocaleDateString(), r.customer, r.fsr, r.type, r.returnDate ? new Date(r.returnDate).toLocaleDateString() : "—", round2(r.amount), r.owner]),
+        },
+      ],
+    };
+  },
+};
+
+interface SalesReturnsSummaryDto {
+  salesNet: number;
+  returnsNet: number;
+  netAfterReturns: number;
+  invoiceLineCount: number;
+  returnLineCount: number;
+}
+interface SalesReturnsRepRowDto {
+  salesRepCode: string;
+  salesRepName: string;
+  sales: number;
+  returns: number;
+  net: number;
+  lineCount: number;
+}
+interface SalesReturnsDocTypeRowDto {
+  documentType: string;
+  documentTypeDesc: string;
+  lineCount: number;
+  netSale: number;
+}
+
+const salesReturnsReport: ReportDefinition = {
+  key: "sales-returns",
+  label: "Sales & Returns",
+  description: "Sales vs. returns by rep and document type for the current period. Branch-level — no principal dimension in source data.",
+  pageKey: "sales-returns",
+  async build({ period, repFilter }) {
+    const bounds = dateBoundsForPeriod(period);
+    if (!bounds) return emptyReport("Sales & Returns");
+    const params = new URLSearchParams({ from: bounds.from.toISOString().slice(0, 10), to: bounds.to.toISOString().slice(0, 10) });
+    const res = await fetch(`/api/sales-returns?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return emptyReport("Sales & Returns");
+    const body = (await res.json()) as { summary: SalesReturnsSummaryDto; byRep: SalesReturnsRepRowDto[]; byDocType: SalesReturnsDocTypeRowDto[] };
+    const byRep = body.byRep.filter((r) => matchesRep(r.salesRepName, repFilter));
+
+    return {
+      title: "Sales & Returns",
+      generatedAt: new Date(),
+      summary: [
+        { label: "Sales (Net)", value: body.summary.salesNet.toLocaleString() },
+        { label: "Returns (Net)", value: body.summary.returnsNet.toLocaleString() },
+        { label: "Net After Returns", value: body.summary.netAfterReturns.toLocaleString() },
+        { label: "Invoice Lines", value: body.summary.invoiceLineCount.toLocaleString() },
+        { label: "Return Lines", value: body.summary.returnLineCount.toLocaleString() },
+      ],
+      sections: [
+        {
+          title: "By Rep",
+          columns: ["Rep Code", "Rep Name", "Sales", "Returns", "Net", "Lines"],
+          rows: byRep.map((r) => [r.salesRepCode, r.salesRepName, round2(r.sales), round2(r.returns), round2(r.net), r.lineCount]),
+        },
+        {
+          title: "By Document Type",
+          columns: ["Document Type", "Description", "Lines", "Net Sale"],
+          rows: body.byDocType.map((d) => [d.documentType, d.documentTypeDesc, d.lineCount, round2(d.netSale)]),
+        },
+      ],
+    };
+  },
+};
+
+interface DormantStockItemDto {
+  principal: string;
+  item: string;
+  itemCode: string;
+  openingPcs: number;
+  openingValue: number;
+  lastSaleDate: string | null;
+}
+
+const dormantStockReport: ReportDefinition = {
+  key: "dormant-stock",
+  label: "Dormant OOS",
+  description: "Dormant out-of-stock items — no recent sale, still holding value.",
+  pageKey: "dormant-stock",
+  async build({ principalKey }) {
+    const res = await fetch("/api/dormant-stock", { cache: "no-store" });
+    if (!res.ok) return emptyReport("Dormant OOS");
+    const body = (await res.json()) as { items: DormantStockItemDto[] };
+    const items = body.items.filter((i) => !principalKey || i.principal === principalKey);
+    const totalValue = items.reduce((sum, i) => sum + i.openingValue, 0);
+
+    return {
+      title: "Dormant OOS",
+      generatedAt: new Date(),
+      summary: [
+        { label: "Item Count", value: items.length.toLocaleString() },
+        { label: "Total Value", value: totalValue.toLocaleString() },
+      ],
+      sections: [
+        {
+          title: "Dormant Items",
+          columns: ["Principal", "Item", "Item Code", "Opening Pcs", "Opening Value", "Last Sale Date"],
+          rows: items.map((i) => [i.principal, i.item, i.itemCode, round2(i.openingPcs), round2(i.openingValue), i.lastSaleDate ? new Date(i.lastSaleDate).toLocaleDateString() : "Never"]),
+        },
+      ],
+    };
+  },
+};
+
+interface MarsSellerRowDto {
+  name: string;
+  ptdSsu: number;
+  ytdSsu: number;
+  ptdRevenue: number;
+  ytdRevenue: number;
+  ptdVisits: number;
+  ptdProductive: number;
+}
+interface MarsSummaryDto {
+  current: { ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number };
+  target: { ptdSsuTarget: number };
+  ptdAchievement: number | null;
+  ytdAchievement: number | null;
+}
+
+const principalKpisReport: ReportDefinition = {
+  key: "principal-kpis",
+  label: "Principal KPIs",
+  description: "Mars SSU/revenue performance vs. target and by seller for the current fiscal period. Uses Mars' own fiscal-period filter, not the global period/principal selector.",
+  pageKey: "principal-kpis",
+  async build() {
+    const res = await fetch("/api/principal-kpis/mars", { cache: "no-store" });
+    if (!res.ok) return emptyReport("Principal KPIs");
+    const body = (await res.json()) as {
+      available: boolean;
+      fiscalYear?: string;
+      selectedPeriod?: number;
+      summary?: MarsSummaryDto;
+      bySeller?: MarsSellerRowDto[];
+    };
+    if (!body.available || !body.summary) return emptyReport("Principal KPIs");
+    const { summary } = body;
+
+    return {
+      title: `Principal KPIs — Mars, Period ${body.selectedPeriod ?? "?"} FY${body.fiscalYear ?? "?"}`,
+      generatedAt: new Date(),
+      summary: [
+        { label: "PTD SSU", value: summary.current.ptdSsu.toLocaleString() },
+        { label: "PTD SSU Target", value: summary.target.ptdSsuTarget.toLocaleString() },
+        { label: "PTD Achievement %", value: summary.ptdAchievement !== null ? `${summary.ptdAchievement}%` : "N/A" },
+        { label: "YTD SSU", value: summary.current.ytdSsu.toLocaleString() },
+        { label: "YTD Achievement %", value: summary.ytdAchievement !== null ? `${summary.ytdAchievement}%` : "N/A" },
+        { label: "PTD Revenue", value: summary.current.ptdRevenue.toLocaleString() },
+      ],
+      sections: [
+        {
+          title: "By Seller",
+          columns: ["Seller", "PTD SSU", "YTD SSU", "PTD Revenue", "YTD Revenue", "PTD Visits", "PTD Productive"],
+          rows: (body.bySeller ?? []).map((s) => [s.name, round2(s.ptdSsu), round2(s.ytdSsu), round2(s.ptdRevenue), round2(s.ytdRevenue), s.ptdVisits, s.ptdProductive]),
+        },
+      ],
+    };
+  },
+};
+
+const receivablesReport: ReportDefinition = {
+  key: "receivables",
+  label: "Receivables",
+  description: "Customer credit exposure and ageing. Company-wide — not filtered by principal or period.",
+  pageKey: "receivables",
+  async build() {
+    const res = await fetch("/api/receivables", { cache: "no-store" });
+    if (!res.ok) return emptyReport("Receivables");
+    const body = (await res.json()) as { dashboard: ReceivablesDashboard | null };
+    if (!body.dashboard) return emptyReport("Receivables");
+    const d = body.dashboard;
+
+    return {
+      title: `Receivables — as of ${new Date(d.asOf).toLocaleDateString()}`,
+      generatedAt: new Date(),
+      summary: [
+        { label: "Outstanding", value: d.masterBalance.toLocaleString() },
+        { label: "Customers", value: d.customerCount.toLocaleString() },
+        { label: "Credit Limit Breaches", value: d.creditLimitBreaches.toLocaleString() },
+        { label: "Open Items", value: d.openItemCount.toLocaleString() },
+      ],
+      sections: [
+        {
+          title: "Customers",
+          columns: ["Code", "Name", "Status", "Term", "Credit Limit", "Outstanding", "Utilisation %"],
+          rows: d.customers.map((c) => [c.code, c.name, c.status, c.term, round2(c.creditLimit), round2(c.outstanding), c.utilisationPct !== null ? round2(c.utilisationPct) : "N/A"]),
+        },
+        {
+          title: "Largest Open Items",
+          columns: ["Customer", "Document Ref", "Due Date", "Open Balance", "Bucket"],
+          rows: d.largestItems.map((i) => [i.customer, i.documentRef ?? "—", new Date(i.dueDate).toLocaleDateString(), round2(i.openBalance), i.bucket]),
+        },
+      ],
+    };
+  },
+};
+
 export const REPORT_DEFINITIONS: ReportDefinition[] = [
   salesReport,
   coverageReport,
@@ -559,6 +833,11 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   activeOutletsReport,
   timestampsReport,
   jpAdherenceReport,
+  order360Report,
+  salesReturnsReport,
+  dormantStockReport,
+  principalKpisReport,
+  receivablesReport,
 ];
 
 // resolvePeriodMonths is re-exported for the catalog UI's periodLabel construction,
