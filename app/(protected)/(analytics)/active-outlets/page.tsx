@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useDashboardStore } from "@/lib/store";
+import { useCurrentUser } from "@/components/dashboard/UserContext";
+import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -30,6 +32,7 @@ function month3(month: string): string {
 }
 
 export default function ActiveOutletsPage() {
+  const currentUser = useCurrentUser();
   const selectedPrincipalKey = useDashboardStore((s) => s.selectedPrincipalKey);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [summary, setSummary] = useState<ActiveOutletSummary | null>(null);
@@ -104,7 +107,15 @@ export default function ActiveOutletsPage() {
 
       <SectionCard title="Active Outlets by Principal &amp; Sales Role"><TableWrap><Thead><Th>Principal</Th><Th>Sales Role</Th><Th align="right">Distinct Outlets</Th><Th align="right">Transactions</Th><Th align="right">Sales</Th></Thead><tbody>{summary.executiveRows.map((row) => <tr key={`${row.principal}|${row.salesRole}`}><Td>{row.principal}</Td><Td>{row.salesRole}</Td><Td align="right">{formatNumber(row.outlets)}</Td><Td align="right">{formatNumber(row.transactions)}</Td><Td align="right">{formatCompact(row.sales)}</Td></tr>)}<TotalRow><Td>Total</Td><Td>—</Td><Td align="right">{formatNumber(summary.totals.distinctOutlets)}</Td><Td align="right">{formatNumber(summary.totals.transactions)}</Td><Td align="right">{formatCompact(summary.totals.sales)}</Td></TotalRow></tbody></TableWrap></SectionCard>
 
-      <SectionCard title="Outlet Detail" action={<span className="text-xs text-muted">Top {Math.min(TOP_N_OUTLETS, summary.totals.availableOutlets)} of {summary.totals.availableOutlets} by sales</span>}><TableWrap><Thead><Th>Outlet</Th><Th>Principal</Th><Th>Channel</Th><Th>Sub Channel</Th><Th>Sales Role</Th><Th align="right">Times Bought</Th><Th>Frequency</Th><Th>Most Recent Rep</Th><Th align="right">Sales</Th></Thead><tbody>{summary.topOutlets.map((outlet) => <tr key={`${outlet.principal}|${outlet.customerId}`}><Td title={outlet.outletName}>{outlet.outletName}</Td><Td>{outlet.principal}</Td><Td>{outlet.channel}</Td><Td>{outlet.subChannel}</Td><Td>{outlet.salesRole}</Td><Td align="right">{formatNumber(outlet.timesBought)}</Td><Td>{outlet.frequencyBand}</Td><Td>{outlet.mostRecentRep ?? "—"}</Td><Td align="right">{formatCompact(outlet.sales)}</Td></tr>)}</tbody></TableWrap></SectionCard>
+      <SectionCard
+        title="Outlet Detail"
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted">Top {Math.min(TOP_N_OUTLETS, summary.totals.availableOutlets)} of {summary.totals.availableOutlets} by sales</span>
+            <InlineReportExport reportKey="active-outlets" allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
+          </div>
+        }
+      ><TableWrap><Thead><Th>Outlet</Th><Th>Principal</Th><Th>Channel</Th><Th>Sub Channel</Th><Th>Sales Role</Th><Th align="right">Times Bought</Th><Th>Frequency</Th><Th>Most Recent Rep</Th><Th align="right">Sales</Th></Thead><tbody>{summary.topOutlets.map((outlet) => <tr key={`${outlet.principal}|${outlet.customerId}`}><Td title={outlet.outletName}>{outlet.outletName}</Td><Td>{outlet.principal}</Td><Td>{outlet.channel}</Td><Td>{outlet.subChannel}</Td><Td>{outlet.salesRole}</Td><Td align="right">{formatNumber(outlet.timesBought)}</Td><Td>{outlet.frequencyBand}</Td><Td>{outlet.mostRecentRep ?? "—"}</Td><Td align="right">{formatCompact(outlet.sales)}</Td></tr>)}</tbody></TableWrap></SectionCard>
     </div>
   );
 }

@@ -44,11 +44,16 @@ export function GlobalFilterBar() {
         {canFilterExecutiveDays ? <DayNameSelector /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <InlineReportExport
-          reportKey={pageKeyForPathname(pathname) ?? ""}
-          allowedPages={user?.allowedPages ?? []}
-          isAdmin={user?.role === "ADMIN"}
-        />
+        {/* Active Outlets has real per-outlet detail below (the "Outlet Detail"
+            table) that reads better as the extract's anchor than this generic
+            bar — its own SectionCard hosts InlineReportExport instead. */}
+        {pathname === "/active-outlets" ? null : (
+          <InlineReportExport
+            reportKey={pageKeyForPathname(pathname) ?? ""}
+            allowedPages={user?.allowedPages ?? []}
+            isAdmin={user?.role === "ADMIN"}
+          />
+        )}
         <button
           onClick={clearAllFilters}
           disabled={selectedPrincipalKeys.length === 0 && !hasUserSelectedPeriod && !hasDayFilter}
