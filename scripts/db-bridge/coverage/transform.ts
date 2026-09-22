@@ -1,9 +1,13 @@
 // Replicates Principal_CostCentre_Fact.m's enrichment chain (SKU-prefix Cost Centre
-// resolution, nosale rep-modal-CC inference, SalesRole derivation, ProductiveFlag),
+// resolution, nosale rep-modal-CC inference, ProductiveFlag),
 // then appends "-Nairobi" (per the user: everything from this system is
 // Nairobi-based), applies the same fixup list already used for YTD_Raw, matches
 // against principals.json, and collapses to distinct-outlet counts per
 // Year+Month+SalesRole+Employee+CostCentre — the grain MonthlyCoverageRow expects.
+// SalesRole itself uses the shared classifySalesRole (../shared/salesRole) — this
+// bridge used to derive it inline with its own simplified MBSR/TDR-only rule, but
+// that made "Primary"/"Secondary" mean a different set of reps here than on Active
+// Outlets/Timestamps; unified onto the one precise rule everywhere (2026-09-22).
 //
 // Deliberately NOT gated by the M script's global ActivityStatus (active-as-of a
 // single END_DATE snapshot) — that's the right concept for "should this outlet
@@ -14,6 +18,7 @@ import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { MonthlyCoverageRow } from "@/lib/types";
 import type { PineFactRow } from "./query";
+import { classifySalesRole } from "../shared/salesRole";
 
 export interface PrincipalRow {
   key: string;
@@ -27,7 +32,6 @@ export interface PrincipalRow {
 
 const SALE_TYPES = new Set(["sale", "sale_return", "order", "order_return"]);
 const PRODUCTIVE_TYPES = new Set(["sale", "order"]);
-const MARS_CC = "mars";
 
 // Longest-prefix-first, so "UP" (Upfield) never shadows a longer prefix that
 // happens to start the same way — same rule as the source M query's PrincipalMap.
@@ -158,9 +162,7 @@ export function buildCoverage(rawRows: PineFactRow[], principals: PrincipalRow[]
       return;
     }
 
-    const userGroup = (r.userGroup ?? "").trim().toUpperCase();
-    const isMars = cleanedBrand.toLowerCase() === MARS_CC;
-    const salesRole = userGroup === "MBSR" || (userGroup === "TDR" && isMars) ? "Secondary Sales" : "Primary Sales";
+    const salesRole = classifySalesRole(r.userGroup ?? "", r.userId, cleanedBrand);
 
     const productive = PRODUCTIVE_TYPES.has(r.type) && r.revenue > 0 && r.qty > 0;
 
