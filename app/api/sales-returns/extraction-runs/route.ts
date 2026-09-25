@@ -57,6 +57,8 @@ export async function POST(req: NextRequest) {
     pjpSkuCount: validCount(payload.pjpSkuCount) ? payload.pjpSkuCount : 0,
     outletSkuCount: validCount(payload.outletSkuCount) ? payload.outletSkuCount : 0,
     activityCount: validCount(payload.activityCount) ? payload.activityCount : 0,
+    journeyPlanCount: validCount(payload.journeyPlanCount) ? payload.journeyPlanCount : 0,
+    visitCount: validCount(payload.visitCount) ? payload.visitCount : 0,
   };
   const errorMessage = typeof payload.errorMessage === "string" ? payload.errorMessage.slice(0, 2_000) : null;
   const completedAt = payload.status === "STARTED" ? null : new Date();

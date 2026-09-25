@@ -81,7 +81,7 @@ export function UnileverProductivityCard({ card }: { card: UnileverPjpCard }) {
         <p className="col-span-2 font-semibold text-white">MTD execution gaps</p>
         <p className="text-white/70">ECO: <span className="font-semibold text-white">{card.gaps.ecoOutletsCovered ?? "—"}</span> / <span className="text-white/50">{card.gaps.ecoOutletsUniverse ?? "universe unknown"}</span> outlets</p>
         <p className="text-white/70">PA outlets: <span className="font-semibold text-white">{card.gaps.paOutletsQualifying ?? "—"}</span> / <span className="text-white/50">{card.gaps.paOutletsTotal ?? "—"}</span></p>
-        <p className="text-white/70">Productive calls: <span className="font-semibold text-white">{card.gaps.productiveCalls.toLocaleString("en-US")}</span></p>
+        <p className="text-white/70">BP: <span className="font-semibold text-white">{card.gaps.bpCallsBilled ?? "—"}</span> / <span className="text-white/50">{card.gaps.bpCallsTotal ?? "—"}</span> calls</p>
         <p className="text-white/70">SKU lines: <span className="font-semibold text-white">{card.gaps.skuLines.toLocaleString("en-US")}</span></p>
       </div>
 
