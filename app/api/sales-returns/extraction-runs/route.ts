@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     activityCount: validCount(payload.activityCount) ? payload.activityCount : 0,
     journeyPlanCount: validCount(payload.journeyPlanCount) ? payload.journeyPlanCount : 0,
     visitCount: validCount(payload.visitCount) ? payload.visitCount : 0,
+    misKpiCount: validCount(payload.misKpiCount) ? payload.misKpiCount : 0,
   };
   const errorMessage = typeof payload.errorMessage === "string" ? payload.errorMessage.slice(0, 2_000) : null;
   const completedAt = payload.status === "STARTED" ? null : new Date();

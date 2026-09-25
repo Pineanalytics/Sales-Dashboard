@@ -13,9 +13,10 @@ function achievementColor(pct: number | null): string {
 
 /** Dark, presentation-style KPI scorecard for one Unilever PJP/rep, matching
  * the field team's existing "Individual Sales Productivity" report format.
- * Rows the synced Centegy data can't yet support (see lib/unileverKpi.ts's
- * module comment) render as "Pending setup" with their reason, rather than a
- * fabricated percentage. */
+ * A row renders as "Pending setup" with its reason, rather than a fabricated
+ * value, whenever its source data hasn't synced for this PJP/month yet (see
+ * lib/unileverKpi.ts's module comment) — most rows are real numbers once the
+ * sync has run, including Geo-Match, which can genuinely compute to 0%. */
 export function UnileverProductivityCard({ card }: { card: UnileverPjpCard }) {
   const computedKpis = card.kpis.filter((k) => k.status === "computed");
   const metKpis = computedKpis.filter((k) => k.targetValue !== null && k.actualValue !== null && k.actualValue >= k.targetValue);
