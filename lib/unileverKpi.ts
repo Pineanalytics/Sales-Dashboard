@@ -15,11 +15,14 @@
 // not it has ever billed. Billing Productivity needs a "calls attempted"
 // count independent of billing -- resolved via VisitSummaryRecord (same
 // date, from IG_O_VisitSummary), which logs a handheld visit regardless of
-// outcome. Geo-Match still has no data: every GPS-shaped column found in the
-// Centegy schema (CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK,
-// VisitSummaryRecord.startLatitude/Longitude) was empty when probed on
-// Nyeri that same day -- see scripts/db-bridge/sales-returns/probe-schema.ts.
-// That row (and ECO/Perfect Assortment/Billing Productivity when their
+// outcome. Both tables were confirmed present and populated on Nairobi too
+// (2026-09-25), with the same schema and CustomerCode format as Nyeri.
+// Geo-Match still has no data on either branch: every GPS-shaped column
+// found in the Centegy schema (CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK,
+// VisitSummaryRecord.startLatitude/Longitude) was empty on Nyeri and either
+// empty or a (0, 0) "null island" sentinel on Nairobi -- see
+// scripts/db-bridge/sales-returns/probe-schema.ts and visitSummaryQuery.ts's
+// own comment. That row (and ECO/Perfect Assortment/Billing Productivity when their
 // source table has no rows yet for a given PJP, e.g. before the extended
 // sync has run) stays "pending" with a plain-language reason rather than a
 // fabricated percentage.
@@ -85,7 +88,7 @@ const GEO_MATCH_TARGET_PCT = 98;
 
 const NO_ROSTER_REASON = "No journey-plan roster synced yet for this PJP — the outlet-universe sync may not have reached it yet.";
 const NO_VISITS_REASON = "No visit-summary data synced yet for this PJP this month.";
-const NO_GPS_REASON = "No GPS/geofence data is currently written by Centegy on this branch (checked CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK, and the visit log's own geo fields on 2026-09-25 — all empty).";
+const NO_GPS_REASON = "No GPS/geofence data is currently written by Centegy on either branch (checked CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK, and the visit log's own geo fields on both Nairobi and Nyeri, 2026-09-25 — all empty or a placeholder).";
 
 export interface ComputeUnileverKpiParams {
   month: string; // "YYYY-MM"

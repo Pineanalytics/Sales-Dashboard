@@ -11,9 +11,12 @@
 //
 // StartGeoCodeX/Y map to longitude/latitude respectively (GIS X/Y
 // convention, matching every other GeoCodeX/Y pair across this schema —
-// e.g. IG_I_Customer, Bck_IG_O_CustomerGeoCode) — unconfirmed empirically
-// since every sampled row on Nyeri (2026-09-25) had both null; Centegy isn't
-// currently writing device GPS here on that branch.
+// e.g. IG_I_Customer, Bck_IG_O_CustomerGeoCode). Confirmed on both branches
+// (2026-09-25) that Centegy isn't writing real device GPS here: null on
+// every sampled Nyeri row, and a literal (0, 0) -- "null island", nowhere
+// near Kenya -- on every sampled Nairobi row. Both are treated as "no GPS"
+// and normalized to null below, so a future maintainer doesn't mistake
+// (0, 0) for a real reading once/if this ever starts being written.
 import sql from "mssql";
 
 export interface VisitSummaryRow {
@@ -69,15 +72,19 @@ export async function fetchVisitSummary(
         AND TransactionDate >= @StartDate AND TransactionDate <= @EndDate
     `);
 
-  return result.recordset.map((r) => ({
-    distributor: r.DISTRIBUTOR,
-    route: r.ROUTE,
-    transactionDate: r.TRANSACTION_DATE.toISOString().slice(0, 10),
-    visitSequence: r.VISIT_SEQUENCE,
-    customerCode: r.CUSTOMER_CODE.replace(/~/g, ""),
-    visitStartAt: r.VISIT_START.toISOString(),
-    visitEndAt: r.VISIT_END.toISOString(),
-    startLatitude: r.GEO_Y,
-    startLongitude: r.GEO_X,
-  }));
+  return result.recordset.map((r) => {
+    // "Null island" sentinel -- see the module comment above.
+    const isNullIsland = r.GEO_X === 0 && r.GEO_Y === 0;
+    return {
+      distributor: r.DISTRIBUTOR,
+      route: r.ROUTE,
+      transactionDate: r.TRANSACTION_DATE.toISOString().slice(0, 10),
+      visitSequence: r.VISIT_SEQUENCE,
+      customerCode: r.CUSTOMER_CODE.replace(/~/g, ""),
+      visitStartAt: r.VISIT_START.toISOString(),
+      visitEndAt: r.VISIT_END.toISOString(),
+      startLatitude: isNullIsland ? null : r.GEO_Y,
+      startLongitude: isNullIsland ? null : r.GEO_X,
+    };
+  });
 }
