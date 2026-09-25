@@ -1,7 +1,9 @@
-// Sales & Returns bridge — six Centegy reports sharing one SQL connection
-// (invoice lines, PJP x SKU, Outlet x SKU, PJP/DSR daily activity, plus the
+// Sales & Returns bridge — seven Centegy reports sharing one SQL connection
+// (invoice lines, PJP x SKU, Outlet x SKU, PJP/DSR daily activity, the
 // journey-plan roster and visit-summary log added 2026-09-25 for the
-// Unilever KPI card — see journeyPlanQuery.ts/visitSummaryQuery.ts).
+// Unilever KPI card, plus Centegy's own pre-computed PJP KPI values added
+// the same day once discovered — see
+// journeyPlanQuery.ts/visitSummaryQuery.ts/misKpiQuery.ts).
 // Routine Task Scheduler runs use SALES_RETURNS_WINDOW=smart: every five
 // minutes the bridge finds SQL's newest real (non-future) delivery date,
 // compares a bounded set of exact daily signatures with the VPS, repairs the
@@ -26,6 +28,7 @@ import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
 import { fetchPjpDsrDailyActivity } from "./pjpDsrDailyActivityQuery";
 import { fetchJourneyPlanAssignments } from "./journeyPlanQuery";
 import { fetchVisitSummary } from "./visitSummaryQuery";
+import { fetchCurrentJc, priorJc, fetchMisKpiValues } from "./misKpiQuery";
 import {
   selectOldestMismatch,
   resolveManualSalesReturnsWindow,
@@ -99,6 +102,7 @@ interface ExtractionCounts {
   activityCount: number;
   journeyPlanCount: number;
   visitCount: number;
+  misKpiCount: number;
 }
 
 async function recordExtractionRun(
@@ -165,7 +169,7 @@ async function uploadWindow(
   const windowStart = start.toISOString();
   const windowEnd = new Date(end.getTime() + DAY_MS).toISOString();
   const extractionSerial = createSalesReturnsExtractionSerial(distributor);
-  const counts: ExtractionCounts = { invoiceLineCount: 0, pjpSkuCount: 0, outletSkuCount: 0, activityCount: 0, journeyPlanCount: 0, visitCount: 0 };
+  const counts: ExtractionCounts = { invoiceLineCount: 0, pjpSkuCount: 0, outletSkuCount: 0, activityCount: 0, journeyPlanCount: 0, visitCount: 0, misKpiCount: 0 };
   await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "STARTED");
   console.log(`[sales-returns] Extraction ${extractionSerial}: delivery date ${dateOnly(start)} to ${dateOnly(end)}.`);
 
@@ -205,6 +209,22 @@ async function uploadWindow(
     console.log(`[sales-returns] Fetched ${visitRows.length} visit-summary rows.`);
     await post("/api/visit-summary/upload", { rows: visitRows, distributor, windowStart, windowEnd });
 
+    // Centegy's own pre-computed KPI values, current + prior JC only — see
+    // misKpiQuery.ts. A branch with no JC_WEEK coverage for today (shouldn't
+    // happen for an active distributor) just skips this report rather than
+    // failing the whole extraction.
+    const currentJc = await fetchCurrentJc(pool, distributor);
+    if (currentJc) {
+      for (const jc of [currentJc, priorJc(currentJc)]) {
+        const misKpiRows = await fetchMisKpiValues(pool, distributor, jc.year, jc.jcno);
+        counts.misKpiCount += misKpiRows.length;
+        console.log(`[sales-returns] Fetched ${misKpiRows.length} MIS KPI value rows for ${jc.year}-${jc.jcno}.`);
+        await post("/api/mis-kpi/upload", { rows: misKpiRows, distributor, year: jc.year, jcno: jc.jcno });
+      }
+    } else {
+      console.warn(`[sales-returns] No JC_WEEK coverage found for distributor ${distributor}; skipping MIS KPI sync.`);
+    }
+
     // Invoice lines are the reconciliation commit marker and therefore upload
     // last. If any companion report above fails, their source/VPS mismatch is
     // retried next cycle instead of a completed invoice signature masking it.
@@ -223,7 +243,7 @@ async function uploadWindow(
     await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "COMPLETED", counts);
     return `Extraction ${extractionSerial} uploaded ${lines.length} invoice lines, ${pjpSkuRows.length} PJP x SKU rows, ` +
       `${outletSkuRows.length} Outlet x SKU rows, ${activityRows.length} activity rows, ${journeyPlanRows.length} journey-plan roster rows, ` +
-      `and ${visitRows.length} visit-summary rows for ${dateOnly(start)}.`;
+      `${visitRows.length} visit-summary rows, and ${counts.misKpiCount} MIS KPI value rows for ${dateOnly(start)}.`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {

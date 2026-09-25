@@ -1934,6 +1934,7 @@ model SalesReturnsExtractionRun {
   activityCount    Int       @default(0)
   journeyPlanCount Int       @default(0)
   visitCount       Int       @default(0)
+  misKpiCount      Int       @default(0)
   errorMessage     String?
   startedAt        DateTime  @default(now())
   completedAt      DateTime?
@@ -2019,16 +2020,19 @@ model JourneyPlanAssignment {
 }
 
 // A logged outlet visit from Centegy's IG_O_VisitSummary, independent of
-// whether it produced a CASHMEMO document -- unlike every other Sales &
-// Returns table, this is the "call was made" record the Unilever KPI card's
-// Billing Productivity denominator needs (lib/unileverKpi.ts). Per-day fact
-// grain like SalesReturnLine -- delete-and-replace by date window on each
-// sync run. startLatitude/startLongitude are carried even though every
-// sampled row today is null (Centegy isn't currently writing device GPS into
-// this field on the branches probed 2026-09-25) -- kept for when/if that
-// changes, at which point it becomes the Geo-Match source, compared against
-// Principal.location-independent POP.LATITUDE/LONGITUDE. customerCode is
-// normalized the same way as JourneyPlanAssignment's.
+// whether it produced a CASHMEMO document. Originally added as the Unilever
+// KPI card's Billing Productivity denominator; superseded 2026-09-25 by
+// MisKpiValue (Centegy already computes Billing Productivity itself, more
+// authoritatively, via its FCS6BP* KPIs -- see lib/unileverKpi.ts) but kept
+// syncing since it's the only real per-visit fact table (real timestamps,
+// duration), useful for a future visit-log drill-down page even though
+// nothing currently reads it. Per-day fact grain like SalesReturnLine --
+// delete-and-replace by date window on each sync run.
+// startLatitude/startLongitude are carried even though every sampled row is
+// null or a (0, 0) placeholder (Centegy isn't currently writing device GPS
+// into this field on either branch, confirmed 2026-09-25) -- kept for
+// when/if that changes. customerCode is normalized the same way as
+// JourneyPlanAssignment's.
 model VisitSummaryRecord {
   id              String   @id @default(cuid())
   // `${distributor}|${route}|${customerCode}|${transactionDate}|${visitSequence}` — unique per the source's own grain.
@@ -2048,6 +2052,38 @@ model VisitSummaryRecord {
   @@index([distributor, transactionDate])
   @@index([route, transactionDate])
   @@index([customerCode, transactionDate])
+}
+
+// Centegy's own pre-computed PJP KPI values, from its generic MIS_KPI_DATA
+// store (see scripts/db-bridge/sales-returns/misKpiQuery.ts) -- added
+// 2026-09-25 after discovering Centegy already computes ECO/Billing
+// Productivity/LPPC natively (its "FCS6" scoring module) and attempts a real
+// geofence check (its "EDGC" EFOS module), more authoritatively than the
+// hand-derived joins lib/unileverKpi.ts used before. `jcno` is Centegy's
+// "journey cycle" number, confirmed to equal the calendar month (01-12) via
+// JC_WEEK's date ranges -- NOT a calendar week despite JC_WEEK's name.
+// `kpiId` values synced here are either Centegy's own catalog codes
+// (FCS6ECR1-6, FCS6BPR1-7, FCS6LPR1-6) taken as-is, or our own MTD rollup of
+// Centegy's per-day EDGCR01/02 geofence counters (synthetic keys
+// GEOCODE_SCHEDULED_MTD/GEOCODE_MATCHED_MTD/GEOCODE_MATCHED_PCT_MTD, summed
+// in misKpiQuery.ts since Centegy itself only ever aggregates EDGC daily,
+// never monthly) -- kpiDesc says which. Full-replace per
+// (distributor, pjp, year, jcno) on each sync run, for the current and prior
+// JC only (see /api/mis-kpi/upload) -- this is a live snapshot, not an
+// immutable fact log, so older months are never backfilled automatically.
+model MisKpiValue {
+  id          String   @id @default(cuid())
+  distributor String
+  pjp         String
+  year        String
+  jcno        String
+  kpiId       String
+  kpiDesc     String
+  value       Float
+  updatedAt   DateTime @updatedAt
+
+  @@unique([distributor, pjp, year, jcno, kpiId])
+  @@index([distributor, pjp, year, jcno])
 }
 
 // Admin-entered monthly sales target for the Unilever "Individual Sales

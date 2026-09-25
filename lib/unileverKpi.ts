@@ -1,31 +1,27 @@
 // Computes the Unilever "Individual Sales Productivity" KPI card (Principal
 // KPIs -> Unilever) directly from the Centegy Sales & Returns sync tables
-// (SalesReturnLine, PjpSkuPerformance, JourneyPlanAssignment,
-// VisitSummaryRecord -- all exclusively Unilever data, see
-// lib/salesReturnsControl.ts), combined with the admin-entered
-// UnileverKpiTarget/UnileverAssortmentSku reference tables. Unlike the Mars
-// principal-KPIs feature, there is no uploaded workbook behind this --
-// everything here is either a live Centegy fact or an admin-maintained
-// reference row.
+// (SalesReturnLine, JourneyPlanAssignment, MisKpiValue -- all exclusively
+// Unilever data, see lib/salesReturnsControl.ts), combined with the
+// admin-entered UnileverKpiTarget/UnileverAssortmentSku reference tables.
+// Unlike the Mars principal-KPIs feature, there is no uploaded workbook
+// behind this -- everything here is either a live Centegy fact or an
+// admin-maintained reference row.
 //
-// ECO (Coverage) and Perfect Assortment need a true assigned-outlet universe
-// per PJP, independent of which outlets happened to transact -- resolved via
-// JourneyPlanAssignment (added 2026-09-25, sourced from Centegy's
-// IG_I_JourneyPlan), the only synced table that carries an outlet whether or
-// not it has ever billed. Billing Productivity needs a "calls attempted"
-// count independent of billing -- resolved via VisitSummaryRecord (same
-// date, from IG_O_VisitSummary), which logs a handheld visit regardless of
-// outcome. Both tables were confirmed present and populated on Nairobi too
-// (2026-09-25), with the same schema and CustomerCode format as Nyeri.
-// Geo-Match still has no data on either branch: every GPS-shaped column
-// found in the Centegy schema (CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK,
-// VisitSummaryRecord.startLatitude/Longitude) was empty on Nyeri and either
-// empty or a (0, 0) "null island" sentinel on Nairobi -- see
-// scripts/db-bridge/sales-returns/probe-schema.ts and visitSummaryQuery.ts's
-// own comment. That row (and ECO/Perfect Assortment/Billing Productivity when their
-// source table has no rows yet for a given PJP, e.g. before the extended
-// sync has run) stays "pending" with a plain-language reason rather than a
-// fabricated percentage.
+// ECO, Billing Productivity, LPPC and Geo-Match all come from MisKpiValue --
+// Centegy's own pre-computed PJP KPIs (its "FCS6" scoring module and "EDGC"
+// EFOS geofence module), discovered and wired in 2026-09-25 after finding
+// them more authoritative than deriving these by hand. See
+// scripts/db-bridge/sales-returns/misKpiQuery.ts for exactly which KPI_IDs
+// and why "JCNO" is the calendar month, not a week. Perfect Assortment isn't
+// in Centegy's KPI catalog at all, so it's still derived here, from
+// JourneyPlanAssignment (sourced from IG_I_JourneyPlan -- the only synced
+// table that carries an outlet whether or not it has ever billed) combined
+// with the admin-entered SKU basket. Geo-Match is real now, not
+// hypothetical: Centegy's own geofence check (EDGCR01/02, rolled up to MTD
+// in misKpiQuery.ts) currently matches 0% of scheduled outlets on every
+// sampled day on both branches (2026-09-25) -- shown as a real 0%, not
+// "pending", since it's a genuine (if bad) signal that geofencing isn't
+// working in the field, not a gap in this sync.
 
 import { prisma } from "./db";
 import { isKenyaWorkingDay } from "./kenyaBusinessCalendar";
@@ -87,8 +83,7 @@ const LPPC_TARGET = 10;
 const GEO_MATCH_TARGET_PCT = 98;
 
 const NO_ROSTER_REASON = "No journey-plan roster synced yet for this PJP — the outlet-universe sync may not have reached it yet.";
-const NO_VISITS_REASON = "No visit-summary data synced yet for this PJP this month.";
-const NO_GPS_REASON = "No GPS/geofence data is currently written by Centegy on either branch (checked CASHMEMO.GPS_COORDINATES, DSR_GPS_TRACK, and the visit log's own geo fields on both Nairobi and Nyeri, 2026-09-25 — all empty or a placeholder).";
+const NO_MIS_KPI_REASON = "Centegy hasn't computed this KPI for this PJP/month yet — the MIS KPI sync may not have reached it yet.";
 
 export interface ComputeUnileverKpiParams {
   month: string; // "YYYY-MM"
@@ -145,10 +140,9 @@ interface PjpAccumulator {
   repNames: Map<string, number>;
   salesActual: number;
   skuLineKeys: Set<string>; // `${invoiceNo}|${sku}` for genuine sold lines
-  productiveCallKeys: Set<string>; // `${customerCode}|${deliveryDate}`
   outletSkuSets: Map<string, Set<string>>; // customerCode -> skus bought (sold lines only)
   journeyPlanUniverse: Set<string>; // customerCode, from JourneyPlanAssignment
-  visitCount: number; // total logged visits this month, from VisitSummaryRecord
+  misKpi: Map<string, number>; // kpiId -> value, from MisKpiValue
 }
 
 function emptyAccumulator(distributor: string, pjp: string): PjpAccumulator {
@@ -159,10 +153,9 @@ function emptyAccumulator(distributor: string, pjp: string): PjpAccumulator {
     repNames: new Map(),
     salesActual: 0,
     skuLineKeys: new Set(),
-    productiveCallKeys: new Set(),
     outletSkuSets: new Map(),
     journeyPlanUniverse: new Set(),
-    visitCount: 0,
+    misKpi: new Map(),
   };
 }
 
@@ -173,7 +166,9 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
   const { elapsed, total } = workingDayCounts(month, asOf);
   const pacePct = total > 0 ? round1((elapsed / total) * 100) : 0;
 
-  const [lines, targets, assortmentSkus, ecoRows, journeyPlanRows, visitRows] = await Promise.all([
+  const [year, jcno] = month.split("-");
+
+  const [lines, targets, assortmentSkus, journeyPlanRows, misKpiRows] = await Promise.all([
     prisma.salesReturnLine.findMany({
       where: {
         deliveryDate: { gte: start, lt: end },
@@ -191,25 +186,20 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
         documentType: true,
         saleQtyPieces: true,
         netSale: true,
-        deliveryDate: true,
       },
     }),
     prisma.unileverKpiTarget.findMany({
       where: { month: start, ...(distributor ? { distributor } : {}) },
     }),
     prisma.unileverAssortmentSku.findMany({ where: { active: true }, select: { sku: true } }),
-    prisma.pjpSkuPerformance.findMany({
-      where: { month: start, ...(distributor ? { distributor } : {}) },
-      select: { distributor: true, pjp: true, ecoMtd: true },
-    }),
     // Current roster, not month-scoped -- see JourneyPlanAssignment's own comment.
     prisma.journeyPlanAssignment.findMany({
       where: distributor ? { distributor } : {},
       select: { distributor: true, pjp: true, customerCode: true },
     }),
-    prisma.visitSummaryRecord.findMany({
-      where: { transactionDate: { gte: start, lt: end }, ...(distributor ? { distributor } : {}) },
-      select: { distributor: true, route: true },
+    prisma.misKpiValue.findMany({
+      where: { year, jcno, ...(distributor ? { distributor } : {}) },
+      select: { distributor: true, pjp: true, kpiId: true, value: true },
     }),
   ]);
 
@@ -235,7 +225,6 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
 
     if (SOLD_DOCUMENT_TYPES.has(line.documentType) && line.saleQtyPieces > 0) {
       acc.skuLineKeys.add(`${line.invoiceNo}|${line.sku}`);
-      acc.productiveCallKeys.add(`${line.customerCode}|${line.deliveryDate.toISOString().slice(0, 10)}`);
       let skus = acc.outletSkuSets.get(line.customerCode);
       if (!skus) {
         skus = new Set();
@@ -246,17 +235,11 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
   }
 
   const targetByKey = new Map(targets.map((t) => [`${t.distributor}|${t.pjp}`, t.salesTarget]));
-  const ecoByKey = new Map<string, number>();
-  for (const row of ecoRows) {
-    const key = `${row.distributor}|${row.pjp}`;
-    ecoByKey.set(key, Math.max(ecoByKey.get(key) ?? 0, row.ecoMtd));
-  }
   // A PJP might only appear in one of these companion sources (e.g. no
-  // billed lines yet this month, but a roster already synced) -- still worth
-  // a card so its gap is visible.
-  for (const row of ecoRows) accFor(row.distributor, row.pjp);
+  // billed lines yet this month, but a roster or MIS KPI row already synced)
+  // -- still worth a card so its gap is visible.
   for (const row of journeyPlanRows) accFor(row.distributor, row.pjp).journeyPlanUniverse.add(row.customerCode);
-  for (const row of visitRows) accFor(row.distributor, row.route).visitCount += 1;
+  for (const row of misKpiRows) accFor(row.distributor, row.pjp).misKpi.set(row.kpiId, row.value);
 
   const cards: UnileverPjpCard[] = [];
   for (const acc of accumulators.values()) {
@@ -264,10 +247,26 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
     const target = targetByKey.get(key) ?? null;
     const balance = target === null ? null : target - acc.salesActual;
     const achievementPct = target && target > 0 ? round1((acc.salesActual / target) * 100) : null;
-    const lppc = acc.productiveCallKeys.size > 0 ? round1(acc.skuLineKeys.size / acc.productiveCallKeys.size) : null;
-    const ecoCovered = ecoByKey.get(key) ?? null;
-    const ecoUniverse = acc.journeyPlanUniverse.size > 0 ? acc.journeyPlanUniverse.size : null;
-    const ecoPct = ecoCovered !== null && ecoUniverse !== null ? round1((ecoCovered / ecoUniverse) * 100) : null;
+
+    const misVal = (kpiId: string) => acc.misKpi.get(kpiId) ?? null;
+
+    const ecoUniverse = misVal("FCS6ECR1");
+    const ecoCovered = misVal("FCS6ECR2");
+    const ecoPct = misVal("FCS6ECR3");
+    const ecoTargetPct = misVal("FCS6ECR4") ?? ECO_TARGET_PCT;
+
+    const bpTotal = misVal("FCS6BPR1");
+    const bpBilled = misVal("FCS6BPR2");
+    const bpPct = misVal("FCS6BPR3");
+    const bpTargetPct = misVal("FCS6BPR4") ?? BP_TARGET_PCT;
+
+    const lppcTarget = misVal("FCS6LPR3") ?? LPPC_TARGET;
+    const lppcAchRatioPct = misVal("FCS6LPR5");
+    // Centegy exposes the achievement ratio (Actual/Target), not the raw
+    // LPPC value directly -- back it out from the ratio and target.
+    const lppc = lppcAchRatioPct !== null ? round1((lppcAchRatioPct / 100) * lppcTarget) : null;
+
+    const geoPct = misVal("GEOCODE_MATCHED_PCT_MTD");
 
     let paQualifying: number | null = null;
     let paTotal: number | null = null;
@@ -281,10 +280,6 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
       }
       paPct = round1((paQualifying / paTotal) * 100);
     }
-
-    const bpTotal = acc.visitCount > 0 ? acc.visitCount : null;
-    const bpBilled = acc.productiveCallKeys.size;
-    const bpPct = bpTotal !== null ? round1((bpBilled / bpTotal) * 100) : null;
 
     const kpis: UnileverKpiRow[] = [
       {
@@ -314,50 +309,50 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
       {
         key: "eco",
         label: "ECO (Coverage)",
-        targetLabel: `${ECO_TARGET_PCT}%`,
-        targetValue: ECO_TARGET_PCT,
+        targetLabel: `${ecoTargetPct}%`,
+        targetValue: ecoTargetPct,
         actualValue: ecoPct,
         actualLabel: ecoPct === null ? "—" : `${ecoPct}%`,
         unit: "percent",
-        gapLabel: ecoPct === null ? null : `${round1(ecoPct - ECO_TARGET_PCT)}pp`,
+        gapLabel: ecoPct === null ? null : `${round1(ecoPct - ecoTargetPct)}pp`,
         status: ecoPct === null ? "pending" : "computed",
-        pendingReason: ecoPct === null ? NO_ROSTER_REASON : undefined,
+        pendingReason: ecoPct === null ? NO_MIS_KPI_REASON : undefined,
       },
       {
         key: "billingProductivity",
         label: "Billing Productivity",
-        targetLabel: `${BP_TARGET_PCT}%`,
-        targetValue: BP_TARGET_PCT,
+        targetLabel: `${bpTargetPct}%`,
+        targetValue: bpTargetPct,
         actualValue: bpPct,
         actualLabel: bpPct === null ? "—" : `${bpPct}%`,
         unit: "percent",
-        gapLabel: bpPct === null ? null : `${round1(bpPct - BP_TARGET_PCT)}pp`,
+        gapLabel: bpPct === null ? null : `${round1(bpPct - bpTargetPct)}pp`,
         status: bpPct === null ? "pending" : "computed",
-        pendingReason: bpPct === null ? NO_VISITS_REASON : undefined,
+        pendingReason: bpPct === null ? NO_MIS_KPI_REASON : undefined,
       },
       {
         key: "lppc",
         label: "LPPC",
-        targetLabel: String(LPPC_TARGET),
-        targetValue: LPPC_TARGET,
+        targetLabel: String(lppcTarget),
+        targetValue: lppcTarget,
         actualValue: lppc,
         actualLabel: lppc === null ? "—" : lppc.toFixed(2),
         unit: "lines",
-        gapLabel: lppc === null ? null : `${round1(lppc - LPPC_TARGET)} lines`,
+        gapLabel: lppc === null ? null : `${round1(lppc - lppcTarget)} lines`,
         status: lppc === null ? "pending" : "computed",
-        pendingReason: lppc === null ? "No productive calls logged yet this month." : undefined,
+        pendingReason: lppc === null ? NO_MIS_KPI_REASON : undefined,
       },
       {
         key: "geoMatch",
         label: "Geo-Match",
         targetLabel: `${GEO_MATCH_TARGET_PCT}%`,
         targetValue: GEO_MATCH_TARGET_PCT,
-        actualValue: null,
-        actualLabel: "—",
+        actualValue: geoPct,
+        actualLabel: geoPct === null ? "—" : `${geoPct}%`,
         unit: "percent",
-        gapLabel: null,
-        status: "pending",
-        pendingReason: NO_GPS_REASON,
+        gapLabel: geoPct === null ? null : `${round1(geoPct - GEO_MATCH_TARGET_PCT)}pp`,
+        status: geoPct === null ? "pending" : "computed",
+        pendingReason: geoPct === null ? NO_MIS_KPI_REASON : undefined,
       },
     ];
 
@@ -367,13 +362,14 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
       if (remainingDays > 0) recoveryPriorities.push(`Sales: KES ${Math.round(balance / remainingDays).toLocaleString("en-US")}/day for ${remainingDays} remaining day${remainingDays === 1 ? "" : "s"}.`);
       else recoveryPriorities.push(`Sales: KES ${Math.round(balance).toLocaleString("en-US")} short with no working days left this month.`);
     }
-    if (ecoPct !== null && ecoPct < ECO_TARGET_PCT && ecoUniverse !== null && ecoCovered !== null) {
-      const gap = ecoUniverse - ecoCovered;
-      if (gap > 0) recoveryPriorities.push(`Recover ${gap} additional outlet${gap === 1 ? "" : "s"} to reach ${ECO_TARGET_PCT}% ECO.`);
+    if (ecoPct !== null && ecoPct < ecoTargetPct && ecoUniverse !== null && ecoCovered !== null) {
+      const gap = Math.round(ecoUniverse - ecoCovered);
+      if (gap > 0) recoveryPriorities.push(`Recover ${gap} additional outlet${gap === 1 ? "" : "s"} to reach ${ecoTargetPct}% ECO.`);
     }
-    if (lppc !== null && lppc < LPPC_TARGET) recoveryPriorities.push(`Improve billing conversion, assortment and LPPC — currently ${lppc.toFixed(2)} lines per productive call vs a target of ${LPPC_TARGET}.`);
+    if (lppc !== null && lppc < lppcTarget) recoveryPriorities.push(`Improve billing conversion, assortment and LPPC — currently ${lppc.toFixed(2)} lines per productive call vs a target of ${lppcTarget}.`);
     if (paPct !== null && paPct < PA_TARGET_PCT && paTotal !== null && paQualifying !== null) recoveryPriorities.push(`Recover ${paTotal - paQualifying} outlet${paTotal - paQualifying === 1 ? "" : "s"} to reach ${PA_TARGET_PCT}% Perfect Assortment.`);
-    if (bpPct !== null && bpPct < BP_TARGET_PCT) recoveryPriorities.push(`Improve billing conversion — currently ${bpPct}% of logged visits result in a sale, vs a target of ${BP_TARGET_PCT}%.`);
+    if (bpPct !== null && bpPct < bpTargetPct) recoveryPriorities.push(`Improve billing conversion — currently ${bpPct}% of scheduled calls result in a sale, vs a target of ${bpTargetPct}%.`);
+    if (geoPct !== null && geoPct < GEO_MATCH_TARGET_PCT) recoveryPriorities.push(`Validate GPS exceptions — Geo-Match is at ${geoPct}% against a ${GEO_MATCH_TARGET_PCT}% target.`);
 
     cards.push({
       distributor: acc.distributor,
@@ -393,7 +389,7 @@ export async function computeUnileverKpiCards({ month, distributor, asOf = new D
         ecoOutletsUniverse: ecoUniverse,
         paOutletsQualifying: paQualifying,
         paOutletsTotal: paTotal,
-        bpCallsBilled: bpTotal !== null ? bpBilled : null,
+        bpCallsBilled: bpBilled,
         bpCallsTotal: bpTotal,
         skuLines: acc.skuLineKeys.size,
       },
