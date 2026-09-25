@@ -11,6 +11,11 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatCompact, formatNumber, formatPercent } from "@/lib/format";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
+import { UnileverProductivityCard } from "@/components/principalKpis/UnileverProductivityCard";
+import type { UnileverPjpCard } from "@/lib/unileverKpi";
+
+const UNILEVER_PRINCIPAL = "Unilever";
+interface UnileverData { available: boolean; month: string; distributorOptions: { value: string; label: string }[]; cards: UnileverPjpCard[] }
 
 type Summary = { current: { ptdSsu: number; ytdSsu: number; ptdRevenue: number; ytdRevenue: number; ptdOutlets: number; ptdProductive: number; ptdReturns: number }; prior: { ptdSsu: number }; target: { ptdSsuTarget: number; ytdSsuTarget: number }; ptdAchievement: number | null; ytdAchievement: number | null; ptdGrowth: number | null; ytdGrowth: number | null; ptdCoverage: number | null; ptdStrikeRate: number | null; ptdConversion: number | null };
 type FilterKey = "sellerType" | "employeeGroup" | "location" | "teamLeader" | "fsr";
@@ -33,6 +38,11 @@ export default function PrincipalKpisPage() {
   const [principal, setPrincipal] = useState<string | null>(null);
   const [principalOptions, setPrincipalOptions] = useState<string[]>([]);
   const [optionsState, setOptionsState] = useState<"loading" | "ready" | "error">("loading");
+  const [unileverData, setUnileverData] = useState<UnileverData | null>(null);
+  const [unileverState, setUnileverState] = useState<"loading" | "ready" | "error">("loading");
+  const [unileverMonth, setUnileverMonth] = useState<string | null>(null);
+  const [unileverDistributor, setUnileverDistributor] = useState("");
+  const [unileverPjp, setUnileverPjp] = useState("");
 
   // Which principal(s) this user is scoped to — resolved once; the page then
   // fetches that principal's own KPI data below.
@@ -51,7 +61,7 @@ export default function PrincipalKpisPage() {
   }, []);
 
   useEffect(() => {
-    if (!principal) return;
+    if (!principal || principal === UNILEVER_PRINCIPAL) return;
     let cancelled = false;
     const params = new URLSearchParams();
     params.set("principal", principal);
@@ -68,9 +78,43 @@ export default function PrincipalKpisPage() {
     return () => { cancelled = true; };
   }, [principal, period, month, timeMode, filters]);
 
+  useEffect(() => {
+    if (principal !== UNILEVER_PRINCIPAL) return;
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (unileverMonth) params.set("month", unileverMonth);
+    if (unileverDistributor) params.set("distributor", unileverDistributor);
+    fetch(`/api/principal-kpis/unilever?${params}`, { cache: "no-store" })
+      .then(async (response) => { if (!response.ok) throw new Error("Unable to load Unilever KPI data."); return response.json() as Promise<UnileverData>; })
+      .then((body) => { if (!cancelled) { setUnileverData(body); setUnileverMonth((current) => current ?? body.month); setUnileverState("ready"); } })
+      .catch(() => { if (!cancelled) setUnileverState("error"); });
+    return () => { cancelled = true; };
+  }, [principal, unileverMonth, unileverDistributor]);
+
   if (optionsState === "loading") return <FullPageSpinner label="Loading Principal KPIs..." />;
   if (optionsState === "error") return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page." />;
   if (principalOptions.length === 0) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="No Principal KPI data available yet" description="Nothing has been imported for a principal you're assigned to. Ask your administrator if you expect to see data here." />;
+
+  if (principal === UNILEVER_PRINCIPAL) {
+    const cards = (unileverData?.cards ?? []).filter((card) => (!unileverDistributor || card.distributor === unileverDistributor) && (!unileverPjp || card.pjp === unileverPjp));
+    const pjpOptions = Array.from(new Set((unileverData?.cards ?? []).map((card) => card.pjp))).sort();
+    return <div className="flex flex-col gap-6">
+      <SectionCard title="Principal KPI workspace" action={<span className="text-xs text-muted">Computed live from the synced Centegy Sales &amp; Returns data — see /admin/unilever-kpis to set PJP sales targets and the assortment basket.</span>}>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="grid gap-1 text-xs font-medium text-muted">Principal<select value={principal ?? ""} onChange={(event) => setPrincipal(event.target.value)} disabled={principalOptions.length <= 1} className="h-10 min-w-40 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground disabled:opacity-100">{principalOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
+          <label className="grid gap-1 text-xs font-medium text-muted">Month<input type="month" value={unileverMonth ?? ""} onChange={(event) => setUnileverMonth(event.target.value)} className="h-10 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground" /></label>
+          <label className="grid gap-1 text-xs font-medium text-muted">Branch<select value={unileverDistributor} onChange={(event) => { setUnileverDistributor(event.target.value); setUnileverPjp(""); }} className="h-10 min-w-36 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground"><option value="">All</option>{(unileverData?.distributorOptions ?? []).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+          <label className="grid gap-1 text-xs font-medium text-muted">PJP / route<select value={unileverPjp} onChange={(event) => setUnileverPjp(event.target.value)} className="h-10 min-w-40 rounded-xl border border-border bg-background-elevated px-3 text-sm font-semibold text-foreground"><option value="">All</option>{pjpOptions.map((pjp) => <option value={pjp} key={pjp}>{pjp}</option>)}</select></label>
+        </div>
+      </SectionCard>
+
+      {unileverState === "loading" && !unileverData ? <FullPageSpinner label="Loading Unilever KPIs..." /> : null}
+      {unileverState === "error" ? <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Unilever KPIs" description="Try refreshing the page." /> : null}
+      {unileverState === "ready" && cards.length === 0 ? <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="No Unilever activity for this selection" description="No Centegy Sales & Returns data has synced for this month/branch/PJP yet." /> : null}
+      {cards.length > 0 ? <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">{cards.map((card) => <UnileverProductivityCard card={card} key={`${card.distributor}-${card.pjp}`} />)}</div> : null}
+    </div>;
+  }
+
   if (state === "loading" && !data) return <FullPageSpinner label="Loading Principal KPIs..." />;
   if (state === "error" || !data) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title="Couldn't load Principal KPIs" description="Try refreshing the page. If the issue persists, the reference import may need attention." />;
   if (!data.available || !data.summary) return <EmptyState icon={<TargetArrow20Regular className="h-10 w-10" />} title={`${principal} KPI data is being prepared`} description="The fiscal calendar, targets, roster and sales ledger for this principal are not loaded yet." />;

@@ -23,6 +23,7 @@ const SECTIONS = [
     description: "Use the planning tools in the order targets are set and allocated.",
     links: [
       { href: "/admin/targets", title: "Monthly targets", description: "Upload and amend targets by principal.", initials: "MT" },
+      { href: "/admin/unilever-kpis", title: "Unilever KPI setup", description: "PJP sales targets and the core assortment SKU basket.", initials: "UK" },
       { href: "/targets-overview", title: "Target workspace", description: "Review monthly, weekly and roster plans together.", initials: "TW" },
       { href: "/weekly-targets", title: "Weekly targets", description: "Set Team Leader weekly projections.", initials: "WT" },
     ],
