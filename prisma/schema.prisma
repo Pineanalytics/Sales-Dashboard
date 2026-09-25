@@ -1932,6 +1932,8 @@ model SalesReturnsExtractionRun {
   pjpSkuCount      Int       @default(0)
   outletSkuCount   Int       @default(0)
   activityCount    Int       @default(0)
+  journeyPlanCount Int       @default(0)
+  visitCount       Int       @default(0)
   errorMessage     String?
   startedAt        DateTime  @default(now())
   completedAt      DateTime?
@@ -1986,6 +1988,100 @@ model SalesReturnsControl {
   updatedAt      DateTime  @updatedAt
 
   @@index([status])
+}
+
+// The real outlet-to-PJP roster, sourced from Centegy's IG_I_JourneyPlan --
+// unlike every other Sales & Returns table, this carries an outlet whether or
+// not it has ever transacted, which is what the Unilever KPI card's ECO
+// (Coverage) and Perfect Assortment denominators need (lib/unileverKpi.ts).
+// Not date-partitioned like the other reports: IG_I_JourneyPlan is Centegy's
+// current assignment state (a customer recurs across every week of its visit
+// cycle), so each sync run replaces a distributor's whole roster rather than
+// a delete-and-replace-by-date window, and rows are deduped down to one per
+// (distributor, pjp, customerCode) -- the KPI card only needs "is this
+// outlet assigned to this PJP", not the full weekly visit calendar.
+// customerCode is normalized to match SalesReturnLine.customerCode's
+// TOWN+LOCALITY+SLOCALITY+POP concatenation (the source's own CustomerCode
+// uses "~" separators -- see scripts/db-bridge/sales-returns/journeyPlanQuery.ts).
+model JourneyPlanAssignment {
+  id           String   @id @default(cuid())
+  distributor  String
+  pjp          String
+  routeDesc    String
+  customerCode String
+  sequenceDay  Int?
+  workingDay   Int?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([distributor, pjp, customerCode])
+  @@index([distributor, pjp])
+  @@index([customerCode])
+}
+
+// A logged outlet visit from Centegy's IG_O_VisitSummary, independent of
+// whether it produced a CASHMEMO document -- unlike every other Sales &
+// Returns table, this is the "call was made" record the Unilever KPI card's
+// Billing Productivity denominator needs (lib/unileverKpi.ts). Per-day fact
+// grain like SalesReturnLine -- delete-and-replace by date window on each
+// sync run. startLatitude/startLongitude are carried even though every
+// sampled row today is null (Centegy isn't currently writing device GPS into
+// this field on the branches probed 2026-09-25) -- kept for when/if that
+// changes, at which point it becomes the Geo-Match source, compared against
+// Principal.location-independent POP.LATITUDE/LONGITUDE. customerCode is
+// normalized the same way as JourneyPlanAssignment's.
+model VisitSummaryRecord {
+  id              String   @id @default(cuid())
+  // `${distributor}|${route}|${customerCode}|${transactionDate}|${visitSequence}` — unique per the source's own grain.
+  sourceRowKey    String   @unique
+  distributor     String
+  route           String
+  transactionDate DateTime
+  visitSequence   Int
+  customerCode    String
+  visitStartAt    DateTime
+  visitEndAt      DateTime
+  startLatitude   Float?
+  startLongitude  Float?
+  createdAt       DateTime @default(now())
+
+  @@index([transactionDate])
+  @@index([distributor, transactionDate])
+  @@index([route, transactionDate])
+  @@index([customerCode, transactionDate])
+}
+
+// Admin-entered monthly sales target for the Unilever "Individual Sales
+// Productivity" KPI card (Principal KPIs → Unilever), keyed at PJP (route)
+// grain to match the identifiers Centegy's Sales & Returns bridge already
+// carries (SalesReturnLine.route, PjpDsrDailyActivity.pjp) — deliberately not
+// the Mars-style PrincipalKpi* workbook-import models, since Unilever's KPIs
+// are computed live from the synced Centegy tables, not an uploaded workbook.
+// No rep/PJP-grain target existed anywhere in this system before this model;
+// see lib/unileverKpi.ts for how it's combined with synced actuals.
+model UnileverKpiTarget {
+  id          String   @id @default(cuid())
+  month       DateTime // first-of-month marker (Africa/Nairobi)
+  distributor String // Centegy distributor code — see lib/salesReturnsControl.ts
+  pjp         String
+  salesTarget Float
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([month, distributor, pjp])
+  @@index([month, distributor])
+}
+
+// Admin-defined "core SKU basket" for the Unilever KPI card's Perfect
+// Assortment metric — an outlet counts as perfectly assorted for a month once
+// it has bought every active row here at least once (see
+// lib/unileverKpi.ts). Global for the initial rollout, not per-channel/PJP.
+model UnileverAssortmentSku {
+  id        String   @id @default(cuid())
+  sku       String   @unique // matches SalesReturnLine.sku / OutletSkuDailySales.sku
+  skuDesc   String?
+  active    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }
 
 // Operational metadata sent by the isolated EABL download machine. This is

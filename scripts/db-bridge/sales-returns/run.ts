@@ -1,4 +1,7 @@
-// Sales & Returns bridge — four Centegy reports sharing one SQL connection.
+// Sales & Returns bridge — six Centegy reports sharing one SQL connection
+// (invoice lines, PJP x SKU, Outlet x SKU, PJP/DSR daily activity, plus the
+// journey-plan roster and visit-summary log added 2026-09-25 for the
+// Unilever KPI card — see journeyPlanQuery.ts/visitSummaryQuery.ts).
 // Routine Task Scheduler runs use SALES_RETURNS_WINDOW=smart: every five
 // minutes the bridge finds SQL's newest real (non-future) delivery date,
 // compares a bounded set of exact daily signatures with the VPS, repairs the
@@ -21,6 +24,8 @@ import {
 import { fetchPjpSkuPerformance } from "./pjpSkuQuery";
 import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
 import { fetchPjpDsrDailyActivity } from "./pjpDsrDailyActivityQuery";
+import { fetchJourneyPlanAssignments } from "./journeyPlanQuery";
+import { fetchVisitSummary } from "./visitSummaryQuery";
 import {
   selectOldestMismatch,
   resolveManualSalesReturnsWindow,
@@ -92,6 +97,8 @@ interface ExtractionCounts {
   pjpSkuCount: number;
   outletSkuCount: number;
   activityCount: number;
+  journeyPlanCount: number;
+  visitCount: number;
 }
 
 async function recordExtractionRun(
@@ -158,7 +165,7 @@ async function uploadWindow(
   const windowStart = start.toISOString();
   const windowEnd = new Date(end.getTime() + DAY_MS).toISOString();
   const extractionSerial = createSalesReturnsExtractionSerial(distributor);
-  const counts: ExtractionCounts = { invoiceLineCount: 0, pjpSkuCount: 0, outletSkuCount: 0, activityCount: 0 };
+  const counts: ExtractionCounts = { invoiceLineCount: 0, pjpSkuCount: 0, outletSkuCount: 0, activityCount: 0, journeyPlanCount: 0, visitCount: 0 };
   await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "STARTED");
   console.log(`[sales-returns] Extraction ${extractionSerial}: delivery date ${dateOnly(start)} to ${dateOnly(end)}.`);
 
@@ -187,6 +194,17 @@ async function uploadWindow(
     console.log(`[sales-returns] Fetched ${activityRows.length} PJP/DSR daily activity rows.`);
     await post("/api/pjp-dsr-daily-activity/upload", { rows: activityRows, distributor, windowStart, windowEnd });
 
+    // Current full roster, not windowed — see journeyPlanQuery.ts.
+    const journeyPlanRows = await fetchJourneyPlanAssignments(pool, distributor);
+    counts.journeyPlanCount = journeyPlanRows.length;
+    console.log(`[sales-returns] Fetched ${journeyPlanRows.length} journey-plan roster rows.`);
+    await post("/api/journey-plan/upload", { rows: journeyPlanRows, distributor });
+
+    const visitRows = await fetchVisitSummary(pool, start, end, distributor);
+    counts.visitCount = visitRows.length;
+    console.log(`[sales-returns] Fetched ${visitRows.length} visit-summary rows.`);
+    await post("/api/visit-summary/upload", { rows: visitRows, distributor, windowStart, windowEnd });
+
     // Invoice lines are the reconciliation commit marker and therefore upload
     // last. If any companion report above fails, their source/VPS mismatch is
     // retried next cycle instead of a completed invoice signature masking it.
@@ -204,7 +222,8 @@ async function uploadWindow(
 
     await recordExtractionRun(extractionSerial, distributor, windowStart, windowEnd, "COMPLETED", counts);
     return `Extraction ${extractionSerial} uploaded ${lines.length} invoice lines, ${pjpSkuRows.length} PJP x SKU rows, ` +
-      `${outletSkuRows.length} Outlet x SKU rows, and ${activityRows.length} activity rows for ${dateOnly(start)}.`;
+      `${outletSkuRows.length} Outlet x SKU rows, ${activityRows.length} activity rows, ${journeyPlanRows.length} journey-plan roster rows, ` +
+      `and ${visitRows.length} visit-summary rows for ${dateOnly(start)}.`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
