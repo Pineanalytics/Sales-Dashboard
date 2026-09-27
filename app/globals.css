@@ -132,6 +132,15 @@ table tbody tr:hover {
   background-color: rgba(255, 255, 255, 0.06);
 }
 
+/* The Unilever Individual Sales Productivity card renders its own dark
+   table; keep the shared light row treatment scoped out. */
+.unilever-kpi-scope table tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+.unilever-kpi-scope table tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
 /* A calm green focus ring for selected controls and button hover. */
 .shadow-cyan-glow {
   box-shadow: 0 0 0 3px rgba(113, 183, 65, 0.2), 0 6px 16px rgba(11, 61, 53, 0.16);
