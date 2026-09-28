@@ -8,8 +8,10 @@ import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { canEditMonthlyTarget } from "@/lib/targetPermission";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { ensureWeeklyTargetGrid, getWeeksInMonth } from "@/lib/weeklyTargets";
+import { summarizeSupervisorPrincipalContribution } from "@/lib/supervisorContribution";
 import {
   createAssignmentAction,
+  assignPrincipalToTeamLeaderAction,
   uploadRosterCsvAction,
   createReliefAction,
   endReliefAction,
@@ -91,6 +93,7 @@ export default async function AdminTeamLeadersPage({
   const contributionWarnings = validateContributionTotals(assignments);
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
+  const teamLeaderById = new Map(teamLeaders.map((tl) => [tl.id, tl]));
   const assignmentsByTeamLeader = new Map<string, typeof assignments>();
   for (const a of assignments) {
     const list = assignmentsByTeamLeader.get(a.teamLeaderId) ?? [];
@@ -144,6 +147,33 @@ export default async function AdminTeamLeadersPage({
       canEditMonthlyTarget(session.user),
     ]);
     const weeklyRowByWeekStart = new Map(weeklyRows.map((r) => [r.weekStartDate.getTime(), r]));
+
+    // Point 3 of the Team Leader / Sales Supervisor hierarchy redesign: Team
+    // Leaders sharing this Principal under the same Supervisor split the
+    // shared Monthly Target by their own reps' declared Contribution % —
+    // computed live from the assignments this page already fetched (no new
+    // schema; see lib/supervisorContribution.ts's own header comment).
+    const selectedSupervisorId = teamLeaderById.get(filterTeamLeader)?.supervisorId ?? null;
+    const supervisorContribution =
+      selectedSupervisorId && monthlyTarget?.valueTarget != null
+        ? (() => {
+            const summary = summarizeSupervisorPrincipalContribution(assignments, selectedSupervisorId, filterPrincipal);
+            if (summary.shares.length < 2) return null; // nothing to show one Team Leader alone can't already see
+            return {
+              supervisorName: supervisors.find((s) => s.id === selectedSupervisorId)?.name ?? selectedSupervisorId,
+              reconciled: summary.reconciled,
+              totalPct: summary.totalPct,
+              shares: summary.shares.map((s) => ({
+                teamLeaderId: s.teamLeaderId,
+                teamLeaderName: teamLeaderNameById.get(s.teamLeaderId) ?? s.teamLeaderId,
+                pct: s.totalPct,
+                valueShare: monthlyTarget.valueTarget! * s.totalPct,
+                hasUndeclared: s.hasUndeclared,
+              })),
+            };
+          })()
+        : null;
+
     targetsPanelData = {
       teamLeaderId: filterTeamLeader,
       teamLeaderName: teamLeaderNameById.get(filterTeamLeader) ?? filterTeamLeader,
@@ -157,6 +187,7 @@ export default async function AdminTeamLeadersPage({
         const row = weeklyRowByWeekStart.get(w.weekStartDate.getTime());
         return { weekLabel: w.weekLabel, id: row?.id ?? null, targetValue: row?.targetValue ?? 0 };
       }),
+      supervisorContribution,
     };
   }
 
@@ -243,7 +274,14 @@ export default async function AdminTeamLeadersPage({
               visiblePages: tl.visiblePages,
               canEditTargets: tl.canEditTargets,
             }))}
-            supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, managerId: s.managerId, visiblePages: s.visiblePages, canEditTargets: s.canEditTargets }))}
+            supervisors={supervisors.map((s) => ({
+              id: s.id,
+              name: s.name,
+              managerId: s.managerId,
+              directHodId: s.directHodId,
+              visiblePages: s.visiblePages,
+              canEditTargets: s.canEditTargets,
+            }))}
             managers={managers.map((m) => ({ id: m.id, name: m.name, hodId: m.hodId }))}
             hods={hods.map((h) => ({ id: h.id, name: h.name, directorId: h.directorId }))}
             directors={directors.map((d) => ({ id: d.id, name: d.name }))}
@@ -354,9 +392,64 @@ export default async function AdminTeamLeadersPage({
         </div>
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <h2 className="text-lg font-semibold text-primary-blue">Assign a Principal to a Team Leader</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            The normal way to give a Team Leader (or, once they have reps here, their Supervisor) visibility into a whole
+            Principal — this is what actually grants dashboard access, unlike &quot;Team Leader (ranking)&quot; on{" "}
+            <Link href="/admin/principals" className="text-primary-blue hover:underline">
+              Principals
+            </Link>
+            , which only credits MTD revenue for TL Ranking. Creates one visibility assignment for every rep currently
+            recognized under this Principal (Employee Roster Contribution sheet). Re-run it after new reps are
+            onboarded onto a Principal a Team Leader already owns — already-visible reps are skipped, hidden ones are
+            reactivated.
+          </p>
+          <form action={assignPrincipalToTeamLeaderAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Team Leader</label>
+              <select name="teamLeaderId" required defaultValue="" className={inputClass}>
+                <option value="" disabled>
+                  Select
+                </option>
+                {teamLeaders.map((tl) => (
+                  <option key={tl.id} value={tl.id}>
+                    {tl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Principal</label>
+              <select name="principal" defaultValue="" className={inputClass}>
+                <option value="">— choose existing —</option>
+                {knownPrincipals.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className={labelClass}>Or a new Principal</label>
+              <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
+            </div>
+            <div className="sm:col-span-3">
+              <button
+                type="submit"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              >
+                Assign every recognized rep &amp; make visible
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Assign a rep to a Team Leader × Principal</h2>
           <p className="mt-1 text-[13px] text-muted">
-            Saving creates an active visibility assignment immediately. A rep can be shared across multiple Team Leaders and principals; each Team Leader has their own visibility assignment.
+            For one-off additions — a single rep on a single Principal. Saving creates an active visibility assignment
+            immediately. A rep can be shared across multiple Team Leaders and principals; each Team Leader has their
+            own visibility assignment.
           </p>
           <form action={createAssignmentAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
             <div className="flex flex-col gap-2">

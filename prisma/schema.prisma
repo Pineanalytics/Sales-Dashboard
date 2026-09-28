@@ -197,11 +197,18 @@ model TeamLeaderRelief {
 // EmployeeMaster.supervisor name-matching in lib/teamLeaderScope.ts
 // (teamLeaderSupervisesName), which stays untouched.
 // managerId is this Supervisor's own reporting line up to Manager — same
-// reasoning as TeamLeader.supervisorId above.
+// reasoning as TeamLeader.supervisorId above. directHodId is the "Direct
+// assignment" bypass some Supervisors need (report straight to a Head of
+// Sales with no Manager in between) — at most one of managerId/directHodId
+// is ever set; the admin action layer (updateSupervisorManagerAction /
+// updateSupervisorDirectHodAction) clears the other whenever one is set,
+// since there's no cheap DB-level XOR constraint worth adding for two
+// nullable "by convention" ids.
 model Supervisor {
   id             String   @id @default(cuid())
   name           String   @unique
   managerId      String?
+  directHodId    String?
   createdAt      DateTime @default(now())
   // Same override mechanism as TeamLeader.visiblePages, one tier up.
   visiblePages   String[] @default([])
