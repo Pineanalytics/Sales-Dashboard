@@ -9,6 +9,7 @@ import {
   updateTeamLeaderSupervisorAction,
   updateTeamLeaderVisiblePagesAction,
   updateTeamLeaderCanEditTargetsAction,
+  retireAndReplaceTeamLeaderAction,
 } from "./actions";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 
@@ -38,15 +39,25 @@ export interface SupervisorOption {
  *  a soft navigation (same route, only searchParams change), not a remount. */
 export function TeamLeaderRosterPanel({
   teamLeaders,
+  allTeamLeaders,
   supervisors,
   renamingId,
   inputClass,
 }: {
   teamLeaders: TeamLeaderRow[];
+  /** Every Team Leader in this session's scope, company-wide — not just the
+   *  ones rendered in this particular panel (which may be narrowed to one
+   *  Supervisor's own group). Powers the "retire & replace" destination
+   *  picker, so it offers the same full choice regardless of which node in
+   *  the tree the panel happens to be rendered under. Defaults to `teamLeaders`
+   *  when the caller has no wider list to hand (e.g. genuinely showing every
+   *  Team Leader already). */
+  allTeamLeaders?: SupervisorOption[];
   supervisors: SupervisorOption[];
   renamingId?: string;
   inputClass: string;
 }) {
+  const replacementOptions = allTeamLeaders ?? teamLeaders;
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -209,6 +220,32 @@ export function TeamLeaderRosterPanel({
                           </button>
                         </form>
                       </div>
+                      {replacementOptions.filter((other) => other.id !== tl.id).length > 0 ? (
+                        <details className="border-t border-border/60 pt-3">
+                          <summary className="cursor-pointer text-[12px] font-medium text-primary-blue">Retiring? Transfer everything to a replacement</summary>
+                          <form action={retireAndReplaceTeamLeaderAction} className="mt-2 flex flex-wrap items-end gap-2">
+                            <input type="hidden" name="fromTeamLeaderId" value={tl.id} />
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[13px] font-medium text-muted-strong">Move every active rep, on every Principal, to</label>
+                              <select name="toTeamLeaderId" required defaultValue="" className={inputClass}>
+                                <option value="" disabled>
+                                  Choose replacement Team Leader
+                                </option>
+                                {replacementOptions
+                                  .filter((other) => other.id !== tl.id)
+                                  .map((other) => (
+                                    <option key={other.id} value={other.id}>
+                                      {other.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                            <button type="submit" className="rounded-full bg-background px-4 py-2 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft">
+                              Transfer everything
+                            </button>
+                          </form>
+                        </details>
+                      ) : null}
                     </>
                   )}
                 </div>

@@ -15,6 +15,9 @@ export interface HierarchySupervisor {
   id: string;
   name: string;
   managerId: string | null;
+  // "Direct assignment" — reports straight to a Head of Sales, bypassing
+  // Manager. At most one of managerId/directHodId is ever set.
+  directHodId: string | null;
 }
 export interface HierarchyManager {
   id: string;
@@ -47,7 +50,7 @@ export type HodNode<
   S extends HierarchySupervisor = HierarchySupervisor,
   M extends HierarchyManager = HierarchyManager,
   H extends HierarchyHod = HierarchyHod,
-> = H & { managers: ManagerNode<TL, S, M>[] };
+> = H & { managers: ManagerNode<TL, S, M>[]; directSupervisors: SupervisorNode<TL, S>[] };
 export type DirectorNode<
   TL extends HierarchyTeamLeader = HierarchyTeamLeader,
   S extends HierarchySupervisor = HierarchySupervisor,
@@ -95,6 +98,7 @@ export function buildRosterHierarchy<
 >(teamLeaders: TL[], supervisors: S[], managers: M[], hods: H[], directors: D[]): RosterHierarchy<TL, S, M, H, D> {
   const teamLeadersBySupervisor = groupByParent(teamLeaders, (tl) => tl.supervisorId);
   const supervisorsByManager = groupByParent(supervisors, (s) => s.managerId);
+  const supervisorsByDirectHod = groupByParent(supervisors, (s) => (s.managerId ? null : s.directHodId));
   const managersByHod = groupByParent(managers, (m) => m.hodId);
   const hodsByDirector = groupByParent(hods, (h) => h.directorId);
 
@@ -114,17 +118,25 @@ export function buildRosterHierarchy<
   const hodNode = (h: H): HodNode<TL, S, M, H> => ({
     ...h,
     managers: (managersByHod.get(h.id) ?? []).map(managerNode),
+    directSupervisors: (supervisorsByDirectHod.get(h.id) ?? []).map(supervisorNode),
   });
   const directorNode = (d: D): DirectorNode<TL, S, M, H, D> => ({
     ...d,
     hods: (hodsByDirector.get(d.id) ?? []).map(hodNode),
   });
 
+  // A Supervisor is properly placed once EITHER its Manager link OR its
+  // direct-to-Hod link resolves to a real row — managerId wins when (in
+  // spite of the action layer's mutual-exclusivity) both happen to be set.
+  const supervisorProperlyPlaced = (s: S): boolean =>
+    (Boolean(s.managerId) && validManagerIds.has(s.managerId as string)) ||
+    (!s.managerId && Boolean(s.directHodId) && validHodIds.has(s.directHodId as string));
+
   return {
     directors: directors.map(directorNode),
     unassignedHods: hods.filter((h) => !h.directorId || !validDirectorIds.has(h.directorId)).map(hodNode),
     unassignedManagers: managers.filter((m) => !m.hodId || !validHodIds.has(m.hodId)).map(managerNode),
-    unassignedSupervisors: supervisors.filter((s) => !s.managerId || !validManagerIds.has(s.managerId)).map(supervisorNode),
+    unassignedSupervisors: supervisors.filter((s) => !supervisorProperlyPlaced(s)).map(supervisorNode),
     unassignedTeamLeaders: teamLeaders.filter((tl) => !tl.supervisorId || !validSupervisorIds.has(tl.supervisorId)),
   };
 }

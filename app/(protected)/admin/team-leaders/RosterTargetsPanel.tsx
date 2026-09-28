@@ -7,6 +7,21 @@ export interface RosterTargetsWeeklyRow {
   targetValue: number;
 }
 
+export interface RosterTargetsSupervisorShare {
+  teamLeaderId: string;
+  teamLeaderName: string;
+  pct: number; // fraction
+  valueShare: number; // KES — monthlyTarget.valueTarget * pct
+  hasUndeclared: boolean;
+}
+
+export interface RosterTargetsSupervisorContribution {
+  supervisorName: string;
+  reconciled: boolean;
+  totalPct: number; // fraction
+  shares: RosterTargetsSupervisorShare[];
+}
+
 export interface RosterTargetsPanelData {
   teamLeaderId: string;
   teamLeaderName: string;
@@ -17,6 +32,11 @@ export interface RosterTargetsPanelData {
   sharedWithCount: number;
   canEditMonthlyTarget: boolean;
   weeklyRows: RosterTargetsWeeklyRow[];
+  /** Only present when at least 2 Team Leaders share this Principal under the
+   *  same Supervisor as the one currently selected — see
+   *  lib/supervisorContribution.ts. Null otherwise (no Supervisor, or the
+   *  Supervisor's only Team Leader on this Principal is the selected one). */
+  supervisorContribution: RosterTargetsSupervisorContribution | null;
 }
 
 /** The Weekly/Monthly Target context for whichever Team Leader x Principal
@@ -70,6 +90,40 @@ export function RosterTargetsPanel({ data, inputClass }: { data: RosterTargetsPa
           </p>
         )}
       </div>
+
+      {data.supervisorContribution ? (
+        <div className="rounded-xl bg-background-elevated p-4">
+          <h3 className="text-sm font-semibold text-foreground">
+            {data.supervisorContribution.supervisorName}&apos;s split of {data.principal}
+          </h3>
+          <p className="mt-1 text-[13px] text-muted">
+            The shared Monthly Target above, split by each Team Leader&apos;s own reps&apos; declared Contribution %.
+            {data.supervisorContribution.reconciled ? (
+              <span className="ml-1 text-accent-green">Reconciles to {(data.supervisorContribution.totalPct * 100).toFixed(1)}% — fully accounted for.</span>
+            ) : (
+              <span className="ml-1 text-accent-amber">
+                {(data.supervisorContribution.totalPct * 100).toFixed(1)}% declared so far — not yet fully accounted for.
+              </span>
+            )}
+          </p>
+          <div className="mt-2 flex flex-col gap-1">
+            {data.supervisorContribution.shares.map((share) => (
+              <div key={share.teamLeaderId} className={`flex items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-sm ${share.teamLeaderId === data.teamLeaderId ? "bg-accent-blue-soft" : ""}`}>
+                <span className="font-medium text-foreground">{share.teamLeaderName}</span>
+                <span className="text-muted">
+                  {share.hasUndeclared ? (
+                    <span className="text-accent-amber">not fully declared</span>
+                  ) : (
+                    <>
+                      {(share.pct * 100).toFixed(1)}% · {share.valueShare.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-xl bg-background-elevated p-4">
         <h3 className="text-sm font-semibold text-foreground">Weekly Target</h3>

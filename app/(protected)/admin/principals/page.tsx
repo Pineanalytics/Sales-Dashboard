@@ -85,6 +85,16 @@ export default async function AdminPrincipalsPage({
           </p>
         ) : null}
 
+        <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-muted-strong shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <strong className="text-accent-amber">&quot;Team Leader (ranking)&quot; and Supervisor below grant no dashboard access.</strong>{" "}
+          They only credit MTD revenue to one person for TL Ranking. To actually give a Team Leader or Supervisor visibility into
+          a Principal&apos;s data — including its reps — assign it on{" "}
+          <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">
+            Team Leaders
+          </Link>{" "}
+          (&quot;Assign a Principal to a Team Leader&quot;) instead.
+        </div>
+
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Add a principal</h2>
           <form action={createPrincipalAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -7,8 +7,10 @@ import {
   renameSupervisorAction,
   deleteSupervisorAction,
   updateSupervisorManagerAction,
+  updateSupervisorDirectHodAction,
   updateSupervisorVisiblePagesAction,
   updateSupervisorCanEditTargetsAction,
+  retireAndReplaceSupervisorAction,
   updateManagerHodAction,
   createHodAction,
   renameHodAction,
@@ -162,6 +164,7 @@ export function RosterHierarchyTree({
             key={director.id}
             director={director}
             directors={directors}
+            hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
@@ -181,6 +184,7 @@ export function RosterHierarchyTree({
                   key={hod.id}
                   hod={hod}
                   directors={directors}
+                  hods={hods}
                   teamLeaderRowsFor={teamLeaderRowsFor}
                   supervisorOptions={supervisorOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
@@ -215,13 +219,14 @@ export function RosterHierarchyTree({
 
         {hierarchy.unassignedSupervisors.length > 0 ? (
           <div className="rounded-xl border border-dashed border-border/60 p-4">
-            <p className="text-[13px] font-medium text-muted-strong mb-2">Sales Supervisors not yet reporting to a Manager</p>
+            <p className="text-[13px] font-medium text-muted-strong mb-2">Sales Supervisors not yet reporting to a Manager or Head of Sales</p>
             <div className="flex flex-col gap-3">
               {hierarchy.unassignedSupervisors.map((supervisor) => (
                 <SupervisorNodeView
                   key={supervisor.id}
                   supervisor={supervisor}
                   managers={managers}
+                  hods={hods}
                   teamLeaderRowsFor={teamLeaderRowsFor}
                   supervisorOptions={supervisorOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
@@ -253,6 +258,7 @@ export function RosterHierarchyTree({
 
 function DirectorNodeView({
   director,
+  hods,
   teamLeaderRowsFor,
   supervisorOptions,
   renamingTeamLeaderId,
@@ -263,6 +269,7 @@ function DirectorNodeView({
 }: {
   director: TreeDirectorNode;
   directors: HierarchyDirector[];
+  hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
   renamingTeamLeaderId?: string;
@@ -311,6 +318,7 @@ function DirectorNodeView({
             key={hod.id}
             hod={hod}
             directors={[]}
+            hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
@@ -328,6 +336,7 @@ function DirectorNodeView({
 function HodNodeView({
   hod,
   directors,
+  hods,
   teamLeaderRowsFor,
   supervisorOptions,
   renamingTeamLeaderId,
@@ -337,6 +346,7 @@ function HodNodeView({
 }: {
   hod: TreeHodNode;
   directors: HierarchyDirector[];
+  hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
   renamingTeamLeaderId?: string;
@@ -400,7 +410,7 @@ function HodNodeView({
           <ManagerNodeView
             key={manager.id}
             manager={manager}
-            hods={[]}
+            hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
@@ -408,7 +418,27 @@ function HodNodeView({
             inputClass={inputClass}
           />
         ))}
-        {hod.managers.length === 0 ? <p className="text-[13px] text-muted">No Manager reporting to this Head of Sales yet.</p> : null}
+        {hod.managers.length === 0 && hod.directSupervisors.length === 0 ? (
+          <p className="text-[13px] text-muted">No Manager or directly-reporting Sales Supervisor under this Head of Sales yet.</p>
+        ) : null}
+        {hod.directSupervisors.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-[12px] font-medium text-muted-strong">Reporting directly (no Manager)</p>
+            {hod.directSupervisors.map((supervisor) => (
+              <SupervisorNodeView
+                key={supervisor.id}
+                supervisor={supervisor}
+                managers={[]}
+                hods={hods}
+                teamLeaderRowsFor={teamLeaderRowsFor}
+                supervisorOptions={supervisorOptions}
+                renamingTeamLeaderId={renamingTeamLeaderId}
+                renamingSupervisorId={renamingSupervisorId}
+                inputClass={inputClass}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </details>
   );
@@ -464,6 +494,7 @@ function ManagerNodeView({
             key={supervisor.id}
             supervisor={supervisor}
             managers={[]}
+            hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
@@ -480,6 +511,7 @@ function ManagerNodeView({
 function SupervisorNodeView({
   supervisor,
   managers,
+  hods,
   teamLeaderRowsFor,
   supervisorOptions,
   renamingTeamLeaderId,
@@ -488,6 +520,7 @@ function SupervisorNodeView({
 }: {
   supervisor: TreeSupervisorNode;
   managers: HierarchyManager[];
+  hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
   renamingTeamLeaderId?: string;
@@ -535,6 +568,23 @@ function SupervisorNodeView({
                 </button>
               </form>
             ) : null}
+            {hods.length > 0 ? (
+              <form action={updateSupervisorDirectHodAction} className="flex items-center gap-1.5">
+                <input type="hidden" name="supervisorId" value={supervisor.id} />
+                <span className="text-[13px] text-muted">Or reports directly to</span>
+                <select name="directHodId" defaultValue={supervisor.directHodId ?? ""} className={inputClass + " py-1 text-xs"}>
+                  <option value="">— none —</option>
+                  {hods.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+                  Save
+                </button>
+              </form>
+            ) : null}
             <Link href={`/admin/team-leaders?renameSupervisor=${supervisor.id}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
               Rename
             </Link>
@@ -546,6 +596,32 @@ function SupervisorNodeView({
             </form>
           </div>
         )}
+        {supervisorOptions.filter((s) => s.id !== supervisor.id).length > 0 ? (
+          <details>
+            <summary className="cursor-pointer text-[12px] font-medium text-primary-blue">Retiring? Transfer everything to a replacement</summary>
+            <form action={retireAndReplaceSupervisorAction} className="mt-2 flex flex-wrap items-end gap-2">
+              <input type="hidden" name="fromSupervisorId" value={supervisor.id} />
+              <div className="flex flex-col gap-1">
+                <label className="text-[13px] font-medium text-muted-strong">Move every Team Leader and rep-level reporting line to</label>
+                <select name="toSupervisorId" required defaultValue="" className={inputClass + " py-1 text-xs"}>
+                  <option value="" disabled>
+                    Choose replacement Supervisor
+                  </option>
+                  {supervisorOptions
+                    .filter((s) => s.id !== supervisor.id)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-accent-amber hover:bg-accent-amber-soft">
+                Transfer everything
+              </button>
+            </form>
+          </details>
+        ) : null}
         <details>
           <summary className="cursor-pointer text-[12px] font-medium text-primary-blue">
             Visible pages override {supervisor.visiblePages.length > 0 ? `(${supervisor.visiblePages.length} set)` : "(none — uses own account permissions)"}

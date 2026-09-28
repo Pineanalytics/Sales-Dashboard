@@ -254,16 +254,36 @@ export async function updateSupervisorCanEditTargetsAction(formData: FormData) {
 }
 
 /** Sets which Manager a Supervisor reports to — Supervisor.managerId, same role
- *  one tier up as TeamLeader.supervisorId above. */
+ *  one tier up as TeamLeader.supervisorId above. Setting a real Manager clears
+ *  directHodId — a Supervisor reports through exactly one path at a time (see
+ *  updateSupervisorDirectHodAction below and the Supervisor model's comment). */
 export async function updateSupervisorManagerAction(formData: FormData) {
   await requireAdmin();
   const id = str(formData, "supervisorId");
   const managerId = str(formData, "managerId") || null;
 
   try {
-    await prisma.supervisor.update({ where: { id }, data: { managerId } });
+    await prisma.supervisor.update({ where: { id }, data: { managerId, ...(managerId ? { directHodId: null } : {}) } });
   } catch {
     redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Supervisor's Manager."));
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
+/** "Direct assignment" — lets a Supervisor report straight to a Head of Sales,
+ *  bypassing Manager entirely (e.g. a Supervisor whose group has no Manager
+ *  tier at all). Setting a real Head of Sales here clears managerId, the same
+ *  mutual-exclusivity updateSupervisorManagerAction enforces the other way. */
+export async function updateSupervisorDirectHodAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const directHodId = str(formData, "directHodId") || null;
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { directHodId, ...(directHodId ? { managerId: null } : {}) } });
+  } catch {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Supervisor's Head of Sales."));
   }
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
@@ -391,9 +411,13 @@ export async function deleteHodAction(formData: FormData) {
   }
 
   await prisma.manager.updateMany({ where: { hodId: id }, data: { hodId: null } });
+  await prisma.supervisor.updateMany({ where: { directHodId: id }, data: { directHodId: null } });
   await prisma.hod.delete({ where: { id } });
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Head of Sales "${hod.name}". Their Managers now need a new Head of Sales.`));
+  redirect(
+    "/admin/team-leaders?success=" +
+      encodeURIComponent(`Removed Head of Sales "${hod.name}". Their Managers and directly-reporting Supervisors now need a new Head of Sales.`)
+  );
 }
 
 /** Sets which Head of Sales a Manager reports to — Manager.hodId. */
@@ -1030,4 +1054,200 @@ export async function addRepPrincipalsAction(formData: FormData) {
   const parts = [added > 0 ? `added ${added}` : null, reactivated > 0 ? `reactivated ${reactivated}` : null].filter(Boolean);
   const message = parts.length > 0 ? `${master.pineName}: ${parts.join(", ")} Principal assignment(s).` : `${master.pineName} already has all selected Principals.`;
   redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}&filterTeamLeader=${encodeURIComponent(teamLeaderId)}#assignments`);
+}
+
+/** The actual fix for "I assigned a Team Leader to a Principal but they can't
+ *  see its data": that assignment almost always happened on /admin/principals
+ *  (Principal.teamLeaderId), a ranking-only field lib/teamLeaderScope.ts never
+ *  reads — dashboard visibility comes exclusively from TeamLeaderAssignment
+ *  rows (rep-grain). This is the inverse of addRepPrincipalsAction above (one
+ *  rep, many Principals) — one Principal, every rep currently recognized
+ *  under it (EmployeePrincipalContribution, the same source of truth
+ *  createAssignmentAction validates a single addition against), all under one
+ *  Team Leader in one submission. Re-run it after new reps are onboarded onto
+ *  a Principal a Team Leader already owns — it's idempotent (skips reps
+ *  already visible, reactivates ones that were deliberately hidden). */
+export async function assignPrincipalToTeamLeaderAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const teamLeaderId = str(formData, "teamLeaderId");
+  const principal = str(formData, "newPrincipal") || str(formData, "principal");
+
+  if (!teamLeaderId || !principal) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a Team Leader and a Principal."));
+  }
+  assertOwnsTeamLeader(scope, teamLeaderId);
+
+  const teamLeader = await prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { name: true, supervisorId: true } });
+  if (!teamLeader) redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader not found."));
+
+  const contributions = await prisma.employeePrincipalContribution.findMany({
+    where: { principal, employee: { active: true } },
+    select: { employee: { select: { employeeCode: true, pineName: true, sapName: true, salesRole: true } } },
+  });
+  if (contributions.length === 0) {
+    redirect(
+      "/admin/team-leaders?error=" +
+        encodeURIComponent(`No active rep is recognized under ${principal} in the Employee Roster Contribution sheet yet.`)
+    );
+  }
+
+  let added = 0;
+  let reactivated = 0;
+  let alreadyVisible = 0;
+  for (const { employee } of contributions) {
+    const salesRole = employee.salesRole === "Primary Sales" ? "PRIMARY" : "SECONDARY";
+    const existing = await prisma.teamLeaderAssignment.findUnique({
+      where: { teamLeaderId_employeeCode_principal: { teamLeaderId, employeeCode: employee.employeeCode, principal } },
+    });
+    if (existing) {
+      if (existing.active) {
+        alreadyVisible += 1;
+        continue;
+      }
+      await prisma.teamLeaderAssignment.update({
+        where: { id: existing.id },
+        data: { active: true, employeeName: employee.pineName, sapName: employee.sapName, salesRole, supervisorId: teamLeader!.supervisorId },
+      });
+      await logAssignmentAudit(user.email!, "REACTIVATE", existing, { active: false }, { active: true });
+      reactivated += 1;
+      continue;
+    }
+    await prisma.teamLeaderAssignment.create({
+      data: {
+        teamLeaderId,
+        employeeCode: employee.employeeCode,
+        employeeName: employee.pineName,
+        sapName: employee.sapName,
+        principal,
+        active: true,
+        salesRole,
+        supervisorId: teamLeader!.supervisorId,
+      },
+    });
+    added += 1;
+  }
+  await recomputeDerived();
+
+  const parts = [
+    added > 0 ? `added ${added}` : null,
+    reactivated > 0 ? `reactivated ${reactivated}` : null,
+    alreadyVisible > 0 ? `${alreadyVisible} already visible` : null,
+  ].filter(Boolean);
+  const message = `${teamLeader!.name} — ${principal}: ${parts.join(", ")}.`;
+  redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}&filterTeamLeader=${encodeURIComponent(teamLeaderId)}&filterPrincipal=${encodeURIComponent(principal)}#assignments`);
+}
+
+/** Bulk book-transfer, one tier up from transferPrincipalAssignmentsAction:
+ *  moves every active rep a Team Leader has across EVERY Principal to a
+ *  different Team Leader in one action — the "this Team Leader is retiring,
+ *  hand everything to their replacement" case, rather than repeating the
+ *  per-Principal transfer once per Principal. Same conflict handling: a rep
+ *  the destination already has on a given Principal is left alone and
+ *  reported back as skipped, never overwritten. Does not delete the
+ *  outgoing Team Leader — review what (if anything) was skipped, then use
+ *  the existing Remove action once satisfied everything real has moved. */
+export async function retireAndReplaceTeamLeaderAction(formData: FormData) {
+  const { user, scope } = await requireAdminOrSupervisor();
+  const fromTeamLeaderId = str(formData, "fromTeamLeaderId");
+  const toTeamLeaderId = str(formData, "toTeamLeaderId");
+
+  if (!fromTeamLeaderId || !toTeamLeaderId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a replacement Team Leader."));
+  }
+  if (fromTeamLeaderId === toTeamLeaderId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a different Team Leader to transfer to."));
+  }
+  assertOwnsTeamLeader(scope, fromTeamLeaderId);
+  assertOwnsTeamLeader(scope, toTeamLeaderId);
+
+  const [fromTeamLeader, toTeamLeader] = await Promise.all([
+    prisma.teamLeader.findUnique({ where: { id: fromTeamLeaderId }, select: { name: true } }),
+    prisma.teamLeader.findUnique({ where: { id: toTeamLeaderId }, select: { name: true } }),
+  ]);
+  if (!fromTeamLeader || !toTeamLeader) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader not found."));
+  }
+
+  const rows = await prisma.teamLeaderAssignment.findMany({ where: { teamLeaderId: fromTeamLeaderId, active: true } });
+  if (rows.length === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${fromTeamLeader.name} has no active reps to transfer.`));
+  }
+
+  const principals = Array.from(new Set(rows.map((r) => r.principal)));
+  const conflicting = await prisma.teamLeaderAssignment.findMany({
+    where: { teamLeaderId: toTeamLeaderId, principal: { in: principals }, employeeCode: { in: rows.map((r) => r.employeeCode) } },
+    select: { employeeCode: true, principal: true },
+  });
+  const blockedKeys = new Set(conflicting.map((r) => `${r.principal}|${r.employeeCode}`));
+
+  let transferred = 0;
+  for (const row of rows) {
+    if (blockedKeys.has(`${row.principal}|${row.employeeCode}`)) continue;
+    await prisma.teamLeaderAssignment.update({ where: { id: row.id }, data: { teamLeaderId: toTeamLeaderId } });
+    await prisma.teamLeaderAssignmentAuditLog.create({
+      data: {
+        userEmail: user.email!,
+        action: "UPDATE",
+        teamLeaderId: toTeamLeaderId,
+        principal: row.principal,
+        employeeCode: row.employeeCode,
+        changes: { teamLeaderId: { old: fromTeamLeaderId, new: toTeamLeaderId } },
+      },
+    });
+    transferred += 1;
+  }
+  await recomputeDerived();
+
+  const skipped = rows.length - transferred;
+  const message =
+    skipped > 0
+      ? `Transferred ${transferred} rep(s) across ${principals.length} Principal(s) from ${fromTeamLeader.name} to ${toTeamLeader.name}. Skipped ${skipped} rep(s) already assigned to ${toTeamLeader.name} on their own Principal — resolve those manually before removing ${fromTeamLeader.name}.`
+      : `Transferred ${transferred} rep(s) across ${principals.length} Principal(s) from ${fromTeamLeader.name} to ${toTeamLeader.name}. Nothing left behind — safe to remove ${fromTeamLeader.name} now.`;
+  redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}`);
+}
+
+/** Same "retiring, hand everything to their replacement" bulk transfer, one
+ *  tier up: reassigns every Team Leader's reporting line (TeamLeader.supervisorId)
+ *  and every rep-level supervisorId (TeamLeaderAssignment.supervisorId — kept in
+ *  sync with the former for lib/teamLeaderScope.ts's Supervisor scoping) from the
+ *  outgoing Supervisor to the replacement, in one action. Admin-only, matching
+ *  every other entity-level reporting-line action on this page. Unlike
+ *  deleteSupervisorAction (which orphans these same fields to null), this hands
+ *  them to a real replacement — use this instead of Remove when a Supervisor is
+ *  retiring but their group should keep a home. */
+export async function retireAndReplaceSupervisorAction(formData: FormData) {
+  await requireAdmin();
+  const fromSupervisorId = str(formData, "fromSupervisorId");
+  const toSupervisorId = str(formData, "toSupervisorId");
+
+  if (!fromSupervisorId || !toSupervisorId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a replacement Supervisor."));
+  }
+  if (fromSupervisorId === toSupervisorId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose a different Supervisor to transfer to."));
+  }
+
+  const [fromSupervisor, toSupervisor] = await Promise.all([
+    prisma.supervisor.findUnique({ where: { id: fromSupervisorId }, select: { name: true } }),
+    prisma.supervisor.findUnique({ where: { id: toSupervisorId }, select: { name: true } }),
+  ]);
+  if (!fromSupervisor || !toSupervisor) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Supervisor not found."));
+  }
+
+  const [teamLeaderResult, assignmentResult] = await Promise.all([
+    prisma.teamLeader.updateMany({ where: { supervisorId: fromSupervisorId }, data: { supervisorId: toSupervisorId } }),
+    prisma.teamLeaderAssignment.updateMany({ where: { supervisorId: fromSupervisorId }, data: { supervisorId: toSupervisorId } }),
+  ]);
+
+  if (teamLeaderResult.count === 0 && assignmentResult.count === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${fromSupervisor!.name} has no Team Leaders or reps to transfer.`));
+  }
+
+  redirect(
+    "/admin/team-leaders?success=" +
+      encodeURIComponent(
+        `Transferred ${teamLeaderResult.count} Team Leader(s) and ${assignmentResult.count} rep assignment row(s) from ${fromSupervisor!.name} to ${toSupervisor!.name}.`
+      )
+  );
 }

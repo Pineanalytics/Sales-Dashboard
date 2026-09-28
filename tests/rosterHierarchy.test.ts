@@ -5,7 +5,7 @@ describe("buildRosterHierarchy", () => {
   it("nests a full chain from Director down to Team Leader", () => {
     const hierarchy = buildRosterHierarchy(
       [{ id: "tl1", name: "Christine", supervisorId: "sup1" }],
-      [{ id: "sup1", name: "Lucy", managerId: "mgr1" }],
+      [{ id: "sup1", name: "Lucy", managerId: "mgr1", directHodId: null }],
       [{ id: "mgr1", name: "Peter", hodId: "hod1" }],
       [{ id: "hod1", name: "Susan", directorId: "dir1" }],
       [{ id: "dir1", name: "James" }]
@@ -25,13 +25,7 @@ describe("buildRosterHierarchy", () => {
   });
 
   it("surfaces a Team Leader with no Supervisor as unassigned instead of dropping it", () => {
-    const hierarchy = buildRosterHierarchy(
-      [{ id: "tl1", name: "Christine", supervisorId: null }],
-      [],
-      [],
-      [],
-      []
-    );
+    const hierarchy = buildRosterHierarchy([{ id: "tl1", name: "Christine", supervisorId: null }], [], [], [], []);
     expect(hierarchy.unassignedTeamLeaders).toHaveLength(1);
     expect(hierarchy.unassignedTeamLeaders[0].name).toBe("Christine");
   });
@@ -39,7 +33,7 @@ describe("buildRosterHierarchy", () => {
   it("surfaces a dangling parent id (points at a Supervisor that no longer exists) as unassigned, not silently dropped", () => {
     const hierarchy = buildRosterHierarchy(
       [{ id: "tl1", name: "Christine", supervisorId: "does-not-exist" }],
-      [{ id: "sup1", name: "Lucy", managerId: null }],
+      [{ id: "sup1", name: "Lucy", managerId: null, directHodId: null }],
       [],
       [],
       []
@@ -55,12 +49,45 @@ describe("buildRosterHierarchy", () => {
         { id: "tl1", name: "Christine", supervisorId: "sup1" },
         { id: "tl2", name: "Brian", supervisorId: "sup1" },
       ],
-      [{ id: "sup1", name: "Lucy", managerId: null }],
+      [{ id: "sup1", name: "Lucy", managerId: null, directHodId: null }],
       [],
       [],
       []
     );
     expect(hierarchy.unassignedSupervisors).toHaveLength(1);
     expect(hierarchy.unassignedSupervisors[0].teamLeaders.map((tl) => tl.name).sort()).toEqual(["Brian", "Christine"]);
+  });
+
+  it("nests a Supervisor directly under a Head of Sales when directHodId is set, bypassing Manager", () => {
+    const hierarchy = buildRosterHierarchy(
+      [{ id: "tl1", name: "Christine", supervisorId: "sup1" }],
+      [{ id: "sup1", name: "Lucy", managerId: null, directHodId: "hod1" }],
+      [],
+      [{ id: "hod1", name: "Susan", directorId: null }],
+      []
+    );
+    expect(hierarchy.unassignedHods).toHaveLength(1);
+    const [hod] = hierarchy.unassignedHods;
+    expect(hod.managers).toHaveLength(0);
+    expect(hod.directSupervisors).toHaveLength(1);
+    expect(hod.directSupervisors[0].name).toBe("Lucy");
+    expect(hierarchy.unassignedSupervisors).toHaveLength(0);
+  });
+
+  it("prefers managerId over directHodId when a Supervisor somehow has both set", () => {
+    const hierarchy = buildRosterHierarchy(
+      [],
+      [{ id: "sup1", name: "Lucy", managerId: "mgr1", directHodId: "hod1" }],
+      [{ id: "mgr1", name: "Peter", hodId: null }],
+      [{ id: "hod1", name: "Susan", directorId: null }],
+      []
+    );
+    expect(hierarchy.unassignedManagers[0].supervisors).toHaveLength(1);
+    expect(hierarchy.unassignedHods[0].directSupervisors).toHaveLength(0);
+  });
+
+  it("surfaces a Supervisor with neither managerId nor directHodId as unassigned", () => {
+    const hierarchy = buildRosterHierarchy([], [{ id: "sup1", name: "Lucy", managerId: null, directHodId: null }], [], [], []);
+    expect(hierarchy.unassignedSupervisors).toHaveLength(1);
   });
 });
