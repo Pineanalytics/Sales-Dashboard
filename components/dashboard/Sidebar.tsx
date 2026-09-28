@@ -25,6 +25,7 @@ import {
   Archive20Regular,
   ArrowSwap20Regular,
   ChartMultiple20Regular,
+  Briefcase20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/frost", label: "Frost", icon: Sparkle20Regular },
   { href: "/insights", label: "Insights", icon: Lightbulb20Regular },
   { href: "/executive-summary", label: "Executive Summary", icon: ChartMultiple20Regular },
+  { href: "/commercial-performance", label: "Commercial Performance", icon: Briefcase20Regular },
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
   { href: "/financials", label: "Financials", icon: Money20Regular },
