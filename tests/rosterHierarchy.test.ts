@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRosterHierarchy } from "../lib/rosterHierarchy";
+import { buildRosterHierarchy, computeAmbiguousNames, labelForName } from "../lib/rosterHierarchy";
 
 describe("buildRosterHierarchy", () => {
   it("nests a full chain from Director down to Team Leader", () => {
@@ -89,5 +89,49 @@ describe("buildRosterHierarchy", () => {
   it("surfaces a Supervisor with neither managerId nor directHodId as unassigned", () => {
     const hierarchy = buildRosterHierarchy([], [{ id: "sup1", name: "Lucy", managerId: null, directHodId: null }], [], [], []);
     expect(hierarchy.unassignedSupervisors).toHaveLength(1);
+  });
+});
+
+describe("computeAmbiguousNames", () => {
+  it("flags a name shared by a self-represented Supervisor and Team Leader", () => {
+    const ambiguous = computeAmbiguousNames(
+      [{ id: "tl1", name: "Emmy", supervisorId: "sup1" }],
+      [{ id: "sup1", name: "Emmy", managerId: null, directHodId: "hod1" }],
+      [],
+      [{ id: "hod1", name: "Angela Sitati", directorId: null }],
+      []
+    );
+    expect(ambiguous.has("Emmy")).toBe(true);
+    expect(ambiguous.has("Angela Sitati")).toBe(false);
+  });
+
+  it("does not flag distinct names across every tier", () => {
+    const ambiguous = computeAmbiguousNames(
+      [{ id: "tl1", name: "Christine", supervisorId: "sup1" }],
+      [{ id: "sup1", name: "Lucy", managerId: "mgr1", directHodId: null }],
+      [{ id: "mgr1", name: "Peter", hodId: "hod1" }],
+      [{ id: "hod1", name: "Susan", directorId: "dir1" }],
+      [{ id: "dir1", name: "James" }]
+    );
+    expect(ambiguous.size).toBe(0);
+  });
+
+  it("flags a name shared across two non-adjacent tiers (e.g. Team Leader and Manager)", () => {
+    const ambiguous = computeAmbiguousNames(
+      [{ id: "tl1", name: "Peter", supervisorId: null }],
+      [],
+      [{ id: "mgr1", name: "Peter", hodId: null }],
+      [],
+      []
+    );
+    expect(ambiguous.has("Peter")).toBe(true);
+  });
+});
+
+describe("labelForName", () => {
+  it("appends the tier tag only when the name is ambiguous", () => {
+    const ambiguous = new Set(["Emmy"]);
+    expect(labelForName("Emmy", "Supervisor", ambiguous)).toBe("Emmy (Supervisor)");
+    expect(labelForName("Lucy", "Supervisor", ambiguous)).toBe("Lucy");
   });
 });

@@ -23,6 +23,8 @@ import {
 import { TeamLeaderRosterPanel, type TeamLeaderRow, type SupervisorOption } from "./TeamLeaderRosterPanel";
 import {
   buildRosterHierarchy,
+  computeAmbiguousNames,
+  labelForName,
   type HierarchyDirector,
   type HierarchyHod,
   type HierarchyManager,
@@ -87,15 +89,15 @@ export function RosterHierarchyTree({
   inputClass: string;
   labelClass: string;
 }) {
-  const hierarchy = buildRosterHierarchy(
-    teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId })),
-    supervisors,
-    managers,
-    hods,
-    directors
-  );
+  const hierarchyTeamLeaders = teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId }));
+  const hierarchy = buildRosterHierarchy(hierarchyTeamLeaders, supervisors, managers, hods, directors);
   const teamLeadersById = new Map(teamLeaders.map((tl) => [tl.id, tl]));
-  const supervisorOptions: SupervisorOption[] = supervisors.map((s) => ({ id: s.id, name: s.name }));
+  // A real person can hold two tiers at once (a self-represented Supervisor
+  // who's also their own Team Leader — see lib/salesLeadershipImport.ts),
+  // sharing one name across two distinct rows. Tag only the names that
+  // actually collide, so "Reports to Emmy" doesn't read as circular.
+  const ambiguousNames = computeAmbiguousNames(hierarchyTeamLeaders, supervisors, managers, hods, directors);
+  const supervisorOptions: SupervisorOption[] = supervisors.map((s) => ({ id: s.id, name: s.name, label: labelForName(s.name, "Supervisor", ambiguousNames) }));
 
   function teamLeaderRowsFor(refs: { id: string }[]): TeamLeaderRow[] {
     return refs.map((ref) => teamLeadersById.get(ref.id)).filter((tl): tl is TeamLeaderRow => Boolean(tl));
@@ -611,7 +613,7 @@ function SupervisorNodeView({
                     .filter((s) => s.id !== supervisor.id)
                     .map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name}
+                        {s.label ?? s.name}
                       </option>
                     ))}
                 </select>

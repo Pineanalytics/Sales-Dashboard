@@ -26,6 +26,13 @@ export interface TeamLeaderRow {
 export interface SupervisorOption {
   id: string;
   name: string;
+  /** Display label — same as `name` unless it collides with a name in
+   *  another tier (a self-represented Supervisor/Team Leader pair), in
+   *  which case it's tagged e.g. "Emmy (Supervisor)" — see
+   *  lib/rosterHierarchy.ts's labelForName/computeAmbiguousNames. Falls
+   *  back to `name` here so a caller that hasn't computed one yet still
+   *  renders correctly. */
+  label?: string;
 }
 
 /** Searchable, collapsible list — each Team Leader collapses to a single
@@ -76,7 +83,7 @@ export function TeamLeaderRosterPanel({
     });
   }
 
-  const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.name]));
+  const supervisorNameById = new Map(supervisors.map((s) => [s.id, s.label ?? s.name]));
 
   return (
     <div className="mt-5 flex flex-col gap-2">
@@ -153,7 +160,7 @@ export function TeamLeaderRosterPanel({
                           <option value="">— none —</option>
                           {supervisors.map((s) => (
                             <option key={s.id} value={s.id}>
-                              {s.name}
+                              {s.label ?? s.name}
                             </option>
                           ))}
                         </select>

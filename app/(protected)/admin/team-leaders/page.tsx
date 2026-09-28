@@ -9,6 +9,7 @@ import { canEditMonthlyTarget } from "@/lib/targetPermission";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { ensureWeeklyTargetGrid, getWeeksInMonth } from "@/lib/weeklyTargets";
 import { summarizeSupervisorPrincipalContribution } from "@/lib/supervisorContribution";
+import { computeAmbiguousNames, labelForName } from "@/lib/rosterHierarchy";
 import {
   createAssignmentAction,
   assignPrincipalToTeamLeaderAction,
@@ -92,6 +93,19 @@ export default async function AdminTeamLeadersPage({
   ]);
 
   const contributionWarnings = validateContributionTotals(assignments);
+
+  // A real person can hold two tiers at once (a self-represented Supervisor
+  // who's also their own Team Leader — see lib/salesLeadershipImport.ts),
+  // sharing one name across two distinct rows. Tag only the names that
+  // actually collide wherever a Supervisor name is shown near its own Team
+  // Leader entity, so "Reports to Emmy" doesn't read as circular.
+  const ambiguousNames = computeAmbiguousNames(
+    teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId })),
+    supervisors.map((s) => ({ id: s.id, name: s.name, managerId: s.managerId, directHodId: s.directHodId })),
+    managers.map((m) => ({ id: m.id, name: m.name, hodId: m.hodId })),
+    hods.map((h) => ({ id: h.id, name: h.name, directorId: h.directorId })),
+    directors
+  );
 
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const teamLeaderById = new Map(teamLeaders.map((tl) => [tl.id, tl]));
@@ -580,7 +594,7 @@ export default async function AdminTeamLeadersPage({
             active: a.active,
           }))}
           teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, supervisorId: tl.supervisorId }))}
-          supervisors={supervisors.map((s) => ({ id: s.id, name: s.name }))}
+          supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, label: labelForName(s.name, "Supervisor", ambiguousNames) }))}
           knownPrincipals={knownPrincipals}
           employeeIdentities={employeeIdentities.map((e) => ({ ...e, contributionPrincipals: e.contributions.map((c) => c.principal) }))}
           repContributions={repContributions}
