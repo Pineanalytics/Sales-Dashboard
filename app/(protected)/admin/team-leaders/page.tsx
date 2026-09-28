@@ -13,6 +13,7 @@ import {
   createAssignmentAction,
   assignPrincipalToTeamLeaderAction,
   uploadRosterCsvAction,
+  uploadSalesLeadershipCsvAction,
   createReliefAction,
   endReliefAction,
   deleteReliefAction,
@@ -261,6 +262,38 @@ export default async function AdminTeamLeadersPage({
             </button>
           </form>
         </div>
+
+        {isAdmin ? (
+          <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <h2 className="text-lg font-semibold text-primary-blue">Upload Sales Leadership (CSV)</h2>
+            <p className="mt-1 text-[13px] text-muted">
+              A different shape from the Roster upload above — no rep data, one row per Principal × Team Leader:
+              Principal, Sales Supervisor, Sales Supervisor Email, Team Leader, Team Leader Email, Head Of Sales, Head
+              Of Sales Email. Creates any Head of Sales/Supervisor/Team Leader not yet on file, links each Supervisor
+              directly to its Head of Sales (no Manager column, so this always clears any existing Manager link), and
+              links each Team Leader to its Supervisor. Also creates a Principal reference row if it doesn&apos;t exist
+              yet, and grants a Team Leader real dashboard visibility into a Principal it&apos;s the only Team Leader
+              on in the file. A Principal shared by several Team Leaders in the file (e.g. one split across a
+              Supervisor&apos;s whole team) is left unchanged at the rep level — this file has no rep-level split
+              information; use the Assignments table below to (re)split those.
+            </p>
+            <form action={uploadSalesLeadershipCsvAction} className="mt-4 flex flex-wrap items-center gap-4">
+              <input
+                type="file"
+                name="file"
+                accept=".csv"
+                required
+                className="text-sm text-foreground file:mr-4 file:rounded-full file:border-0 file:bg-background-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-blue hover:file:bg-accent-blue-soft"
+              />
+              <button
+                type="submit"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              >
+                Upload
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         {isAdmin ? (
           <RosterHierarchyTree
