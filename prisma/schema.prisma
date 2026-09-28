@@ -933,6 +933,38 @@ model ReceivablesSyncRun {
   variance      Float
 }
 
+// Singleton (id pinned to 1) admin-entered company-wide GP margin commitment —
+// there is no per-principal GP target anywhere in Target, and Finance's
+// "GP Margin vs Target" is deliberately one company-wide figure, not a
+// per-principal one.
+model FinanceSettings {
+  id                   Int      @id @default(1)
+  grossMarginTargetPct Float
+  updatedAt            DateTime @updatedAt
+  updatedBy            String?
+}
+
+// Ageing-bucket totals captured at a point in time, for the Finance module's
+// "Ageing Trend" tab (last-month-end + this month's calendar weeks). Written
+// going forward on every real receivables sync (isApproximate: false, from
+// app/api/receivables/upload/route.ts); also seeded once for the Jan-to-now
+// gap by scripts/backfill-receivables-ageing-snapshot.ts, which can only
+// reconstruct from items still open TODAY (isApproximate: true) since neither
+// our own history nor SAP's own JDT1 source retains a past ageing trail.
+model ReceivablesAgeingSnapshot {
+  id            String   @id @default(cuid())
+  snapshotDate  DateTime @db.Date
+  current       Float
+  days30        Float
+  days60        Float
+  days90        Float
+  daysOver90    Float
+  isApproximate Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@unique([snapshotDate])
+}
+
 // Canonical Calls & Productivity rows sourced directly from Pine.  The bridge
 // uses the same cost-centre attribution rules as the former workbook query,
 // but stores one immutable business grain (month/principal/role/rep) instead

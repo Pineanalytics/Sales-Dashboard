@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useDashboardStore } from "@/lib/store";
 import type { ReceivablesDashboard } from "@/lib/receivables";
+import type { DebtAttribution } from "@/lib/financeDebtAttribution";
+import type { AgeingTrendForMonth } from "@/lib/receivablesAgeing";
 import { PLStatementView } from "./PLStatementView";
 import { ProfitabilityView } from "./ProfitabilityView";
 import {
@@ -13,12 +15,20 @@ import {
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
 import { InlineReportExport } from "@/components/reports/InlineReportExport";
+import { SalesPerformanceTab } from "@/components/financials/SalesPerformanceTab";
+import { DebtorsTab } from "@/components/financials/DebtorsTab";
+import { TotalOutstandingTab } from "@/components/financials/TotalOutstandingTab";
+import { AgeingTrendTab } from "@/components/financials/AgeingTrendTab";
 
 export type FinancialsTab =
   | "receivables-summary"
   | "credit-exposure"
   | "open-items"
-  | "profitability";
+  | "profitability"
+  | "sales-performance"
+  | "debtors"
+  | "total-outstanding"
+  | "ageing-trend";
 
 type Props = {
   canViewReceivables: boolean;
@@ -29,6 +39,11 @@ type Props = {
    *  over credit limit" exception/link (see FinancialsPanel.tsx). */
   initialCreditStatus?: "over-limit";
   receivables: ReceivablesDashboard | null;
+  financeSettings: { grossMarginTargetPct: number | null };
+  debtAttribution: DebtAttribution;
+  ageingTrend: AgeingTrendForMonth;
+  ageingYear: number;
+  ageingMonth: string;
 };
 
 const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitability?: boolean }[] = [
@@ -36,6 +51,10 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "credit-exposure", label: "Customer Credit Exposure", receivables: true },
   { id: "open-items", label: "Largest Open Items", receivables: true },
   { id: "profitability", label: "Profitability", profitability: true },
+  { id: "sales-performance", label: "Sales Performance", profitability: true },
+  { id: "debtors", label: "Debtors", receivables: true },
+  { id: "total-outstanding", label: "Total Outstanding", receivables: true },
+  { id: "ageing-trend", label: "Ageing Trend", receivables: true },
 ];
 
 export function FinancialsView({
@@ -44,6 +63,11 @@ export function FinancialsView({
   initialTab,
   initialCreditStatus,
   receivables,
+  financeSettings,
+  debtAttribution,
+  ageingTrend,
+  ageingYear,
+  ageingMonth,
 }: Props) {
   const dataset = useDashboardStore((state) => state.dataset);
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
@@ -58,11 +82,12 @@ export function FinancialsView({
   const [profitabilityView, setProfitabilityView] = useState<"grossProfit" | "plStatement">("grossProfit");
   const activeTab = availableTabs.some((tab) => tab.id === selectedTab) ? selectedTab : initial;
   const user = useCurrentUser();
-  // Both tabs' pageKeys correspond 1:1 with a report definition (see
-  // lib/reports/definitions.ts), unlike every other analytics page where
-  // GlobalFilterBar hosts this button — Financials packs two reports behind
-  // one URL, so it needs its own tab-aware placement instead.
-  const activeReportKey: "profitability" | "receivables" = activeTab === "profitability" ? "profitability" : "receivables";
+  // Every tab's pageKey folds into one of the two existing reports (see
+  // lib/reports/definitions.ts) — the four new Finance tabs are additive
+  // views over the same profitability/receivables data, not new report
+  // definitions of their own.
+  const activeReportKey: "profitability" | "receivables" =
+    activeTab === "profitability" || activeTab === "sales-performance" ? "profitability" : "receivables";
 
   return (
     <div className="flex flex-col gap-4">
@@ -144,6 +169,26 @@ export function FinancialsView({
             )}
           </div>
         )}
+        {activeTab === "sales-performance" && (
+          dataset && receivables ? (
+            <SalesPerformanceTab
+              dataset={dataset}
+              selectedPrincipalKey={selectedPrincipalKey}
+              grossMarginTargetPct={financeSettings.grossMarginTargetPct}
+              receivablesOutstanding={receivables.ledgerBalance}
+              debtAttribution={debtAttribution}
+              isAdmin={user?.role === "ADMIN"}
+            />
+          ) : (
+            <SectionCard>
+              <p className="text-sm font-semibold text-[#073c35]">Sales performance data is loading</p>
+              <p className="mt-1 text-xs text-[#65766f]">The period dataset will appear as soon as it is available.</p>
+            </SectionCard>
+          )
+        )}
+        {activeTab === "debtors" && receivables && <DebtorsTab receivables={receivables} debtAttribution={debtAttribution} />}
+        {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} />}
+        {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@
 // And dailyRowsToMonthlyInput, an adapter used by sales-sync.ts's routine
 // (non-backfill) refresh path — see that function's own comment.
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { normalizeCustomerName as normalizeName } from "@/lib/normalize";
 import type { DailySalesRawRow } from "../queries/dailySalesRaw";
 import type { YtdRawRow } from "../queries/ytdRaw";
 import type { EmployeeMasterReferenceRow, ProductRow } from "../reference/loadFromDb";
@@ -24,10 +25,6 @@ function applyFixups(key: string): string {
     if (key === from) return to;
   }
   return key;
-}
-
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** SAP normally returns numeric quantity and pack-size values, but an empty or

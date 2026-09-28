@@ -8,9 +8,9 @@ import { formatCompact, formatNumber, type Tier } from "@/lib/format";
 import type { AgeingBucket, ReceivablesDashboard } from "@/lib/receivables";
 
 const BUCKETS: AgeingBucket[] = ["Current", "1–30 days", "31–60 days", "61–90 days", "Over 90 days"];
-const money = (value: number) => `KES ${formatCompact(value)}`;
+export const money = (value: number) => `KES ${formatCompact(value)}`;
 
-function bucketTier(bucket: AgeingBucket): Tier {
+export function bucketTier(bucket: AgeingBucket): Tier {
   return bucket === "Over 90 days" ? "bad" : bucket === "61–90 days" ? "warn" : "neutral";
 }
 
@@ -21,7 +21,7 @@ function statusTier(status: ReceivablesDashboard["customers"][number]["status"])
   return "neutral";
 }
 
-function ReceivablesKpi({ label, value, sublabel }: { label: string; value: string; sublabel: string }) {
+export function ReceivablesKpi({ label, value, sublabel }: { label: string; value: string; sublabel: string }) {
   return (
     <div className="rounded-xl border-t-4 border-t-primary-blue bg-surface p-3.5 shadow-[0_1px_3px_rgba(11,61,53,0.06)]">
       <div className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</div>
