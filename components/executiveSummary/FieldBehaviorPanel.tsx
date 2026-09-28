@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
+import { BinaryToggle } from "@/components/ui/BinaryToggle";
 import { formatNumber, formatPercent, strikeRateTier, tierTextClass } from "@/lib/format";
 import { summarizeCoverageForPeriod, resolvePeriodMonths, type PeriodSelection, type RoleCategory } from "@/lib/timeIntelligence";
 import { periodToDateRange, averageActiveOutletsForPeriod, type ActiveOutletsMonthlyRow } from "@/lib/executiveSummary";
@@ -11,29 +12,10 @@ import type { Dataset } from "@/lib/types";
 
 type FieldRole = "Primary Sales" | "Secondary Sales";
 const ROLE_CATEGORY: Record<FieldRole, RoleCategory> = { "Primary Sales": "primary", "Secondary Sales": "secondary" };
-
-/** Primary/Secondary only — every tile's source data genuinely splits along
- *  this line and combining them means neither number is quite right for
- *  either team, unlike RoleToggle's All/Primary/Secondary (used where a
- *  combined view is still meaningful, e.g. Active Outlets' YTD totals). */
-function FieldRoleToggle({ value, onChange }: { value: FieldRole; onChange: (value: FieldRole) => void }) {
-  const options: FieldRole[] = ["Primary Sales", "Secondary Sales"];
-  return (
-    <div className="inline-flex gap-1 rounded-full bg-background-elevated p-0.5">
-      {options.map((opt) => (
-        <button
-          key={opt}
-          onClick={() => onChange(opt)}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-300 ${
-            value === opt ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"
-          }`}
-        >
-          {opt === "Primary Sales" ? "Primary" : "Secondary"}
-        </button>
-      ))}
-    </div>
-  );
-}
+const FIELD_ROLE_OPTIONS = [
+  { value: "Primary Sales", label: "Primary" },
+  { value: "Secondary Sales", label: "Secondary" },
+] as const;
 
 function StubTile({ label, href, note }: { label: string; href: string; note: string }) {
   return (
@@ -234,7 +216,7 @@ export function FieldBehaviorPanel({
 
   return (
     <div id="field-behavior" className="@container h-full">
-      <SectionCard title="Field & Rep Behavior" accent="green" action={<FieldRoleToggle value={role} onChange={setRole} />}>
+      <SectionCard title="Field & Rep Behavior" accent="green" action={<BinaryToggle value={role} options={FIELD_ROLE_OPTIONS} onChange={setRole} />}>
         {/* Container-relative, not viewport-relative — see StockRiskPanel's
             matching comment; this panel is paired half-width the same way. */}
         <div className="grid grid-cols-2 gap-3 @sm:grid-cols-4">
