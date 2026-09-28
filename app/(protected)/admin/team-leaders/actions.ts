@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { recomputeRepContribution, recomputeDailyTargets } from "@/lib/repContribution";
-import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
 import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
+import { assignPrincipalRepsToTeamLeader, recomputeRosterDerived } from "@/lib/rosterAssignment";
+import { parseSalesLeadershipCsv, SalesLeadershipParseError, upsertSalesLeadership } from "@/lib/salesLeadershipImport";
 import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 import { isPageKey } from "@/lib/pageAccess";
 import type { TeamLeaderAssignment } from "@prisma/client";
@@ -69,12 +69,10 @@ function filterSuffix(formData: FormData): string {
 
 // Roster edits (create/update/deactivate) recompute Contribution-by-Rep and Daily Projection
 // immediately, rather than waiting for the next JP Adherence sync — an admin changing a declared
-// Contribution % or deactivating a rep should see it reflected right away.
-async function recomputeDerived() {
-  await recomputeRepContribution();
-  await recomputeDailyTargets();
-  await resolveEmployeeIdentities();
-}
+// Contribution % or deactivating a rep should see it reflected right away. Same work as
+// lib/rosterAssignment.ts's recomputeRosterDerived, kept as a thin local alias since every other
+// action on this page already calls it by this name.
+const recomputeDerived = recomputeRosterDerived;
 
 const ASSIGNMENT_AUDITED_FIELDS = ["channel", "contributionPct", "active", "salesRole"] as const;
 
@@ -505,6 +503,48 @@ export async function updateHodDirectorAction(formData: FormData) {
   }
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+}
+
+/** Establishes/corrects the org chart from a Sales Leadership CSV — Principal
+ *  x Sales Supervisor x Team Leader x Head of Sales, a different shape from
+ *  the rep-roster CSV below (see lib/salesLeadershipImport.ts's header
+ *  comment for the full semantics, including why a Principal shared by
+ *  several Team Leaders in the file is left untouched at the rep level).
+ *  Admin-only — this can create a brand-new Principal and touches the
+ *  Head-of-Sales tier, unlike the rep-roster upload below. */
+export async function uploadSalesLeadershipCsvAction(formData: FormData) {
+  const user = await requireAdmin();
+
+  const file = formData.get("file");
+  if (!file || !(file instanceof File) || file.size === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Attach a Sales Leadership CSV file to upload."));
+  }
+
+  let rows;
+  try {
+    const buffer = Buffer.from(await (file as File).arrayBuffer());
+    rows = parseSalesLeadershipCsv(buffer);
+  } catch (err) {
+    const message = err instanceof SalesLeadershipParseError ? err.message : "Failed to read the uploaded CSV file.";
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+  }
+
+  const result = await upsertSalesLeadership(rows, user.email!);
+
+  const totalAdded = result.assignments.reduce((sum, a) => sum + a.added, 0);
+  const totalReactivated = result.assignments.reduce((sum, a) => sum + a.reactivated, 0);
+  const parts = [
+    `${result.hods} Head(s) of Sales`,
+    `${result.supervisors} Supervisor(s)`,
+    `${result.teamLeaders} Team Leader(s)`,
+    result.principalsCreated > 0 ? `${result.principalsCreated} new Principal(s)` : null,
+    `${totalAdded} rep assignment(s) added`,
+    totalReactivated > 0 ? `${totalReactivated} reactivated` : null,
+    result.multiTeamLeaderPrincipals.length > 0
+      ? `${result.multiTeamLeaderPrincipals.length} Principal(s) shared by multiple Team Leaders left unchanged at the rep level (${result.multiTeamLeaderPrincipals.join(", ")}) — use Assignments below to (re)split those`
+      : null,
+  ].filter(Boolean);
+  redirect("/admin/team-leaders?success=" + encodeURIComponent(`Sales Leadership import: ${parts.join(", ")}.`));
 }
 
 /** Browser-based alternative to running scripts/target-management/import.ts locally —
@@ -1080,53 +1120,14 @@ export async function assignPrincipalToTeamLeaderAction(formData: FormData) {
   const teamLeader = await prisma.teamLeader.findUnique({ where: { id: teamLeaderId }, select: { name: true, supervisorId: true } });
   if (!teamLeader) redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader not found."));
 
-  const contributions = await prisma.employeePrincipalContribution.findMany({
-    where: { principal, employee: { active: true } },
-    select: { employee: { select: { employeeCode: true, pineName: true, sapName: true, salesRole: true } } },
-  });
-  if (contributions.length === 0) {
+  const { added, reactivated, alreadyVisible } = await assignPrincipalRepsToTeamLeader(teamLeaderId, principal, teamLeader!.supervisorId, user.email!);
+  if (added === 0 && reactivated === 0 && alreadyVisible === 0) {
     redirect(
       "/admin/team-leaders?error=" +
         encodeURIComponent(`No active rep is recognized under ${principal} in the Employee Roster Contribution sheet yet.`)
     );
   }
-
-  let added = 0;
-  let reactivated = 0;
-  let alreadyVisible = 0;
-  for (const { employee } of contributions) {
-    const salesRole = employee.salesRole === "Primary Sales" ? "PRIMARY" : "SECONDARY";
-    const existing = await prisma.teamLeaderAssignment.findUnique({
-      where: { teamLeaderId_employeeCode_principal: { teamLeaderId, employeeCode: employee.employeeCode, principal } },
-    });
-    if (existing) {
-      if (existing.active) {
-        alreadyVisible += 1;
-        continue;
-      }
-      await prisma.teamLeaderAssignment.update({
-        where: { id: existing.id },
-        data: { active: true, employeeName: employee.pineName, sapName: employee.sapName, salesRole, supervisorId: teamLeader!.supervisorId },
-      });
-      await logAssignmentAudit(user.email!, "REACTIVATE", existing, { active: false }, { active: true });
-      reactivated += 1;
-      continue;
-    }
-    await prisma.teamLeaderAssignment.create({
-      data: {
-        teamLeaderId,
-        employeeCode: employee.employeeCode,
-        employeeName: employee.pineName,
-        sapName: employee.sapName,
-        principal,
-        active: true,
-        salesRole,
-        supervisorId: teamLeader!.supervisorId,
-      },
-    });
-    added += 1;
-  }
-  await recomputeDerived();
+  await recomputeRosterDerived();
 
   const parts = [
     added > 0 ? `added ${added}` : null,
