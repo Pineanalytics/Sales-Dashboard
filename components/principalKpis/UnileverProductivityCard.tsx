@@ -23,7 +23,7 @@ export function UnileverProductivityCard({ card }: { card: UnileverPjpCard }) {
   const pendingReasons = Array.from(new Set(card.kpis.filter((k) => k.status === "pending" && k.pendingReason).map((k) => k.pendingReason as string)));
 
   return (
-    <div className="overflow-hidden rounded-2xl bg-[#111417] shadow-[0_4px_24px_rgba(0,0,0,0.35)]">
+    <div className="unilever-kpi-scope overflow-hidden rounded-2xl bg-[#111417] shadow-[0_4px_24px_rgba(0,0,0,0.35)]">
       <div className="bg-gradient-to-br from-emerald-800 to-emerald-950 px-6 py-5">
         <p className="text-xs font-bold uppercase tracking-wide text-emerald-200">Pinefrost | Unilever {card.distributorLabel}</p>
         <h3 className="mt-1 text-xl font-bold text-white">Individual Sales Productivity</h3>
