@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
+import { upsertAgeingSnapshot } from "@/lib/receivablesAgeing";
 
 export const runtime = "nodejs";
 
@@ -64,10 +65,9 @@ export async function POST(req: NextRequest) {
       await tx.receivableOpenItem.deleteMany();
       await tx.customerCreditProfile.deleteMany();
       await tx.customerCreditProfile.createMany({ data: customers });
-      for (let start = 0; start < openItems.length; start += 1_000) {
-        await tx.receivableOpenItem.createMany({
-          data: openItems.slice(start, start + 1_000).map((row) => ({ ...row, postingDate: new Date(row.postingDate), dueDate: new Date(row.dueDate) })),
-        });
+      const convertedOpenItems = openItems.map((row) => ({ ...row, postingDate: new Date(row.postingDate), dueDate: new Date(row.dueDate) }));
+      for (let start = 0; start < convertedOpenItems.length; start += 1_000) {
+        await tx.receivableOpenItem.createMany({ data: convertedOpenItems.slice(start, start + 1_000) });
       }
       await tx.receivablesSyncRun.create({
         data: {
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
           variance,
         },
       });
+      await upsertAgeingSnapshot(tx, new Date(sourceDate), convertedOpenItems, false);
   }, { timeout: 600_000 });
     return NextResponse.json({ customerCount: customers.length, openItemCount: openItems.length, variance });
   } catch (error) {
