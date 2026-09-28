@@ -18,11 +18,11 @@ import type { Dataset } from "@/lib/types";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
 import { updateFinanceSettingsAction } from "@/app/(protected)/(analytics)/financials/actions";
 
-// The high-margin principals list excludes the volume-driver principals —
-// these already get their own dedicated attention elsewhere and would
-// otherwise dominate a "top 5 by margin" list on scale alone, not margin.
-const HIGH_MARGIN_EXCLUSIONS = new Set(["mars", "suntory", "upfield", "eabl", "weetabix"].map(normalizePrincipalKey));
-const TOP_N = 5;
+// Fixed top-5 principal set (given directly, not derived by any ranking) —
+// shown versus their own target, rolled up across every location-split raw
+// Principal string that belongs to the same brand (e.g. "EABL-Nyeri" and
+// "EABL-Nyahururu" both fold into "Eabl").
+const TOP_5_PRINCIPALS = ["Mars", "Suntory", "Upfield", "Eabl", "Weetabix"];
 
 export function SalesPerformanceTab({
   dataset,
@@ -48,10 +48,22 @@ export function SalesPerformanceTab({
   const lysp = summarizeSalesForPeriod(dataset, lyspPeriod, selectedPrincipalKey);
 
   const byPrincipal = Array.from(summarizeSalesByPrincipal(dataset, mtdPeriod).values());
-  const topMarginPrincipals = byPrincipal
-    .filter((p) => !HIGH_MARGIN_EXCLUSIONS.has(normalizePrincipalKey(p.principal)) && p.revenue > 0)
-    .sort((a, b) => (b.grossMarginPct ?? 0) - (a.grossMarginPct ?? 0))
-    .slice(0, TOP_N);
+  const top5 = TOP_5_PRINCIPALS.map((label) => {
+    const key = normalizePrincipalKey(label);
+    const rows = byPrincipal.filter((p) => normalizePrincipalKey(p.principal) === key);
+    let revenue = 0;
+    let target = 0;
+    let hasTarget = false;
+    for (const r of rows) {
+      revenue += r.revenue;
+      if (r.target !== null) {
+        target += r.target;
+        hasTarget = true;
+      }
+    }
+    const achievementPct = hasTarget && target > 0 ? Math.round((revenue / target) * 1000) / 10 : null;
+    return { label, revenue, target: hasTarget ? target : null, achievementPct };
+  });
   const costOfSales = [...byPrincipal].sort((a, b) => b.cogs - a.cogs);
 
   const stockValue = dataset.stockTotal.value;
@@ -77,19 +89,18 @@ export function SalesPerformanceTab({
       </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionCard title={`Top ${TOP_N} high-margin principals`} action={<span className="text-xs text-muted">Excludes Mars, Suntory, Upfield, EABL, Weetabix</span>}>
+        <SectionCard title="Top 5 principals vs Target" action={<span className="text-xs text-muted">Mars, Suntory, Upfield, Eabl, Weetabix</span>}>
           <TableWrap>
-            <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">GP</Th><Th align="right">Margin</Th></Thead>
+            <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Target</Th><Th align="right">Achievement</Th></Thead>
             <tbody>
-              {topMarginPrincipals.map((p) => (
-                <tr key={p.principalKey}>
-                  <Td>{p.principal}</Td>
+              {top5.map((p) => (
+                <tr key={p.label}>
+                  <Td>{p.label}</Td>
                   <Td align="right">{formatCompact(p.revenue)}</Td>
-                  <Td align="right">{formatCompact(p.grossProfit)}</Td>
-                  <Td align="right"><span className={tierTextClass[marginTier(p.grossMarginPct)]}>{formatPercent(p.grossMarginPct)}</span></Td>
+                  <Td align="right">{p.target !== null ? formatCompact(p.target) : "N/T"}</Td>
+                  <Td align="right"><span className={tierTextClass[achievementTier(p.achievementPct)]}>{formatPercent(p.achievementPct)}</span></Td>
                 </tr>
               ))}
-              {topMarginPrincipals.length === 0 ? <tr><td colSpan={4} className="px-3 py-6 text-center text-muted">No revenue-bearing principals this period.</td></tr> : null}
             </tbody>
           </TableWrap>
         </SectionCard>
