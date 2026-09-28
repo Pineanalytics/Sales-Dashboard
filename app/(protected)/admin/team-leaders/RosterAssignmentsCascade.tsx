@@ -26,6 +26,9 @@ export interface CascadeTeamLeader {
 export interface CascadeSupervisor {
   id: string;
   name: string;
+  /** Same "Emmy (Supervisor)" disambiguation as TeamLeaderRosterPanel's
+   *  SupervisorOption — see lib/rosterHierarchy.ts's labelForName. */
+  label?: string;
 }
 export interface CascadeEmployeeIdentity extends DrawerIdentity {
   employeeCode: string;
@@ -83,7 +86,7 @@ export function RosterAssignmentsCascade({
   const [selectedEmployeeCode, setSelectedEmployeeCode] = useState<string | null>(null);
 
   const teamLeaderNameById = useMemo(() => new Map(teamLeaders.map((tl) => [tl.id, tl.name])), [teamLeaders]);
-  const supervisorNameById = useMemo(() => new Map(supervisors.map((s) => [s.id, s.name])), [supervisors]);
+  const supervisorNameById = useMemo(() => new Map(supervisors.map((s) => [s.id, s.label ?? s.name])), [supervisors]);
   const assignmentsByEmployeeCode = useMemo(() => groupAssignmentsByEmployeeCode(assignments), [assignments]);
   const identityByEmployeeCode = useMemo(() => new Map(employeeIdentities.map((i) => [i.employeeCode, i])), [employeeIdentities]);
   const contributionsByEmployeeCode = useMemo(() => {

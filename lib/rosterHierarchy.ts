@@ -140,3 +140,40 @@ export function buildRosterHierarchy<
     unassignedTeamLeaders: teamLeaders.filter((tl) => !tl.supervisorId || !validSupervisorIds.has(tl.supervisorId)),
   };
 }
+
+/** A real person can legitimately hold two tiers at once — e.g. a "self-
+ *  represented" Sales Supervisor who has no Team Leader under them, so
+ *  they're also registered as their own Team Leader (see
+ *  lib/salesLeadershipImport.ts) — creating two distinct rows sharing one
+ *  name. Rendered plain, "reports to Emmy" under Team Leader Emmy's own row
+ *  reads as circular/confusing, since Supervisor Emmy and Team Leader Emmy
+ *  are different rows. Returns every name that appears in more than one
+ *  tier, so a dropdown/label can tag only the names that actually need it
+ *  ("Emmy (Supervisor)") rather than tagging every name always. */
+export function computeAmbiguousNames(
+  teamLeaders: HierarchyTeamLeader[],
+  supervisors: HierarchySupervisor[],
+  managers: HierarchyManager[],
+  hods: HierarchyHod[],
+  directors: HierarchyDirector[]
+): Set<string> {
+  const tiers = [teamLeaders, supervisors, managers, hods, directors];
+  const seenInOneTier = new Set<string>();
+  const ambiguous = new Set<string>();
+  for (const tier of tiers) {
+    const namesInThisTier = new Set(tier.map((row) => row.name));
+    for (const name of namesInThisTier) {
+      if (seenInOneTier.has(name)) ambiguous.add(name);
+      seenInOneTier.add(name);
+    }
+  }
+  return ambiguous;
+}
+
+export type HierarchyTier = "Team Leader" | "Supervisor" | "Manager" | "Head of Sales" | "Director";
+
+/** "Emmy" -> "Emmy" normally, "Emmy (Supervisor)" only when `ambiguousNames`
+ *  says that name is shared with another tier — see computeAmbiguousNames. */
+export function labelForName(name: string, tier: HierarchyTier, ambiguousNames: Set<string>): string {
+  return ambiguousNames.has(name) ? `${name} (${tier})` : name;
+}
