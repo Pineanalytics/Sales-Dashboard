@@ -4,11 +4,11 @@ import { useState } from "react";
 import type { Dataset } from "@/lib/types";
 import type { PeriodSelection } from "@/lib/timeIntelligence";
 import { StockView } from "./StockView";
-import { OrderFulfillmentPanel } from "@/components/executiveSummary/OrderFulfillmentPanel";
 import { InventoryMovementTab } from "@/components/operations/InventoryMovementTab";
 import { MustSellListTab } from "@/components/operations/MustSellListTab";
 import { TopPrincipalStockStatusTab } from "@/components/operations/TopPrincipalStockStatusTab";
 import { PurchasesTab } from "@/components/operations/PurchasesTab";
+import { OrderFulfillmentTab } from "@/components/operations/OrderFulfillmentTab";
 import { FleetLogisticsTab } from "@/components/operations/FleetLogisticsTab";
 
 export type OperationsTab =
@@ -84,7 +84,7 @@ export function OperationsLogisticsView({
         {activeTab === "must-sell-list" && <MustSellListTab dataset={dataset} />}
         {activeTab === "top-principal-status" && <TopPrincipalStockStatusTab dataset={dataset} />}
         {activeTab === "purchases" && <PurchasesTab />}
-        {activeTab === "order-fulfillment" && <OrderFulfillmentPanel period={period} />}
+        {activeTab === "order-fulfillment" && <OrderFulfillmentTab period={period} />}
         {activeTab === "fleet-logistics" && <FleetLogisticsTab />}
       </div>
     </div>
