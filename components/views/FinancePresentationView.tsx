@@ -213,10 +213,16 @@ export function FinancePresentationView({
                             {point.label}
                             {point.isApproximate ? <Badge tier="warn">Approx.</Badge> : null}
                           </Td>
-                          <Td align="right">{t ? money(t.current) : "—"}</Td>
-                          <Td align="right">{t ? money(t.days60) : "—"}</Td>
-                          <Td align="right">{t ? money(t.days90) : "—"}</Td>
-                          <Td align="right">{t ? money(t.daysOver90) : "—"}</Td>
+                          {(["current", "days60", "days90", "daysOver90"] as const).map((key) => (
+                            <Td key={key} align="right">
+                              {t ? (
+                                <>
+                                  {money(t[key])}
+                                  <span className="ml-1 text-xs text-muted">({t.total > 0 ? formatPercent((t[key] / t.total) * 100) : "—"})</span>
+                                </>
+                              ) : "—"}
+                            </Td>
+                          ))}
                           <Td align="right" className="font-semibold">{t ? money(t.total) : "—"}</Td>
                         </tr>
                       );
