@@ -549,6 +549,57 @@ const jpAdherenceReport: ReportDefinition = {
   },
 };
 
+interface TimeInTradeRowDto {
+  source: string;
+  sourceLabel: string;
+  bucketLabel: string;
+  repDays: number;
+  visits: number;
+  productivityPct: number | null;
+  avgStartTime: string | null;
+  avgCloseTime: string | null;
+  avgHoursInTrade: number | null;
+  newOutlets: number | null;
+}
+
+const timeInTradeReport: ReportDefinition = {
+  key: "time-in-trade",
+  label: "Time in Trade",
+  description: "Average start/close time, productivity and incremental outlet visits per principal module, trended across the selected period.",
+  pageKey: "coverage",
+  async build({ period, periodLabel }) {
+    const params = new URLSearchParams({ kind: period.kind, year: period.year });
+    if (period.month) params.set("month", period.month);
+    if (period.toYear) params.set("toYear", period.toYear);
+    if (period.toMonth) params.set("toMonth", period.toMonth);
+    const res = await fetch(`/api/coverage/time-in-trade?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return emptyReport("Time in Trade");
+    const body = (await res.json()) as { rows: TimeInTradeRowDto[] };
+
+    return {
+      title: `Time in Trade — ${periodLabel}`,
+      generatedAt: new Date(),
+      sections: [
+        {
+          title: "Trend by Principal Module",
+          columns: ["Period", "Principal Module", "Rep-Days", "Visits", "Avg Start", "Avg Close", "Hours in Trade", "Productivity %", "New Outlets"],
+          rows: body.rows.map((r) => [
+            r.bucketLabel,
+            r.sourceLabel,
+            r.repDays,
+            r.visits,
+            r.avgStartTime ?? "N/A",
+            r.avgCloseTime ?? "N/A",
+            r.avgHoursInTrade ?? "N/A",
+            r.productivityPct ?? "N/A",
+            r.newOutlets ?? "N/A",
+          ]),
+        },
+      ],
+    };
+  },
+};
+
 interface Order360MetaDto {
   range: string;
   totalOrders: number;
@@ -833,6 +884,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   activeOutletsReport,
   timestampsReport,
   jpAdherenceReport,
+  timeInTradeReport,
   order360Report,
   salesReturnsReport,
   dormantStockReport,

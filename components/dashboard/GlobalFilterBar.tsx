@@ -45,13 +45,12 @@ export function GlobalFilterBar() {
         {canFilterExecutiveDays ? <DayNameSelector /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Active Outlets (now Coverage's "active-outlets" tab) has real
-            per-outlet detail below (the "Outlet Detail" table) that reads
-            better as the extract's anchor than this generic bar — its own
-            SectionCard hosts InlineReportExport instead. JP Adherence (now
+        {/* Active Outlets and Time in Trade (Coverage's "active-outlets" and
+            "time-in-trade" tabs) have their own SectionCard-hosted
+            InlineReportExport instead of this generic bar. JP Adherence (now
             Coverage's "jp-adherence" tab) keeps using this shared bar, same
             as it did on its old standalone route. */}
-        {pathname === "/coverage" && coverageActiveTab === "active-outlets" ? null : (
+        {pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "time-in-trade") ? null : (
           <InlineReportExport
             reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}
