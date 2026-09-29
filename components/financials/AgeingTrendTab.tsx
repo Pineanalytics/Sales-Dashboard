@@ -4,18 +4,28 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
 import { money } from "@/components/views/ReceivablesView";
+import { formatPercent } from "@/lib/format";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import type { AgeingSnapshotPoint, AgeingTrendForMonth } from "@/lib/receivablesAgeing";
 
-const BUCKET_COLUMNS: { key: keyof NonNullable<AgeingSnapshotPoint["buckets"]>; label: string }[] = [
-  { key: "current", label: "Current" },
-  { key: "days30", label: "30 days" },
+// Same "within 30 days = Current" merge as the Total Outstanding/Debtor
+// module, applied here too so both views agree on what "Current" means.
+// The underlying snapshot keeps all 5 raw buckets in storage; only the
+// display folds current+days30 together.
+const BUCKET_COLUMNS: { key: "current" | "days60" | "days90" | "daysOver90"; label: string }[] = [
+  { key: "current", label: "Current (0–30 days)" },
   { key: "days60", label: "60 days" },
   { key: "days90", label: "90 days" },
   { key: "daysOver90", label: "Over 90 days" },
 ];
 
+function mergedBuckets(raw: NonNullable<AgeingSnapshotPoint["buckets"]>) {
+  return { current: raw.current + raw.days30, days60: raw.days60, days90: raw.days90, daysOver90: raw.daysOver90 };
+}
+
 function PointRow({ point }: { point: AgeingSnapshotPoint }) {
+  const buckets = point.buckets ? mergedBuckets(point.buckets) : null;
+  const total = buckets ? buckets.current + buckets.days60 + buckets.days90 + buckets.daysOver90 : 0;
   return (
     <tr>
       <Td>
@@ -23,8 +33,16 @@ function PointRow({ point }: { point: AgeingSnapshotPoint }) {
         {point.isApproximate ? <Badge tier="warn">Approximate — excludes since-cleared items</Badge> : null}
       </Td>
       {BUCKET_COLUMNS.map((col) => (
-        <Td key={col.key} align="right">{point.buckets ? money(point.buckets[col.key]) : "—"}</Td>
+        <Td key={col.key} align="right">
+          {buckets ? (
+            <>
+              {money(buckets[col.key])}
+              <span className="ml-1 text-xs text-muted">({total > 0 ? formatPercent((buckets[col.key] / total) * 100) : "—"})</span>
+            </>
+          ) : "—"}
+        </Td>
       ))}
+      <Td align="right" className="font-semibold">{buckets ? money(total) : "—"}</Td>
       <Td className="text-xs text-muted">{point.snapshotDate ? new Date(point.snapshotDate).toLocaleDateString("en-KE") : "No snapshot yet"}</Td>
     </tr>
   );
@@ -54,11 +72,16 @@ export function AgeingTrendTab({ ageingTrend, year, month }: { ageingTrend: Agei
         </form>
       </SectionCard>
 
-      <SectionCard title={`Ageing trend — ${month} ${year}`} accent="navy" action={<span className="text-xs text-muted">Last month + calendar weeks, defaults per selected month</span>}>
+      <SectionCard
+        title={`Ageing trend — ${month} ${year}`}
+        accent="navy"
+        action={<span className="text-xs text-muted">Closing balance last month, then each week of the current month distinctly — figures and % of that period&apos;s own total</span>}
+      >
         <TableWrap>
           <Thead>
             <Th>Period</Th>
             {BUCKET_COLUMNS.map((col) => <Th key={col.key} align="right">{col.label}</Th>)}
+            <Th align="right">Total</Th>
             <Th>As of</Th>
           </Thead>
           <tbody>

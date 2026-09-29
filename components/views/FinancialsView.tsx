@@ -17,7 +17,6 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
 import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { SalesPerformanceTab } from "@/components/financials/SalesPerformanceTab";
-import { DebtorsTab } from "@/components/financials/DebtorsTab";
 import { TotalOutstandingTab } from "@/components/financials/TotalOutstandingTab";
 import { AgeingTrendTab } from "@/components/financials/AgeingTrendTab";
 
@@ -27,7 +26,6 @@ export type FinancialsTab =
   | "open-items"
   | "profitability"
   | "sales-performance"
-  | "debtors"
   | "total-outstanding"
   | "ageing-trend";
 
@@ -53,8 +51,7 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "open-items", label: "Largest Open Items", receivables: true },
   { id: "profitability", label: "Profitability", profitability: true },
   { id: "sales-performance", label: "Sales Performance", profitability: true },
-  { id: "debtors", label: "Debtors", receivables: true },
-  { id: "total-outstanding", label: "Total Outstanding", receivables: true },
+  { id: "total-outstanding", label: "Debtors & Total Outstanding", receivables: true },
   { id: "ageing-trend", label: "Ageing Trend", receivables: true },
 ];
 
@@ -186,8 +183,7 @@ export function FinancialsView({
             </SectionCard>
           )
         )}
-        {activeTab === "debtors" && receivables && <DebtorsTab receivables={receivables} debtAttribution={debtAttribution} />}
-        {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} />}
+        {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} debtAttribution={debtAttribution} />}
         {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
       </div>
     </div>
