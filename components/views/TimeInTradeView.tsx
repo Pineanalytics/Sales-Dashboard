@@ -5,10 +5,9 @@ import { useDashboardStore } from "@/lib/store";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
 import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { FullPageSpinner } from "@/components/ui/Spinner";
-import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
+import { TableWrap, Td, Th, Thead, TotalRow } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { Clock20Regular } from "@fluentui/react-icons";
 
@@ -18,11 +17,17 @@ import { Clock20Regular } from "@fluentui/react-icons";
 // follows the same "own local DTO, fetched via API route" convention.
 type TimeInTradeSource = "pine" | "eabl" | "upfield" | "unilever";
 
-const TIME_IN_TRADE_SOURCES: TimeInTradeSource[] = ["pine", "eabl", "upfield", "unilever"];
+const SOURCE_LABELS: Record<TimeInTradeSource, string> = {
+  pine: "Pine",
+  eabl: "EABL",
+  upfield: "Upfield",
+  unilever: "Unilever",
+};
 
 interface TimeInTradeRow {
   source: TimeInTradeSource;
-  sourceLabel: string;
+  principalKey: string;
+  principal: string;
   bucketKey: string;
   bucketLabel: string;
   repDays: number;
@@ -40,19 +45,19 @@ interface TimeInTradeResponse {
   rows: TimeInTradeRow[];
 }
 
-/** Whole-period roll-up per source, for the top KPI row — a visits-weighted
- *  average across every bucket the trend covers, not just the latest one. */
-function summarizeSource(rows: TimeInTradeRow[], source: TimeInTradeSource) {
-  const sourceRows = rows.filter((r) => r.source === source);
-  const visits = sourceRows.reduce((sum, r) => sum + r.visits, 0);
-  const repDays = sourceRows.reduce((sum, r) => sum + r.repDays, 0);
-  const productiveRows = sourceRows.filter((r) => r.productiveVisits !== null);
+/** Whole-period roll-up per principal, for the summary table — a total
+ *  across every bucket the trend covers, not just the latest one. */
+function summarizePrincipal(rows: TimeInTradeRow[], principalKey: string) {
+  const principalRows = rows.filter((r) => r.principalKey === principalKey);
+  const source = principalRows[0]?.source ?? "pine";
+  const principal = principalRows[0]?.principal ?? principalKey;
+  const visits = principalRows.reduce((sum, r) => sum + r.visits, 0);
+  const repDays = principalRows.reduce((sum, r) => sum + r.repDays, 0);
+  const productiveRows = principalRows.filter((r) => r.productiveVisits !== null);
   const productivityPct = productiveRows.length > 0 && visits > 0
     ? Math.round((productiveRows.reduce((sum, r) => sum + (r.productiveVisits ?? 0), 0) / visits) * 1000) / 10
     : null;
-  const newOutletsRows = sourceRows.filter((r) => r.newOutlets !== null);
-  const newOutlets = newOutletsRows.length > 0 ? newOutletsRows.reduce((sum, r) => sum + (r.newOutlets ?? 0), 0) : null;
-  return { visits, repDays, productivityPct, newOutlets };
+  return { source, principal, visits, repDays, productivityPct };
 }
 
 export function TimeInTradeView() {
@@ -94,6 +99,11 @@ export function TimeInTradeView() {
     return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Select a Month, Quarter, or Year filter" description="Time in Trade trends by week within a month, by month within a quarter, or by quarter within a year — pick one of those periods above to see a trend." />;
   }
 
+  const principalKeys = Array.from(new Set(data.rows.map((r) => r.principalKey)));
+  const principalSummaries = principalKeys.map((key) => summarizePrincipal(data.rows, key)).sort((a, b) => b.visits - a.visits);
+  const totalVisits = principalSummaries.reduce((sum, p) => sum + p.visits, 0);
+  const totalRepDays = principalSummaries.reduce((sum, p) => sum + p.repDays, 0);
+
   return (
     <div className="flex flex-col gap-6">
       <SectionCard
@@ -101,39 +111,54 @@ export function TimeInTradeView() {
         title="Time in Trade"
         action={
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted">Average start/close time and productivity per principal module</span>
+            <span className="text-xs text-muted">Average start/close time and productivity per principal</span>
             <InlineReportExport reportKey="time-in-trade" allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
           </div>
         }
       >
         <p className="text-sm text-muted-strong">
-          Consolidates each Timestamp module&apos;s own average outlet start/close time, productivity, and incremental
-          (new) outlets — trended as weeks within a month, months within a quarter, or quarters within a year, matching
-          the period filter above.
+          Consolidates each principal&apos;s own average outlet start/close time, productivity, and incremental (new)
+          outlets — sourced from whichever Timestamp system tracks that principal (Pine covers most; EABL, Upfield and
+          Unilever each track their own) — trended as weeks within a month, months within a quarter, or quarters within
+          a year, matching the period filter above.
         </p>
       </SectionCard>
 
-      <KpiGrid>
-        {TIME_IN_TRADE_SOURCES.map((source) => {
-          const summary = summarizeSource(data.rows, source);
-          const label = source === "pine" ? "Pine (SalesEdge)" : source === "eabl" ? "EABL" : source === "upfield" ? "Upfield (DataEdge)" : "Unilever (Leverage)";
-          return (
-            <KpiCard
-              key={source}
-              accent="coverage"
-              label={label}
-              value={<span className="text-lg font-bold">{formatNumber(summary.visits)} visits</span>}
-              sublabel={summary.productivityPct !== null ? `${summary.productivityPct}% productive · ${formatNumber(summary.repDays)} rep-days` : `${formatNumber(summary.repDays)} rep-days`}
-            />
-          );
-        })}
-      </KpiGrid>
+      <SectionCard title="By Principal" action={<span className="text-xs text-muted">Totals across {data.buckets.length} period(s) in the current filter</span>}>
+        <TableWrap>
+          <Thead>
+            <Th>Principal</Th>
+            <Th>System</Th>
+            <Th align="right">Rep-Days</Th>
+            <Th align="right">Visits</Th>
+            <Th align="center">Productivity %</Th>
+          </Thead>
+          <tbody>
+            {principalSummaries.map((p) => (
+              <tr key={p.principal}>
+                <Td className="font-semibold">{p.principal}</Td>
+                <Td>{SOURCE_LABELS[p.source]}</Td>
+                <Td align="right">{formatNumber(p.repDays)}</Td>
+                <Td align="right">{formatNumber(p.visits)}</Td>
+                <Td align="center">{p.productivityPct !== null ? `${p.productivityPct}%` : "—"}</Td>
+              </tr>
+            ))}
+            <TotalRow>
+              <Td>Total</Td>
+              <Td>—</Td>
+              <Td align="right">{formatNumber(totalRepDays)}</Td>
+              <Td align="right">{formatNumber(totalVisits)}</Td>
+              <Td align="center">—</Td>
+            </TotalRow>
+          </tbody>
+        </TableWrap>
+      </SectionCard>
 
-      <SectionCard title="Trend by Principal Module" action={<span className="text-xs text-muted">{data.buckets.map((b) => b.label).join(" · ")}</span>}>
+      <SectionCard title="Trend by Principal" action={<span className="text-xs text-muted">{data.buckets.map((b) => b.label).join(" · ")}</span>}>
         <TableWrap>
           <Thead>
             <Th>Period</Th>
-            <Th>Principal Module</Th>
+            <Th>Principal</Th>
             <Th align="right">Rep-Days</Th>
             <Th align="right">Visits</Th>
             <Th align="center">Avg Start</Th>
@@ -144,9 +169,9 @@ export function TimeInTradeView() {
           </Thead>
           <tbody>
             {data.rows.map((row) => (
-              <tr key={`${row.bucketKey}|${row.source}`}>
+              <tr key={`${row.bucketKey}|${row.principalKey}`}>
                 <Td>{row.bucketLabel}</Td>
-                <Td>{row.sourceLabel}</Td>
+                <Td>{row.principal}</Td>
                 <Td align="right">{formatNumber(row.repDays)}</Td>
                 <Td align="right">{formatNumber(row.visits)}</Td>
                 <Td align="center">{row.avgStartTime ?? "—"}</Td>
