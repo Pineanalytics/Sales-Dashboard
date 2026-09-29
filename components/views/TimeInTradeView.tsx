@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead, TotalRow } from "@/components/ui/Table";
+import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatNumber } from "@/lib/format";
 import { Clock20Regular } from "@fluentui/react-icons";
 
@@ -65,13 +66,14 @@ export function TimeInTradeView() {
   const period = useDashboardStore((s) => s.selectedPeriod);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [data, setData] = useState<TimeInTradeResponse | null>(null);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setStatus("loading");
       try {
-        const params = new URLSearchParams({ kind: period.kind, year: period.year });
+        const params = new URLSearchParams({ kind: period.kind, year: period.year, role: roleFilter });
         if (period.month) params.set("month", period.month);
         if (period.toYear) params.set("toYear", period.toYear);
         if (period.toMonth) params.set("toMonth", period.toMonth);
@@ -89,7 +91,7 @@ export function TimeInTradeView() {
     return () => {
       cancelled = true;
     };
-  }, [period.kind, period.year, period.month, period.toYear, period.toMonth]);
+  }, [period.kind, period.year, period.month, period.toYear, period.toMonth, roleFilter]);
 
   if (status === "loading") return <FullPageSpinner label="Loading Time in Trade…" />;
   if (status === "error" || !data) {
@@ -122,6 +124,11 @@ export function TimeInTradeView() {
           Unilever each track their own) — trended as weeks within a month, months within a quarter, or quarters within
           a year, matching the period filter above.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold text-muted-strong">Sales Role</span>
+          <RoleToggle value={roleFilter} onChange={setRoleFilter} />
+          <span className="text-xs text-muted">Only narrows Pine — EABL, Upfield and Unilever have no Primary/Secondary role of their own</span>
+        </div>
       </SectionCard>
 
       <SectionCard title="By Principal" action={<span className="text-xs text-muted">Totals across {data.buckets.length} period(s) in the current filter</span>}>
