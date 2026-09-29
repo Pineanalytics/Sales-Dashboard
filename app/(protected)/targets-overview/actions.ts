@@ -58,7 +58,7 @@ function filterSuffix(formData: FormData): string {
 
 const REDIRECT_BASE = "/targets-overview";
 
-const AUDITED_TARGET_FIELDS = ["valueTarget", "volumeTarget", "coverageTarget", "productivityTarget"] as const;
+const AUDITED_TARGET_FIELDS = ["valueTarget", "volumeTarget", "coverageTarget", "productivityTarget", "grossProfitTarget", "grossMarginTargetPct"] as const;
 
 async function logTargetAudit(
   userEmail: string,
@@ -130,6 +130,8 @@ export async function updateTargetValueAction(formData: FormData) {
     volumeTarget: num(formData, "volumeTarget"),
     coverageTarget: num(formData, "coverageTarget"),
     productivityTarget: num(formData, "productivityTarget"),
+    grossProfitTarget: num(formData, "grossProfitTarget"),
+    grossMarginTargetPct: pct(formData, "grossMarginTargetPct"),
   };
 
   const existing = await prisma.target.findUnique({ where: { year_month_principal: { year, month, principal } } });
@@ -144,8 +146,15 @@ export async function updateTargetValueAction(formData: FormData) {
     user.email!,
     { year, month, principal },
     existing
-      ? { valueTarget: existing.valueTarget, volumeTarget: existing.volumeTarget, coverageTarget: existing.coverageTarget, productivityTarget: existing.productivityTarget }
-      : { valueTarget: null, volumeTarget: null, coverageTarget: null, productivityTarget: null },
+      ? {
+          valueTarget: existing.valueTarget,
+          volumeTarget: existing.volumeTarget,
+          coverageTarget: existing.coverageTarget,
+          productivityTarget: existing.productivityTarget,
+          grossProfitTarget: existing.grossProfitTarget,
+          grossMarginTargetPct: existing.grossMarginTargetPct,
+        }
+      : { valueTarget: null, volumeTarget: null, coverageTarget: null, productivityTarget: null, grossProfitTarget: null, grossMarginTargetPct: null },
     values
   );
   invalidateDatasetCache();

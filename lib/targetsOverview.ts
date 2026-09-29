@@ -23,6 +23,8 @@ export interface TargetsOverviewTargetRow {
   volumeTarget: number | null;
   coverageTarget: number | null;
   productivityTarget: number | null;
+  grossProfitTarget: number | null;
+  grossMarginTargetPct: number | null;
   // How many distinct active Team Leaders (including any editing this row) are
   // assigned to this principal — >1 means an edit here affects other Team
   // Leaders too. Computed company-wide, not scope-limited, since the effect
@@ -115,6 +117,8 @@ export async function getTargetsOverview(filters: TargetsOverviewFilters, scope:
         volumeTarget: target?.volumeTarget ?? null,
         coverageTarget: target?.coverageTarget ?? null,
         productivityTarget: target?.productivityTarget ?? null,
+        grossProfitTarget: target?.grossProfitTarget ?? null,
+        grossMarginTargetPct: target?.grossMarginTargetPct ?? null,
         sharedWithTeamLeaderCount: tlSetByPrincipal.get(principal)?.size ?? 1,
       });
     }

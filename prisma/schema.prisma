@@ -87,18 +87,24 @@ model EmailTemplate {
 // refresh cycle. Overlaid onto Dataset.monthlySales[].target at read time by
 // lib/datasetStore.ts, not baked into the Snapshot JSON blob at upload time.
 model Target {
-  id                 String   @id @default(cuid())
-  year               String
-  month              String
-  monthIndex         Int
-  principal          String
-  mainPrincipal      String?
-  valueTarget        Float?
-  volumeTarget       Float?
-  coverageTarget     Float?
-  productivityTarget Float?
-  updatedAt          DateTime @updatedAt
-  createdAt          DateTime @default(now())
+  id                   String   @id @default(cuid())
+  year                 String
+  month                String
+  monthIndex           Int
+  principal            String
+  mainPrincipal        String?
+  valueTarget          Float?
+  volumeTarget         Float?
+  coverageTarget       Float?
+  productivityTarget   Float?
+  // GP targets, added for the Finance module — company-wide GP commitment per
+  // principal/month rather than one blended figure. grossMarginTargetPct is a
+  // fraction (0.10 = 10%), matching TeamLeaderAssignment.contributionPct's
+  // own stored-as-fraction convention.
+  grossProfitTarget    Float?
+  grossMarginTargetPct Float?
+  updatedAt            DateTime @updatedAt
+  createdAt            DateTime @default(now())
 
   @@unique([year, month, principal])
   @@index([year, month])

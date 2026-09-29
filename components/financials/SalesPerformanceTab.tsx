@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
@@ -16,7 +15,7 @@ import {
 } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
-import { updateFinanceSettingsAction } from "@/app/(protected)/(analytics)/financials/actions";
+import type { PrincipalGpTarget } from "@/lib/financeGpTarget";
 
 // Fixed top-5 principal set (given directly, not derived by any ranking) —
 // shown versus their own target, rolled up across every location-split raw
@@ -27,17 +26,15 @@ const TOP_5_PRINCIPALS = ["Mars", "Suntory", "Upfield", "Eabl", "Weetabix"];
 export function SalesPerformanceTab({
   dataset,
   selectedPrincipalKey,
-  grossMarginTargetPct,
+  gpTargets,
   receivablesOutstanding,
   debtAttribution,
-  isAdmin,
 }: {
   dataset: Dataset;
   selectedPrincipalKey: string | null;
-  grossMarginTargetPct: number | null;
+  gpTargets: PrincipalGpTarget[];
   receivablesOutstanding: number;
   debtAttribution: DebtAttribution;
-  isAdmin: boolean;
 }) {
   const mtdPeriod = getCurrentMonthPeriod(dataset);
   const ytdPeriod: PeriodSelection = { kind: "YTD", year: mtdPeriod.year, month: mtdPeriod.month };
@@ -66,6 +63,30 @@ export function SalesPerformanceTab({
   });
   const costOfSales = [...byPrincipal].sort((a, b) => b.cogs - a.cogs);
 
+  // GP targets are per-principal (Target.grossProfitTarget /
+  // grossMarginTargetPct, entered on /targets-overview) — "All Principals"
+  // blends them the same way Sales vs Target blends revenue targets: sum the
+  // GP value targets, and weight the margin target by each principal's own
+  // revenue target so a low-volume principal's % doesn't skew the blend.
+  const matchingGpTargets = selectedPrincipalKey ? gpTargets.filter((g) => g.principal === selectedPrincipalKey) : gpTargets;
+  let gpValueTargetSum = 0;
+  let hasGpValueTarget = false;
+  let weightedMarginSum = 0;
+  let marginWeightSum = 0;
+  for (const g of matchingGpTargets) {
+    if (g.grossProfitTarget !== null) {
+      gpValueTargetSum += g.grossProfitTarget;
+      hasGpValueTarget = true;
+    }
+    if (g.grossMarginTargetPct !== null) {
+      const weight = g.valueTarget ?? 0;
+      weightedMarginSum += g.grossMarginTargetPct * weight;
+      marginWeightSum += weight;
+    }
+  }
+  const marginTargetPct = marginWeightSum > 0 ? weightedMarginSum / marginWeightSum * 100 : null;
+  const gpValueAchievementPct = hasGpValueTarget && gpValueTargetSum > 0 ? Math.round((mtd.grossProfit / gpValueTargetSum) * 1000) / 10 : null;
+
   const stockValue = dataset.stockTotal.value;
   const workingCapital = stockValue + receivablesOutstanding;
 
@@ -88,10 +109,17 @@ export function SalesPerformanceTab({
             accent="growth"
             label="GP Margin vs Target"
             value={<span className={tierTextClass[marginTier(mtd.grossMarginPct)]}>{formatPercent(mtd.grossMarginPct)}</span>}
-            sublabel={grossMarginTargetPct !== null ? `Target ${grossMarginTargetPct}%` : "No target set"}
+            sublabel={marginTargetPct !== null ? `Target ${marginTargetPct.toFixed(1)}%` : "No target set — /targets-overview"}
           />
+          {hasGpValueTarget ? (
+            <KpiCard
+              accent="mission"
+              label="GP vs Value Target"
+              value={<span className={tierTextClass[achievementTier(gpValueAchievementPct)]}>{formatPercent(gpValueAchievementPct)}</span>}
+              sublabel={`Target ${formatCompact(gpValueTargetSum)}`}
+            />
+          ) : null}
         </div>
-        {isAdmin ? <GrossMarginTargetEditor current={grossMarginTargetPct} /> : null}
       </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -152,33 +180,5 @@ export function SalesPerformanceTab({
         </div>
       </SectionCard>
     </div>
-  );
-}
-
-function GrossMarginTargetEditor({ current }: { current: number | null }) {
-  const [editing, setEditing] = useState(false);
-  if (!editing) {
-    return (
-      <button type="button" onClick={() => setEditing(true)} className="mt-3 text-xs font-semibold text-secondary-blue hover:text-primary-blue">
-        {current !== null ? "Edit GP margin target" : "Set GP margin target"}
-      </button>
-    );
-  }
-  return (
-    <form action={updateFinanceSettingsAction} className="mt-3 flex flex-wrap items-center gap-2">
-      <label className="text-xs font-semibold text-muted-strong" htmlFor="grossMarginTargetPct">GP margin target %</label>
-      <input
-        id="grossMarginTargetPct"
-        name="grossMarginTargetPct"
-        type="number"
-        step="0.1"
-        min={0}
-        max={100}
-        defaultValue={current ?? undefined}
-        className="w-24 rounded-lg border border-border bg-background px-2 py-1 text-sm"
-      />
-      <button type="submit" className="rounded-full bg-[#075a4b] px-3 py-1 text-xs font-semibold text-white">Save</button>
-      <button type="button" onClick={() => setEditing(false)} className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-muted-strong">Cancel</button>
-    </form>
   );
 }
