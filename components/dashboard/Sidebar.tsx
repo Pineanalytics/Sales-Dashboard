@@ -49,7 +49,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
   { href: "/financials", label: "Financials", icon: Money20Regular },
-  { href: "/stock", label: "Stock Balance", icon: Box20Regular },
+  { href: "/stock", label: "Stock & Operations", icon: Box20Regular },
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },
   { href: "/active-outlets", label: "Active Outlets", icon: BuildingShop20Regular },
   { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
