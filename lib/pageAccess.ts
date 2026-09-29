@@ -46,7 +46,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   customers: "Customers & Brands",
   profitability: "Financials – Profitability",
   receivables: "Financials – Receivables & Ageing",
-  stock: "Stock Balance",
+  stock: "Stock & Operations",
   "dormant-stock": "Dormant OOS",
   "active-outlets": "Active Outlets",
   timestamps: "Timestamps",
