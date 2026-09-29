@@ -551,7 +551,8 @@ const jpAdherenceReport: ReportDefinition = {
 
 interface TimeInTradeRowDto {
   source: string;
-  sourceLabel: string;
+  principalKey: string;
+  principal: string;
   bucketLabel: string;
   repDays: number;
   visits: number;
@@ -562,10 +563,12 @@ interface TimeInTradeRowDto {
   newOutlets: number | null;
 }
 
+const TIME_IN_TRADE_SOURCE_LABELS: Record<string, string> = { pine: "Pine", eabl: "EABL", upfield: "Upfield", unilever: "Unilever" };
+
 const timeInTradeReport: ReportDefinition = {
   key: "time-in-trade",
   label: "Time in Trade",
-  description: "Average start/close time, productivity and incremental outlet visits per principal module, trended across the selected period.",
+  description: "Average start/close time, productivity and incremental outlet visits per principal, trended across the selected period.",
   pageKey: "coverage",
   async build({ period, periodLabel }) {
     const params = new URLSearchParams({ kind: period.kind, year: period.year });
@@ -581,11 +584,12 @@ const timeInTradeReport: ReportDefinition = {
       generatedAt: new Date(),
       sections: [
         {
-          title: "Trend by Principal Module",
-          columns: ["Period", "Principal Module", "Rep-Days", "Visits", "Avg Start", "Avg Close", "Hours in Trade", "Productivity %", "New Outlets"],
+          title: "Trend by Principal",
+          columns: ["Period", "Principal", "System", "Rep-Days", "Visits", "Avg Start", "Avg Close", "Hours in Trade", "Productivity %", "New Outlets"],
           rows: body.rows.map((r) => [
             r.bucketLabel,
-            r.sourceLabel,
+            r.principal,
+            TIME_IN_TRADE_SOURCE_LABELS[r.source] ?? r.source,
             r.repDays,
             r.visits,
             r.avgStartTime ?? "N/A",

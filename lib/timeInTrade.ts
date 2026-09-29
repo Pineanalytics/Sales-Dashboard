@@ -6,22 +6,25 @@
 // (see the per-query comments below), so there is one query pair per source
 // rather than a single shared one — this mirrors how Timestamps' own hub
 // keeps the four systems as separate pages rather than one shared query.
+//
+// Pine (RepCall) is a single call system shared by many SAP principals — a
+// rep's day is attributed to one "absolute principal" exactly the way
+// lib/timestampSummary.ts's own principal-scoped queries do (EmployeeMaster's
+// roster value, falling back to that rep's historically most common sale
+// cost-centre when they have no roster row at all) — so Pine yields one row
+// per detected principal per bucket, not one lumped "Pine" row. EABL, Upfield
+// and Unilever are each already a single principal at the source, so they
+// stay one row per bucket.
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { CANONICAL_MONTHS, resolvePeriodMonths, type PeriodSelection } from "./timeIntelligence";
 import { getWeeksInMonth } from "./weeklyTargets";
 import { nairobiMinutesAfterMidnight, averageMinutes } from "./timeManagement";
+import { normalizePrincipalKey } from "./normalize";
 
 export type TimeInTradeSource = "pine" | "eabl" | "upfield" | "unilever";
 
 export const TIME_IN_TRADE_SOURCES: TimeInTradeSource[] = ["pine", "eabl", "upfield", "unilever"];
-
-export const TIME_IN_TRADE_SOURCE_LABELS: Record<TimeInTradeSource, string> = {
-  pine: "Pine (SalesEdge)",
-  eabl: "EABL",
-  upfield: "Upfield (DataEdge)",
-  unilever: "Unilever (Leverage)",
-};
 
 export interface TimeInTradeBucket {
   key: string;
@@ -31,8 +34,13 @@ export interface TimeInTradeBucket {
 }
 
 export interface TimeInTradeRow {
+  /** Which Timestamp system this principal's rows came from — Pine, EABL,
+   *  Upfield and Unilever each have their own capability limits (see
+   *  productivityPct/newOutlets below), independent of which principal the
+   *  row belongs to. */
   source: TimeInTradeSource;
-  sourceLabel: string;
+  principalKey: string;
+  principal: string;
   bucketKey: string;
   bucketLabel: string;
   repDays: number;
@@ -57,6 +65,28 @@ export interface TimeInTradeRow {
 const NAIROBI_OFFSET = Prisma.sql`INTERVAL '3 hours'`;
 const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000;
 const UPFIELD_REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g')`;
+
+// Same absolute/inferred-principal resolution as lib/timestampSummary.ts's
+// sourceQuery/inferredPrincipalJoin (kept as an independent copy rather than
+// exported/shared — that module's version is entangled with a specific
+// selected-principal filter and TeamLeaderScope, neither of which applies
+// here, where every principal is wanted at once, unfiltered).
+const PINE_PRINCIPAL_JOIN = Prisma.sql`
+  LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+  LEFT JOIN LATERAL (
+    SELECT BTRIM(cost_centre."value") AS principal
+    FROM "RepCall" history
+    CROSS JOIN LATERAL unnest(string_to_array(history."costCentresBought", ',')) AS cost_centre("value")
+    WHERE em.id IS NULL
+      AND history."employeeCode" = r."employeeCode"
+      AND history."callOutcome" = 'Sale'
+      AND BTRIM(cost_centre."value") <> ''
+    GROUP BY BTRIM(cost_centre."value")
+    ORDER BY COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
+    LIMIT 1
+  ) inferred ON true
+`;
+const PINE_PRINCIPAL_EXPRESSION = Prisma.sql`COALESCE(NULLIF(BTRIM(em."absolutePrincipal"), ''), inferred.principal, 'Unmapped')`;
 
 function utcMidnight(year: number, monthIndex: number, day = 1): Date {
   return new Date(Date.UTC(year, monthIndex, day));
@@ -121,6 +151,8 @@ export function resolveTimeInTradeBuckets(period: PeriodSelection): TimeInTradeB
 
 interface RepDayRow {
   date: Date;
+  principalKey: string;
+  principal: string;
   startTime: Date | null;
   closeTime: Date | null;
   visits: number;
@@ -128,21 +160,37 @@ interface RepDayRow {
 }
 interface OutletRow {
   date: Date;
+  principalKey: string;
   outletKey: string;
 }
 
 async function pineRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
-  const rows = await prisma.$queryRaw<{ date: Date; startTime: Date; closeTime: Date; visits: bigint; productive: bigint }[]>(Prisma.sql`
-    SELECT date, MIN("firstCallOfDay") AS "startTime", MAX("lastCallOfDay") AS "closeTime",
+  const rows = await prisma.$queryRaw<{ date: Date; principal: string; startTime: Date; closeTime: Date; visits: bigint; productive: bigint }[]>(Prisma.sql`
+    SELECT date, ${PINE_PRINCIPAL_EXPRESSION} AS principal,
+      MIN("firstCallOfDay") AS "startTime", MAX("lastCallOfDay") AS "closeTime",
       COUNT(*)::bigint AS visits, COUNT(*) FILTER (WHERE "callOutcome" = 'Sale')::bigint AS productive
-    FROM "RepCall" WHERE date >= ${start} AND date < ${end}
-    GROUP BY date, "employeeCode"`);
-  return rows.map((r) => ({ date: r.date, startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: Number(r.productive) }));
+    FROM "RepCall" r
+    ${PINE_PRINCIPAL_JOIN}
+    WHERE r.date >= ${start} AND r.date < ${end}
+    GROUP BY date, r."employeeCode", ${PINE_PRINCIPAL_EXPRESSION}`);
+  return rows.map((r) => ({
+    date: r.date,
+    principalKey: normalizePrincipalKey(r.principal),
+    principal: r.principal.split("-")[0].trim(),
+    startTime: r.startTime,
+    closeTime: r.closeTime,
+    visits: Number(r.visits),
+    productive: Number(r.productive),
+  }));
 }
 
 async function pineOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
-  return prisma.$queryRaw<OutletRow[]>(Prisma.sql`
-    SELECT DISTINCT date, "outletId" AS "outletKey" FROM "RepCall" WHERE date >= ${start} AND date < ${end}`);
+  const rows = await prisma.$queryRaw<{ date: Date; principal: string; outletKey: string }[]>(Prisma.sql`
+    SELECT DISTINCT date, ${PINE_PRINCIPAL_EXPRESSION} AS principal, "outletId" AS "outletKey"
+    FROM "RepCall" r
+    ${PINE_PRINCIPAL_JOIN}
+    WHERE r.date >= ${start} AND r.date < ${end}`);
+  return rows.map((r) => ({ date: r.date, principalKey: normalizePrincipalKey(r.principal), outletKey: r.outletKey }));
 }
 
 async function eablRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
@@ -151,13 +199,17 @@ async function eablRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
       COUNT(*)::bigint AS visits, COUNT(*) FILTER (WHERE "isProductive")::bigint AS productive
     FROM "EablCall" WHERE "callDate" >= ${start} AND "callDate" < ${end}
     GROUP BY "callDate", salesman`);
-  return rows.map((r) => ({ date: r.date, startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: Number(r.productive) }));
+  return rows.map((r) => ({
+    date: r.date, principalKey: "eabl", principal: "EABL",
+    startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: Number(r.productive),
+  }));
 }
 
 async function eablOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
-  return prisma.$queryRaw<OutletRow[]>(Prisma.sql`
+  const rows = await prisma.$queryRaw<{ date: Date; outletKey: string }[]>(Prisma.sql`
     SELECT DISTINCT "callDate" AS date, COALESCE(NULLIF(BTRIM("customerCode"), ''), "customerName") AS "outletKey"
     FROM "EablCall" WHERE "callDate" >= ${start} AND "callDate" < ${end}`);
+  return rows.map((r) => ({ date: r.date, principalKey: "eabl", outletKey: r.outletKey }));
 }
 
 async function upfieldRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
@@ -171,17 +223,21 @@ async function upfieldRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
     WHERE "txnDate" >= ${queryStart} AND "txnDate" < ${queryEnd}
       AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'
     GROUP BY 1, ${UPFIELD_REP_EXPRESSION}`);
-  return rows.map((r) => ({ date: r.date, startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: null }));
+  return rows.map((r) => ({
+    date: r.date, principalKey: "upfield", principal: "Upfield",
+    startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: null,
+  }));
 }
 
 async function upfieldOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
   const queryStart = new Date(start.getTime() - NAIROBI_OFFSET_MS);
   const queryEnd = new Date(end.getTime() - NAIROBI_OFFSET_MS);
-  return prisma.$queryRaw<OutletRow[]>(Prisma.sql`
+  const rows = await prisma.$queryRaw<{ date: Date; outletKey: string }[]>(Prisma.sql`
     SELECT DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET}) AS date,
       COALESCE(NULLIF(BTRIM("custCode"), ''), NULLIF(BTRIM("custName"), '')) AS "outletKey"
     FROM "UpfieldTransaction"
     WHERE "txnDate" >= ${queryStart} AND "txnDate" < ${queryEnd} AND type = 'sale' AND COALESCE("saleIncl", 0) > 0`);
+  return rows.map((r) => ({ date: r.date, principalKey: "upfield", outletKey: r.outletKey }));
 }
 
 async function unileverRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
@@ -190,7 +246,10 @@ async function unileverRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> 
       SUM("outletsVisited")::bigint AS visits
     FROM "PjpDsrDailyActivity" WHERE date >= ${start} AND date < ${end}
     GROUP BY date, distributor, dsr`);
-  return rows.map((r) => ({ date: r.date, startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: null }));
+  return rows.map((r) => ({
+    date: r.date, principalKey: "unilever", principal: "Unilever",
+    startTime: r.startTime, closeTime: r.closeTime, visits: Number(r.visits), productive: null,
+  }));
 }
 
 const SOURCE_QUERIES: Record<
@@ -231,47 +290,66 @@ export async function getTimeInTradeTrend(period: PeriodSelection): Promise<Time
       queries.outlets ? queries.outlets(rangeStart, rangeEnd) : Promise.resolve<OutletRow[]>([]),
     ]);
 
-    let previousOutletKeys: Set<string> | null = null;
-    for (const bucket of buckets) {
-      const bucketRepDays = repDayRows.filter((r) => inBucket(r.date, bucket));
-      const startMinutesList = bucketRepDays
-        .map((r) => (r.startTime ? nairobiMinutesAfterMidnight(r.startTime.toISOString()) : null))
-        .filter((v): v is number => v !== null);
-      const closeMinutesList = bucketRepDays
-        .map((r) => (r.closeTime ? nairobiMinutesAfterMidnight(r.closeTime.toISOString()) : null))
-        .filter((v): v is number => v !== null);
-      const startMinutes = averageMinutes(startMinutesList);
-      const closeMinutes = averageMinutes(closeMinutesList);
-      const hoursList = bucketRepDays
-        .filter((r) => r.startTime && r.closeTime)
-        .map((r) => (r.closeTime!.getTime() - r.startTime!.getTime()) / 3_600_000);
-      const avgHours = hoursList.length > 0 ? hoursList.reduce((sum, v) => sum + v, 0) / hoursList.length : null;
-      const visits = bucketRepDays.reduce((sum, r) => sum + r.visits, 0);
-      const hasProductiveSignal = bucketRepDays.some((r) => r.productive !== null);
-      const productiveVisits = hasProductiveSignal ? bucketRepDays.reduce((sum, r) => sum + (r.productive ?? 0), 0) : null;
-      const productivityPct = productiveVisits !== null && visits > 0 ? Math.round((productiveVisits / visits) * 1000) / 10 : null;
+    // Every principal this source actually has data for, ranked by total
+    // visits so the busiest principal leads that source's block of rows.
+    const principalTotals = new Map<string, { principal: string; visits: number }>();
+    for (const r of repDayRows) {
+      const entry = principalTotals.get(r.principalKey) ?? { principal: r.principal, visits: 0 };
+      entry.visits += r.visits;
+      principalTotals.set(r.principalKey, entry);
+    }
+    const principalKeysByVisits = Array.from(principalTotals.entries())
+      .sort(([, a], [, b]) => b.visits - a.visits)
+      .map(([key]) => key);
 
-      let newOutlets: number | null = null;
-      if (queries.outlets) {
-        const bucketOutletKeys = new Set(outletRows.filter((r) => inBucket(r.date, bucket)).map((r) => r.outletKey));
-        newOutlets = previousOutletKeys ? [...bucketOutletKeys].filter((k) => !previousOutletKeys!.has(k)).length : null;
-        previousOutletKeys = bucketOutletKeys;
+    for (const principalKey of principalKeysByVisits) {
+      const principal = principalTotals.get(principalKey)!.principal;
+      const principalRepDays = repDayRows.filter((r) => r.principalKey === principalKey);
+      const principalOutlets = outletRows.filter((r) => r.principalKey === principalKey);
+
+      let previousOutletKeys: Set<string> | null = null;
+      for (const bucket of buckets) {
+        const bucketRepDays = principalRepDays.filter((r) => inBucket(r.date, bucket));
+        const startMinutesList = bucketRepDays
+          .map((r) => (r.startTime ? nairobiMinutesAfterMidnight(r.startTime.toISOString()) : null))
+          .filter((v): v is number => v !== null);
+        const closeMinutesList = bucketRepDays
+          .map((r) => (r.closeTime ? nairobiMinutesAfterMidnight(r.closeTime.toISOString()) : null))
+          .filter((v): v is number => v !== null);
+        const startMinutes = averageMinutes(startMinutesList);
+        const closeMinutes = averageMinutes(closeMinutesList);
+        const hoursList = bucketRepDays
+          .filter((r) => r.startTime && r.closeTime)
+          .map((r) => (r.closeTime!.getTime() - r.startTime!.getTime()) / 3_600_000);
+        const avgHours = hoursList.length > 0 ? hoursList.reduce((sum, v) => sum + v, 0) / hoursList.length : null;
+        const visits = bucketRepDays.reduce((sum, r) => sum + r.visits, 0);
+        const hasProductiveSignal = bucketRepDays.some((r) => r.productive !== null);
+        const productiveVisits = hasProductiveSignal ? bucketRepDays.reduce((sum, r) => sum + (r.productive ?? 0), 0) : null;
+        const productivityPct = productiveVisits !== null && visits > 0 ? Math.round((productiveVisits / visits) * 1000) / 10 : null;
+
+        let newOutlets: number | null = null;
+        if (queries.outlets) {
+          const bucketOutletKeys = new Set(principalOutlets.filter((r) => inBucket(r.date, bucket)).map((r) => r.outletKey));
+          newOutlets = previousOutletKeys ? [...bucketOutletKeys].filter((k) => !previousOutletKeys!.has(k)).length : null;
+          previousOutletKeys = bucketOutletKeys;
+        }
+
+        rows.push({
+          source,
+          principalKey,
+          principal,
+          bucketKey: bucket.key,
+          bucketLabel: bucket.label,
+          repDays: bucketRepDays.length,
+          visits,
+          productiveVisits,
+          productivityPct,
+          avgStartTime: startMinutes !== null ? formatHHMM(startMinutes) : null,
+          avgCloseTime: closeMinutes !== null ? formatHHMM(closeMinutes) : null,
+          avgHoursInTrade: avgHours !== null ? Math.round(avgHours * 10) / 10 : null,
+          newOutlets,
+        });
       }
-
-      rows.push({
-        source,
-        sourceLabel: TIME_IN_TRADE_SOURCE_LABELS[source],
-        bucketKey: bucket.key,
-        bucketLabel: bucket.label,
-        repDays: bucketRepDays.length,
-        visits,
-        productiveVisits,
-        productivityPct,
-        avgStartTime: startMinutes !== null ? formatHHMM(startMinutes) : null,
-        avgCloseTime: closeMinutes !== null ? formatHHMM(closeMinutes) : null,
-        avgHoursInTrade: avgHours !== null ? Math.round(avgHours * 10) / 10 : null,
-        newOutlets,
-      });
     }
   }
 
