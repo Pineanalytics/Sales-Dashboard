@@ -110,9 +110,10 @@ export function FinancePresentationView({
   const stockTotalValue = stockTop5.reduce((s, r) => s + (r.rollup?.value ?? 0), 0) + stockOthersAgg.value;
   const stockTotalDebt = stockTop5.reduce((s, r) => s + r.debt, 0) + stockOthersAgg.debt;
 
-  const ageingRows = ageingTrend
-    ? [ageingTrend.lastMonth, ageingTrend.weeks[ageingTrend.weeks.length - 1]].filter((p): p is AgeingSnapshotPoint => !!p)
-    : [];
+  // Full weekly breakdown, same as the main Ageing Trend tab — last month's
+  // closing balance, then every week of the current month distinctly (not
+  // condensed down to a single "latest week" row).
+  const ageingRows: AgeingSnapshotPoint[] = ageingTrend ? [ageingTrend.lastMonth, ...ageingTrend.weeks] : [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -200,7 +201,7 @@ export function FinancePresentationView({
 
             {ageingRows.length > 0 ? (
               <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Ageing — last month vs current week</h4>
+                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Ageing trend — last month closing, then each week distinctly</h4>
                 <TableWrap>
                   <Thead><Th>Period</Th><Th align="right">Current (0–30 days)</Th><Th align="right">60 days</Th><Th align="right">90 days</Th><Th align="right">Over 90 days</Th><Th align="right">Total</Th></Thead>
                   <tbody>
