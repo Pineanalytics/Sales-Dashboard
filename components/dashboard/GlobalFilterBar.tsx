@@ -25,6 +25,7 @@ export function GlobalFilterBar() {
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
   const salesSection = useDashboardStore((s) => s.salesSection);
+  const coverageActiveTab = useDashboardStore((s) => s.coverageActiveTab);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const hasDayFilter = selectedDayNames.size !== ALL_DAY_NAMES.length;
   const showExecutiveControls = pathname === "/dashboard" || (pathname === "/sales" && salesSection === "executive");
@@ -44,12 +45,15 @@ export function GlobalFilterBar() {
         {canFilterExecutiveDays ? <DayNameSelector /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Active Outlets has real per-outlet detail below (the "Outlet Detail"
-            table) that reads better as the extract's anchor than this generic
-            bar — its own SectionCard hosts InlineReportExport instead. */}
-        {pathname === "/active-outlets" ? null : (
+        {/* Active Outlets (now Coverage's "active-outlets" tab) has real
+            per-outlet detail below (the "Outlet Detail" table) that reads
+            better as the extract's anchor than this generic bar — its own
+            SectionCard hosts InlineReportExport instead. JP Adherence (now
+            Coverage's "jp-adherence" tab) keeps using this shared bar, same
+            as it did on its old standalone route. */}
+        {pathname === "/coverage" && coverageActiveTab === "active-outlets" ? null : (
           <InlineReportExport
-            reportKey={pageKeyForPathname(pathname) ?? ""}
+            reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}
             isAdmin={user?.role === "ADMIN"}
           />

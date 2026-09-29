@@ -80,6 +80,14 @@ export function canAccessFinancials(role: string | null | undefined, allowedPage
   return role === "ADMIN" || allowedPages.includes("profitability") || allowedPages.includes("receivables");
 }
 
+/** Coverage & Productivity now hosts Active Outlets and JP Adherence as tabs
+ * (moved off their own standalone routes). Existing grants for either
+ * permission remain valid; no user needs a new "coverage" grant merely
+ * because the three reports are now presented in one module. */
+export function canAccessCoverage(role: string | null | undefined, allowedPages: readonly string[] = []): boolean {
+  return role === "ADMIN" || allowedPages.includes("coverage") || allowedPages.includes("active-outlets") || allowedPages.includes("jp-adherence");
+}
+
 /** Maps a pathname like "/coverage" or "/coverage/some-sub-route" to its page
  *  key, or null if the pathname isn't one of the gated report routes (e.g.
  *  "/admin/users", which has its own separate ADMIN-only gate). */

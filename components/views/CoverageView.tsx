@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import type { ViewProps } from "./types";
+import { ActiveOutletsView } from "./ActiveOutletsView";
+import { JPAdherenceView } from "./JPAdherenceView";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
+import { useDashboardStore } from "@/lib/store";
 import { formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
 import {
   CANONICAL_MONTHS,
@@ -24,6 +28,19 @@ const TOP_N_REPS = 12;
 
 const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
 
+type CoveragePanel = "overview" | "reps" | "active-outlets" | "jp-adherence";
+
+const PANEL_TABS: { key: CoveragePanel; label: string; description: string }[] = [
+  { key: "overview", label: "Overview", description: "Targets, coverage and strike rate" },
+  { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity" },
+  { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal" },
+  { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence" },
+];
+
+function isCoveragePanel(value: string | null): value is CoveragePanel {
+  return value !== null && PANEL_TABS.some((tab) => tab.key === value);
+}
+
 interface LeverageMonthlyCoverageRow {
   year: string;
   monthIndex: number;
@@ -35,8 +52,18 @@ interface LeverageMonthlyCoverageRow {
 }
 
 export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProps) {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const setCoverageActiveTab = useDashboardStore((s) => s.setCoverageActiveTab);
   const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
-  const [activePanel, setActivePanel] = useState<"overview" | "reps">("overview");
+  const [activePanel, setActivePanel] = useState<CoveragePanel>(isCoveragePanel(initialTab) ? initialTab : "overview");
+
+  // GlobalFilterBar (a sibling under AnalyticsShell, not a descendant of this
+  // component) needs to know the active tab too, to pick the right export
+  // reportKey / suppress its own button — see lib/store.ts's coverageActiveTab.
+  useEffect(() => {
+    setCoverageActiveTab(activePanel);
+  }, [activePanel, setCoverageActiveTab]);
   const [showAllPrincipals, setShowAllPrincipals] = useState(false);
   const [showAllReps, setShowAllReps] = useState(false);
   const [leverageRows, setLeverageRows] = useState<LeverageMonthlyCoverageRow[] | null>(null);
@@ -203,31 +230,11 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
         title="Coverage & Productivity"
         action={<span className="text-xs text-muted">Timestamp call data · Primary targets only</span>}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-strong">Track unique outlet visits, productive calls, strike rate, and target delivery.</p>
-          <div className="inline-flex rounded-full bg-background-elevated p-0.5" aria-label="Sales role">
-            {(["primary", "secondary"] as const).map((role) => (
-              <button
-                key={role}
-                onClick={() => handleSelectRole(role)}
-                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${
-                  selectedRole === role
-                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
-                    : "text-muted-strong hover:text-primary-blue"
-                }`}
-              >
-                {ROLE_LABEL[role]} Sales
-              </button>
-            ))}
-          </div>
-        </div>
+        <p className="text-sm text-muted-strong">Coverage, rep performance, active outlets and journey-plan adherence in one place.</p>
       </SectionCard>
 
-      <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2">
-        {([
-          ["overview", "Overview", "Targets, coverage and strike rate"],
-          ["reps", "Rep performance", "Rep-level coverage and productivity"],
-        ] as const).map(([panel, label, description]) => (
+      <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {PANEL_TABS.map(({ key: panel, label, description }) => (
           <button
             key={panel}
             type="button"
@@ -240,6 +247,29 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
           </button>
         ))}
       </nav>
+
+      {activePanel === "active-outlets" ? <ActiveOutletsView /> : null}
+      {activePanel === "jp-adherence" ? <JPAdherenceView /> : null}
+
+      {activePanel === "overview" || activePanel === "reps" ? (
+      <>
+      <SectionCard title="Sales Role" action={<span className="text-xs text-muted">Applies to Overview &amp; Rep performance only</span>}>
+        <div className="inline-flex rounded-full bg-background-elevated p-0.5" aria-label="Sales role">
+          {(["primary", "secondary"] as const).map((role) => (
+            <button
+              key={role}
+              onClick={() => handleSelectRole(role)}
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${
+                selectedRole === role
+                  ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                  : "text-muted-strong hover:text-primary-blue"
+              }`}
+            >
+              {ROLE_LABEL[role]} Sales
+            </button>
+          ))}
+        </div>
+      </SectionCard>
 
       <KpiGrid>
         <KpiCard accent="coverage" label="Unique calls visited" value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} sublabel={`${period.kind} · ${roleLabel} Sales`} />
@@ -383,6 +413,8 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
             </TableWrap>
           </div>
         </SectionCard>
+      ) : null}
+      </>
       ) : null}
     </div>
   );
