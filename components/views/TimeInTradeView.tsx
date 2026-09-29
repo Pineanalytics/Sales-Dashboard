@@ -11,7 +11,29 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { Clock20Regular } from "@fluentui/react-icons";
-import { TIME_IN_TRADE_SOURCES, type TimeInTradeRow, type TimeInTradeSource } from "@/lib/timeInTrade";
+
+// Mirrors lib/timeInTrade.ts's own shapes, kept as a local, independent copy
+// (not imported) — that module pulls in Prisma for its raw SQL, which must
+// never end up in a client bundle. Every other Coverage tab's view component
+// follows the same "own local DTO, fetched via API route" convention.
+type TimeInTradeSource = "pine" | "eabl" | "upfield" | "unilever";
+
+const TIME_IN_TRADE_SOURCES: TimeInTradeSource[] = ["pine", "eabl", "upfield", "unilever"];
+
+interface TimeInTradeRow {
+  source: TimeInTradeSource;
+  sourceLabel: string;
+  bucketKey: string;
+  bucketLabel: string;
+  repDays: number;
+  visits: number;
+  productiveVisits: number | null;
+  productivityPct: number | null;
+  avgStartTime: string | null;
+  avgCloseTime: string | null;
+  avgHoursInTrade: number | null;
+  newOutlets: number | null;
+}
 
 interface TimeInTradeResponse {
   buckets: { key: string; label: string }[];
