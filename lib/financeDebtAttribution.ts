@@ -60,14 +60,18 @@ export async function getDebtByPrincipal(): Promise<DebtAttribution> {
 
   const keys = trailing12MonthKeys();
   const purchaseRows = await prisma.brandCustomerActual.findMany({
-    select: { year: true, monthIndex: true, principal: true, sapName: true, customerName: true, revenue: true },
+    select: { year: true, monthIndex: true, principal: true, customerName: true, revenue: true },
   });
 
   // normalized customer key -> normalized principal key -> { label, revenue }
+  // NOTE: BrandCustomerActual.sapName is the raw SAP *salesperson* name (see
+  // its schema comment), not a customer identifier — customerName is the
+  // only field that actually identifies the buying customer, and it's the
+  // same field lib/customerPortfolio.ts keys the /customers page off of.
   const revenueByCustomer = new Map<string, Map<string, { label: string; revenue: number }>>();
   for (const row of purchaseRows) {
     if (!keys.has(`${row.year}|${row.monthIndex}`)) continue;
-    const customerKey = normalizeCustomerName(row.sapName || row.customerName);
+    const customerKey = normalizeCustomerName(row.customerName);
     if (!customerKey) continue;
     const principalKey = normalizePrincipalKey(row.principal);
     const byPrincipal = revenueByCustomer.get(customerKey) ?? new Map();
