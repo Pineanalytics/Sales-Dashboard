@@ -36,6 +36,12 @@ interface DashboardState {
   // since "filter out every day" isn't a meaningful state to be in.
   selectedDayNames: Set<string>;
   salesSection: "cockpit" | "executive" | "time" | "reps" | "customers";
+  // Mirrors CoverageView's internal tab state so GlobalFilterBar (a sibling
+  // under AnalyticsShell, not a child of CoverageView) can pick the right
+  // export reportKey / suppress its own button without needing a Suspense-
+  // gated useSearchParams() read of its own — see CoverageView's effect that
+  // writes this on mount and on every tab switch.
+  coverageActiveTab: string;
 
   setDataset: (dataset: Dataset | null) => void;
   selectPrincipal: (key: string | null) => void;
@@ -48,6 +54,7 @@ interface DashboardState {
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setPresentationMode: (enabled: boolean) => void;
+  setCoverageActiveTab: (tab: string) => void;
 
   fetchLatest: () => Promise<void>;
   /** Silently re-fetches the latest dataset in the background — unlike fetchLatest(),
@@ -91,6 +98,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   history: [],
   selectedDayNames: new Set(ALL_DAY_NAMES),
   salesSection: "cockpit",
+  coverageActiveTab: "overview",
 
   setDataset: (dataset) =>
     set({
@@ -147,6 +155,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ sidebarCollapsed: collapsed });
   },
   setPresentationMode: (enabled) => set({ presentationMode: enabled }),
+  setCoverageActiveTab: (tab) => set({ coverageActiveTab: tab }),
 
   fetchLatest: async () => {
     set({ status: "loading", error: null });

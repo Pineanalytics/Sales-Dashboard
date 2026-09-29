@@ -186,7 +186,7 @@ function TimeManagementTile({ selectedPrincipalKey, role }: { selectedPrincipalK
 
   if (status === "loading") return <LoadingTile label="Time Management" />;
   if (status === "error") {
-    return <StubTile label="Time Management" href="/timestamps" note="Couldn't load — see full report" />;
+    return <StubTile label="Time Management" href="/coverage?tab=timestamps" note="Couldn't load — see full report" />;
   }
   return (
     <KpiCard

@@ -13,7 +13,7 @@ import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
-import { canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessCoverage, canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -45,6 +45,10 @@ export function AnalyticsShell({
   // itself (its own PageKey is never actually stored in anyone's
   // allowedPages — see lib/pageAccess.ts's canAccessFinancials).
   const isFinancePresentation = pathname?.startsWith("/finance-presentation") ?? false;
+  // Coverage now hosts Active Outlets and JP Adherence as tabs (moved off
+  // their own routes); a user granted either of those permissions alone must
+  // still reach /coverage, same special-case as Financials above.
+  const isCoverage = pathname?.startsWith("/coverage") ?? false;
   const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
   const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables") && !(isFinancials && !canViewProfitability);
 
@@ -60,6 +64,8 @@ export function AnalyticsShell({
   const isAdmin = user?.role === "ADMIN";
   const pageAllowed = isFinancials || isFinancePresentation
     ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
+    : isCoverage
+    ? canAccessCoverage(user?.role, user?.allowedPages ?? [])
     : isAdmin || !requiredPage || isBaselinePage(requiredPage) || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {

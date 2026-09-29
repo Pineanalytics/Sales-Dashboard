@@ -25,16 +25,19 @@ export function GlobalFilterBar() {
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
   const salesSection = useDashboardStore((s) => s.salesSection);
+  const coverageActiveTab = useDashboardStore((s) => s.coverageActiveTab);
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const hasDayFilter = selectedDayNames.size !== ALL_DAY_NAMES.length;
   const showExecutiveControls = pathname === "/dashboard" || (pathname === "/sales" && salesSection === "executive");
   const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
   const canFilterExecutiveDays = showExecutiveControls && resolvePeriodMonths(selectedPeriod).length === 1;
 
-  // Timestamps owns a compact report-specific control bar, where its rep,
-  // date, role, and principal filters need to sit together. Keeping this
-  // shared bar there would duplicate the principal control and waste a row.
-  if (!dataset || pathname?.startsWith("/timestamps")) return null;
+  // Timestamps (now Coverage's "timestamps" tab) owns a compact
+  // report-specific control bar, where its rep, date, role, and principal
+  // filters need to sit together. Keeping this shared bar there would
+  // duplicate the principal control and waste a row.
+  const isTimestampsTab = pathname === "/coverage" && coverageActiveTab === "timestamps";
+  if (!dataset || isTimestampsTab) return null;
 
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">
@@ -44,12 +47,14 @@ export function GlobalFilterBar() {
         {canFilterExecutiveDays ? <DayNameSelector /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Active Outlets has real per-outlet detail below (the "Outlet Detail"
-            table) that reads better as the extract's anchor than this generic
-            bar — its own SectionCard hosts InlineReportExport instead. */}
-        {pathname === "/active-outlets" ? null : (
+        {/* Active Outlets and Time in Trade (Coverage's "active-outlets" and
+            "time-in-trade" tabs) have their own SectionCard-hosted
+            InlineReportExport instead of this generic bar. JP Adherence (now
+            Coverage's "jp-adherence" tab) keeps using this shared bar, same
+            as it did on its old standalone route. */}
+        {pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "time-in-trade") ? null : (
           <InlineReportExport
-            reportKey={pageKeyForPathname(pathname) ?? ""}
+            reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}
             isAdmin={user?.role === "ADMIN"}
           />

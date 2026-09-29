@@ -14,9 +14,6 @@ import {
   Dismiss20Regular,
   PanelLeftContract20Regular,
   PanelLeftExpand20Regular,
-  BuildingShop20Regular,
-  Clock20Regular,
-  CalendarCheckmark20Regular,
   TargetArrow20Regular,
   Sparkle20Regular,
   Lightbulb20Regular,
@@ -29,7 +26,7 @@ import {
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
-import { canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessCoverage, canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
@@ -52,9 +49,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/financials", label: "Financials", icon: Money20Regular },
   { href: "/stock", label: "Stock & Operations", icon: Box20Regular },
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },
-  { href: "/active-outlets", label: "Active Outlets", icon: BuildingShop20Regular },
-  { href: "/timestamps", label: "Timestamps", icon: Clock20Regular },
-  { href: "/jp-adherence", label: "JP Adherence", icon: CalendarCheckmark20Regular },
   { href: "/order-360", label: "Order 360", icon: VehicleTruck20Regular },
   { href: "/principal-kpis", label: "Principal KPIs", icon: TargetArrow20Regular },
   { href: "/sales-returns", label: "Sales & Returns", icon: ArrowSwap20Regular },
@@ -93,6 +87,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => {
         if (item.href === "/financials" || item.href === "/finance-presentation") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
+        if (item.href === "/coverage") return canAccessCoverage(user?.role, user?.allowedPages ?? []);
         const key = pageKeyForPathname(item.href);
         if (key && isBaselinePage(key)) return true;
         return key ? (user?.allowedPages ?? []).includes(key) : true;

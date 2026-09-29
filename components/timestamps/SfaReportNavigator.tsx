@@ -1,20 +1,25 @@
-import Link from "next/link";
 import { ArrowRight20Regular, Clock20Regular, DataLine20Regular } from "@fluentui/react-icons";
 
 const SYSTEMS = [
-  { key: "pine", principal: "Pine", system: "SalesEdge", description: "Standard timestamp and time-management activity.", href: "/timestamps", status: "Live" },
-  { key: "eabl", principal: "EABL", system: "DMS", description: "Dedicated call performance and customer visit detail.", href: "/timestamps/eabl-call-performance", status: "Live" },
+  { key: "pine", principal: "Pine", system: "SalesEdge", description: "Standard timestamp and time-management activity.", status: "Live" },
+  { key: "eabl", principal: "EABL", system: "DMS", description: "Dedicated call performance and customer visit detail.", status: "Live" },
   // DataEdge (sales) and Outlet Visits (FSR check-in/check-out) are two feeds
   // from the same source machine with two different grains, kept as separate
   // pages/APIs — but one principal, one hub card, same as EABL's own two
   // reports below. UpfieldReportTabs switches between them from inside
   // either page; this card just opens whichever was open last, defaulting
   // to DataEdge.
-  { key: "upfield", principal: "Upfield", system: "DataEdge · Outlet Visits", description: "Transaction timestamps, productive outlet coverage, and FSR check-in/check-out.", href: "/timestamps/upfield-dataedge", status: "Live" },
-  { key: "unilever", principal: "Unilever", system: "Leverage", description: "PJP/route daily activity and entry-time tracking from the field DMS.", href: "/timestamps/leverage", status: "Live" },
+  { key: "upfield", principal: "Upfield", system: "DataEdge · Outlet Visits", description: "Transaction timestamps, productive outlet coverage, and FSR check-in/check-out.", status: "Live" },
+  { key: "unilever", principal: "Unilever", system: "Leverage", description: "PJP/route daily activity and entry-time tracking from the field DMS.", status: "Live" },
 ] as const;
 
-export function SfaReportNavigator({ current = "pine" }: { current?: "pine" | "eabl" | "upfield" | "unilever" }) {
+type SfaSystemKey = "pine" | "eabl" | "upfield" | "unilever";
+
+/** Navigates between the four Timestamp systems entirely via local state
+ *  (onNavigate), not routing — this hub-and-spoke nav and all six of its
+ *  destination modules now live inside Coverage & Productivity's single
+ *  "Timestamps" tab rather than their own standalone routes. */
+export function SfaReportNavigator({ current = "pine", onNavigate }: { current?: SfaSystemKey; onNavigate: (key: SfaSystemKey) => void }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)] sm:p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -25,8 +30,8 @@ export function SfaReportNavigator({ current = "pine" }: { current?: "pine" | "e
         {SYSTEMS.map((item) => {
           const active = item.key === current;
           const content = <><div className="flex items-start justify-between gap-2"><span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${active ? "bg-white/15 text-white" : "bg-accent-blue-soft text-secondary-blue"}`}>{item.principal === "Pine" ? <Clock20Regular /> : <DataLine20Regular />}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.status === "Live" ? (active ? "bg-white/15 text-white" : "bg-accent-green-soft text-accent-green") : "bg-background-elevated text-muted"}`}>{item.status}</span></div><div className="mt-3"><p className={`text-sm font-bold ${active ? "text-white" : "text-brand-navy"}`}>{item.principal}</p><p className={`text-xs font-semibold ${active ? "text-brand-leaf" : "text-secondary-blue"}`}>{item.system}</p><p className={`mt-1.5 text-[11px] leading-4 ${active ? "text-white/75" : "text-muted"}`}>{item.description}</p></div>{item.status === "Live" ? <span className={`mt-3 inline-flex items-center gap-1 text-[11px] font-semibold ${active ? "text-white" : "text-primary-blue"}`}>{active ? "Current report" : "Open report"} {!active ? <ArrowRight20Regular className="h-3.5 w-3.5" /> : null}</span> : null}</>;
-          const className = `min-h-[164px] rounded-xl border p-3 transition-colors ${active ? "border-primary-blue bg-gradient-to-br from-primary-blue to-secondary-blue" : "border-border bg-background-elevated/30"} ${item.status === "Live" && !active ? "hover:border-secondary-blue hover:bg-surface-hover" : ""}`;
-          return item.status === "Live" ? <Link key={item.key} href={item.href} className={className}>{content}</Link> : <div key={item.key} className={`${className} opacity-80`}>{content}</div>;
+          const className = `min-h-[164px] rounded-xl border p-3 text-left transition-colors ${active ? "border-primary-blue bg-gradient-to-br from-primary-blue to-secondary-blue" : "border-border bg-background-elevated/30"} ${item.status === "Live" && !active ? "hover:border-secondary-blue hover:bg-surface-hover" : ""}`;
+          return item.status === "Live" ? <button key={item.key} type="button" onClick={() => onNavigate(item.key)} className={className}>{content}</button> : <div key={item.key} className={`${className} opacity-80`}>{content}</div>;
         })}
       </div>
     </section>
