@@ -32,10 +32,12 @@ export function GlobalFilterBar() {
   const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
   const canFilterExecutiveDays = showExecutiveControls && resolvePeriodMonths(selectedPeriod).length === 1;
 
-  // Timestamps owns a compact report-specific control bar, where its rep,
-  // date, role, and principal filters need to sit together. Keeping this
-  // shared bar there would duplicate the principal control and waste a row.
-  if (!dataset || pathname?.startsWith("/timestamps")) return null;
+  // Timestamps (now Coverage's "timestamps" tab) owns a compact
+  // report-specific control bar, where its rep, date, role, and principal
+  // filters need to sit together. Keeping this shared bar there would
+  // duplicate the principal control and waste a row.
+  const isTimestampsTab = pathname === "/coverage" && coverageActiveTab === "timestamps";
+  if (!dataset || isTimestampsTab) return null;
 
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">

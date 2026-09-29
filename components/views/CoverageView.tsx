@@ -7,6 +7,7 @@ import type { ViewProps } from "./types";
 import { ActiveOutletsView } from "./ActiveOutletsView";
 import { JPAdherenceView } from "./JPAdherenceView";
 import { TimeInTradeView } from "./TimeInTradeView";
+import { TimestampsModuleView } from "./TimestampsModuleView";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
@@ -29,7 +30,7 @@ const TOP_N_REPS = 12;
 
 const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
 
-type CoveragePanel = "overview" | "reps" | "active-outlets" | "jp-adherence" | "time-in-trade";
+type CoveragePanel = "overview" | "reps" | "active-outlets" | "jp-adherence" | "time-in-trade" | "timestamps";
 
 const PANEL_TABS: { key: CoveragePanel; label: string; description: string }[] = [
   { key: "overview", label: "Overview", description: "Targets, coverage and strike rate" },
@@ -37,6 +38,7 @@ const PANEL_TABS: { key: CoveragePanel; label: string; description: string }[] =
   { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal" },
   { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence" },
   { key: "time-in-trade", label: "Time in Trade", description: "Start/close time and productivity trend by principal module" },
+  { key: "timestamps", label: "Timestamps", description: "Pine, EABL, Upfield and Unilever call/visit systems" },
 ];
 
 function isCoveragePanel(value: string | null): value is CoveragePanel {
@@ -235,7 +237,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
         <p className="text-sm text-muted-strong">Coverage, rep performance, active outlets and journey-plan adherence in one place.</p>
       </SectionCard>
 
-      <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {PANEL_TABS.map(({ key: panel, label, description }) => (
           <button
             key={panel}
@@ -253,6 +255,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       {activePanel === "active-outlets" ? <ActiveOutletsView /> : null}
       {activePanel === "jp-adherence" ? <JPAdherenceView /> : null}
       {activePanel === "time-in-trade" ? <TimeInTradeView /> : null}
+      {activePanel === "timestamps" ? <TimestampsModuleView /> : null}
 
       {activePanel === "overview" || activePanel === "reps" ? (
       <>

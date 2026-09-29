@@ -76,7 +76,7 @@ export default async function ContributionByRepPage() {
           <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-accent-amber shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {noPrimaryReps.length} Weekly Target(s) have no active Primary-role rep to split across — only Primary reps
             receive a Contribution/Daily Projection share (Secondary performance is tracked via{" "}
-            <Link href="/timestamps" className="underline">
+            <Link href="/coverage?tab=timestamps" className="underline">
               Timestamps
             </Link>{" "}
             instead). Largest:{" "}
