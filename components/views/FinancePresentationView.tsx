@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Presenter20Regular, PresenterOff20Regular } from "@fluentui/react-icons";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
@@ -47,6 +48,7 @@ export function FinancePresentationView({
   const dataset = useDashboardStore((s) => s.dataset);
   const presentationMode = useDashboardStore((s) => s.presentationMode);
   const setPresentationMode = useDashboardStore((s) => s.setPresentationMode);
+  const [activeSlide, setActiveSlide] = useState<1 | 2>(1);
 
   if (!dataset) return null;
 
@@ -104,11 +106,14 @@ export function FinancePresentationView({
   });
   const stockOthers = stockRollups.filter((r) => !TOP_5_KEYS.has(r.key));
   const stockOthersAgg = stockOthers.reduce(
-    (acc, r) => ({ value: acc.value + r.value, debt: acc.debt + (debtByKey.get(r.key) ?? 0) }),
-    { value: 0, debt: 0 }
+    (acc, r) => ({ value: acc.value + r.value, rrWeekValue: acc.rrWeekValue + r.rrWeekValue, debt: acc.debt + (debtByKey.get(r.key) ?? 0) }),
+    { value: 0, rrWeekValue: 0, debt: 0 }
   );
   const stockTotalValue = stockTop5.reduce((s, r) => s + (r.rollup?.value ?? 0), 0) + stockOthersAgg.value;
+  const stockTotalRrWeek = stockTop5.reduce((s, r) => s + (r.rollup?.rrWeekValue ?? 0), 0) + stockOthersAgg.rrWeekValue;
   const stockTotalDebt = stockTop5.reduce((s, r) => s + r.debt, 0) + stockOthersAgg.debt;
+  const stockOthersDaysCover = stockOthersAgg.rrWeekValue > 0 ? round1((stockOthersAgg.value / stockOthersAgg.rrWeekValue) * 7) : 0;
+  const stockTotalDaysCover = stockTotalRrWeek > 0 ? round1((stockTotalValue / stockTotalRrWeek) * 7) : 0;
 
   // Full weekly breakdown, same as the main Ageing Trend tab — last month's
   // closing balance, then every week of the current month distinctly (not
@@ -129,8 +134,25 @@ export function FinancePresentationView({
         </button>
       </div>
 
+      <div className="no-print flex rounded-full bg-background-elevated p-1 w-fit" role="tablist" aria-label="Finance Presentation slides">
+        {([1, 2] as const).map((slideNumber) => (
+          <button
+            key={slideNumber}
+            type="button"
+            role="tab"
+            aria-selected={activeSlide === slideNumber}
+            onClick={() => setActiveSlide(slideNumber)}
+            className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+              activeSlide === slideNumber ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-sm" : "text-muted-strong hover:text-primary-blue"
+            }`}
+          >
+            Slide {slideNumber} — {slideNumber === 1 ? "Sales & Gross Profit" : "Debt & Stock"}
+          </button>
+        ))}
+      </div>
+
       {/* Slide 1: Sales & Gross Profit */}
-      <div id="finance-slide-1" className="@container">
+      <div id="finance-slide-1" className={`@container ${activeSlide === 1 ? "" : "hidden"}`}>
         <SectionCard title="Slide 1 — Sales & Gross Profit" accent="blue">
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-6">
@@ -183,7 +205,7 @@ export function FinancePresentationView({
       </div>
 
       {/* Slide 2: Debt & Stock */}
-      <div id="finance-slide-2" className="@container">
+      <div id="finance-slide-2" className={`@container ${activeSlide === 2 ? "" : "hidden"}`}>
         <SectionCard title="Slide 2 — Debt & Stock" accent="red">
           <div className="flex flex-col gap-4">
             {receivables ? (
@@ -233,23 +255,29 @@ export function FinancePresentationView({
             ) : null}
 
             <TableWrap>
-              <Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Debt</Th></Thead>
+              <Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Run Rate (weekly)</Th><Th align="right">Days Cover</Th><Th align="right">Debt</Th></Thead>
               <tbody>
                 {stockTop5.map((r) => (
                   <tr key={r.label}>
                     <Td>{r.label}</Td>
                     <Td align="right">{r.rollup ? formatCompact(r.rollup.value) : "—"}</Td>
+                    <Td align="right">{r.rollup ? formatCompact(r.rollup.rrWeekValue) : "—"}</Td>
+                    <Td align="right">{r.rollup ? r.rollup.daysStock.toFixed(1) : "—"}</Td>
                     <Td align="right">{money(r.debt)}</Td>
                   </tr>
                 ))}
                 <tr>
                   <Td className="text-muted-strong">All Other Principals ({stockOthers.length})</Td>
                   <Td align="right">{formatCompact(stockOthersAgg.value)}</Td>
+                  <Td align="right">{formatCompact(stockOthersAgg.rrWeekValue)}</Td>
+                  <Td align="right">{stockOthersDaysCover.toFixed(1)}</Td>
                   <Td align="right">{money(stockOthersAgg.debt)}</Td>
                 </tr>
                 <TotalRow>
                   <Td>Total (all principals)</Td>
                   <Td align="right">{formatCompact(stockTotalValue)}</Td>
+                  <Td align="right">{formatCompact(stockTotalRrWeek)}</Td>
+                  <Td align="right">{stockTotalDaysCover.toFixed(1)}</Td>
                   <Td align="right">{money(stockTotalDebt)}</Td>
                 </TotalRow>
               </tbody>
