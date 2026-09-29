@@ -45,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/frost", label: "Frost", icon: Sparkle20Regular },
   { href: "/insights", label: "Insights", icon: Lightbulb20Regular },
   { href: "/executive-summary", label: "Executive Summary", icon: ChartMultiple20Regular },
+  { href: "/finance-presentation", label: "Finance Presentation", icon: Money20Regular },
   { href: "/commercial-performance", label: "Commercial Performance", icon: Briefcase20Regular },
   { href: "/sales", label: "Sales Performance", icon: ArrowTrending20Regular },
   { href: "/coverage", label: "Coverage & Productivity", icon: PeopleTeam20Regular },
@@ -91,7 +92,7 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => {
-        if (item.href === "/financials") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
+        if (item.href === "/financials" || item.href === "/finance-presentation") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
         const key = pageKeyForPathname(item.href);
         if (key && isBaselinePage(key)) return true;
         return key ? (user?.allowedPages ?? []).includes(key) : true;

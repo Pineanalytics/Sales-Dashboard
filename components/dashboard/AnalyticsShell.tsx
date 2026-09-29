@@ -40,6 +40,11 @@ export function AnalyticsShell({
   // Principal KPIs and Coaching have compact, source-specific APIs. They must
   // never make the shell hydrate the portfolio-sized workbook dataset first.
   const isFinancials = pathname?.startsWith("/financials") ?? false;
+  // Finance Presentation is a condensed view of the same profitability/
+  // receivables data, gated by the same derived permission as Financials
+  // itself (its own PageKey is never actually stored in anyone's
+  // allowedPages — see lib/pageAccess.ts's canAccessFinancials).
+  const isFinancePresentation = pathname?.startsWith("/finance-presentation") ?? false;
   const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
   const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables") && !(isFinancials && !canViewProfitability);
 
@@ -53,7 +58,7 @@ export function AnalyticsShell({
   // gate for anyone navigating to a disallowed URL directly).
   const requiredPage = pageKeyForPathname(pathname);
   const isAdmin = user?.role === "ADMIN";
-  const pageAllowed = isFinancials
+  const pageAllowed = isFinancials || isFinancePresentation
     ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
     : isAdmin || !requiredPage || isBaselinePage(requiredPage) || (user?.allowedPages ?? []).includes(requiredPage);
 

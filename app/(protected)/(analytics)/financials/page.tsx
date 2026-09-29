@@ -16,7 +16,6 @@ const TABS: FinancialsTab[] = [
   "open-items",
   "profitability",
   "sales-performance",
-  "debtors",
   "total-outstanding",
   "ageing-trend",
 ];
