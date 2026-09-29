@@ -24,6 +24,11 @@ import { normalizePrincipalKey } from "./normalize";
 
 export type TimeInTradeSource = "pine" | "eabl" | "upfield" | "unilever";
 
+// Only Pine's RepCall carries a Primary/Secondary Sales role per call; EABL,
+// Upfield and Unilever have no such dimension, so this filter narrows Pine's
+// rows only — the other three sources' rows are unaffected either way.
+export type TimeInTradeRoleFilter = "all" | "Primary Sales" | "Secondary Sales";
+
 export const TIME_IN_TRADE_SOURCES: TimeInTradeSource[] = ["pine", "eabl", "upfield", "unilever"];
 
 export interface TimeInTradeBucket {
@@ -164,14 +169,18 @@ interface OutletRow {
   outletKey: string;
 }
 
-async function pineRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
+function pineRoleClause(roleFilter: TimeInTradeRoleFilter): Prisma.Sql {
+  return roleFilter === "all" ? Prisma.sql`` : Prisma.sql`AND r."salesRole" = ${roleFilter}`;
+}
+
+async function pineRepDayRows(start: Date, end: Date, roleFilter: TimeInTradeRoleFilter): Promise<RepDayRow[]> {
   const rows = await prisma.$queryRaw<{ date: Date; principal: string; startTime: Date; closeTime: Date; visits: bigint; productive: bigint }[]>(Prisma.sql`
     SELECT date, ${PINE_PRINCIPAL_EXPRESSION} AS principal,
       MIN("firstCallOfDay") AS "startTime", MAX("lastCallOfDay") AS "closeTime",
       COUNT(*)::bigint AS visits, COUNT(*) FILTER (WHERE "callOutcome" = 'Sale')::bigint AS productive
     FROM "RepCall" r
     ${PINE_PRINCIPAL_JOIN}
-    WHERE r.date >= ${start} AND r.date < ${end}
+    WHERE r.date >= ${start} AND r.date < ${end} ${pineRoleClause(roleFilter)}
     GROUP BY date, r."employeeCode", ${PINE_PRINCIPAL_EXPRESSION}`);
   return rows.map((r) => ({
     date: r.date,
@@ -184,16 +193,19 @@ async function pineRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
   }));
 }
 
-async function pineOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
+async function pineOutletRows(start: Date, end: Date, roleFilter: TimeInTradeRoleFilter): Promise<OutletRow[]> {
   const rows = await prisma.$queryRaw<{ date: Date; principal: string; outletKey: string }[]>(Prisma.sql`
     SELECT DISTINCT date, ${PINE_PRINCIPAL_EXPRESSION} AS principal, "outletId" AS "outletKey"
     FROM "RepCall" r
     ${PINE_PRINCIPAL_JOIN}
-    WHERE r.date >= ${start} AND r.date < ${end}`);
+    WHERE r.date >= ${start} AND r.date < ${end} ${pineRoleClause(roleFilter)}`);
   return rows.map((r) => ({ date: r.date, principalKey: normalizePrincipalKey(r.principal), outletKey: r.outletKey }));
 }
 
-async function eablRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
+// EABL/Upfield/Unilever accept and ignore roleFilter — none of the three has
+// a Primary/Secondary Sales dimension, so this filter never narrows them, but
+// every source keeps the same call signature for SOURCE_QUERIES below.
+async function eablRepDayRows(start: Date, end: Date, _roleFilter: TimeInTradeRoleFilter): Promise<RepDayRow[]> {
   const rows = await prisma.$queryRaw<{ date: Date; startTime: Date | null; closeTime: Date | null; visits: bigint; productive: bigint }[]>(Prisma.sql`
     SELECT "callDate" AS date, MIN("firstCallOfDay") AS "startTime", MAX("lastCallOfDay") AS "closeTime",
       COUNT(*)::bigint AS visits, COUNT(*) FILTER (WHERE "isProductive")::bigint AS productive
@@ -205,14 +217,14 @@ async function eablRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
   }));
 }
 
-async function eablOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
+async function eablOutletRows(start: Date, end: Date, _roleFilter: TimeInTradeRoleFilter): Promise<OutletRow[]> {
   const rows = await prisma.$queryRaw<{ date: Date; outletKey: string }[]>(Prisma.sql`
     SELECT DISTINCT "callDate" AS date, COALESCE(NULLIF(BTRIM("customerCode"), ''), "customerName") AS "outletKey"
     FROM "EablCall" WHERE "callDate" >= ${start} AND "callDate" < ${end}`);
   return rows.map((r) => ({ date: r.date, principalKey: "eabl", outletKey: r.outletKey }));
 }
 
-async function upfieldRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
+async function upfieldRepDayRows(start: Date, end: Date, _roleFilter: TimeInTradeRoleFilter): Promise<RepDayRow[]> {
   const queryStart = new Date(start.getTime() - NAIROBI_OFFSET_MS);
   const queryEnd = new Date(end.getTime() - NAIROBI_OFFSET_MS);
   const rows = await prisma.$queryRaw<{ date: Date; startTime: Date; closeTime: Date; visits: bigint }[]>(Prisma.sql`
@@ -229,7 +241,7 @@ async function upfieldRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
   }));
 }
 
-async function upfieldOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
+async function upfieldOutletRows(start: Date, end: Date, _roleFilter: TimeInTradeRoleFilter): Promise<OutletRow[]> {
   const queryStart = new Date(start.getTime() - NAIROBI_OFFSET_MS);
   const queryEnd = new Date(end.getTime() - NAIROBI_OFFSET_MS);
   const rows = await prisma.$queryRaw<{ date: Date; outletKey: string }[]>(Prisma.sql`
@@ -240,7 +252,7 @@ async function upfieldOutletRows(start: Date, end: Date): Promise<OutletRow[]> {
   return rows.map((r) => ({ date: r.date, principalKey: "upfield", outletKey: r.outletKey }));
 }
 
-async function unileverRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> {
+async function unileverRepDayRows(start: Date, end: Date, _roleFilter: TimeInTradeRoleFilter): Promise<RepDayRow[]> {
   const rows = await prisma.$queryRaw<{ date: Date; startTime: Date | null; closeTime: Date | null; visits: bigint }[]>(Prisma.sql`
     SELECT date, MIN("firstEntryTime") AS "startTime", MAX(COALESCE("lastEntryTime", "firstEntryTime")) AS "closeTime",
       SUM("outletsVisited")::bigint AS visits
@@ -254,7 +266,10 @@ async function unileverRepDayRows(start: Date, end: Date): Promise<RepDayRow[]> 
 
 const SOURCE_QUERIES: Record<
   TimeInTradeSource,
-  { repDays: (start: Date, end: Date) => Promise<RepDayRow[]>; outlets: ((start: Date, end: Date) => Promise<OutletRow[]>) | null }
+  {
+    repDays: (start: Date, end: Date, roleFilter: TimeInTradeRoleFilter) => Promise<RepDayRow[]>;
+    outlets: ((start: Date, end: Date, roleFilter: TimeInTradeRoleFilter) => Promise<OutletRow[]>) | null;
+  }
 > = {
   pine: { repDays: pineRepDayRows, outlets: pineOutletRows },
   eabl: { repDays: eablRepDayRows, outlets: eablOutletRows },
@@ -275,7 +290,7 @@ export interface TimeInTradeTrend {
   rows: TimeInTradeRow[];
 }
 
-export async function getTimeInTradeTrend(period: PeriodSelection): Promise<TimeInTradeTrend> {
+export async function getTimeInTradeTrend(period: PeriodSelection, roleFilter: TimeInTradeRoleFilter = "all"): Promise<TimeInTradeTrend> {
   const buckets = resolveTimeInTradeBuckets(period);
   if (buckets.length === 0) return { buckets: [], rows: [] };
 
@@ -286,8 +301,8 @@ export async function getTimeInTradeTrend(period: PeriodSelection): Promise<Time
   for (const source of TIME_IN_TRADE_SOURCES) {
     const queries = SOURCE_QUERIES[source];
     const [repDayRows, outletRows] = await Promise.all([
-      queries.repDays(rangeStart, rangeEnd),
-      queries.outlets ? queries.outlets(rangeStart, rangeEnd) : Promise.resolve<OutletRow[]>([]),
+      queries.repDays(rangeStart, rangeEnd, roleFilter),
+      queries.outlets ? queries.outlets(rangeStart, rangeEnd, roleFilter) : Promise.resolve<OutletRow[]>([]),
     ]);
 
     // Every principal this source actually has data for, ranked by total
