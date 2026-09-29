@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
-import { ReceivablesKpi, money } from "@/components/views/ReceivablesView";
+import { money } from "@/components/views/ReceivablesView";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import {
@@ -69,10 +69,16 @@ export function SalesPerformanceTab({
   const stockValue = dataset.stockTotal.value;
   const workingCapital = stockValue + receivablesOutstanding;
 
+  // Matches the accent-bordered SectionCard + icon-bearing KpiCard + @container
+  // grid convention used across Commercial Performance / Executive Summary
+  // (see SalesSummaryPanel.tsx, CoveragePanel.tsx, FinancialsPanel.tsx) rather
+  // than the plain top-border card / icon-less ReceivablesKpi style the
+  // original 4 Financials tabs use — this tab is new, so it follows the
+  // dashboard-wide "slide" look instead.
   return (
-    <div className="flex flex-col gap-4">
-      <SectionCard title="Sales performance summary">
-        <KpiGrid>
+    <div id="sales-performance" className="@container flex flex-col gap-4">
+      <SectionCard title="Sales performance summary" accent="blue">
+        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-6">
           <KpiCard accent="revenue" label="Revenue (MTD)" value={formatCompact(mtd.revenue)} />
           <KpiCard accent="mission" label="Vs Running Target" value={<span className={tierTextClass[achievementTier(mtd.achievementPct)]}>{formatPercent(mtd.achievementPct)}</span>} sublabel={mtd.target !== null ? `Target ${formatCompact(mtd.target)}` : "N/T"} />
           <KpiCard accent="revenue" label="Revenue (YTD)" value={formatCompact(ytd.revenue)} />
@@ -84,12 +90,12 @@ export function SalesPerformanceTab({
             value={<span className={tierTextClass[marginTier(mtd.grossMarginPct)]}>{formatPercent(mtd.grossMarginPct)}</span>}
             sublabel={grossMarginTargetPct !== null ? `Target ${grossMarginTargetPct}%` : "No target set"}
           />
-        </KpiGrid>
+        </div>
         {isAdmin ? <GrossMarginTargetEditor current={grossMarginTargetPct} /> : null}
       </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionCard title="Top 5 principals vs Target" action={<span className="text-xs text-muted">Mars, Suntory, Upfield, Eabl, Weetabix</span>}>
+        <SectionCard title="Top 5 principals vs Target" accent="purple" action={<span className="text-xs text-muted">Mars, Suntory, Upfield, Eabl, Weetabix</span>}>
           <TableWrap>
             <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Target</Th><Th align="right">Achievement</Th></Thead>
             <tbody>
@@ -105,7 +111,7 @@ export function SalesPerformanceTab({
           </TableWrap>
         </SectionCard>
 
-        <SectionCard title="Cost of Sales per principal">
+        <SectionCard title="Cost of Sales per principal" accent="navy">
           <TableWrap>
             <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Cost of Sales</Th><Th align="right">COGS %</Th></Thead>
             <tbody>
@@ -122,7 +128,7 @@ export function SalesPerformanceTab({
         </SectionCard>
       </div>
 
-      <SectionCard title="Debt by principal" action={<span className="text-xs text-muted">{debtAttribution.windowLabel} purchase mix, prorated across live outstanding</span>}>
+      <SectionCard title="Debt by principal" accent="red" action={<span className="text-xs text-muted">{debtAttribution.windowLabel} purchase mix, prorated across live outstanding</span>}>
         <TableWrap>
           <Thead><Th>Principal</Th><Th align="right">Debt</Th><Th align="right">% of overall debt</Th></Thead>
           <tbody>
@@ -138,13 +144,13 @@ export function SalesPerformanceTab({
         </TableWrap>
       </SectionCard>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <ReceivablesKpi label="Working capital (proxy)" value={money(workingCapital)} sublabel="Stock value + Receivables outstanding" />
-        <div className="grid grid-cols-2 gap-3">
-          <ReceivablesKpi label="Stock opening balance (value)" value={money(stockValue)} sublabel="Company-wide" />
-          <ReceivablesKpi label="Stock opening balance (volume)" value={formatCompact(dataset.stockTotal.volume)} sublabel="Cases" />
+      <SectionCard title="Working capital & stock" accent="green">
+        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+          <KpiCard accent="mission" label="Working capital (proxy)" value={money(workingCapital)} sublabel="Stock value + Receivables outstanding" />
+          <KpiCard accent="revenue" label="Stock opening balance (value)" value={money(stockValue)} sublabel="Company-wide" />
+          <KpiCard accent="coverage" label="Stock opening balance (volume)" value={formatCompact(dataset.stockTotal.volume)} sublabel="Cases" />
         </div>
-      </div>
+      </SectionCard>
     </div>
   );
 }
