@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
-import { ReceivablesKpi, money } from "@/components/views/ReceivablesView";
+import { money } from "@/components/views/ReceivablesView";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import {
@@ -18,11 +18,11 @@ import type { Dataset } from "@/lib/types";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
 import { updateFinanceSettingsAction } from "@/app/(protected)/(analytics)/financials/actions";
 
-// The high-margin principals list excludes the volume-driver principals —
-// these already get their own dedicated attention elsewhere and would
-// otherwise dominate a "top 5 by margin" list on scale alone, not margin.
-const HIGH_MARGIN_EXCLUSIONS = new Set(["mars", "suntory", "upfield", "eabl", "weetabix"].map(normalizePrincipalKey));
-const TOP_N = 5;
+// Fixed top-5 principal set (given directly, not derived by any ranking) —
+// shown versus their own target, rolled up across every location-split raw
+// Principal string that belongs to the same brand (e.g. "EABL-Nyeri" and
+// "EABL-Nyahururu" both fold into "Eabl").
+const TOP_5_PRINCIPALS = ["Mars", "Suntory", "Upfield", "Eabl", "Weetabix"];
 
 export function SalesPerformanceTab({
   dataset,
@@ -48,19 +48,37 @@ export function SalesPerformanceTab({
   const lysp = summarizeSalesForPeriod(dataset, lyspPeriod, selectedPrincipalKey);
 
   const byPrincipal = Array.from(summarizeSalesByPrincipal(dataset, mtdPeriod).values());
-  const topMarginPrincipals = byPrincipal
-    .filter((p) => !HIGH_MARGIN_EXCLUSIONS.has(normalizePrincipalKey(p.principal)) && p.revenue > 0)
-    .sort((a, b) => (b.grossMarginPct ?? 0) - (a.grossMarginPct ?? 0))
-    .slice(0, TOP_N);
+  const top5 = TOP_5_PRINCIPALS.map((label) => {
+    const key = normalizePrincipalKey(label);
+    const rows = byPrincipal.filter((p) => normalizePrincipalKey(p.principal) === key);
+    let revenue = 0;
+    let target = 0;
+    let hasTarget = false;
+    for (const r of rows) {
+      revenue += r.revenue;
+      if (r.target !== null) {
+        target += r.target;
+        hasTarget = true;
+      }
+    }
+    const achievementPct = hasTarget && target > 0 ? Math.round((revenue / target) * 1000) / 10 : null;
+    return { label, revenue, target: hasTarget ? target : null, achievementPct };
+  });
   const costOfSales = [...byPrincipal].sort((a, b) => b.cogs - a.cogs);
 
   const stockValue = dataset.stockTotal.value;
   const workingCapital = stockValue + receivablesOutstanding;
 
+  // Matches the accent-bordered SectionCard + icon-bearing KpiCard + @container
+  // grid convention used across Commercial Performance / Executive Summary
+  // (see SalesSummaryPanel.tsx, CoveragePanel.tsx, FinancialsPanel.tsx) rather
+  // than the plain top-border card / icon-less ReceivablesKpi style the
+  // original 4 Financials tabs use — this tab is new, so it follows the
+  // dashboard-wide "slide" look instead.
   return (
-    <div className="flex flex-col gap-4">
-      <SectionCard title="Sales performance summary">
-        <KpiGrid>
+    <div id="sales-performance" className="@container flex flex-col gap-4">
+      <SectionCard title="Sales performance summary" accent="blue">
+        <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-6">
           <KpiCard accent="revenue" label="Revenue (MTD)" value={formatCompact(mtd.revenue)} />
           <KpiCard accent="mission" label="Vs Running Target" value={<span className={tierTextClass[achievementTier(mtd.achievementPct)]}>{formatPercent(mtd.achievementPct)}</span>} sublabel={mtd.target !== null ? `Target ${formatCompact(mtd.target)}` : "N/T"} />
           <KpiCard accent="revenue" label="Revenue (YTD)" value={formatCompact(ytd.revenue)} />
@@ -72,29 +90,28 @@ export function SalesPerformanceTab({
             value={<span className={tierTextClass[marginTier(mtd.grossMarginPct)]}>{formatPercent(mtd.grossMarginPct)}</span>}
             sublabel={grossMarginTargetPct !== null ? `Target ${grossMarginTargetPct}%` : "No target set"}
           />
-        </KpiGrid>
+        </div>
         {isAdmin ? <GrossMarginTargetEditor current={grossMarginTargetPct} /> : null}
       </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionCard title={`Top ${TOP_N} high-margin principals`} action={<span className="text-xs text-muted">Excludes Mars, Suntory, Upfield, EABL, Weetabix</span>}>
+        <SectionCard title="Top 5 principals vs Target" accent="purple" action={<span className="text-xs text-muted">Mars, Suntory, Upfield, Eabl, Weetabix</span>}>
           <TableWrap>
-            <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">GP</Th><Th align="right">Margin</Th></Thead>
+            <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Target</Th><Th align="right">Achievement</Th></Thead>
             <tbody>
-              {topMarginPrincipals.map((p) => (
-                <tr key={p.principalKey}>
-                  <Td>{p.principal}</Td>
+              {top5.map((p) => (
+                <tr key={p.label}>
+                  <Td>{p.label}</Td>
                   <Td align="right">{formatCompact(p.revenue)}</Td>
-                  <Td align="right">{formatCompact(p.grossProfit)}</Td>
-                  <Td align="right"><span className={tierTextClass[marginTier(p.grossMarginPct)]}>{formatPercent(p.grossMarginPct)}</span></Td>
+                  <Td align="right">{p.target !== null ? formatCompact(p.target) : "N/T"}</Td>
+                  <Td align="right"><span className={tierTextClass[achievementTier(p.achievementPct)]}>{formatPercent(p.achievementPct)}</span></Td>
                 </tr>
               ))}
-              {topMarginPrincipals.length === 0 ? <tr><td colSpan={4} className="px-3 py-6 text-center text-muted">No revenue-bearing principals this period.</td></tr> : null}
             </tbody>
           </TableWrap>
         </SectionCard>
 
-        <SectionCard title="Cost of Sales per principal">
+        <SectionCard title="Cost of Sales per principal" accent="navy">
           <TableWrap>
             <Thead><Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Cost of Sales</Th><Th align="right">COGS %</Th></Thead>
             <tbody>
@@ -111,7 +128,7 @@ export function SalesPerformanceTab({
         </SectionCard>
       </div>
 
-      <SectionCard title="Debt by principal" action={<span className="text-xs text-muted">{debtAttribution.windowLabel} purchase mix, prorated across live outstanding</span>}>
+      <SectionCard title="Debt by principal" accent="red" action={<span className="text-xs text-muted">{debtAttribution.windowLabel} purchase mix, prorated across live outstanding</span>}>
         <TableWrap>
           <Thead><Th>Principal</Th><Th align="right">Debt</Th><Th align="right">% of overall debt</Th></Thead>
           <tbody>
@@ -127,13 +144,13 @@ export function SalesPerformanceTab({
         </TableWrap>
       </SectionCard>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <ReceivablesKpi label="Working capital (proxy)" value={money(workingCapital)} sublabel="Stock value + Receivables outstanding" />
-        <div className="grid grid-cols-2 gap-3">
-          <ReceivablesKpi label="Stock opening balance (value)" value={money(stockValue)} sublabel="Company-wide" />
-          <ReceivablesKpi label="Stock opening balance (volume)" value={formatCompact(dataset.stockTotal.volume)} sublabel="Cases" />
+      <SectionCard title="Working capital & stock" accent="green">
+        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+          <KpiCard accent="mission" label="Working capital (proxy)" value={money(workingCapital)} sublabel="Stock value + Receivables outstanding" />
+          <KpiCard accent="revenue" label="Stock opening balance (value)" value={money(stockValue)} sublabel="Company-wide" />
+          <KpiCard accent="coverage" label="Stock opening balance (volume)" value={formatCompact(dataset.stockTotal.volume)} sublabel="Cases" />
         </div>
-      </div>
+      </SectionCard>
     </div>
   );
 }

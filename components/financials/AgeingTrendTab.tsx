@@ -34,8 +34,8 @@ export function AgeingTrendTab({ ageingTrend, year, month }: { ageingTrend: Agei
   const years = Array.from({ length: 3 }, (_, i) => year - 1 + i);
 
   return (
-    <div className="flex flex-col gap-4">
-      <SectionCard title="Select month">
+    <div id="ageing-trend" className="@container flex flex-col gap-4">
+      <SectionCard title="Select month" accent="blue">
         <form method="get" className="flex flex-wrap items-end gap-3">
           <input type="hidden" name="tab" value="ageing-trend" />
           <div className="flex flex-col gap-1">
@@ -54,7 +54,7 @@ export function AgeingTrendTab({ ageingTrend, year, month }: { ageingTrend: Agei
         </form>
       </SectionCard>
 
-      <SectionCard title={`Ageing trend — ${month} ${year}`} action={<span className="text-xs text-muted">Last month + calendar weeks, defaults per selected month</span>}>
+      <SectionCard title={`Ageing trend — ${month} ${year}`} accent="navy" action={<span className="text-xs text-muted">Last month + calendar weeks, defaults per selected month</span>}>
         <TableWrap>
           <Thead>
             <Th>Period</Th>

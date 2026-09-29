@@ -1,8 +1,9 @@
 "use client";
 
-import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
+import { KpiCard } from "@/components/ui/KpiCard";
+import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
-import { ReceivablesKpi, money } from "@/components/views/ReceivablesView";
+import { money } from "@/components/views/ReceivablesView";
 import { formatPercent } from "@/lib/format";
 import type { ReceivablesDashboard } from "@/lib/receivables";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
@@ -16,14 +17,16 @@ export function DebtorsTab({ receivables, debtAttribution }: { receivables: Rece
   const customerBreakdown = debtAttribution.customers.slice(0, CUSTOMER_BREAKDOWN_LIMIT);
 
   return (
-    <div className="flex flex-col gap-4">
-      <KpiGrid>
-        <ReceivablesKpi label="Overall debt" value={money(receivables.ledgerBalance)} sublabel={`${receivables.customerCount} customers`} />
-        <ReceivablesKpi label="Current debt" value={money(receivables.buckets.Current)} sublabel="Not overdue" />
-        <ReceivablesKpi label="Overdue debt" value={money(overdue)} sublabel="Past contractual due date" />
-      </KpiGrid>
+    <div id="debtors" className="@container flex flex-col gap-4">
+      <SectionCard title="Debtors summary" accent="red">
+        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+          <KpiCard accent="mission" label="Overall debt" value={money(receivables.ledgerBalance)} sublabel={`${receivables.customerCount} customers`} />
+          <KpiCard accent="growth" label="Current debt" value={money(receivables.buckets.Current)} sublabel="Not overdue" />
+          <KpiCard accent="quarter" label="Overdue debt" value={money(overdue)} sublabel="Past contractual due date" />
+        </div>
+      </SectionCard>
 
-      <SectionCard title={`Top ${TOP_N} debt lines`} action={<span className="text-xs text-muted">Ranked by live open balance</span>}>
+      <SectionCard title={`Top ${TOP_N} debt lines`} accent="amber" action={<span className="text-xs text-muted">Ranked by live open balance</span>}>
         <TableWrap>
           <Thead><Th>Customer</Th><Th>Status</Th><Th align="right">Outstanding</Th><Th align="right">Over 90 days</Th></Thead>
           <tbody>
@@ -41,6 +44,7 @@ export function DebtorsTab({ receivables, debtAttribution }: { receivables: Rece
 
       <SectionCard
         title="Structure debt per principal"
+        accent="navy"
         action={<span className="text-xs text-muted">{debtAttribution.windowLabel} purchase mix per customer, top {CUSTOMER_BREAKDOWN_LIMIT} debtors</span>}
       >
         <TableWrap>
