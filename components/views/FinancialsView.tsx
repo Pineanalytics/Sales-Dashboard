@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useDashboardStore } from "@/lib/store";
 import type { ReceivablesDashboard } from "@/lib/receivables";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
+import type { PrincipalGpTarget } from "@/lib/financeGpTarget";
 import type { AgeingTrendForMonth } from "@/lib/receivablesAgeing";
 import { PLStatementView } from "./PLStatementView";
 import { ProfitabilityView } from "./ProfitabilityView";
@@ -39,7 +40,7 @@ type Props = {
    *  over credit limit" exception/link (see FinancialsPanel.tsx). */
   initialCreditStatus?: "over-limit";
   receivables: ReceivablesDashboard | null;
-  financeSettings: { grossMarginTargetPct: number | null };
+  gpTargets: PrincipalGpTarget[];
   debtAttribution: DebtAttribution;
   ageingTrend: AgeingTrendForMonth;
   ageingYear: number;
@@ -63,7 +64,7 @@ export function FinancialsView({
   initialTab,
   initialCreditStatus,
   receivables,
-  financeSettings,
+  gpTargets,
   debtAttribution,
   ageingTrend,
   ageingYear,
@@ -174,10 +175,9 @@ export function FinancialsView({
             <SalesPerformanceTab
               dataset={dataset}
               selectedPrincipalKey={selectedPrincipalKey}
-              grossMarginTargetPct={financeSettings.grossMarginTargetPct}
+              gpTargets={gpTargets}
               receivablesOutstanding={receivables.ledgerBalance}
               debtAttribution={debtAttribution}
-              isAdmin={user?.role === "ADMIN"}
             />
           ) : (
             <SectionCard>

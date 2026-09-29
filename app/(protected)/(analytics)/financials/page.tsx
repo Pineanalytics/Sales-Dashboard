@@ -3,7 +3,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { FinancialsView, type FinancialsTab } from "@/components/views/FinancialsView";
 import { canAccessFinancials } from "@/lib/pageAccess";
 import { getReceivablesDashboard } from "@/lib/receivables";
-import { getFinanceSettings } from "@/lib/financeSettings";
+import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
 import { getDebtByPrincipal } from "@/lib/financeDebtAttribution";
 import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
@@ -47,8 +47,11 @@ export default async function FinancialsPage({
   const ageingMonth = ageingMonthRaw && CANONICAL_MONTHS.includes(ageingMonthRaw) ? ageingMonthRaw : CANONICAL_MONTHS[now.getUTCMonth()];
   const ageingMonthIndex = CANONICAL_MONTHS.indexOf(ageingMonth);
 
-  const [financeSettings, debtAttribution, ageingTrend] = await Promise.all([
-    canViewProfitability ? getFinanceSettings() : Promise.resolve({ grossMarginTargetPct: null }),
+  const currentYear = String(now.getUTCFullYear());
+  const currentMonth = CANONICAL_MONTHS[now.getUTCMonth()];
+
+  const [gpTargets, debtAttribution, ageingTrend] = await Promise.all([
+    canViewProfitability ? getGpTargetsForPeriod(currentYear, currentMonth) : Promise.resolve([]),
     canViewProfitability || canViewReceivables ? getDebtByPrincipal() : Promise.resolve({ windowLabel: "Trailing 12 months", totalDebt: 0, unattributedDebt: 0, byPrincipal: [], customers: [] }),
     canViewReceivables ? getAgeingSnapshotForMonth(ageingYear, ageingMonthIndex) : Promise.resolve({ lastMonth: { label: "Last Month Ageing", asOfDate: now.toISOString(), snapshotDate: null, buckets: null, isApproximate: false }, weeks: [] }),
   ]);
@@ -60,7 +63,7 @@ export default async function FinancialsPage({
       receivables={data}
       canViewReceivables={canViewReceivables && data !== null}
       canViewProfitability={canViewProfitability}
-      financeSettings={financeSettings}
+      gpTargets={gpTargets}
       debtAttribution={debtAttribution}
       ageingTrend={ageingTrend}
       ageingYear={ageingYear}

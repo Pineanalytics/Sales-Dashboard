@@ -255,6 +255,8 @@ export default async function TargetsOverviewPage({
                   <th className="px-6 py-3 text-right font-medium">Volume Target</th>
                   <th className="px-6 py-3 text-right font-medium">Coverage Target</th>
                   <th className="px-6 py-3 text-right font-medium">Productive Calls Target</th>
+                  <th className="px-6 py-3 text-right font-medium">GP Target</th>
+                  <th className="px-6 py-3 text-right font-medium">GP Margin Target</th>
                   <th className="px-6 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -268,7 +270,7 @@ export default async function TargetsOverviewPage({
                   if (editingTargetKey === key) {
                     return (
                       <tr key={key}>
-                        <td className="px-6 py-3 border-b border-border/60" colSpan={7}>
+                        <td className="px-6 py-3 border-b border-border/60" colSpan={9}>
                           <form action={updateTargetValueAction} className="flex flex-wrap items-end gap-3">
                             {filterHiddenFields}
                             <input type="hidden" name="year" value={t.year} />
@@ -292,6 +294,22 @@ export default async function TargetsOverviewPage({
                             <div className="flex flex-col gap-1">
                               <label className={labelClass}>Productive Calls Target</label>
                               <input name="productivityTarget" type="number" step="0.01" defaultValue={t.productivityTarget ?? ""} className={inputClass} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className={labelClass}>GP Target (value)</label>
+                              <input name="grossProfitTarget" type="number" step="0.01" defaultValue={t.grossProfitTarget ?? ""} className={inputClass} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className={labelClass}>GP Margin Target %</label>
+                              <input
+                                name="grossMarginTargetPct"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                defaultValue={t.grossMarginTargetPct != null ? (t.grossMarginTargetPct * 100).toFixed(2) : ""}
+                                className={inputClass}
+                              />
                             </div>
                             <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
                               Save
@@ -319,6 +337,8 @@ export default async function TargetsOverviewPage({
                       <td className="px-6 py-3 border-b border-border/60 text-right">{fmtNum(t.volumeTarget)}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">{fmtNum(t.coverageTarget)}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">{fmtNum(t.productivityTarget)}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right">{fmtNum(t.grossProfitTarget)}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right">{fmtPct(t.grossMarginTargetPct)}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">
                         {canEdit ? (
                           <Link
@@ -334,7 +354,7 @@ export default async function TargetsOverviewPage({
                 })}
                 {targetRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={9} className="px-6 py-8 text-center text-muted">
                       No targets match this filter.
                     </td>
                   </tr>
