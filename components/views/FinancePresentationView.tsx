@@ -10,9 +10,10 @@ import { money } from "@/components/views/ReceivablesView";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { aggregateStockByPrincipal } from "@/lib/stock";
-import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getCurrentMonthPeriod } from "@/lib/timeIntelligence";
+import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getCurrentMonthPeriod, getMtdTargetPacing } from "@/lib/timeIntelligence";
 import { useDashboardStore } from "@/lib/store";
 import type { ReceivablesDashboard } from "@/lib/receivables";
+import type { PayablesDashboard } from "@/lib/payables";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
 import type { PrincipalGpTarget } from "@/lib/financeGpTarget";
 import type { AgeingTrendForMonth, AgeingSnapshotPoint } from "@/lib/receivablesAgeing";
@@ -36,11 +37,13 @@ function ageingRowTotal(point: AgeingSnapshotPoint) {
  *  @container line) for visual consistency. */
 export function FinancePresentationView({
   receivables,
+  payables,
   gpTargets,
   debtAttribution,
   ageingTrend,
 }: {
   receivables: ReceivablesDashboard | null;
+  payables: PayablesDashboard | null;
   gpTargets: PrincipalGpTarget[];
   debtAttribution: DebtAttribution;
   ageingTrend: AgeingTrendForMonth | null;
@@ -93,9 +96,22 @@ export function FinancePresentationView({
   const marginTargetPct = marginWeightSum > 0 ? (weightedMarginSum / marginWeightSum) * 100 : null;
 
   const receivablesOutstanding = receivables?.ledgerBalance ?? 0;
-  const workingCapital = dataset.stockTotal.value + receivablesOutstanding;
+  const payablesOutstanding = payables?.ledgerBalance ?? 0;
+  // Genuine Net Working Capital once Payables has synced at least once;
+  // before that, fall back to the original Stock + Receivables proxy (no
+  // Payables figure existed at all until this was built) rather than
+  // silently treating an un-synced zero as "no payables owed".
+  const workingCapital = dataset.stockTotal.value + receivablesOutstanding - (payables ? payablesOutstanding : 0);
   const currentDebt = receivables ? receivables.buckets.Current + receivables.buckets["1–30 days"] : 0;
   const overdueOver30 = receivables ? receivables.buckets["31–60 days"] + receivables.buckets["61–90 days"] + receivables.buckets["Over 90 days"] : 0;
+
+  // DSO = closing AR balance ÷ period sales × days elapsed in that period —
+  // elapsed (not the full month) so a partial MTD period doesn't get
+  // overstated by a full 30-day multiplier against only a few days of sales.
+  const mtdPacing = getMtdTargetPacing(mtdPeriod);
+  const dso = receivables && mtd.revenue > 0 && mtdPacing && mtdPacing.elapsedDays > 0
+    ? round1((receivablesOutstanding / mtd.revenue) * mtdPacing.elapsedDays)
+    : null;
 
   const stockRollups = aggregateStockByPrincipal(dataset);
   const debtByKey = new Map(debtAttribution.byPrincipal.map((d) => [normalizePrincipalKey(d.principal), d.debt]));
@@ -166,7 +182,7 @@ export function FinancePresentationView({
                 value={<span className={tierTextClass[marginTier(mtd.grossMarginPct)]}>{formatPercent(mtd.grossMarginPct)}</span>}
                 sublabel={marginTargetPct !== null ? `Target ${marginTargetPct.toFixed(1)}%` : "No target set"}
               />
-              <KpiCard accent="coverage" label="Working Capital" value={money(workingCapital)} sublabel="Stock + Receivables" />
+              <KpiCard accent="coverage" label="Net Working Capital" value={money(workingCapital)} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
             </div>
 
             <TableWrap>
@@ -209,13 +225,15 @@ export function FinancePresentationView({
         <SectionCard title="Slide 2 — Debt & Stock" accent="red">
           <div className="flex flex-col gap-4">
             {receivables ? (
-              <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-8">
                 <KpiCard accent="mission" label="Overall Debt" value={money(receivables.ledgerBalance)} sublabel={`${receivables.customerCount} customers`} />
                 <KpiCard accent="growth" label="Current Debt" value={money(currentDebt)} sublabel="Within 30 days" />
                 <KpiCard accent="quarter" label="Overdue Debt" value={money(overdueOver30)} sublabel="Over 30 days" />
                 <KpiCard accent="coverage" label="Over 90 Days" value={money(receivables.buckets["Over 90 days"])} sublabel="Collection risk" />
+                <KpiCard accent="mission" label="DSO" value={dso !== null ? `${dso.toFixed(1)}d` : "—"} sublabel="Days Sales Outstanding" />
+                <KpiCard accent="quarter" label="Accounts Payable" value={payables ? money(payables.ledgerBalance) : "N/A"} sublabel={payables ? `${payables.vendorCount} vendors` : "Not yet synced"} />
                 <KpiCard accent="revenue" label="Stock Opening Value" value={money(dataset.stockTotal.value)} sublabel="Company-wide" />
-                <KpiCard accent="mission" label="Working Capital" value={money(workingCapital)} sublabel="Stock + Receivables" />
+                <KpiCard accent="mission" label="Net Working Capital" value={money(workingCapital)} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
               </div>
             ) : (
               <p className="text-sm text-muted">Receivables have not synced yet.</p>
@@ -225,7 +243,7 @@ export function FinancePresentationView({
               <div>
                 <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Ageing trend — last month closing, then each week distinctly</h4>
                 <TableWrap>
-                  <Thead><Th>Period</Th><Th align="right">Current (0–30 days)</Th><Th align="right">60 days</Th><Th align="right">90 days</Th><Th align="right">Over 90 days</Th><Th align="right">Total</Th></Thead>
+                  <Thead><Th>Period</Th><Th align="right">Total</Th><Th align="right">Current (0–30 days)</Th><Th align="right">60 days</Th><Th align="right">90 days</Th><Th align="right">Over 90 days</Th></Thead>
                   <tbody>
                     {ageingRows.map((point) => {
                       const t = ageingRowTotal(point);
@@ -235,6 +253,7 @@ export function FinancePresentationView({
                             {point.label}
                             {point.isApproximate ? <Badge tier="warn">Approx.</Badge> : null}
                           </Td>
+                          <Td align="right" className="font-semibold">{t ? money(t.total) : "—"}</Td>
                           {(["current", "days60", "days90", "daysOver90"] as const).map((key) => (
                             <Td key={key} align="right">
                               {t ? (
@@ -245,7 +264,6 @@ export function FinancePresentationView({
                               ) : "—"}
                             </Td>
                           ))}
-                          <Td align="right" className="font-semibold">{t ? money(t.total) : "—"}</Td>
                         </tr>
                       );
                     })}
