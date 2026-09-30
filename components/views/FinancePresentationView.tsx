@@ -131,12 +131,22 @@ export function FinancePresentationView({
   });
   const stockOthers = stockRollups.filter((r) => !TOP_5_KEYS.has(r.key));
   const stockOthersAgg = stockOthers.reduce(
-    (acc, r) => ({ value: acc.value + r.value, rrWeekValue: acc.rrWeekValue + r.rrWeekValue, debt: acc.debt + (debtByKey.get(r.key) ?? 0) }),
-    { value: 0, rrWeekValue: 0, debt: 0 }
+    (acc, r) => ({ value: acc.value + r.value, rrWeekValue: acc.rrWeekValue + r.rrWeekValue }),
+    { value: 0, rrWeekValue: 0 }
   );
   const stockTotalValue = stockTop5.reduce((s, r) => s + (r.rollup?.value ?? 0), 0) + stockOthersAgg.value;
   const stockTotalRrWeek = stockTop5.reduce((s, r) => s + (r.rollup?.rrWeekValue ?? 0), 0) + stockOthersAgg.rrWeekValue;
-  const stockTotalDebt = stockTop5.reduce((s, r) => s + r.debt, 0) + stockOthersAgg.debt;
+  // "All Other Principals" debt = total debt minus the 5 mapped principals'
+  // share, not a sum over stockOthers' own debtByKey entries — a principal
+  // can carry debt (it sold on credit) with zero physical stock on hand
+  // right now, or a customer can fall into debtAttribution's "Unattributed"
+  // bucket (no BrandCustomerActual match), and neither shows up in
+  // stockRollups at all. Deriving "Other" as the remainder keeps this
+  // table's Total reconciled to the page's own Overall Debt KPI exactly,
+  // the same convention already used for the Payable column below.
+  const top5Debt = stockTop5.reduce((s, r) => s + r.debt, 0);
+  const othersDebt = debtAttribution.totalDebt - top5Debt;
+  const stockTotalDebt = debtAttribution.totalDebt;
   // "Other Principals" payable = every vendor NOT individually mapped —
   // total payables minus whatever was attributed to the 5 mapped principals
   // above, not a stockRollups-keyed sum (no vendor-to-stock-principal join
@@ -145,6 +155,11 @@ export function FinancePresentationView({
   const stockTotalPayable = payables ? payables.ledgerBalance : mappedPayablesTotal;
   const stockOthersDaysCover = stockOthersAgg.rrWeekValue > 0 ? round1((stockOthersAgg.value / stockOthersAgg.rrWeekValue) * 7) : 0;
   const stockTotalDaysCover = stockTotalRrWeek > 0 ? round1((stockTotalValue / stockTotalRrWeek) * 7) : 0;
+  // Net Working Capital per row, same formula as the page-level KPI (Stock +
+  // Receivables − Payables) applied at the principal level; "—" until
+  // Payables has synced at least once, matching every other Payable-derived
+  // cell in this table.
+  const nwc = (stockValue: number, debt: number, payable: number) => stockValue + debt - payable;
 
   // Full weekly breakdown, same as the main Ageing Trend tab — last month's
   // closing balance, then every week of the current month distinctly (not
@@ -285,33 +300,36 @@ export function FinancePresentationView({
             ) : null}
 
             <TableWrap>
-              <Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Run Rate (weekly)</Th><Th align="right">Days Cover</Th><Th align="right">Debt</Th><Th align="right">Payable</Th></Thead>
+              <Thead><Th>Principal</Th><Th align="right">Payable</Th><Th align="right">Stock Value</Th><Th align="right">Run Rate (weekly)</Th><Th align="right">Days Cover</Th><Th align="right">Debt</Th><Th align="right">Net Working Capital</Th></Thead>
               <tbody>
                 {stockTop5.map((r) => (
                   <tr key={r.label}>
                     <Td>{r.label}</Td>
+                    <Td align="right">{payables ? money(r.payable) : "—"}</Td>
                     <Td align="right">{r.rollup ? formatCompact(r.rollup.value) : "—"}</Td>
                     <Td align="right">{r.rollup ? formatCompact(r.rollup.rrWeekValue) : "—"}</Td>
                     <Td align="right">{r.rollup ? r.rollup.daysStock.toFixed(1) : "—"}</Td>
                     <Td align="right">{money(r.debt)}</Td>
-                    <Td align="right">{payables ? money(r.payable) : "—"}</Td>
+                    <Td align="right">{payables ? money(nwc(r.rollup?.value ?? 0, r.debt, r.payable)) : "—"}</Td>
                   </tr>
                 ))}
                 <tr>
                   <Td className="text-muted-strong">All Other Principals ({stockOthers.length})</Td>
+                  <Td align="right">{payables ? money(othersPayable) : "—"}</Td>
                   <Td align="right">{formatCompact(stockOthersAgg.value)}</Td>
                   <Td align="right">{formatCompact(stockOthersAgg.rrWeekValue)}</Td>
                   <Td align="right">{stockOthersDaysCover.toFixed(1)}</Td>
-                  <Td align="right">{money(stockOthersAgg.debt)}</Td>
-                  <Td align="right">{payables ? money(othersPayable) : "—"}</Td>
+                  <Td align="right">{money(othersDebt)}</Td>
+                  <Td align="right">{payables ? money(nwc(stockOthersAgg.value, othersDebt, othersPayable)) : "—"}</Td>
                 </tr>
                 <TotalRow>
                   <Td>Total (all principals)</Td>
+                  <Td align="right">{payables ? money(stockTotalPayable) : "—"}</Td>
                   <Td align="right">{formatCompact(stockTotalValue)}</Td>
                   <Td align="right">{formatCompact(stockTotalRrWeek)}</Td>
                   <Td align="right">{stockTotalDaysCover.toFixed(1)}</Td>
                   <Td align="right">{money(stockTotalDebt)}</Td>
-                  <Td align="right">{payables ? money(stockTotalPayable) : "—"}</Td>
+                  <Td align="right">{payables ? money(nwc(stockTotalValue, stockTotalDebt, stockTotalPayable)) : "—"}</Td>
                 </TotalRow>
               </tbody>
             </TableWrap>
