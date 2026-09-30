@@ -939,6 +939,39 @@ model ReceivablesSyncRun {
   variance      Float
 }
 
+// Full replacement mirror of SAP's open vendor ledger (JDT1, CardType = 'S').
+// Vendor name is denormalized onto each row rather than a separate vendor
+// master table — unlike Receivables, Payables has no credit-limit/term
+// tracking need, only a total for Net Working Capital and a per-vendor list.
+// SAP stores the vendor-side balance as BalDueCred - BalDueDeb (the mirror
+// image of the customer-side BalDueDeb - BalDueCred), confirmed empirically
+// against live SAP data — a positive openBalance means Pinefrost owes that
+// vendor money.
+model PayableOpenItem {
+  id              String   @id
+  vendorCode      String
+  vendorName      String
+  documentRef     String?
+  transactionType Int
+  postingDate     DateTime @db.Date
+  dueDate         DateTime @db.Date
+  openBalance     Float
+  updatedAt       DateTime @updatedAt
+
+  @@index([vendorCode])
+  @@index([dueDate])
+}
+
+// Immutable audit summary of every complete payables refresh.
+model PayablesSyncRun {
+  id            String   @id @default(cuid())
+  sourceDate    DateTime
+  completedAt   DateTime @default(now())
+  vendorCount   Int
+  openItemCount Int
+  ledgerBalance Float
+}
+
 // Singleton (id pinned to 1) admin-entered company-wide GP margin commitment —
 // there is no per-principal GP target anywhere in Target, and Finance's
 // "GP Margin vs Target" is deliberately one company-wide figure, not a

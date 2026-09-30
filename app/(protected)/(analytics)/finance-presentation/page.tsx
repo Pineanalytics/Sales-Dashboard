@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { canAccessFinancials } from "@/lib/pageAccess";
 import { getReceivablesDashboard } from "@/lib/receivables";
+import { getPayablesDashboard } from "@/lib/payables";
 import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
 import { getDebtByPrincipal } from "@/lib/financeDebtAttribution";
 import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
@@ -21,12 +22,13 @@ export default async function FinancePresentationPage() {
   const currentYear = String(now.getUTCFullYear());
   const currentMonth = CANONICAL_MONTHS[now.getUTCMonth()];
 
-  const [receivables, gpTargets, debtAttribution, ageingTrend] = await Promise.all([
+  const [receivables, payables, gpTargets, debtAttribution, ageingTrend] = await Promise.all([
     canViewReceivables ? getReceivablesDashboard() : Promise.resolve(null),
+    canViewReceivables ? getPayablesDashboard() : Promise.resolve(null),
     canViewProfitability ? getGpTargetsForPeriod(currentYear, currentMonth) : Promise.resolve([]),
     getDebtByPrincipal(),
     canViewReceivables ? getAgeingSnapshotForMonth(now.getUTCFullYear(), now.getUTCMonth()) : Promise.resolve(null),
   ]);
 
-  return <FinancePresentationView receivables={receivables} gpTargets={gpTargets} debtAttribution={debtAttribution} ageingTrend={ageingTrend} />;
+  return <FinancePresentationView receivables={receivables} payables={payables} gpTargets={gpTargets} debtAttribution={debtAttribution} ageingTrend={ageingTrend} />;
 }

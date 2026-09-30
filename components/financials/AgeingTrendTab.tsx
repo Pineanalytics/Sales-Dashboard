@@ -32,6 +32,7 @@ function PointRow({ point }: { point: AgeingSnapshotPoint }) {
         {point.label}
         {point.isApproximate ? <Badge tier="warn">Approximate — excludes since-cleared items</Badge> : null}
       </Td>
+      <Td align="right" className="font-semibold">{buckets ? money(total) : "—"}</Td>
       {BUCKET_COLUMNS.map((col) => (
         <Td key={col.key} align="right">
           {buckets ? (
@@ -42,7 +43,6 @@ function PointRow({ point }: { point: AgeingSnapshotPoint }) {
           ) : "—"}
         </Td>
       ))}
-      <Td align="right" className="font-semibold">{buckets ? money(total) : "—"}</Td>
       <Td className="text-xs text-muted">{point.snapshotDate ? new Date(point.snapshotDate).toLocaleDateString("en-KE") : "No snapshot yet"}</Td>
     </tr>
   );
@@ -80,8 +80,8 @@ export function AgeingTrendTab({ ageingTrend, year, month }: { ageingTrend: Agei
         <TableWrap>
           <Thead>
             <Th>Period</Th>
-            {BUCKET_COLUMNS.map((col) => <Th key={col.key} align="right">{col.label}</Th>)}
             <Th align="right">Total</Th>
+            {BUCKET_COLUMNS.map((col) => <Th key={col.key} align="right">{col.label}</Th>)}
             <Th>As of</Th>
           </Thead>
           <tbody>
