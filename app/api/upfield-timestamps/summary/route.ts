@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { kenyaWorkingDayClause } from "@/lib/timestampSummary";
+import { resolveScopeForSession, scopeNameClause } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +57,11 @@ export async function GET(request: NextRequest) {
   const rep = request.nextUrl.searchParams.get("rep")?.trim() || null;
   if (rep && rep.length > 120) return NextResponse.json({ error: '"rep" is too long.' }, { status: 400 });
 
+  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+  if (scope && rep && !scope.normalizedNames.has(rep.toLowerCase())) {
+    return NextResponse.json({ error: "That rep isn't in your assigned team." }, { status: 403 });
+  }
+
   const monthRange = localWindow(month, null);
   const activeRange = localWindow(month, selectedDate);
   const calendarRange = calendarMonthWindow(month);
@@ -70,8 +76,8 @@ export async function GET(request: NextRequest) {
     activeWorkingDayClause,
   ];
   if (rep) baseConditions.push(Prisma.sql`${REP_EXPRESSION} = ${rep}`);
-  const where = Prisma.join(baseConditions, " AND ");
-  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND ${monthWorkingDayClause} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'`;
+  const where = Prisma.sql`${Prisma.join(baseConditions, " AND ")} ${scopeNameClause(scope, REP_EXPRESSION)}`;
+  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND ${monthWorkingDayClause} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST' ${scopeNameClause(scope, REP_EXPRESSION)}`;
 
   type MetricsRow = { lines: bigint; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number; returnsValue: number; lastDataAt: Date | null; averageInterval: number | null };
   type DailyRow = { date: Date; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number };

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 
 /** A restricted session's own data scope — either a Team Leader's, resolved
@@ -201,6 +202,19 @@ export async function loadSupervisorScope(supervisorId: string): Promise<TeamLea
  *  caller isn't scoped at all (admin, an unrestricted VIEWER, or a TEAM_LEADER/
  *  SUPERVISOR with no team/group linked yet). Shared helper so every route applies
  *  the exact same rule for "should this session be scoped at all." */
+/** SQL predicate restricting a free-text rep-name column (no employeeCode of
+ *  its own — e.g. Upfield DataEdge/Visits' "fsr" field) to this scope's
+ *  normalizedNames, for raw-SQL routes that aggregate in the query itself and
+ *  so can't post-filter rows afterward the way lib/order360Summary.ts does.
+ *  Same fail-closed convention as lib/timestampSummary.ts's own scopeClause:
+ *  `Prisma.empty` when unrestricted, `AND false` when scoped but this session
+ *  has no names to match, otherwise `AND LOWER(name) IN (...)`. */
+export function scopeNameClause(scope: TeamLeaderScope | null, nameExpression: Prisma.Sql): Prisma.Sql {
+  if (!scope) return Prisma.empty;
+  if (scope.normalizedNames.size === 0) return Prisma.sql`AND false`;
+  return Prisma.sql`AND LOWER(${nameExpression}) IN (${Prisma.join(Array.from(scope.normalizedNames))})`;
+}
+
 export async function resolveScopeForSession(
   role: string,
   teamLeaderId: string | null,
