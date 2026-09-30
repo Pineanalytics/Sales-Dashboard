@@ -4,6 +4,7 @@ process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "../sql";
 import { fetchReceivables } from "./query";
+import { backfillMissingAgeingSnapshots } from "./backfill-ageing";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
@@ -33,6 +34,11 @@ async function main() {
   const body = await response.json();
   if (!response.ok) throw new Error(`Receivables upload rejected (HTTP ${response.status}): ${JSON.stringify(body)}`);
   console.log(`[receivables-sync] Upload succeeded: ${body.customerCount} customers, ${body.openItemCount} open items, variance ${body.variance}.`);
+
+  // Keeps every elapsed week/month-boundary snapshot real (never
+  // "Approximate") without a separate scheduled job — cheap once caught up,
+  // since it skips any date that already has a real snapshot.
+  await backfillMissingAgeingSnapshots();
 }
 
 main().catch((error) => {

@@ -5,7 +5,6 @@ import { Presenter20Regular, PresenterOff20Regular } from "@fluentui/react-icons
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
-import { Badge } from "@/components/ui/Badge";
 import { money } from "@/components/views/ReceivablesView";
 import { formatCompact, formatPercent, achievementTier, marginTier, tierTextClass } from "@/lib/format";
 import { normalizePrincipalKey } from "@/lib/normalize";
@@ -249,10 +248,7 @@ export function FinancePresentationView({
                       const t = ageingRowTotal(point);
                       return (
                         <tr key={point.label}>
-                          <Td>
-                            {point.label}
-                            {point.isApproximate ? <Badge tier="warn">Approx.</Badge> : null}
-                          </Td>
+                          <Td>{point.label}</Td>
                           <Td align="right" className="font-semibold">{t ? money(t.total) : "—"}</Td>
                           {(["current", "days60", "days90", "daysOver90"] as const).map((key) => (
                             <Td key={key} align="right">

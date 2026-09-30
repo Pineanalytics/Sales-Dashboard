@@ -1,10 +1,12 @@
 // Ageing-bucket snapshot helpers for the Finance module's "Ageing Trend" tab.
 // A snapshot is written going forward on every real receivables sync (see
-// app/api/receivables/upload/route.ts), and was seeded once for the
-// Jan-to-now gap by scripts/backfill-receivables-ageing-snapshot.ts. Neither
-// our own history nor SAP's own JDT1 source retains a past ageing trail, so
-// any snapshot dated before this feature shipped is an approximation built
-// from items still open today — isApproximate flags exactly those rows.
+// app/api/receivables/upload/route.ts). Every other past week/month boundary
+// is kept filled in by scripts/db-bridge/receivables/backfill-ageing.ts, which
+// reconstructs the true historical position by replaying SAP's own
+// payment-reconciliation history (OITR/ITR1) against every customer ledger
+// line — not an approximation from items still open today. isApproximate is
+// kept on the model only as a defensive fallback marker; nothing sets it true
+// anymore.
 import { prisma } from "@/lib/db";
 import { getWeeksInMonth } from "@/lib/weeklyTargets";
 

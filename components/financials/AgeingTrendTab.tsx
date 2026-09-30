@@ -2,7 +2,6 @@
 
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
-import { Badge } from "@/components/ui/Badge";
 import { money } from "@/components/views/ReceivablesView";
 import { formatPercent } from "@/lib/format";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
@@ -28,10 +27,7 @@ function PointRow({ point }: { point: AgeingSnapshotPoint }) {
   const total = buckets ? buckets.current + buckets.days60 + buckets.days90 + buckets.daysOver90 : 0;
   return (
     <tr>
-      <Td>
-        {point.label}
-        {point.isApproximate ? <Badge tier="warn">Approximate — excludes since-cleared items</Badge> : null}
-      </Td>
+      <Td>{point.label}</Td>
       <Td align="right" className="font-semibold">{buckets ? money(total) : "—"}</Td>
       {BUCKET_COLUMNS.map((col) => (
         <Td key={col.key} align="right">

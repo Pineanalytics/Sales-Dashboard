@@ -985,11 +985,13 @@ model FinanceSettings {
 
 // Ageing-bucket totals captured at a point in time, for the Finance module's
 // "Ageing Trend" tab (last-month-end + this month's calendar weeks). Written
-// going forward on every real receivables sync (isApproximate: false, from
-// app/api/receivables/upload/route.ts); also seeded once for the Jan-to-now
-// gap by scripts/backfill-receivables-ageing-snapshot.ts, which can only
-// reconstruct from items still open TODAY (isApproximate: true) since neither
-// our own history nor SAP's own JDT1 source retains a past ageing trail.
+// going forward on every real receivables sync (from
+// app/api/receivables/upload/route.ts), and every past week/month boundary is
+// kept filled in by scripts/db-bridge/receivables/backfill-ageing.ts, which
+// reconstructs the true historical position by replaying SAP's own
+// payment-reconciliation history (OITR/ITR1) rather than approximating from
+// items still open today — isApproximate now stays false everywhere; the
+// column is kept only as a defensive fallback marker, never intentionally set.
 model ReceivablesAgeingSnapshot {
   id            String   @id @default(cuid())
   snapshotDate  DateTime @db.Date
