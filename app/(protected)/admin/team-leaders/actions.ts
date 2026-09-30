@@ -1144,9 +1144,15 @@ export async function assignPrincipalToTeamLeaderAction(formData: FormData) {
  *  hand everything to their replacement" case, rather than repeating the
  *  per-Principal transfer once per Principal. Same conflict handling: a rep
  *  the destination already has on a given Principal is left alone and
- *  reported back as skipped, never overwritten. Does not delete the
- *  outgoing Team Leader — review what (if anything) was skipped, then use
- *  the existing Remove action once satisfied everything real has moved. */
+ *  reported back as skipped, never overwritten. Also moves the outgoing Team
+ *  Leader's own manually-entered WeeklyTarget rows (unlike DailyTarget, which
+ *  is fully re-derived by recomputeDerived() below from the now-transferred
+ *  roster, WeeklyTarget has no such auto-recovery — a figure left behind here
+ *  is a figure lost) — same per-(principal, weekStartDate) conflict handling,
+ *  never overwriting a week the destination already has a real entry for.
+ *  Does not delete the outgoing Team Leader — review what (if anything) was
+ *  skipped, then use the existing Remove action once satisfied everything
+ *  real has moved. */
 export async function retireAndReplaceTeamLeaderAction(formData: FormData) {
   const { user, scope } = await requireAdminOrSupervisor();
   const fromTeamLeaderId = str(formData, "fromTeamLeaderId");
@@ -1170,8 +1176,9 @@ export async function retireAndReplaceTeamLeaderAction(formData: FormData) {
   }
 
   const rows = await prisma.teamLeaderAssignment.findMany({ where: { teamLeaderId: fromTeamLeaderId, active: true } });
-  if (rows.length === 0) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${fromTeamLeader.name} has no active reps to transfer.`));
+  const weeklyRows = await prisma.weeklyTarget.findMany({ where: { teamLeaderId: fromTeamLeaderId } });
+  if (rows.length === 0 && weeklyRows.length === 0) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(`${fromTeamLeader.name} has no active reps or Weekly Targets to transfer.`));
   }
 
   const principals = Array.from(new Set(rows.map((r) => r.principal)));
@@ -1197,13 +1204,47 @@ export async function retireAndReplaceTeamLeaderAction(formData: FormData) {
     });
     transferred += 1;
   }
+
+  const weeklyConflicting = await prisma.weeklyTarget.findMany({
+    where: { teamLeaderId: toTeamLeaderId, weekStartDate: { in: weeklyRows.map((r) => r.weekStartDate) } },
+    select: { principal: true, weekStartDate: true },
+  });
+  const blockedWeekKeys = new Set(weeklyConflicting.map((r) => `${r.principal}|${r.weekStartDate.toISOString()}`));
+
+  let weeklyTransferred = 0;
+  for (const row of weeklyRows) {
+    if (blockedWeekKeys.has(`${row.principal}|${row.weekStartDate.toISOString()}`)) continue;
+    await prisma.weeklyTarget.update({ where: { id: row.id }, data: { teamLeaderId: toTeamLeaderId } });
+    await prisma.weeklyTargetAuditLog.create({
+      data: {
+        userEmail: user.email!,
+        action: "UPDATE",
+        teamLeaderId: toTeamLeaderId,
+        principal: row.principal,
+        weekStartDate: row.weekStartDate,
+        changes: { teamLeaderId: { old: fromTeamLeaderId, new: toTeamLeaderId } },
+      },
+    });
+    weeklyTransferred += 1;
+  }
+
   await recomputeDerived();
 
   const skipped = rows.length - transferred;
-  const message =
+  const weeklySkipped = weeklyRows.length - weeklyTransferred;
+  const repPart =
     skipped > 0
-      ? `Transferred ${transferred} rep(s) across ${principals.length} Principal(s) from ${fromTeamLeader.name} to ${toTeamLeader.name}. Skipped ${skipped} rep(s) already assigned to ${toTeamLeader.name} on their own Principal — resolve those manually before removing ${fromTeamLeader.name}.`
-      : `Transferred ${transferred} rep(s) across ${principals.length} Principal(s) from ${fromTeamLeader.name} to ${toTeamLeader.name}. Nothing left behind — safe to remove ${fromTeamLeader.name} now.`;
+      ? `${transferred} rep(s) across ${principals.length} Principal(s) (skipped ${skipped} already assigned to ${toTeamLeader.name} on their own Principal)`
+      : `${transferred} rep(s) across ${principals.length} Principal(s)`;
+  const weeklyPart =
+    weeklyRows.length === 0
+      ? null
+      : weeklySkipped > 0
+        ? `${weeklyTransferred} Weekly Target week(s) (skipped ${weeklySkipped} where ${toTeamLeader.name} already had a figure for that Principal/week)`
+        : `${weeklyTransferred} Weekly Target week(s)`;
+  const message = `Transferred ${repPart}${weeklyPart ? ` and ${weeklyPart}` : ""} from ${fromTeamLeader.name} to ${toTeamLeader.name}.${
+    skipped === 0 && weeklySkipped === 0 ? ` Nothing left behind — safe to remove ${fromTeamLeader.name} now.` : ` Resolve the skipped item(s) manually before removing ${fromTeamLeader.name}.`
+  }`;
   redirect(`/admin/team-leaders?success=${encodeURIComponent(message)}`);
 }
 
