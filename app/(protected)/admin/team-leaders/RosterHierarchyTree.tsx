@@ -98,6 +98,13 @@ export function RosterHierarchyTree({
   // actually collide, so "Reports to Emmy" doesn't read as circular.
   const ambiguousNames = computeAmbiguousNames(hierarchyTeamLeaders, supervisors, managers, hods, directors);
   const supervisorOptions: SupervisorOption[] = supervisors.map((s) => ({ id: s.id, name: s.name, label: labelForName(s.name, "Supervisor", ambiguousNames) }));
+  // Company-wide, unlike the `teamLeaders` prop TeamLeaderRosterPanel gets at
+  // each call site below (scoped to just that Supervisor's own group, or to
+  // the unassigned bucket) — a retiring Team Leader's replacement is just as
+  // often someone in a different group entirely (e.g. an unassigned TL being
+  // folded into an existing Supervisor's TL), so the "Retiring?" dropdown
+  // needs every Team Leader in the list, not only local siblings.
+  const allTeamLeaderOptions: SupervisorOption[] = teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, label: labelForName(tl.name, "Team Leader", ambiguousNames) }));
 
   function teamLeaderRowsFor(refs: { id: string }[]): TeamLeaderRow[] {
     return refs.map((ref) => teamLeadersById.get(ref.id)).filter((tl): tl is TeamLeaderRow => Boolean(tl));
@@ -169,6 +176,7 @@ export function RosterHierarchyTree({
             hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
+            allTeamLeaders={allTeamLeaderOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
             renamingHodId={renamingHodId}
             renamingDirectorId={renamingDirectorId}
@@ -189,6 +197,7 @@ export function RosterHierarchyTree({
                   hods={hods}
                   teamLeaderRowsFor={teamLeaderRowsFor}
                   supervisorOptions={supervisorOptions}
+                  allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
                   renamingHodId={renamingHodId}
                   renamingSupervisorId={renamingSupervisorId}
@@ -210,6 +219,7 @@ export function RosterHierarchyTree({
                   hods={hods}
                   teamLeaderRowsFor={teamLeaderRowsFor}
                   supervisorOptions={supervisorOptions}
+                  allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
                   renamingSupervisorId={renamingSupervisorId}
                   inputClass={inputClass}
@@ -231,6 +241,7 @@ export function RosterHierarchyTree({
                   hods={hods}
                   teamLeaderRowsFor={teamLeaderRowsFor}
                   supervisorOptions={supervisorOptions}
+                  allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
                   renamingSupervisorId={renamingSupervisorId}
                   inputClass={inputClass}
@@ -245,6 +256,7 @@ export function RosterHierarchyTree({
             <p className="text-[13px] font-medium text-muted-strong mb-2">Team Leaders not yet reporting to a Sales Supervisor</p>
             <TeamLeaderRosterPanel
               teamLeaders={teamLeaderRowsFor(hierarchy.unassignedTeamLeaders)}
+              allTeamLeaders={allTeamLeaderOptions}
               supervisors={supervisorOptions}
               renamingId={renamingTeamLeaderId}
               inputClass={inputClass}
@@ -263,6 +275,7 @@ function DirectorNodeView({
   hods,
   teamLeaderRowsFor,
   supervisorOptions,
+  allTeamLeaders,
   renamingTeamLeaderId,
   renamingHodId,
   renamingDirectorId,
@@ -274,6 +287,7 @@ function DirectorNodeView({
   hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
+  allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
   renamingHodId?: string;
   renamingDirectorId?: string;
@@ -323,6 +337,7 @@ function DirectorNodeView({
             hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
+            allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
             renamingHodId={renamingHodId}
             renamingSupervisorId={renamingSupervisorId}
@@ -341,6 +356,7 @@ function HodNodeView({
   hods,
   teamLeaderRowsFor,
   supervisorOptions,
+  allTeamLeaders,
   renamingTeamLeaderId,
   renamingHodId,
   renamingSupervisorId,
@@ -351,6 +367,7 @@ function HodNodeView({
   hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
+  allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
   renamingHodId?: string;
   renamingSupervisorId?: string;
@@ -415,6 +432,7 @@ function HodNodeView({
             hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
+            allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
             renamingSupervisorId={renamingSupervisorId}
             inputClass={inputClass}
@@ -434,6 +452,7 @@ function HodNodeView({
                 hods={hods}
                 teamLeaderRowsFor={teamLeaderRowsFor}
                 supervisorOptions={supervisorOptions}
+                allTeamLeaders={allTeamLeaders}
                 renamingTeamLeaderId={renamingTeamLeaderId}
                 renamingSupervisorId={renamingSupervisorId}
                 inputClass={inputClass}
@@ -451,6 +470,7 @@ function ManagerNodeView({
   hods,
   teamLeaderRowsFor,
   supervisorOptions,
+  allTeamLeaders,
   renamingTeamLeaderId,
   renamingSupervisorId,
   inputClass,
@@ -459,6 +479,7 @@ function ManagerNodeView({
   hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
+  allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
   renamingSupervisorId?: string;
   inputClass: string;
@@ -499,6 +520,7 @@ function ManagerNodeView({
             hods={hods}
             teamLeaderRowsFor={teamLeaderRowsFor}
             supervisorOptions={supervisorOptions}
+            allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
             renamingSupervisorId={renamingSupervisorId}
             inputClass={inputClass}
@@ -516,6 +538,7 @@ function SupervisorNodeView({
   hods,
   teamLeaderRowsFor,
   supervisorOptions,
+  allTeamLeaders,
   renamingTeamLeaderId,
   renamingSupervisorId,
   inputClass,
@@ -525,6 +548,7 @@ function SupervisorNodeView({
   hods: HierarchyHod[];
   teamLeaderRowsFor: (refs: { id: string }[]) => TeamLeaderRow[];
   supervisorOptions: SupervisorOption[];
+  allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
   renamingSupervisorId?: string;
   inputClass: string;
@@ -656,6 +680,7 @@ function SupervisorNodeView({
         </form>
         <TeamLeaderRosterPanel
           teamLeaders={teamLeaderRowsFor(supervisor.teamLeaders)}
+          allTeamLeaders={allTeamLeaders}
           supervisors={supervisorOptions}
           renamingId={renamingTeamLeaderId}
           inputClass={inputClass}
