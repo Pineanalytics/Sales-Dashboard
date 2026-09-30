@@ -12,7 +12,7 @@ import { aggregateStockByPrincipal } from "@/lib/stock";
 import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getCurrentMonthPeriod, getMtdTargetPacing } from "@/lib/timeIntelligence";
 import { useDashboardStore } from "@/lib/store";
 import type { ReceivablesDashboard } from "@/lib/receivables";
-import type { PayablesDashboard } from "@/lib/payables";
+import type { PayablesDashboard, PayablesByPrincipalRow } from "@/lib/payables";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
 import type { PrincipalGpTarget } from "@/lib/financeGpTarget";
 import type { AgeingTrendForMonth, AgeingSnapshotPoint } from "@/lib/receivablesAgeing";
@@ -37,12 +37,14 @@ function ageingRowTotal(point: AgeingSnapshotPoint) {
 export function FinancePresentationView({
   receivables,
   payables,
+  payablesByPrincipal,
   gpTargets,
   debtAttribution,
   ageingTrend,
 }: {
   receivables: ReceivablesDashboard | null;
   payables: PayablesDashboard | null;
+  payablesByPrincipal: PayablesByPrincipalRow[];
   gpTargets: PrincipalGpTarget[];
   debtAttribution: DebtAttribution;
   ageingTrend: AgeingTrendForMonth | null;
@@ -114,10 +116,18 @@ export function FinancePresentationView({
 
   const stockRollups = aggregateStockByPrincipal(dataset);
   const debtByKey = new Map(debtAttribution.byPrincipal.map((d) => [normalizePrincipalKey(d.principal), d.debt]));
+  // Only Mars/Suntory/Upfield/Eabl/Weetabix have a confirmed vendor-code
+  // mapping (see lib/payables.ts's VENDOR_PRINCIPAL_CODES — vendor legal
+  // names often don't match the principal they distribute for, so this isn't
+  // guessable from stockRollups' own keys the way debt/stock are). Every
+  // other vendor's payable rolls into "All Other Principals" below, same
+  // convention as stock/debt.
+  const payableByKey = new Map(payablesByPrincipal.map((p) => [p.principalKey, p.outstanding]));
+  const mappedPayablesTotal = payablesByPrincipal.reduce((s, p) => s + p.outstanding, 0);
   const stockTop5 = TOP_5_PRINCIPALS.map((label) => {
     const key = normalizePrincipalKey(label);
     const rollup = stockRollups.find((r) => r.key === key) ?? null;
-    return { label, rollup, debt: debtByKey.get(key) ?? 0 };
+    return { label, rollup, debt: debtByKey.get(key) ?? 0, payable: payableByKey.get(key) ?? 0 };
   });
   const stockOthers = stockRollups.filter((r) => !TOP_5_KEYS.has(r.key));
   const stockOthersAgg = stockOthers.reduce(
@@ -127,6 +137,12 @@ export function FinancePresentationView({
   const stockTotalValue = stockTop5.reduce((s, r) => s + (r.rollup?.value ?? 0), 0) + stockOthersAgg.value;
   const stockTotalRrWeek = stockTop5.reduce((s, r) => s + (r.rollup?.rrWeekValue ?? 0), 0) + stockOthersAgg.rrWeekValue;
   const stockTotalDebt = stockTop5.reduce((s, r) => s + r.debt, 0) + stockOthersAgg.debt;
+  // "Other Principals" payable = every vendor NOT individually mapped —
+  // total payables minus whatever was attributed to the 5 mapped principals
+  // above, not a stockRollups-keyed sum (no vendor-to-stock-principal join
+  // exists for the long tail).
+  const othersPayable = payables ? payables.ledgerBalance - mappedPayablesTotal : 0;
+  const stockTotalPayable = payables ? payables.ledgerBalance : mappedPayablesTotal;
   const stockOthersDaysCover = stockOthersAgg.rrWeekValue > 0 ? round1((stockOthersAgg.value / stockOthersAgg.rrWeekValue) * 7) : 0;
   const stockTotalDaysCover = stockTotalRrWeek > 0 ? round1((stockTotalValue / stockTotalRrWeek) * 7) : 0;
 
@@ -269,7 +285,7 @@ export function FinancePresentationView({
             ) : null}
 
             <TableWrap>
-              <Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Run Rate (weekly)</Th><Th align="right">Days Cover</Th><Th align="right">Debt</Th></Thead>
+              <Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Run Rate (weekly)</Th><Th align="right">Days Cover</Th><Th align="right">Debt</Th><Th align="right">Payable</Th></Thead>
               <tbody>
                 {stockTop5.map((r) => (
                   <tr key={r.label}>
@@ -278,6 +294,7 @@ export function FinancePresentationView({
                     <Td align="right">{r.rollup ? formatCompact(r.rollup.rrWeekValue) : "—"}</Td>
                     <Td align="right">{r.rollup ? r.rollup.daysStock.toFixed(1) : "—"}</Td>
                     <Td align="right">{money(r.debt)}</Td>
+                    <Td align="right">{payables ? money(r.payable) : "—"}</Td>
                   </tr>
                 ))}
                 <tr>
@@ -286,6 +303,7 @@ export function FinancePresentationView({
                   <Td align="right">{formatCompact(stockOthersAgg.rrWeekValue)}</Td>
                   <Td align="right">{stockOthersDaysCover.toFixed(1)}</Td>
                   <Td align="right">{money(stockOthersAgg.debt)}</Td>
+                  <Td align="right">{payables ? money(othersPayable) : "—"}</Td>
                 </tr>
                 <TotalRow>
                   <Td>Total (all principals)</Td>
@@ -293,6 +311,7 @@ export function FinancePresentationView({
                   <Td align="right">{formatCompact(stockTotalRrWeek)}</Td>
                   <Td align="right">{stockTotalDaysCover.toFixed(1)}</Td>
                   <Td align="right">{money(stockTotalDebt)}</Td>
+                  <Td align="right">{payables ? money(stockTotalPayable) : "—"}</Td>
                 </TotalRow>
               </tbody>
             </TableWrap>
