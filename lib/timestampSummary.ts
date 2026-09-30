@@ -207,8 +207,10 @@ function inferredPrincipalJoin(): Prisma.Sql {
 
 /** Scope restriction shared by every query below, factored out so the
  * unmapped-employees worklist (getTimestampSummary) can reuse it without
- * going through sourceQuery's principal branching. */
-function scopeClause(scope: TeamLeaderScope | null): Prisma.Sql {
+ * going through sourceQuery's principal branching. Exported for
+ * lib/timeInTrade.ts's Pine source, which queries the same "RepCall r"
+ * shape and needs the identical employeeCode-based restriction. */
+export function scopeClause(scope: TeamLeaderScope | null): Prisma.Sql {
   return scope
     ? scope.employeeCodes.length > 0
       ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(scope.employeeCodes)})`

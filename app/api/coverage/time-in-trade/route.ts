@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getTimeInTradeTrend, type TimeInTradeRoleFilter } from "@/lib/timeInTrade";
 import type { PeriodKind, PeriodSelection } from "@/lib/timeIntelligence";
+import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest) {
   const period: PeriodSelection = { kind: kind as PeriodKind, year, month, toYear, toMonth };
 
   try {
-    const trend = await getTimeInTradeTrend(period, role as TimeInTradeRoleFilter);
+    const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+    const trend = await getTimeInTradeTrend(period, role as TimeInTradeRoleFilter, scope);
     return NextResponse.json(trend);
   } catch (error) {
     console.error("Failed to load Time in Trade trend", error);
