@@ -192,7 +192,7 @@ export function FinancePresentationView({
               activeSlide === slideNumber ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-sm" : "text-muted-strong hover:text-primary-blue"
             }`}
           >
-            Slide {slideNumber} — {slideNumber === 1 ? "Sales & Gross Profit" : "Debt & Stock"}
+            Slide {slideNumber} — {slideNumber === 1 ? "Sales & Gross Profit" : "Debtors and Working Capital"}
           </button>
         ))}
       </div>
@@ -250,9 +250,9 @@ export function FinancePresentationView({
         </SectionCard>
       </div>
 
-      {/* Slide 2: Debt & Stock */}
+      {/* Slide 2: Debtors and Working Capital */}
       <div id="finance-slide-2" className={`@container ${activeSlide === 2 ? "" : "hidden"}`}>
-        <SectionCard title="Slide 2 — Debt & Stock" accent="red">
+        <SectionCard title="Slide 2 — Debtors and Working Capital" accent="red">
           <div className="flex flex-col gap-4">
             {receivables ? (
               <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-8">
