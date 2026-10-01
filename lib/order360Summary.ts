@@ -296,13 +296,34 @@ export function groupPerf(rows: OrderRecord[], nameField: "clearedBy" | "picker"
     .sort((a, b) => b.orders - a.orders);
 }
 
-export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | null, filters: Order360Filters): Promise<Order360Summary> {
+/** Shared by getOrder360Summary and getOrder360RawRows: fetches the filtered
+ *  date window and applies the same day-name/TeamLeaderScope FSR-name
+ *  restriction both need, so the raw-export module can't drift out of sync
+ *  with what the dashboard itself considers "in scope" for a given viewer. */
+async function getScopedOrderRows(now: Date, scope: TeamLeaderScope | null, filters: Order360Filters): Promise<OrderRecord[]> {
   const range = resolveDateRange(now, filters);
   const orderDateWhere = range ? { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) } : undefined;
   const rows = await prisma.orderRecord.findMany({
     where: orderDateWhere ? { orderDate: orderDateWhere } : {},
     orderBy: { orderDate: "desc" },
   });
+
+  const dayNameSet = filters.dayNames && filters.dayNames.length > 0 ? new Set(filters.dayNames) : null;
+  return rows.filter((r) => {
+    if (dayNameSet && !dayNameSet.has(dayNameFromDate(r.orderDate))) return false;
+    if (scope && !scope.normalizedNames.has(r.fsr.trim().toLowerCase())) return false;
+    return true;
+  });
+}
+
+/** Every OrderRecord field, for the Raw Data module's CSV export — same scope
+ *  and date/day-name filters as the dashboard summary, just unaggregated. */
+export async function getOrder360RawRows(now: Date, scope: TeamLeaderScope | null, filters: Order360Filters): Promise<OrderRecord[]> {
+  return getScopedOrderRows(now, scope, filters);
+}
+
+export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | null, filters: Order360Filters): Promise<Order360Summary> {
+  const scopedRows = await getScopedOrderRows(now, scope, filters);
 
   const monthRows = await prisma.orderRecord.findMany({ distinct: ["orderDate"], select: { orderDate: true }, orderBy: { orderDate: "asc" } });
   const availableMonths = Array.from(new Set(monthRows.map((r) => r.orderDate.toISOString().slice(0, 7)))).sort();
@@ -312,13 +333,6 @@ export async function getOrder360Summary(now: Date, scope: TeamLeaderScope | nul
         return getWeeksInMonth(year, mon - 1).map((w) => w.weekLabel);
       })()
     : [];
-
-  const dayNameSet = filters.dayNames && filters.dayNames.length > 0 ? new Set(filters.dayNames) : null;
-  const scopedRows = rows.filter((r) => {
-    if (dayNameSet && !dayNameSet.has(dayNameFromDate(r.orderDate))) return false;
-    if (scope && !scope.normalizedNames.has(r.fsr.trim().toLowerCase())) return false;
-    return true;
-  });
 
   // ---------- meta + funnel ----------
   const totalOrders = scopedRows.length;
