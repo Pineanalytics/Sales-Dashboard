@@ -45,7 +45,7 @@ interface Order360Response {
 }
 
 type StageKey = "clearance" | "pick" | "dispatch" | "audit";
-type TabKey = "overview" | "action" | StageKey | "delivery" | "returns" | "payments";
+type TabKey = "overview" | "action" | StageKey | "delivery" | "returns" | "payments" | "raw";
 
 const STAGE_META: Record<StageKey | "delivery", { label: string; verb: string; gate: string; note: string }> = {
   clearance: { label: "Clearance", verb: "Cleared", gate: "clearance approval", note: "Assigned by the first three ERP digits to the responsible principal accountant." },
@@ -65,6 +65,17 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "delivery", label: "Delivery" },
   { key: "returns", label: "Returns" },
   { key: "payments", label: "Payments" },
+  { key: "raw", label: "Raw Data" },
+];
+
+const RAW_DATA_COLUMNS = [
+  "Order Date", "ERP Number", "Invoice Number", "Picklist ID", "Customer", "FSR", "Amount",
+  "Cleared By", "Cleared", "Cleared Date", "Picker", "Picked", "Pick Date",
+  "Dispatcher", "Dispatched", "Dispatch Date", "Audited By", "Audited",
+  "Van", "Driver", "Delivered By", "Delivered", "Delivery Date",
+  "Is Return", "Return Doc Type", "Returned By",
+  "POD Status", "Payment Modes", "STK", "STK Push Status", "STK Payment Ref", "STK Amount Paid",
+  "Payment Ref", "Amount Paid",
 ];
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -105,14 +116,19 @@ export default function Order360Page() {
   const [dateTo, setDateTo] = useState<string>("");
   const [dayNames, setDayNames] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const filterParams = useMemo(() => {
     const params = new URLSearchParams();
     if (month) params.set("month", month);
     if (month && week) params.set("week", week);
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     if (dayNames.size > 0 && dayNames.size < 7) params.set("dayNames", Array.from(dayNames).join(","));
+    return params;
+  }, [month, week, dateFrom, dateTo, dayNames]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = filterParams;
 
     (async () => {
       try {
@@ -130,7 +146,7 @@ export default function Order360Page() {
       }
     })();
     return () => controller.abort();
-  }, [month, week, dateFrom, dateTo, dayNames]);
+  }, [filterParams]);
 
   const jump = (key: string) => setTab(key as TabKey);
 
@@ -509,6 +525,28 @@ export default function Order360Page() {
               </O360Panel>
             </>
           )}
+        </div>
+      ) : null}
+
+      {tab === "raw" ? (
+        <div className="flex flex-col gap-4">
+          <O360Panel title="Raw Data" note="Every order field behind the current filters — the exact rows backing every view above, unaggregated.">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-[12px] text-white/70">
+                <strong className="text-white">{fmtNum(data.meta.totalOrders)}</strong> order(s) for the current Month/Week/Date/Day filters ({data.meta.range}).
+              </div>
+              <a
+                href={`/api/order-360/raw?${filterParams.toString()}`}
+                className="rounded-full px-4 py-2 text-[12px] font-semibold"
+                style={{ background: O360.accent, color: "#06231F" }}
+              >
+                Download CSV
+              </a>
+            </div>
+            <div className="mt-3 text-[11px] text-white/50">
+              Columns included: {RAW_DATA_COLUMNS.join(", ")}.
+            </div>
+          </O360Panel>
         </div>
       ) : null}
     </div>
