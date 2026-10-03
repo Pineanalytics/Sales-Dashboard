@@ -27,12 +27,24 @@ function str(formData: FormData, name: string): string {
   return String(formData.get(name) || "").trim();
 }
 
+/** Product list URL that keeps the admin on the same search/page after a save. */
+function listUrl(formData: FormData, extra: Record<string, string> = {}): string {
+  const search = new URLSearchParams();
+  const q = str(formData, "q").slice(0, 100);
+  if (q) search.set("q", q);
+  const page = Math.floor(Number(str(formData, "page")));
+  if (Number.isFinite(page) && page > 1) search.set("page", String(page));
+  for (const [key, value] of Object.entries(extra)) search.set(key, value);
+  const text = search.toString();
+  return "/admin/products" + (text ? "?" + text : "");
+}
+
 export async function createProductAction(formData: FormData) {
   await requireAdmin();
 
   const itemNo = str(formData, "itemNo");
   if (!itemNo) {
-    redirect("/admin/products?error=" + encodeURIComponent("Item No. is required."));
+    redirect(listUrl(formData, { error: "Item No. is required." }));
   }
 
   try {
@@ -55,17 +67,17 @@ export async function createProductAction(formData: FormData) {
       typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
         ? "A product with that Item No. already exists."
         : "Failed to create the product.";
-    redirect("/admin/products?error=" + encodeURIComponent(message));
+    redirect(listUrl(formData, { error: message }));
   }
 
   invalidateDatasetCache();
-  const message = encodeURIComponent(`Added ${itemNo}. The next current-month sync will map new activity; run the controlled Sales backfill for earlier months.`);
+  const message = `Added ${itemNo}. The next current-month sync will map new activity; run the controlled Sales backfill for earlier months.`;
   // "Map & next" from the review panel: keep going straight to the next worklist item.
   const nextItemNo = str(formData, "nextItemNo");
   if (nextItemNo && str(formData, "afterSave") === "next") {
-    redirect(`/admin/products?add=${encodeURIComponent(nextItemNo)}&success=${message}`);
+    redirect(listUrl(formData, { add: nextItemNo, success: message }));
   }
-  redirect("/admin/products?success=" + message);
+  redirect(listUrl(formData, { success: message }));
 }
 
 export async function updateProductAction(formData: FormData) {
@@ -74,7 +86,7 @@ export async function updateProductAction(formData: FormData) {
 
   try {
     const target = await prisma.product.findUnique({ where: { id }, select: { itemNo: true } });
-    if (!target) redirect("/admin/products?error=" + encodeURIComponent("Product not found."));
+    if (!target) redirect(listUrl(formData, { error: "Product not found." }));
     await prisma.product.update({
       where: { id },
       data: {
@@ -90,11 +102,11 @@ export async function updateProductAction(formData: FormData) {
     });
     await prisma.unmappedProductSale.deleteMany({ where: { itemNo: target.itemNo } });
   } catch {
-    redirect("/admin/products?error=" + encodeURIComponent("Failed to update the product."));
+    redirect(listUrl(formData, { error: "Failed to update the product." }));
   }
 
   invalidateDatasetCache();
-  redirect("/admin/products?success=" + encodeURIComponent("Product updated. The next current-month sync will use this mapping; run the controlled Sales backfill for earlier months."));
+  redirect(listUrl(formData, { success: "Product updated. The next current-month sync will use this mapping; run the controlled Sales backfill for earlier months." }));
 }
 
 export async function uploadProductsAction(formData: FormData) {
@@ -161,10 +173,10 @@ export async function deleteProductAction(formData: FormData) {
 
   const target = await prisma.product.findUnique({ where: { id } });
   if (!target) {
-    redirect("/admin/products?error=" + encodeURIComponent("Product not found."));
+    redirect(listUrl(formData, { error: "Product not found." }));
   }
 
   await prisma.product.delete({ where: { id } });
   invalidateDatasetCache();
-  redirect("/admin/products?success=" + encodeURIComponent(`Removed ${target.itemNo}.`));
+  redirect(listUrl(formData, { success: `Removed ${target.itemNo}.` }));
 }
