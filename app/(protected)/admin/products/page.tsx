@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { getProductMappingSuggestions } from "@/lib/productMappingSuggestions";
+import { getProductMappingSuggestions, type ProductMappingSuggestion } from "@/lib/productMappingSuggestions";
 import { findProductPrincipalConflicts } from "@/lib/principalRules";
+import { FocusedPanel } from "@/components/admin/FocusedPanel";
 import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction, applyPrefixSuggestionAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ function UploadIcon() {
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; edit?: string; add?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; edit?: string; add?: string; new?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
@@ -40,6 +41,9 @@ export default async function AdminProductsPage({
   const prefixConflicts = findProductPrincipalConflicts(products.map((p) => ({ itemNo: p.itemNo, itemDescription: p.itemDescription, principal: p.principal })));
   const editing = edit ? products.find((p) => p.id === edit) : undefined;
   const addingSuggestion = params.add ? suggestions.find((suggestion) => suggestion.itemNo === params.add) : undefined;
+  const addIndex = addingSuggestion ? suggestions.indexOf(addingSuggestion) : -1;
+  const reviewHref = (index: number) => (index >= 0 && index < suggestions.length ? `/admin/products?add=${encodeURIComponent(suggestions[index].itemNo)}` : null);
+  const nextSuggestion = addIndex >= 0 ? suggestions[addIndex + 1] : undefined;
   const classifications = Array.from(new Set(products.map((product) => product.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
 
   return (
@@ -140,65 +144,74 @@ export default async function AdminProductsPage({
                 <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.grossMargin.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })}</td>
                 <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.quantity.toLocaleString("en-KE", { maximumFractionDigits: 0 })}</td>
                 <td className="max-w-[270px] border-b border-border/60 px-4 py-3"><p className="font-medium text-secondary-blue">{suggestion.suggestedPrincipal ?? "No safe suggestion"}</p><p className="mt-0.5 text-[11px] leading-snug text-muted">{suggestion.suggestionReason}</p></td>
-                <td className="border-b border-border/60 px-4 py-3 text-right"><Link href={`/admin/products?add=${encodeURIComponent(suggestion.itemNo)}`} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Review and map</Link></td>
+                <td className="border-b border-border/60 px-4 py-3 text-right"><Link href={`/admin/products?add=${encodeURIComponent(suggestion.itemNo)}`} scroll={false} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Review and map</Link></td>
               </tr>)}</tbody>
             </table>
           </div>
         </section> : <section className="rounded-2xl border border-accent-green/30 bg-surface p-5 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">No unidentified SAP product sales are awaiting Product Master mapping.</section>}
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-primary-blue">{addingSuggestion ? `Review SAP product: ${addingSuggestion.itemNo}` : "Add a product"}</h2>{addingSuggestion ? <p className="mt-1 text-[13px] text-muted">{addingSuggestion.itemDescription} · {addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across {addingSuggestion.months.join(", ")}. {addingSuggestion.suggestionReason} SAP pack size and current net purchase price are prefilled when available; SAP pack/UOM detail is offered as an editable Size starting point.</p> : null}</div>{addingSuggestion ? <Link href="/admin/products" className="rounded-full px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Cancel review</Link> : null}</div>
-          <form action={createProductAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Item No.</label>
-              <input name="itemNo" required defaultValue={addingSuggestion?.itemNo ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Item description</label>
-              <input name="itemDescription" defaultValue={addingSuggestion?.itemDescription ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Series</label>
-              <input name="series" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Size</label>
-              <input name="size" defaultValue={addingSuggestion?.packDetail ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Principal</label>
-              <input name="principal" required defaultValue={addingSuggestion?.suggestedPrincipal ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Classification</label>
-              <input name="classification" list="product-classifications" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Pack size</label>
-              <input name="packSize" type="number" step="any" defaultValue={addingSuggestion?.packSize ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Cost price (SAP net)</label>
-              <input name="costPrice" type="number" step="any" defaultValue={addingSuggestion?.costPrice ?? ""} className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>SSU conversion</label>
-              <input name="ssuConversion" type="number" step="any" className={inputClass} />
-            </div>
-            <div className="sm:col-span-3">
-              <button
-                type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
-              >
-                Add product
-              </button>
-            </div>
-          </form>
-        </div>
+        {addingSuggestion ? (
+          <FocusedPanel
+            title={`Map ${addingSuggestion.itemNo}`}
+            subtitle={`${addingSuggestion.itemDescription} · ${addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across ${addingSuggestion.months.join(", ")}`}
+            closeHref="/admin/products"
+            nav={{ position: `${addIndex + 1} of ${suggestions.length}`, previousHref: reviewHref(addIndex - 1), nextHref: reviewHref(addIndex + 1) }}
+          >
+            <p className="mb-4 text-[13px] text-muted">{addingSuggestion.suggestionReason} SAP pack size and current net purchase price are prefilled when available; SAP pack/UOM detail is offered as an editable Size starting point.</p>
+            <ProductCreateForm suggestion={addingSuggestion} nextItemNo={nextSuggestion?.itemNo} />
+          </FocusedPanel>
+        ) : params.new ? (
+          <FocusedPanel title="Add a product" closeHref="/admin/products">
+            <ProductCreateForm />
+          </FocusedPanel>
+        ) : editing ? (
+          <FocusedPanel title={`Edit ${editing.itemNo}`} subtitle={editing.itemDescription ?? undefined} closeHref="/admin/products">
+            <form action={updateProductAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <input type="hidden" name="productId" value={editing.id} />
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                <label className={labelClass}>Item description</label>
+                <input name="itemDescription" defaultValue={editing.itemDescription ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Principal</label>
+                <input name="principal" defaultValue={editing.principal} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Classification</label>
+                <input name="classification" list="product-classifications" defaultValue={editing.classification ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Series</label>
+                <input name="series" defaultValue={editing.series ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Size</label>
+                <input name="size" defaultValue={editing.size ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Pack size</label>
+                <input name="packSize" type="number" step="any" defaultValue={editing.packSize ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>Cost price</label>
+                <input name="costPrice" type="number" step="any" defaultValue={editing.costPrice ?? ""} className={inputClass} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className={labelClass}>SSU conversion</label>
+                <input name="ssuConversion" type="number" step="any" defaultValue={editing.ssuConversion ?? ""} className={inputClass} />
+              </div>
+              <div className="flex gap-2 sm:col-span-2">
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">Save changes</button>
+                <Link href="/admin/products" scroll={false} className="rounded-full px-5 py-3 text-sm font-medium text-muted-strong hover:bg-background-elevated">Cancel</Link>
+              </div>
+            </form>
+          </FocusedPanel>
+        ) : null}
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
             <h2 className="text-lg font-semibold text-primary-blue">Products ({products.length})</h2>
+            <Link href="/admin/products?new=1" scroll={false} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">+ Add product</Link>
           </div>
           <div className="overflow-x-auto mt-4">
             <table className="w-full text-sm border-collapse">
@@ -215,82 +228,28 @@ export default async function AdminProductsPage({
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) =>
-                  editing?.id === p.id ? (
-                    <tr key={p.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={8} className="px-6 py-4 border-b border-border/60">
-                        <form action={updateProductAction} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                          <input type="hidden" name="productId" value={p.id} />
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Item No.</label>
-                            <input value={p.itemNo} disabled className={inputClass + " opacity-60"} />
-                          </div>
-                          <div className="flex flex-col gap-1 sm:col-span-2">
-                            <label className={labelClass}>Item description</label>
-                            <input name="itemDescription" defaultValue={p.itemDescription ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Series</label>
-                            <input name="series" defaultValue={p.series ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Size</label>
-                            <input name="size" defaultValue={p.size ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Principal</label>
-                            <input name="principal" defaultValue={p.principal} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Classification</label>
-                            <input name="classification" list="product-classifications" defaultValue={p.classification ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Pack size</label>
-                            <input name="packSize" type="number" step="any" defaultValue={p.packSize ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Cost price</label>
-                            <input name="costPrice" type="number" step="any" defaultValue={p.costPrice ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>SSU conversion</label>
-                            <input name="ssuConversion" type="number" step="any" defaultValue={p.ssuConversion ?? ""} className={inputClass} />
-                          </div>
-                          <div className="flex gap-2">
-                            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
-                              Save
-                            </button>
-                            <Link href="/admin/products" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
-                              Cancel
-                            </Link>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={p.id}>
-                      <td className="px-6 py-3 border-b border-border/60 font-medium">{p.itemNo}</td>
-                      <td className="max-w-[320px] px-6 py-3 border-b border-border/60">{p.itemDescription || "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{p.principal || "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{p.classification || "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{p.packSize ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{p.costPrice ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{p.ssuConversion ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
-                        <Link href={`/admin/products?edit=${p.id}`} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
-                          Edit
-                        </Link>
-                        <form action={deleteProductAction} className="inline">
-                          <input type="hidden" name="productId" value={p.id} />
-                          <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
-                            Remove
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  )
-                )}
+                {products.map((p) => (
+                  <tr key={p.id} className={editing?.id === p.id ? "bg-accent-blue-soft/40" : undefined}>
+                    <td className="px-6 py-3 border-b border-border/60 font-medium">{p.itemNo}</td>
+                    <td className="max-w-[320px] px-6 py-3 border-b border-border/60">{p.itemDescription || "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60">{p.principal || "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60">{p.classification || "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60 text-right">{p.packSize ?? "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60 text-right">{p.costPrice ?? "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60 text-right">{p.ssuConversion ?? "—"}</td>
+                    <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
+                      <Link href={`/admin/products?edit=${p.id}`} scroll={false} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                        Edit
+                      </Link>
+                      <form action={deleteProductAction} className="inline">
+                        <input type="hidden" name="productId" value={p.id} />
+                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                          Remove
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
                 {products.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-8 text-center text-muted">
@@ -304,5 +263,61 @@ export default async function AdminProductsPage({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Create form shared by "Add product" and the worklist review. With a next
+ *  worklist item it offers "Map & next", which saves and opens that item so a
+ *  whole worklist can be cleared without going back to the list. */
+function ProductCreateForm({ suggestion, nextItemNo }: { suggestion?: ProductMappingSuggestion; nextItemNo?: string }) {
+  const primaryButton = "rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow";
+  return (
+    <form action={createProductAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {nextItemNo ? <input type="hidden" name="nextItemNo" value={nextItemNo} /> : null}
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Item No.</label>
+        <input name="itemNo" required defaultValue={suggestion?.itemNo ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Principal</label>
+        <input name="principal" required defaultValue={suggestion?.suggestedPrincipal ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2 sm:col-span-2">
+        <label className={labelClass}>Item description</label>
+        <input name="itemDescription" defaultValue={suggestion?.itemDescription ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Series</label>
+        <input name="series" className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Size</label>
+        <input name="size" defaultValue={suggestion?.packDetail ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Classification</label>
+        <input name="classification" list="product-classifications" className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Pack size</label>
+        <input name="packSize" type="number" step="any" defaultValue={suggestion?.packSize ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>Cost price (SAP net)</label>
+        <input name="costPrice" type="number" step="any" defaultValue={suggestion?.costPrice ?? ""} className={inputClass} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelClass}>SSU conversion</label>
+        <input name="ssuConversion" type="number" step="any" className={inputClass} />
+      </div>
+      <div className="flex flex-wrap gap-2 sm:col-span-2">
+        <button type="submit" className={primaryButton}>{suggestion ? "Map product" : "Add product"}</button>
+        {nextItemNo ? (
+          <button type="submit" name="afterSave" value="next" className="rounded-full border border-secondary-blue/40 bg-surface px-5 py-3 text-sm font-semibold text-primary-blue hover:bg-accent-blue-soft">
+            Map &amp; next →
+          </button>
+        ) : null}
+      </div>
+    </form>
   );
 }
