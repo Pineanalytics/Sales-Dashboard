@@ -13,6 +13,8 @@ const inputClass =
   "rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue";
 const labelClass = "text-[13px] font-medium text-muted-strong";
 
+const PAGE_SIZE = 50;
+
 function UploadIcon() {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -25,7 +27,7 @@ function UploadIcon() {
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; edit?: string; add?: string; new?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; edit?: string; add?: string; new?: string; q?: string; page?: string }>;
 }) {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") {
@@ -34,17 +36,47 @@ export default async function AdminProductsPage({
 
   const params = await searchParams;
   const { error, success, edit } = params;
-  const [products, suggestions] = await Promise.all([
-    prisma.product.findMany({ orderBy: { itemNo: "asc" } }),
+
+  // The list is searched and paged on the server. Rendering all ~3,600 products
+  // made every page view, save and prefetch a 5 MB / 10 s+ response.
+  const q = (params.q ?? "").trim();
+  const requestedPage = Math.max(1, Math.floor(Number(params.page)) || 1);
+  const where = q
+    ? { OR: [{ itemNo: { contains: q, mode: "insensitive" as const } }, { itemDescription: { contains: q, mode: "insensitive" as const } }, { principal: { contains: q, mode: "insensitive" as const } }] }
+    : {};
+  const [allProducts, matchCount, classificationRows, suggestions, editing] = await Promise.all([
+    prisma.product.findMany({ select: { itemNo: true, itemDescription: true, principal: true } }),
+    prisma.product.count({ where }),
+    prisma.product.findMany({ where: { classification: { not: null } }, distinct: ["classification"], select: { classification: true } }),
     getProductMappingSuggestions(),
+    edit ? prisma.product.findUnique({ where: { id: edit } }) : Promise.resolve(null),
   ]);
-  const prefixConflicts = findProductPrincipalConflicts(products.map((p) => ({ itemNo: p.itemNo, itemDescription: p.itemDescription, principal: p.principal })));
-  const editing = edit ? products.find((p) => p.id === edit) : undefined;
+  const pageCount = Math.max(1, Math.ceil(matchCount / PAGE_SIZE));
+  const page = Math.min(requestedPage, pageCount);
+  const products = await prisma.product.findMany({ where, orderBy: { itemNo: "asc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE });
+
+  const prefixConflicts = findProductPrincipalConflicts(allProducts);
+  const listQuery = (extra: Record<string, string> = {}) => {
+    const search = new URLSearchParams();
+    if (q) search.set("q", q);
+    if (page > 1) search.set("page", String(page));
+    for (const [key, value] of Object.entries(extra)) search.set(key, value);
+    const text = search.toString();
+    return `/admin/products${text ? `?${text}` : ""}`;
+  };
+  const closeHref = listQuery();
+  const listQueryAt = (target: number) => {
+    const search = new URLSearchParams();
+    if (q) search.set("q", q);
+    if (target > 1) search.set("page", String(target));
+    const text = search.toString();
+    return `/admin/products${text ? `?${text}` : ""}`;
+  };
   const addingSuggestion = params.add ? suggestions.find((suggestion) => suggestion.itemNo === params.add) : undefined;
   const addIndex = addingSuggestion ? suggestions.indexOf(addingSuggestion) : -1;
-  const reviewHref = (index: number) => (index >= 0 && index < suggestions.length ? `/admin/products?add=${encodeURIComponent(suggestions[index].itemNo)}` : null);
+  const reviewHref = (index: number) => (index >= 0 && index < suggestions.length ? listQuery({ add: suggestions[index].itemNo }) : null);
   const nextSuggestion = addIndex >= 0 ? suggestions[addIndex + 1] : undefined;
-  const classifications = Array.from(new Set(products.map((product) => product.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
+  const classifications = Array.from(new Set(classificationRows.map((row) => row.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
 
   return (
     <div className="min-h-screen bg-background">
@@ -144,7 +176,7 @@ export default async function AdminProductsPage({
                 <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.grossMargin.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })}</td>
                 <td className="border-b border-border/60 px-4 py-3 text-right">{suggestion.quantity.toLocaleString("en-KE", { maximumFractionDigits: 0 })}</td>
                 <td className="max-w-[270px] border-b border-border/60 px-4 py-3"><p className="font-medium text-secondary-blue">{suggestion.suggestedPrincipal ?? "No safe suggestion"}</p><p className="mt-0.5 text-[11px] leading-snug text-muted">{suggestion.suggestionReason}</p></td>
-                <td className="border-b border-border/60 px-4 py-3 text-right"><Link href={`/admin/products?add=${encodeURIComponent(suggestion.itemNo)}`} scroll={false} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Review and map</Link></td>
+                <td className="border-b border-border/60 px-4 py-3 text-right"><Link href={listQuery({ add: suggestion.itemNo })} scroll={false} prefetch={false} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Review and map</Link></td>
               </tr>)}</tbody>
             </table>
           </div>
@@ -154,20 +186,22 @@ export default async function AdminProductsPage({
           <FocusedPanel
             title={`Map ${addingSuggestion.itemNo}`}
             subtitle={`${addingSuggestion.itemDescription} · ${addingSuggestion.revenue.toLocaleString("en-KE", { style: "currency", currency: "KES", maximumFractionDigits: 0 })} SAP revenue across ${addingSuggestion.months.join(", ")}`}
-            closeHref="/admin/products"
+            closeHref={closeHref}
             nav={{ position: `${addIndex + 1} of ${suggestions.length}`, previousHref: reviewHref(addIndex - 1), nextHref: reviewHref(addIndex + 1) }}
           >
             <p className="mb-4 text-[13px] text-muted">{addingSuggestion.suggestionReason} SAP pack size and current net purchase price are prefilled when available; SAP pack/UOM detail is offered as an editable Size starting point.</p>
-            <ProductCreateForm suggestion={addingSuggestion} nextItemNo={nextSuggestion?.itemNo} />
+            <ProductCreateForm suggestion={addingSuggestion} nextItemNo={nextSuggestion?.itemNo} q={q} page={page} />
           </FocusedPanel>
         ) : params.new ? (
-          <FocusedPanel title="Add a product" closeHref="/admin/products">
-            <ProductCreateForm />
+          <FocusedPanel title="Add a product" closeHref={closeHref}>
+            <ProductCreateForm q={q} page={page} />
           </FocusedPanel>
         ) : editing ? (
-          <FocusedPanel title={`Edit ${editing.itemNo}`} subtitle={editing.itemDescription ?? undefined} closeHref="/admin/products">
+          <FocusedPanel title={`Edit ${editing.itemNo}`} subtitle={editing.itemDescription ?? undefined} closeHref={closeHref}>
             <form action={updateProductAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <input type="hidden" name="productId" value={editing.id} />
+              <input type="hidden" name="q" value={q} />
+              <input type="hidden" name="page" value={page} />
               <div className="flex flex-col gap-2 sm:col-span-2">
                 <label className={labelClass}>Item description</label>
                 <input name="itemDescription" defaultValue={editing.itemDescription ?? ""} className={inputClass} />
@@ -202,7 +236,7 @@ export default async function AdminProductsPage({
               </div>
               <div className="flex gap-2 sm:col-span-2">
                 <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">Save changes</button>
-                <Link href="/admin/products" scroll={false} className="rounded-full px-5 py-3 text-sm font-medium text-muted-strong hover:bg-background-elevated">Cancel</Link>
+                <Link href={closeHref} scroll={false} className="rounded-full px-5 py-3 text-sm font-medium text-muted-strong hover:bg-background-elevated">Cancel</Link>
               </div>
             </form>
           </FocusedPanel>
@@ -210,8 +244,17 @@ export default async function AdminProductsPage({
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Products ({products.length})</h2>
-            <Link href="/admin/products?new=1" scroll={false} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">+ Add product</Link>
+            <h2 className="text-lg font-semibold text-primary-blue">
+              Products ({q ? `${matchCount.toLocaleString("en-KE")} of ${allProducts.length.toLocaleString("en-KE")}` : allProducts.length.toLocaleString("en-KE")})
+            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <form action="/admin/products" method="get" className="flex items-center gap-2">
+                <input name="q" defaultValue={q} placeholder="Search item, description or principal" className={inputClass + " w-72"} />
+                <button type="submit" className="rounded-full border border-secondary-blue/30 bg-surface px-4 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Search</button>
+                {q ? <Link href="/admin/products" className="rounded-full px-3 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">Clear</Link> : null}
+              </form>
+              <Link href={listQuery({ new: "1" })} scroll={false} prefetch={false} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">+ Add product</Link>
+            </div>
           </div>
           <div className="overflow-x-auto mt-4">
             <table className="w-full text-sm border-collapse">
@@ -238,11 +281,13 @@ export default async function AdminProductsPage({
                     <td className="px-6 py-3 border-b border-border/60 text-right">{p.costPrice ?? "—"}</td>
                     <td className="px-6 py-3 border-b border-border/60 text-right">{p.ssuConversion ?? "—"}</td>
                     <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
-                      <Link href={`/admin/products?edit=${p.id}`} scroll={false} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                      <Link href={listQuery({ edit: p.id })} scroll={false} prefetch={false} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
                         Edit
                       </Link>
                       <form action={deleteProductAction} className="inline">
                         <input type="hidden" name="productId" value={p.id} />
+                        <input type="hidden" name="q" value={q} />
+                        <input type="hidden" name="page" value={page} />
                         <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
                           Remove
                         </button>
@@ -253,13 +298,23 @@ export default async function AdminProductsPage({
                 {products.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-8 text-center text-muted">
-                      No products yet.
+                      {q ? `No products match "${q}".` : "No products yet."}
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
+          {pageCount > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-4 text-sm text-muted">
+              <span>Showing {((page - 1) * PAGE_SIZE + 1).toLocaleString("en-KE")}–{Math.min(page * PAGE_SIZE, matchCount).toLocaleString("en-KE")} of {matchCount.toLocaleString("en-KE")}</span>
+              <div className="flex items-center gap-2">
+                {page > 1 ? <Link href={listQueryAt(page - 1)} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">← Previous</Link> : <span className="rounded-full border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted/60">← Previous</span>}
+                <span className="text-xs">Page {page} of {pageCount}</span>
+                {page < pageCount ? <Link href={listQueryAt(page + 1)} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Next →</Link> : <span className="rounded-full border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted/60">Next →</span>}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -269,10 +324,12 @@ export default async function AdminProductsPage({
 /** Create form shared by "Add product" and the worklist review. With a next
  *  worklist item it offers "Map & next", which saves and opens that item so a
  *  whole worklist can be cleared without going back to the list. */
-function ProductCreateForm({ suggestion, nextItemNo }: { suggestion?: ProductMappingSuggestion; nextItemNo?: string }) {
+function ProductCreateForm({ suggestion, nextItemNo, q, page }: { suggestion?: ProductMappingSuggestion; nextItemNo?: string; q: string; page: number }) {
   const primaryButton = "rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow";
   return (
     <form action={createProductAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <input type="hidden" name="q" value={q} />
+      <input type="hidden" name="page" value={page} />
       {nextItemNo ? <input type="hidden" name="nextItemNo" value={nextItemNo} /> : null}
       <div className="flex flex-col gap-2">
         <label className={labelClass}>Item No.</label>

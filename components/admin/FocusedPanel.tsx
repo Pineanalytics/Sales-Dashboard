@@ -59,13 +59,13 @@ export function FocusedPanel({ title, subtitle, closeHref, nav, children }: Focu
             {nav ? (
               <>
                 {nav.previousHref ? (
-                  <Link href={nav.previousHref} scroll={false} className={navLink}>← Previous</Link>
+                  <Link href={nav.previousHref} scroll={false} prefetch={false} className={navLink}>← Previous</Link>
                 ) : (
                   <span className={navDisabled}>← Previous</span>
                 )}
                 <span className="text-xs text-muted">{nav.position}</span>
                 {nav.nextHref ? (
-                  <Link href={nav.nextHref} scroll={false} className={navLink}>Next →</Link>
+                  <Link href={nav.nextHref} scroll={false} prefetch={false} className={navLink}>Next →</Link>
                 ) : (
                   <span className={navDisabled}>Next →</span>
                 )}
