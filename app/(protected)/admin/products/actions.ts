@@ -59,7 +59,13 @@ export async function createProductAction(formData: FormData) {
   }
 
   invalidateDatasetCache();
-  redirect("/admin/products?success=" + encodeURIComponent(`Added ${itemNo}. The next current-month sync will map new activity; run the controlled Sales backfill for earlier months.`));
+  const message = encodeURIComponent(`Added ${itemNo}. The next current-month sync will map new activity; run the controlled Sales backfill for earlier months.`);
+  // "Map & next" from the review panel: keep going straight to the next worklist item.
+  const nextItemNo = str(formData, "nextItemNo");
+  if (nextItemNo && str(formData, "afterSave") === "next") {
+    redirect(`/admin/products?add=${encodeURIComponent(nextItemNo)}&success=${message}`);
+  }
+  redirect("/admin/products?success=" + message);
 }
 
 export async function updateProductAction(formData: FormData) {
