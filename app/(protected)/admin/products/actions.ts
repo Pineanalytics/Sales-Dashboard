@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { invalidateDatasetCache } from "@/lib/datasetStore";
+import { normalizePrincipalKey } from "@/lib/normalize";
 import { importProductMaster } from "@/lib/productMasterImport";
 import { parseProductsWorkbook, ProductsParseError } from "@/lib/parseProducts";
 
@@ -112,6 +113,39 @@ export async function uploadProductsAction(formData: FormData) {
       encodeURIComponent(
         `Imported ${result.total} products: ${result.inserted} new, ${result.updated} updated, across ${result.principals.length} product principals. Run the controlled Sales backfill to update earlier-month sales.`
       )
+  );
+}
+
+/** Applies one item-prefix rule suggestion to the Product Master. Refuses when
+ *  the suggested principal has no Active Principal row: the sales pipeline
+ *  drops any line whose "<principal>-<location>" row is missing, so mapping the
+ *  product first would make its sales silently disappear. */
+export async function applyPrefixSuggestionAction(formData: FormData) {
+  await requireAdmin();
+  const itemNo = str(formData, "itemNo");
+  const principal = str(formData, "principal");
+  if (!itemNo || !principal) {
+    redirect("/admin/products?error=" + encodeURIComponent("Item No. and principal are required."));
+  }
+
+  const activePrincipals = await prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true } });
+  const hasActiveRow = activePrincipals.some((row) => normalizePrincipalKey(row.principal) === normalizePrincipalKey(principal));
+  if (!hasActiveRow) {
+    redirect(
+      "/admin/products?error=" +
+        encodeURIComponent(`No Active principal named ${principal} exists. Create it under Admin → Principals first, otherwise ${itemNo}'s sales would drop out of the dashboard.`)
+    );
+  }
+
+  const target = await prisma.product.findUnique({ where: { itemNo }, select: { id: true } });
+  if (!target) redirect("/admin/products?error=" + encodeURIComponent("Product not found."));
+
+  await prisma.product.update({ where: { id: target.id }, data: { principal } });
+  await prisma.unmappedProductSale.deleteMany({ where: { itemNo } });
+  invalidateDatasetCache();
+  redirect(
+    "/admin/products?success=" +
+      encodeURIComponent(`${itemNo} now maps to ${principal}. The next current-month sync uses it; run the controlled Sales backfill to restate earlier months.`)
   );
 }
 

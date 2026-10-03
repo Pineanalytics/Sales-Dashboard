@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getProductMappingSuggestions } from "@/lib/productMappingSuggestions";
-import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction } from "./actions";
+import { findProductPrincipalConflicts } from "@/lib/principalRules";
+import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction, applyPrefixSuggestionAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ export default async function AdminProductsPage({
     prisma.product.findMany({ orderBy: { itemNo: "asc" } }),
     getProductMappingSuggestions(),
   ]);
+  const prefixConflicts = findProductPrincipalConflicts(products.map((p) => ({ itemNo: p.itemNo, itemDescription: p.itemDescription, principal: p.principal })));
   const editing = edit ? products.find((p) => p.id === edit) : undefined;
   const addingSuggestion = params.add ? suggestions.find((suggestion) => suggestion.itemNo === params.add) : undefined;
   const classifications = Array.from(new Set(products.map((product) => product.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
@@ -94,6 +96,29 @@ export default async function AdminProductsPage({
             </a>
           </form>
         </div>
+
+        {prefixConflicts.length > 0 ? <section className="overflow-hidden rounded-2xl border border-secondary-blue/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="flex flex-wrap items-start justify-between gap-3 p-6 pb-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-blue">Item-prefix rules</p>
+              <h2 className="mt-1 text-lg font-semibold text-primary-blue">Products whose principal disagrees with their SAP item series</h2>
+              <p className="mt-1 max-w-3xl text-[13px] text-muted">Each row is a mapped product whose item code or name matches a different principal&apos;s rule — for example Bidco&apos;s Afripop, which SAP codes inside Suntory&apos;s SUN range. Nothing changes until you apply a row, and an apply is refused unless the suggested principal already has an Active principal row. Earlier months need the controlled Sales backfill afterwards.</p>
+            </div>
+            <span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">{prefixConflicts.length} to review</span>
+          </div>
+          <div className="overflow-x-auto border-t border-border/60">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
+              <thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 text-left font-medium">SAP item</th><th className="px-4 py-3 text-left font-medium">Mapped to</th><th className="px-4 py-3 text-left font-medium">Rule suggests</th><th className="px-4 py-3 text-left font-medium">Because</th><th className="px-4 py-3 text-right font-medium">Action</th></tr></thead>
+              <tbody>{prefixConflicts.map((conflict) => <tr key={conflict.itemNo}>
+                <td className="max-w-[320px] border-b border-border/60 px-4 py-3"><p className="font-semibold text-brand-navy">{conflict.itemNo}</p><p className="mt-0.5 text-xs text-muted">{conflict.itemDescription}</p></td>
+                <td className="border-b border-border/60 px-4 py-3">{conflict.currentPrincipal}</td>
+                <td className="border-b border-border/60 px-4 py-3 font-medium text-secondary-blue">{conflict.suggestedPrincipal}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-xs text-muted">Item {conflict.rule.field} starts with {conflict.rule.prefix}</td>
+                <td className="border-b border-border/60 px-4 py-3 text-right"><form action={applyPrefixSuggestionAction} className="inline"><input type="hidden" name="itemNo" value={conflict.itemNo} /><input type="hidden" name="principal" value={conflict.suggestedPrincipal} /><button type="submit" className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Apply</button></form></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </section> : null}
 
         {suggestions.length > 0 ? <section className="overflow-hidden rounded-2xl border border-accent-amber/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="flex flex-wrap items-start justify-between gap-3 p-6 pb-4">

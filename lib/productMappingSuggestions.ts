@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { allocatePrincipal } from "@/lib/principalRules";
 
 export interface ProductMappingSuggestion {
   itemNo: string;
@@ -71,8 +72,16 @@ export async function getProductMappingSuggestions(): Promise<ProductMappingSugg
     const totalMatches = ranked.reduce((total, [, count]) => total + count, 0);
     const [topPrincipal, topCount] = ranked[0] ?? [null, 0];
     const confidence = totalMatches ? topCount / totalMatches : 0;
-    const suggestedPrincipal = topPrincipal && (ranked.length === 1 || confidence >= 0.95) ? topPrincipal : null;
-    const suggestionReason = !prefix
+    const distributionSuggestion = topPrincipal && (ranked.length === 1 || confidence >= 0.95) ? topPrincipal : null;
+    // The item-prefix rules refine the Product-Master distribution: a name rule
+    // (Bidco's Afripop inside Suntory's SUN range) always wins, and a code rule
+    // fills in where the distribution had no safe answer.
+    const rule = allocatePrincipal(item.itemNo, item.itemDescription);
+    const ruleWins = rule.rule !== null && (rule.rule.field === "name" || distributionSuggestion === null);
+    const suggestedPrincipal = ruleWins ? rule.principal : distributionSuggestion;
+    const suggestionReason = ruleWins && rule.rule
+      ? `Item ${rule.rule.field} starts with ${rule.rule.prefix}, which maps to ${rule.principal}.`
+      : !prefix
       ? "No alphabetic item-code prefix is available for a safe suggestion."
       : !topPrincipal
         ? `No existing Product Master code begins with ${prefix}.`

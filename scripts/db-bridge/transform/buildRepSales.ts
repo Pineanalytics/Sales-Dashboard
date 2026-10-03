@@ -20,7 +20,7 @@ const YTD_RAW_FIXUPS: [string, string][] = [
   ["Suntory-Nyahururu", "Suntory-Nairobi"],
 ];
 
-function applyFixups(key: string): string {
+export function applyFixups(key: string): string {
   for (const [from, to] of YTD_RAW_FIXUPS) {
     if (key === from) return to;
   }
