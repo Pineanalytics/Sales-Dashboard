@@ -2268,3 +2268,71 @@ model UpfieldDataEdgeTriggerRequest {
 
   @@index([status, requestedAt])
 }
+
+// One row per non-cancelled SAP invoice / credit note (header grain), built by
+// scripts/db-bridge/sfa-sales-sync.ts. Exists so sales can be tied back to the
+// outlet the SFA app sold to (U_CustomerName) rather than the shared billing
+// account (CardName), and to Order 360: OrderRecord.erpNumber == docNum and
+// OrderRecord.invoiceNumber == numAtCard (confirmed against live SAP). Additive
+// and independent of the existing sales tables — nothing reads it yet except
+// the admin principal-reconciliation view.
+model SalesDocument {
+  id              String   @id @default(cuid())
+  docType         String // "INVOICE" | "CREDIT_NOTE"
+  docNum          String
+  docDate         DateTime @db.Date
+  series          Int?
+  cardCode        String
+  accountName     String // OINV/ORIN.CardName — the billing account
+  sfaCustomer     String // cleaned SFA outlet name, or accountName when SFA left it blank
+  sfaContact      String   @default("")
+  sfaNameSource   String // "SFA" | "ACCOUNT"
+  numAtCard       String?
+  slpCode         Int
+  repName         String // OSLP.SlpName
+  // Dominant principal key by net sales, e.g. "Suntory-Nairobi" (Product Master
+  // mapping first, item-prefix rule as fallback — see principalSource).
+  principal       String
+  principalSource String // "PRODUCT" | "PREFIX" | "UNALLOCATED"
+  lineCount       Int
+  cases           Float    @default(0)
+  netSales        Float
+  grossProfit     Float // same definition as the existing sales pipeline
+  sapGrossProfit  Float // SAP's own GrssProfit, kept to settle the GP definition
+  syncToken       String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([docType, docNum])
+  @@index([docDate])
+  @@index([sfaCustomer])
+  @@index([principal, docDate])
+  @@index([syncToken])
+}
+
+// Monthly customer performance at SFA-outlet grain: principal x billing account
+// x SFA outlet x rep. Companion to (not a replacement for) BrandCustomerActual.
+model SfaCustomerActual {
+  id          String   @id @default(cuid())
+  year        String
+  monthIndex  Int
+  principal   String
+  cardCode    String
+  accountName String
+  sfaCustomer String
+  sfaContact  String   @default("")
+  slpCode     Int
+  repName     String
+  docCount    Int
+  cases       Float    @default(0)
+  revenue     Float
+  grossProfit Float
+  syncToken   String
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([year, monthIndex, principal, cardCode, sfaCustomer, sfaContact, slpCode])
+  @@index([principal, year, monthIndex])
+  @@index([sfaCustomer])
+  @@index([syncToken])
+}
