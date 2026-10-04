@@ -83,11 +83,18 @@ export type KeyCheck = "ok" | "unconfigured" | "locked" | "denied";
 export function checkKey(kind: KeyKind, supplied: string | null, client: string, now: number, env: NodeJS.ProcessEnv = process.env): KeyCheck {
   const expected = kind === "phone" ? env.PHONE_RELAY_KEY : env.PHONE_RELAY_AGENT_KEY;
   if (!expected) return "unconfigured";
+  // A correct key is NEVER blocked. Everything on one office network shares one public
+  // address (the phone on the office Wi-Fi and both PC agents), so locking the ADDRESS out
+  // after bad attempts would let a mis-paired phone polling with a stale key knock the PC
+  // agents offline too - found in the first live smoke test. The keys are 192-bit random
+  // values, so guessing is infeasible regardless; the throttle below only damps noise.
+  if (keysMatch(supplied, expected)) return "ok";
+  // No key at all (e.g. an unpaired page) isn't a guess, so it doesn't count as a failure.
+  if (!supplied) return "denied";
   const state = getRelayState();
   const recent = (state.keyFailures.get(client) ?? []).filter((t) => now - t < KEY_FAIL_WINDOW_MS);
   state.keyFailures.set(client, recent);
   if (recent.length >= KEY_FAIL_LIMIT) return "locked";
-  if (keysMatch(supplied, expected)) return "ok";
   recent.push(now);
   return "denied";
 }

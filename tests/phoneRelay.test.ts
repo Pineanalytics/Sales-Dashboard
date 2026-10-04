@@ -22,11 +22,19 @@ describe("relay keys", () => {
     expect(checkKey("agent", "phone-secret", "1.1.1.1", T0, env)).toBe("denied");
     expect(checkKey("phone", null, "1.1.1.1", T0, env)).toBe("denied");
   });
-  it("locks an address out after five wrong keys, even for the right key, until the window passes", () => {
+  it("throttles repeated WRONG keys per address, but a correct key is never blocked", () => {
     for (let i = 0; i < 5; i++) expect(checkKey("phone", `bad${i}`, "9.9.9.9", T0, env)).toBe("denied");
-    expect(checkKey("phone", "phone-secret", "9.9.9.9", T0 + 1000, env)).toBe("locked");
-    expect(checkKey("phone", "phone-secret", "8.8.8.8", T0 + 1000, env)).toBe("ok"); // other clients unaffected
-    expect(checkKey("phone", "phone-secret", "9.9.9.9", T0 + 16 * 60_000, env)).toBe("ok");
+    expect(checkKey("phone", "bad-again", "9.9.9.9", T0 + 1000, env)).toBe("locked");
+    // The office phone and both PC agents share one public address: a mis-paired phone must
+    // not be able to lock the PC agents (or itself, once re-paired) out.
+    expect(checkKey("phone", "phone-secret", "9.9.9.9", T0 + 1000, env)).toBe("ok");
+    expect(checkKey("agent", "agent-secret", "9.9.9.9", T0 + 1000, env)).toBe("ok");
+    expect(checkKey("phone", "bad-again", "8.8.8.8", T0 + 1000, env)).toBe("denied"); // other addresses have their own count
+    expect(checkKey("phone", "bad-late", "9.9.9.9", T0 + 16 * 60_000, env)).toBe("denied"); // window expired
+  });
+  it("does not count a missing key as a failed guess", () => {
+    for (let i = 0; i < 20; i++) expect(checkKey("phone", null, "7.7.7.7", T0 + i, env)).toBe("denied");
+    expect(checkKey("phone", "wrong", "7.7.7.7", T0 + 100, env)).toBe("denied"); // still only the first wrong guess
   });
 });
 
