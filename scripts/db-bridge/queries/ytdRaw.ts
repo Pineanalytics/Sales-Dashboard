@@ -62,10 +62,14 @@ interface YtdRawRecord {
   "Gross Margin": number;
 }
 
-export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date): Promise<YtdRawRow[]> {
+/** Reads the whole calendar year of asOfDate plus the same period a year earlier.
+ *  A caller that must keep memory small (brand-customer-sync.ts) can pass a
+ *  narrower `window` of YYYY-MM-DD dates; the prior-year slice then shifts
+ *  with it, so one month window returns that month for both years. */
+export async function fetchYtdRaw(pool: sql.ConnectionPool, asOfDate: Date, window?: { start: string; end: string }): Promise<YtdRawRow[]> {
   const year = asOfDate.getFullYear();
-  const startDate = `${year}-01-01`;
-  const endDate = `${year}-12-31`;
+  const startDate = window?.start ?? `${year}-01-01`;
+  const endDate = window?.end ?? `${year}-12-31`;
 
   const result = await pool
     .request()
