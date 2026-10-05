@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
+import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
 import { cleanLeverageUnit, eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
@@ -81,6 +82,8 @@ describe("outlet universe row builders", () => {
       routeDesc: "VAN B1_OB (CBD)",
       outletName: "Simbisa Karen(Shell)",
       channel: "LMT",
+      latitude: -1.2921,
+      longitude: 36.8219,
     });
     expect(row).toMatchObject({
       source: "LEVERAGE",
@@ -91,11 +94,21 @@ describe("outlet universe row builders", () => {
       repName: "VAN B1_OB (TOTAL)",
       channel: "Modern Trade",
       segment: "Large Modern Trade",
+      latitude: -1.2921,
+      longitude: 36.8219,
     });
   });
 
+  it("corrects swapped Leverage coordinates and drops unset or non-Kenyan ones", () => {
+    const base = { customerCode: "T9", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: "Shop", channel: "Retailer" };
+    expect(leverageRow({ ...base, latitude: 36.8219, longitude: -1.2921 })).toMatchObject({ latitude: -1.2921, longitude: 36.8219 });
+    expect(leverageRow({ ...base, latitude: 0, longitude: 0 })).toMatchObject({ latitude: null, longitude: null });
+    expect(leverageRow({ ...base, latitude: 51.5, longitude: -0.12 })).toMatchObject({ latitude: null, longitude: null });
+    expect(leverageRow({ ...base, latitude: -0.4, longitude: null })).toMatchObject({ latitude: null, longitude: null });
+  });
+
   it("falls back to the PJP code when the journey-plan roster has no description", () => {
-    const row = leverageRow({ customerCode: "T0002", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: "NY03", routeDesc: null, outletName: "Shop", channel: "Retailer" });
+    const row = leverageRow({ customerCode: "T0002", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: "NY03", routeDesc: null, outletName: "Shop", channel: "Retailer" , latitude: null, longitude: null });
     expect(row.route).toBe("NY03");
     expect(row.repName).toBeNull();
   });
@@ -107,7 +120,7 @@ describe("outlet universe row builders", () => {
   });
 
   it("names a Leverage outlet by its code when no outlet name was ever synced", () => {
-    const row = leverageRow({ customerCode: "T0001", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: null, channel: null });
+    const row = leverageRow({ customerCode: "T0001", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: null, channel: null , latitude: null, longitude: null });
     expect(row).toMatchObject({ outletName: "T0001", principal: "Unilever-Nyeri", territory: "Nyeri", channel: "Unspecified", lastPurchaseDate: null });
   });
 
@@ -141,7 +154,7 @@ describe("outlet universe sales role", () => {
   });
 
   it("tags Leverage and EABL rows Primary Sales", () => {
-    const leverage = leverageRow({ customerCode: "T1", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: "Shop", channel: "Retailer" });
+    const leverage = leverageRow({ customerCode: "T1", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: "Shop", channel: "Retailer" , latitude: null, longitude: null });
     const eabl = eablRow({ customerId: "K1", principal: "EABL-Nyeri", outletName: "Bar", channel: null, subChannel: null, territory: null, route: null, latitude: null, longitude: null, lastBuy: null, sales: null, transactions: null, salesman: null, segment: null });
     expect(leverage.salesRole).toBe("Primary Sales");
     expect(eabl.salesRole).toBe("Primary Sales");
@@ -185,5 +198,30 @@ describe("outlet universe filter parsing", () => {
     expect(filters).toMatchObject({ view: "general", status: "all", source: "EABL", channel: "Retail", rep: "Jane" });
     const bad = parseOutletFilters(new URLSearchParams({ view: "x", status: "weird", source: "DROP TABLE" }));
     expect(bad).toMatchObject({ view: "principal", status: "active", source: null });
+  });
+});
+
+describe("Centegy coordinate discovery", () => {
+  const cols = (table: string, names: string[]) => names.map((column) => ({ table, column }));
+
+  it("reads GeoCodeX/GeoCodeY straight off the journey plan when it has them", () => {
+    const source = pickCoordinateSource([...cols("IG_I_JourneyPlan", ["CustomerCode", "GeoCodeX", "GeoCodeY"]), ...cols("IG_I_Customer", ["CustomerCode", "GeoCodeX", "GeoCodeY"])]);
+    expect(source).toEqual({ table: "IG_I_JourneyPlan", xColumn: "GeoCodeX", yColumn: "GeoCodeY", joinColumns: [] });
+  });
+
+  it("falls back to the customer table, joining on code and location when both exist", () => {
+    const source = pickCoordinateSource([...cols("IG_I_JourneyPlan", ["CustomerCode", "SequenceDay"]), ...cols("IG_I_Customer", ["CustomerCode", "LocationCode", "GeoCodeX", "GeoCodeY"])]);
+    expect(source).toEqual({ table: "IG_I_Customer", xColumn: "GeoCodeX", yColumn: "GeoCodeY", joinColumns: ["CustomerCode", "LocationCode"] });
+  });
+
+  it("accepts Latitude/Longitude names and ignores a lone column or a table with no CustomerCode", () => {
+    expect(pickCoordinateSource(cols("IG_I_JourneyPlan", ["Latitude", "Longitude"]))?.yColumn).toBe("Latitude");
+    expect(pickCoordinateSource(cols("IG_I_JourneyPlan", ["GeoCodeX"]))).toBeNull();
+    expect(pickCoordinateSource(cols("IG_I_Customer", ["GeoCodeX", "GeoCodeY"]))).toBeNull();
+    expect(pickCoordinateSource([])).toBeNull();
+  });
+
+  it("never lets a hostile column name into the SQL", () => {
+    expect(pickCoordinateSource(cols("IG_I_JourneyPlan", ["GeoCodeX; DROP TABLE x", "GeoCodeY"]))).toBeNull();
   });
 });

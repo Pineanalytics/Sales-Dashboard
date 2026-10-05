@@ -2092,6 +2092,11 @@ model JourneyPlanAssignment {
   customerCode String
   sequenceDay  Int?
   workingDay   Int?
+  // Outlet GPS from Centegy's GeoCodeY/GeoCodeX, when the branch's schema has it
+  // (discovered at sync time - see journeyPlanQuery.ts). Null until a synced
+  // roster carries it; feeds the Active Outlet module's Leverage coordinates.
+  latitude     Float?
+  longitude    Float?
   updatedAt    DateTime @updatedAt
 
   @@unique([distributor, pjp, customerCode])
