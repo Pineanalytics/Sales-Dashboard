@@ -1,7 +1,7 @@
 "use client";
 
 import type { OutletFilterOptions, OutletFilters, OutletStatus, OutletView } from "@/lib/outletUniverse/query";
-import { OUTLET_SOURCES, OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
+import { OUTLET_ACTIVE_WINDOW_DAYS, OUTLET_SOURCES, OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
 
 const selectClass = "max-w-[190px] bg-transparent text-xs font-semibold text-muted-strong outline-none";
 const pillClass = "flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5";
@@ -127,7 +127,7 @@ export function FilterBar({
         <ComboField label="Rep" value={filters.rep} values={options?.reps ?? []} listId="outlet-reps" onChange={(rep) => onChange({ rep })} />
         <Field label="Status">
           <select aria-label="Status" value={filters.status} onChange={(event) => onChange({ status: event.target.value as OutletStatus })} className={selectClass}>
-            <option value="active">Active (bought ≤ 60 days)</option>
+            <option value="active">Active (bought ≤ {OUTLET_ACTIVE_WINDOW_DAYS} days)</option>
             <option value="inactive">Inactive</option>
             <option value="all">Active + inactive</option>
           </select>

@@ -244,7 +244,7 @@ export function ActiveOutletsView() {
       )}
 
       <p className="text-xs leading-relaxed text-muted">
-        <strong>How to read this.</strong> An outlet is <em>Active</em> when it bought in the last {summary.activeWindowDays} days (Pine&apos;s rule, applied to all three systems: Pine purchase events, Leverage invoices, EABL productive calls).
+        <strong>How to read this.</strong> An outlet is <em>Active</em> when it bought in the last {summary.activeWindowDays} days (one window for all three systems: Pine purchase events, Leverage invoices, EABL productive calls). Pine&apos;s own Active/Inactive flag uses 60 days and is not used here.
         Pine, Leverage and EABL DMS have no shared outlet ID, so one shop served by two systems appears once per system; within Pine, an outlet buying several principals is counted once in the General view.
         Leverage history starts mid-2026 and Pine carries no route, so Route is blank for Pine outlets.
         Pine&apos;s test territory and its &quot;Admin istrator&quot; placeholder rep are hidden. Sales role: Pine records Primary or Secondary per sale; Leverage and EABL DMS are direct van / DSR channels and count as Primary.
