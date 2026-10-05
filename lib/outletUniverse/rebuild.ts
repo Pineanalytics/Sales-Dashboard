@@ -4,6 +4,7 @@ import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 import {
   cleanTerritory,
   exclusionReason,
+  kenyaCoordinate,
   locationFromPrincipal,
   normalizeChannel,
   normalizeSalesRole,
@@ -121,6 +122,9 @@ interface LeverageSourceRow {
   routeDesc: string | null;
   outletName: string | null;
   channel: string | null;
+  /** From the journey-plan roster (Centegy GeoCodeY / GeoCodeX), when the branch carries them. */
+  latitude: number | null;
+  longitude: number | null;
 }
 
 /** Centegy names a sales unit "<van or bike>_<distributor id>"; the id suffix only repeats the branch. */
@@ -134,6 +138,7 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
   const code = nonEmpty(row.route);
   const desc = nonEmpty(row.routeDesc);
   const route = desc && code ? `${desc} (${code})` : (desc ?? code);
+  const gps = kenyaCoordinate(row.latitude, row.longitude);
   return {
     source: "LEVERAGE",
     outletKey: row.customerCode,
@@ -152,8 +157,8 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     route,
     repCode: nonEmpty(row.salesRepCode),
     repName: cleanLeverageUnit(row.salesRepName),
-    latitude: null,
-    longitude: null,
+    latitude: gps?.latitude ?? null,
+    longitude: gps?.longitude ?? null,
     lastPurchaseDate: row.lastBuy,
     sales: row.sales,
     transactions: row.transactions,
@@ -245,13 +250,21 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
       SELECT DISTINCT ON (distributor, pjp) distributor, pjp, "routeDesc"
       FROM "JourneyPlanAssignment"
       ORDER BY distributor, pjp, "routeDesc"
+    ),
+    gps AS (
+      -- An outlet can sit on several PJPs; take any roster row that carries a position.
+      SELECT DISTINCT ON (distributor, "customerCode") distributor, "customerCode", latitude, longitude
+      FROM "JourneyPlanAssignment"
+      WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+      ORDER BY distributor, "customerCode", pjp
     )
     SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions,
            l."salesRepCode", l."salesRepName", l.route, p."routeDesc",
-           n."outletName", n.channel
+           n."outletName", n.channel, g.latitude, g.longitude
     FROM agg a
     LEFT JOIN latest l USING ("customerCode", "storageLocation")
     LEFT JOIN plan p ON p.distributor = a."storageLocation" AND p.pjp = l.route
+    LEFT JOIN gps g ON g.distributor = a."storageLocation" AND g."customerCode" = a."customerCode"
     LEFT JOIN names n ON n."outletCode" = a."customerCode" AND n.distributor = a."storageLocation"
   `);
   return rows.map(leverageRow);

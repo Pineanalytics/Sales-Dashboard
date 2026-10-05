@@ -53,6 +53,20 @@ function clean(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+const KENYA_LAT = [-4.9, 5.2] as const;
+const KENYA_LON = [33.8, 42.0] as const;
+const within = (value: number, [min, max]: readonly [number, number]) => value >= min && value <= max;
+
+/** A usable outlet position inside Kenya, or null. Centegy writes 0 for an unset
+ *  coordinate and its X/Y (longitude/latitude) have been entered the wrong way
+ *  round, so a pair that only fits Kenya when swapped is corrected rather than dropped. */
+export function kenyaCoordinate(latitude: number | null | undefined, longitude: number | null | undefined): { latitude: number; longitude: number } | null {
+  if (latitude == null || longitude == null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (within(latitude, KENYA_LAT) && within(longitude, KENYA_LON)) return { latitude, longitude };
+  if (within(longitude, KENYA_LAT) && within(latitude, KENYA_LON)) return { latitude: longitude, longitude: latitude };
+  return null;
+}
+
 /** "001 - On Trade" -> "On Trade"; leaves a value with no code prefix alone. */
 export function stripCodePrefix(value: string | null | undefined): string {
   const text = clean(value);

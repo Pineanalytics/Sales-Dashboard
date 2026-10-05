@@ -14,6 +14,9 @@ interface JourneyPlanAssignmentUploadRow {
   customerCode: string;
   sequenceDay: number | null;
   workingDay: number | null;
+  /** Optional: older branch scripts do not send coordinates. */
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 function hasValidApiKey(req: NextRequest): boolean {
@@ -34,7 +37,9 @@ function isValidRow(value: unknown): value is JourneyPlanAssignmentUploadRow {
     typeof row.routeDesc === "string" &&
     typeof row.customerCode === "string" &&
     (row.sequenceDay === null || typeof row.sequenceDay === "number") &&
-    (row.workingDay === null || typeof row.workingDay === "number")
+    (row.workingDay === null || typeof row.workingDay === "number") &&
+    (row.latitude === undefined || row.latitude === null || (typeof row.latitude === "number" && Number.isFinite(row.latitude))) &&
+    (row.longitude === undefined || row.longitude === null || (typeof row.longitude === "number" && Number.isFinite(row.longitude)))
   );
 }
 
@@ -68,7 +73,9 @@ export async function POST(req: NextRequest) {
         await lockSalesReturnsUpload(tx, "journey-plan", [distributor]);
         await tx.journeyPlanAssignment.deleteMany({ where: { distributor } });
         for (let index = 0; index < rows.length; index += CHUNK_SIZE) {
-          await tx.journeyPlanAssignment.createMany({ data: rows.slice(index, index + CHUNK_SIZE) });
+          await tx.journeyPlanAssignment.createMany({
+            data: rows.slice(index, index + CHUNK_SIZE).map((row) => ({ ...row, latitude: row.latitude ?? null, longitude: row.longitude ?? null })),
+          });
         }
       },
       { maxWait: 120_000, timeout: 120_000 }
