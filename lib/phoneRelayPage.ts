@@ -36,6 +36,10 @@ button.alt{background:transparent;color:var(--text);border:1px solid var(--line)
 <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"><div class="row"><button id="mfaGo">Confirm code</button></div></div>
 <div class="card" id="actCard" hidden><h2>Actions</h2><div class="row"><button class="alt" data-a="start">Start</button><button class="alt" data-a="stop">Stop</button><button class="alt" data-a="push-uploads">Push uploads</button></div>
 <p class="mute" style="margin:14px 0 4px">Backfill a date (both reports)</p><div class="row"><input id="bfDate" type="date" style="flex:1;margin:0"><button id="bfGo" style="flex:0 0 auto">Run</button></div></div>
+<div class="card" id="srvCard" hidden><h2>Server (PINEFROSTSERVER)</h2><div class="row"><span id="srvChip" class="chip">Server offline</span></div><p id="srvDetail" class="mute" style="white-space:pre-line"></p>
+<div class="row"><button class="alt" data-s="server-pull">Pull now</button><button class="alt" data-s="server-halt">Halt</button><button class="alt" data-s="server-resume">Resume</button></div>
+<p class="mute" style="margin:14px 0 4px">Pull a specific date</p><div class="row"><input id="srvDate" type="date" style="flex:1;margin:0"><button id="srvGo" style="flex:0 0 auto">Run</button></div>
+<label class="mute" style="display:flex;align-items:center;gap:8px;margin-top:10px"><input id="srvReplace" type="checkbox" style="width:auto;margin:0"> Replace the existing file for that date</label></div>
 <p id="msg" class="msg"></p>
 <div class="card" id="resCard" hidden><h2>Recent</h2><ul id="results"></ul></div>
 </main><script>
@@ -62,6 +66,8 @@ async function render(v){
   pinnedOk=await checkPin(v.publicKey);
   $('statusCard').hidden=false;$('actCard').hidden=false;
   chip($('pcChip'),auto.online?'PC automation online':(panel.online?'Automation offline - PC reachable':'PC offline'),auto.online?'ok':(panel.online?'warn':'bad'));
+  var srv=v.agents.server,ss=srv.status||{};$('srvCard').hidden=false;chip($('srvChip'),srv.online?'Server online':'Server offline',srv.online?'ok':'bad');
+  $('srvDetail').textContent=srv.online?[(ss.tasks||[]).map(function(t){return t.name+': '+t.state}).join('  '),ss.newestArchived?('Last archived: '+ss.newestArchived):'',ss.vpsOk===false?'VPS unreachable from the server':''].filter(Boolean).join('\n'):'The control panel on the server is not reporting.';
   var stage=auto.online?st.stage:null,map={'logged-in':['Logged in','ok'],'need-password':['Login needed','warn'],'need-mfa':['Code needed','warn'],'working':['Working...','warn']};
   var m=map[stage]||[(st.status||'-'),''];chip($('stChip'),m[0],m[1]);
   $('stDetail').textContent=st.message||(st.lastRun&&st.lastRun['document-listing-today']?'Last today-report: '+new Date(st.lastRun['document-listing-today']).toLocaleString():'');
@@ -81,7 +87,9 @@ $('mfaGo').onclick=async function(){var c=$('code').value.trim();if(!/^[0-9]{6}$
   try{await send('mfa',{cipher:await encryptFor(view.publicKey,'mfa',c)})}catch(e){say('Could not encrypt - try again.')}$('code').value=''};
 document.querySelectorAll('[data-a]').forEach(function(b){b.onclick=function(){var a=b.getAttribute('data-a');if(a==='stop'&&!confirm('Stop the automation?'))return;send(a)}});
 $('bfGo').onclick=function(){var d=$('bfDate').value;if(!d){say('Pick a date.');return}if(confirm('Backfill both reports for '+d+'? This stops and restarts the automation.'))send('backfill',{date:d})};
-var y=new Date(Date.now()-86400000);$('bfDate').value=y.getFullYear()+'-'+('0'+(y.getMonth()+1)).slice(-2)+'-'+('0'+y.getDate()).slice(-2);
+document.querySelectorAll('[data-s]').forEach(function(b){b.onclick=function(){var a=b.getAttribute('data-s');if(a==='server-halt'&&!confirm('Halt the EABL extraction tasks on the server?'))return;send(a)}});
+$('srvGo').onclick=function(){var d=$('srvDate').value,r=$('srvReplace').checked;if(!d){say('Pick a date.');return}if(confirm('Pull the EABL export for '+d+(r?' (replacing the existing file)':'')+'?'))send('server-backfill',{date:d,replace:r})};
+var y=new Date(Date.now()-86400000);$('srvDate').value=$('bfDate').value=y.getFullYear()+'-'+('0'+(y.getMonth()+1)).slice(-2)+'-'+('0'+y.getDate()).slice(-2);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/phone/sw',{scope:'/phone'}).catch(function(){});
 poll();setInterval(poll,3000);
 </script></body></html>`;
