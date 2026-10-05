@@ -12,9 +12,11 @@ export const OUTLET_SOURCE_LABELS: Record<OutletSource, string> = {
   EABL: "EABL DMS",
 };
 
-/** An outlet is Active when it bought within this many days. Pine's own rule
- *  (its sweep flips an outlet to Inactive after 60+ days), applied to all sources. */
-export const OUTLET_ACTIVE_WINDOW_DAYS = 60;
+/** An outlet is Active when it bought within this many days, applied to every
+ *  source. Set to 90 (at least a quarter) rather than Pine's own 60-day sweep so
+ *  an outlet that buys roughly quarterly is not counted as lost. It is read at
+ *  query time, so changing it needs no rebuild. */
+export const OUTLET_ACTIVE_WINDOW_DAYS = 90;
 
 export const UNSPECIFIED = "Unspecified";
 
