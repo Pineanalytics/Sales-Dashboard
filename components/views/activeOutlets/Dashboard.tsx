@@ -52,13 +52,12 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
   return (
     <div className="flex flex-col gap-6">
       <KpiGrid>
-        <KpiCard
-          accent="coverage"
-          label={generalView ? `Active Outlets – distinct (≤ ${summary.activeWindowDays} days)` : `Active Outlets (≤ ${summary.activeWindowDays} days)`}
-          value={<AnimatedValue value={activeAll} format={formatNumber} />}
-        />
-        <KpiCard accent="growth" label={generalView ? "Known Outlets – distinct" : "Known Outlet-Principal Pairs"} value={<AnimatedValue value={knownAll} format={formatNumber} />} />
-        <KpiCard accent="quarter" label="Active Rate" value={pct(activeAll, knownAll)} />
+        <KpiCard accent="coverage" label={`Active Outlets – distinct (≤ ${summary.activeWindowDays} days)`} value={<AnimatedValue value={summary.distinct.active} format={formatNumber} />} />
+        <KpiCard accent="growth" label="Known Outlets – distinct" value={<AnimatedValue value={summary.distinct.total} format={formatNumber} />} />
+        <KpiCard accent="quarter" label="Active Rate" value={pct(summary.distinct.active, summary.distinct.total)} />
+        {generalView ? null : (
+          <KpiCard accent="coverage" label="Active Outlet–Principal Pairs" sublabel={`${formatNumber(knownAll)} known`} value={<AnimatedValue value={activeAll} format={formatNumber} />} />
+        )}
         <KpiCard accent="revenue" label="Sales YTD (shown outlets)" value={<AnimatedValue value={totals.sales} format={formatCompact} />} />
         <KpiCard accent="coverage" label="Outlets With GPS" value={pct(totals.withCoordinates, totals.total)} />
       </KpiGrid>

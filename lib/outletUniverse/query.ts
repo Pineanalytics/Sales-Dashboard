@@ -140,6 +140,10 @@ export interface OutletUniverseSummary {
   builtAt: string | null;
   activeWindowDays: number;
   totals: { total: number; active: number; inactive: number; withCoordinates: number; sales: number; transactions: number };
+  /** Distinct outlets under the same filters, whichever view is selected (an
+   *  outlet buying several principals counts once). In the principal view
+   *  `totals` counts outlet-principal pairs instead. */
+  distinct: { total: number; active: number };
   bySource: BreakdownRow[];
   byPrincipal: PrincipalBreakdownRow[];
   byRegion: BreakdownRow[];
@@ -168,13 +172,17 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
   // The principal panel always counts principal-grain rows, even in the general
   // view: it answers "how many active outlets does each principal have".
   const principalFilters: OutletFilters = { ...filters, view: "principal" };
-  const [totals, builtAt, bySource, byPrincipal, byRegion, byTerritory, byChannel, bySegment, byRep] = await Promise.all([
+  const [totals, distinct, builtAt, bySource, byPrincipal, byRegion, byTerritory, byChannel, bySegment, byRep] = await Promise.all([
     prisma.$queryRaw<{ total: number; active: number; withCoordinates: number; sales: number; transactions: number }[]>(Prisma.sql`
       ${cte(filters, scope)}
       SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
              COUNT(*) FILTER (WHERE latitude IS NOT NULL)::int AS "withCoordinates",
              COALESCE(SUM(sales), 0)::double precision AS sales, COALESCE(SUM(transactions), 0)::double precision AS transactions
       FROM unit WHERE ${statusClause(filters.status)}
+    `),
+    prisma.$queryRaw<{ total: number; active: number }[]>(Prisma.sql`
+      ${cte({ ...filters, view: "general" }, scope)}
+      SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active FROM unit
     `),
     prisma.$queryRaw<{ builtAt: Date | null }[]>(Prisma.sql`SELECT MAX("builtAt") AS "builtAt" FROM "OutletUniverse"`),
     breakdown(filters, scope, Prisma.sql`source`),
@@ -199,6 +207,7 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
     builtAt: builtAt[0]?.builtAt ? builtAt[0].builtAt.toISOString() : null,
     activeWindowDays: OUTLET_ACTIVE_WINDOW_DAYS,
     totals: { total, active, inactive: total - active, withCoordinates: num(t?.withCoordinates), sales: num(t?.sales), transactions: num(t?.transactions) },
+    distinct: { total: num(distinct[0]?.total), active: num(distinct[0]?.active) },
     bySource,
     byPrincipal: byPrincipal.map((row) => ({ name: row.name, source: row.source, active: num(row.active), total: num(row.total), sales: num(row.sales) })),
     byRegion,
