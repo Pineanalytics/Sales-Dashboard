@@ -18,6 +18,35 @@ export const OUTLET_ACTIVE_WINDOW_DAYS = 60;
 
 export const UNSPECIFIED = "Unspecified";
 
+export type OutletSalesRole = "Primary Sales" | "Secondary Sales";
+
+export const OUTLET_SALES_ROLES: OutletSalesRole[] = ["Primary Sales", "Secondary Sales"];
+
+/** Pine stores its role verbatim; anything else (an unseen value) is treated as Primary, the default channel. */
+export function normalizeSalesRole(value: string | null | undefined): OutletSalesRole {
+  return value === "Secondary Sales" ? "Secondary Sales" : "Primary Sales";
+}
+
+/** Records kept out of the Active Outlet module entirely. These are not real trade:
+ *  Pine's test territory ("Mars_Test_Territory", "Mars_Test_Territory - MBSR") and
+ *  the placeholder "Admin istrator" PJP owner. Matching is on the normalised text,
+ *  so spacing and case variants are caught. Add a rule here to hide more; remove
+ *  one to bring its outlets back at the next rebuild. */
+export const OUTLET_EXCLUSIONS: { reason: string; territory?: RegExp; rep?: RegExp }[] = [
+  { reason: "Test territory", territory: /test[_\s]*territory/i },
+  { reason: "Admin istrator placeholder rep", rep: /^admin istrator$/i },
+];
+
+/** The reason an outlet is hidden, or null when it is kept. */
+export function exclusionReason(outlet: { territory: string; repName: string | null }): string | null {
+  const territory = clean(outlet.territory);
+  const rep = clean(outlet.repName);
+  for (const rule of OUTLET_EXCLUSIONS) {
+    if ((rule.territory && rule.territory.test(territory)) || (rule.rep && rule.rep.test(rep))) return rule.reason;
+  }
+  return null;
+}
+
 function clean(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }

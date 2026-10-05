@@ -6,7 +6,7 @@ import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Sales YTD", "Transactions YTD"];
+const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Sales YTD", "Transactions YTD"];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
 function cell(value: string | number | null): string {
@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
           row.outletKey,
           row.outletName,
           row.principals,
+          row.salesRole,
           row.channel,
           row.segment,
           row.location,

@@ -17,6 +17,8 @@ function BreakdownTable({ title, rows, onPick }: { title: string; rows: Breakdow
       <Thead>
         <Th>{title}</Th>
         <Th align="right">Active</Th>
+        <Th align="right">Primary</Th>
+        <Th align="right">Secondary</Th>
         <Th align="right">Known</Th>
         <Th align="right">Active %</Th>
       </Thead>
@@ -33,6 +35,8 @@ function BreakdownTable({ title, rows, onPick }: { title: string; rows: Breakdow
               )}
             </Td>
             <Td align="right">{formatNumber(row.active)}</Td>
+            <Td align="right">{formatNumber(row.activePrimary)}</Td>
+            <Td align="right">{formatNumber(row.activeSecondary)}</Td>
             <Td align="right">{formatNumber(row.total)}</Td>
             <Td align="right">{pct(row.active, row.total)}</Td>
           </tr>
@@ -43,34 +47,51 @@ function BreakdownTable({ title, rows, onPick }: { title: string; rows: Breakdow
 }
 
 export function Dashboard({ summary, filters, onFilter }: { summary: OutletUniverseSummary; filters: OutletFilters; onFilter: (patch: Partial<OutletFilters>) => void }) {
-  const { totals } = summary;
+  const { totals, distinct } = summary;
   const knownAll = summary.bySource.reduce((sum, row) => sum + row.total, 0);
   const activeAll = summary.bySource.reduce((sum, row) => sum + row.active, 0);
-  const principalTotals = summary.byPrincipal.reduce((acc, row) => ({ active: acc.active + row.active, total: acc.total + row.total, sales: acc.sales + row.sales }), { active: 0, total: 0, sales: 0 });
+  const principalTotals = summary.byPrincipal.reduce(
+    (acc, row) => ({
+      active: acc.active + row.active,
+      primary: acc.primary + row.activePrimary,
+      secondary: acc.secondary + row.activeSecondary,
+      total: acc.total + row.total,
+      sales: acc.sales + row.sales,
+    }),
+    { active: 0, primary: 0, secondary: 0, total: 0, sales: 0 }
+  );
   const generalView = filters.view === "general";
+  const chartProps = { status: filters.status, role: filters.role };
 
   return (
     <div className="flex flex-col gap-6">
       <KpiGrid>
-        <KpiCard accent="coverage" label={`Active Outlets – distinct (≤ ${summary.activeWindowDays} days)`} value={<AnimatedValue value={summary.distinct.active} format={formatNumber} />} />
-        <KpiCard accent="growth" label="Known Outlets – distinct" value={<AnimatedValue value={summary.distinct.total} format={formatNumber} />} />
-        <KpiCard accent="quarter" label="Active Rate" value={pct(summary.distinct.active, summary.distinct.total)} />
+        <KpiCard accent="coverage" label={`Active Outlets – distinct (≤ ${summary.activeWindowDays} days)`} value={<AnimatedValue value={distinct.active} format={formatNumber} />} />
+        <KpiCard accent="growth" label="Known Outlets – distinct" value={<AnimatedValue value={distinct.total} format={formatNumber} />} />
+        <KpiCard accent="quarter" label="Active Rate" value={pct(distinct.active, distinct.total)} />
+        <KpiCard accent="coverage" label="Active – Primary Sales" sublabel={`${formatNumber(distinct.totalPrimary)} known`} value={<AnimatedValue value={distinct.activePrimary} format={formatNumber} />} />
+        <KpiCard accent="growth" label="Active – Secondary Sales" sublabel={`${formatNumber(distinct.totalSecondary)} known`} value={<AnimatedValue value={distinct.activeSecondary} format={formatNumber} />} />
         {generalView ? null : (
-          <KpiCard accent="coverage" label="Active Outlet–Principal Pairs" sublabel={`${formatNumber(knownAll)} known`} value={<AnimatedValue value={activeAll} format={formatNumber} />} />
+          <KpiCard accent="quarter" label="Active Outlet–Principal Pairs" sublabel={`${formatNumber(knownAll)} known`} value={<AnimatedValue value={activeAll} format={formatNumber} />} />
         )}
         <KpiCard accent="revenue" label="Sales YTD (shown outlets)" value={<AnimatedValue value={totals.sales} format={formatCompact} />} />
         <KpiCard accent="coverage" label="Outlets With GPS" value={pct(totals.withCoordinates, totals.total)} />
       </KpiGrid>
+      <p className="-mt-3 text-xs text-muted">
+        An outlet reached through both Primary and Secondary Sales is counted in both, so Primary + Secondary can exceed the distinct total. Pine records a role per sale; Leverage and EABL DMS are direct van / DSR channels and count as Primary.
+      </p>
 
       <SectionCard title="Active Outlets by Principal">
         <p className="mb-3 text-xs text-muted">Click a bar to filter to that principal. An outlet that buys several principals is counted under each of them here, even in the General view.</p>
-        <BreakdownChart rows={summary.byPrincipal.map((row) => ({ name: row.name, active: row.active, total: row.total }))} status={filters.status} layout="horizontal" onPick={(name) => onFilter({ principal: name })} />
+        <BreakdownChart rows={summary.byPrincipal} {...chartProps} layout="horizontal" onPick={(name) => onFilter({ principal: name })} />
         <div className="mt-4">
           <TableWrap>
             <Thead>
               <Th>Principal</Th>
               <Th>Source</Th>
               <Th align="right">Active</Th>
+              <Th align="right">Primary</Th>
+              <Th align="right">Secondary</Th>
               <Th align="right">Known</Th>
               <Th align="right">Active %</Th>
               <Th align="right">Sales YTD</Th>
@@ -85,6 +106,8 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
                   </Td>
                   <Td>{OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source}</Td>
                   <Td align="right">{formatNumber(row.active)}</Td>
+                  <Td align="right">{formatNumber(row.activePrimary)}</Td>
+                  <Td align="right">{formatNumber(row.activeSecondary)}</Td>
                   <Td align="right">{formatNumber(row.total)}</Td>
                   <Td align="right">{pct(row.active, row.total)}</Td>
                   <Td align="right">{formatCompact(row.sales)}</Td>
@@ -94,6 +117,8 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
                 <Td>Total (principal pairs)</Td>
                 <Td>—</Td>
                 <Td align="right">{formatNumber(principalTotals.active)}</Td>
+                <Td align="right">{formatNumber(principalTotals.primary)}</Td>
+                <Td align="right">{formatNumber(principalTotals.secondary)}</Td>
                 <Td align="right">{formatNumber(principalTotals.total)}</Td>
                 <Td align="right">{pct(principalTotals.active, principalTotals.total)}</Td>
                 <Td align="right">{formatCompact(principalTotals.sales)}</Td>
@@ -105,7 +130,7 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
 
       <ChartGrid>
         <SectionCard title="By Region">
-          <BreakdownChart rows={summary.byRegion} status={filters.status} layout="vertical" onPick={(name) => onFilter({ region: name })} />
+          <BreakdownChart rows={summary.byRegion} {...chartProps} layout="vertical" onPick={(name) => onFilter({ region: name })} />
         </SectionCard>
         <SectionCard title="By Source System">
           <BreakdownTable
@@ -120,15 +145,15 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
       </ChartGrid>
 
       <SectionCard title="By Territory (top 25 by active outlets)">
-        <BreakdownChart rows={summary.byTerritory} status={filters.status} layout="horizontal" onPick={(name) => onFilter({ territory: name })} />
+        <BreakdownChart rows={summary.byTerritory} {...chartProps} layout="horizontal" onPick={(name) => onFilter({ territory: name })} />
       </SectionCard>
 
       <ChartGrid>
         <SectionCard title="By Channel">
-          <BreakdownChart rows={summary.byChannel} status={filters.status} layout="vertical" onPick={(name) => onFilter({ channel: name })} />
+          <BreakdownChart rows={summary.byChannel} {...chartProps} layout="vertical" onPick={(name) => onFilter({ channel: name })} />
         </SectionCard>
         <SectionCard title="By Segment / Type">
-          <BreakdownChart rows={summary.bySegment} status={filters.status} layout="horizontal" onPick={(name) => onFilter({ segment: name })} />
+          <BreakdownChart rows={summary.bySegment} {...chartProps} layout="horizontal" onPick={(name) => onFilter({ segment: name })} />
         </SectionCard>
       </ChartGrid>
 

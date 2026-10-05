@@ -2356,6 +2356,12 @@ model OutletUniverse {
   outletKey        String // the source system's own outlet id
   principal        String // Cost Centre / DMS principal as the source names it
   outletName       String
+  // "Primary Sales" | "Secondary Sales". Pine carries a real role per outlet and
+  // principal (the dominant role of the reps who sold it). Leverage and EABL DMS
+  // have no role of their own and are tagged "Primary Sales" - their van / DSR
+  // reps are the direct sales channel (the same convention the EABL coverage
+  // rollup already uses).
+  salesRole        String    @default("Primary Sales")
   channel          String // normalised, comparable across sources
   segment          String // normalised outlet type / segment
   rawChannel       String?
@@ -2379,4 +2385,5 @@ model OutletUniverse {
   @@index([channel, segment])
   @@index([region, territory])
   @@index([repName])
+  @@index([salesRole])
 }

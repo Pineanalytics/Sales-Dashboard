@@ -1,13 +1,24 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
-import { cleanTerritory, locationFromPrincipal, normalizeChannel, normalizeSegment, orUnspecified, type OutletSource } from "./normalize";
+import {
+  cleanTerritory,
+  exclusionReason,
+  locationFromPrincipal,
+  normalizeChannel,
+  normalizeSalesRole,
+  normalizeSegment,
+  orUnspecified,
+  type OutletSalesRole,
+  type OutletSource,
+} from "./normalize";
 
 export interface OutletUniverseRow {
   source: OutletSource;
   outletKey: string;
   principal: string;
   outletName: string;
+  salesRole: OutletSalesRole;
   channel: string;
   segment: string;
   rawChannel: string | null;
@@ -30,6 +41,8 @@ export interface OutletUniverseRebuildResult {
   leverage: number;
   eabl: number;
   total: number;
+  /** Rows kept out by OUTLET_EXCLUSIONS, by reason. Not included in the counts above. */
+  excluded: Record<string, number>;
   durationMs: number;
 }
 
@@ -60,6 +73,7 @@ interface PineSourceRow {
   pjpEmployeeCode: string | null;
   pjpRepName: string | null;
   pjpRegion: string | null;
+  salesRole: string;
   mostRecentRep: string | null;
   lastPurchaseDate: Date;
   sales: number;
@@ -72,6 +86,7 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     outletKey: row.customerId,
     principal: row.principal,
     outletName: row.outletName,
+    salesRole: normalizeSalesRole(row.salesRole),
     channel: normalizeChannel(row.channel),
     segment: normalizeSegment(row.subChannel),
     rawChannel: nonEmpty(row.channel),
@@ -124,6 +139,7 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     outletKey: row.customerCode,
     principal: `Unilever-${branch}`,
     outletName: nonEmpty(row.outletName) ?? row.customerCode,
+    salesRole: "Primary Sales",
     channel: normalizeChannel(row.channel),
     segment: normalizeSegment(row.channel),
     rawChannel: nonEmpty(row.channel),
@@ -168,6 +184,7 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     outletKey: row.customerId,
     principal: row.principal,
     outletName: row.outletName,
+    salesRole: "Primary Sales",
     channel: normalizeChannel(row.channel),
     segment: normalizeSegment(row.subChannel, row.segment),
     rawChannel: nonEmpty(row.channel),
@@ -189,7 +206,7 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
 async function loadPine(): Promise<OutletUniverseRow[]> {
   const rows = await prisma.$queryRaw<PineSourceRow[]>(Prisma.sql`
     SELECT principal, "customerId", "outletName", channel, "subChannel", territory, latitude, longitude,
-           "pjpEmployeeCode", "pjpRepName", "pjpRegion", "mostRecentRep", "lastPurchaseDate",
+           "pjpEmployeeCode", "pjpRepName", "pjpRegion", "salesRole", "mostRecentRep", "lastPurchaseDate",
            sales::double precision AS sales, "timesBought"
     FROM "ActiveOutlet"
     WHERE year = (SELECT MAX(year) FROM "ActiveOutlet")
@@ -294,7 +311,17 @@ export async function refreshOutletUniverseIfStale(maxAgeMs: number): Promise<vo
  *  half-built one. Safe to run repeatedly; the table is a derived copy. */
 async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const startedAt = Date.now();
-  const [pine, leverage, eabl] = await Promise.all([loadPine(), loadLeverage(), loadEabl()]);
+  const [loadedPine, loadedLeverage, loadedEabl] = await Promise.all([loadPine(), loadLeverage(), loadEabl()]);
+  const excluded: Record<string, number> = {};
+  const keep = (rows: OutletUniverseRow[]) =>
+    rows.filter((row) => {
+      const reason = exclusionReason(row);
+      if (reason) excluded[reason] = (excluded[reason] ?? 0) + 1;
+      return reason === null;
+    });
+  const pine = keep(loadedPine);
+  const leverage = keep(loadedLeverage);
+  const eabl = keep(loadedEabl);
   const builtAt = new Date();
   const all = [...pine, ...leverage, ...eabl];
 
@@ -311,5 +338,5 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
     { timeout: 180_000, maxWait: 30_000 }
   );
 
-  return { pine: pine.length, leverage: leverage.length, eabl: eabl.length, total: all.length, durationMs: Date.now() - startedAt };
+  return { pine: pine.length, leverage: leverage.length, eabl: eabl.length, total: all.length, excluded, durationMs: Date.now() - startedAt };
 }

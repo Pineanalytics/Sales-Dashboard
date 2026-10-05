@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { OUTLET_ACTIVE_WINDOW_DAYS, OUTLET_SOURCES, type OutletSource } from "./normalize";
+import { OUTLET_ACTIVE_WINDOW_DAYS, OUTLET_SALES_ROLES, OUTLET_SOURCES, type OutletSalesRole, type OutletSource } from "./normalize";
 
 export type OutletView = "principal" | "general";
 export type OutletStatus = "active" | "inactive" | "all";
@@ -10,6 +10,8 @@ export interface OutletFilters {
    *  "general": every outlet counted once, however many principals it buys. */
   view: OutletView;
   status: OutletStatus;
+  /** Narrows to Primary or Secondary Sales; null shows both, split side by side. */
+  role: OutletSalesRole | null;
   source: OutletSource | null;
   principal: string | null;
   channel: string | null;
@@ -34,9 +36,11 @@ function text(value: string | null, max = 120): string | null {
 export function parseOutletFilters(params: URLSearchParams): OutletFilters {
   const source = params.get("source");
   const status = params.get("status");
+  const role = params.get("role");
   return {
     view: params.get("view") === "general" ? "general" : "principal",
     status: status === "inactive" || status === "all" ? status : "active",
+    role: (OUTLET_SALES_ROLES as string[]).includes(role ?? "") ? (role as OutletSalesRole) : null,
     source: (OUTLET_SOURCES as string[]).includes(source ?? "") ? (source as OutletSource) : null,
     principal: text(params.get("principal")),
     channel: text(params.get("channel")),
@@ -61,6 +65,7 @@ function baseWhere(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
     parts.push(scope.principals.length > 0 ? Prisma.sql`lower(principal) IN (${Prisma.join(scope.principals.map((name) => name.toLowerCase()))})` : Prisma.sql`FALSE`);
   }
   if (filters.source) parts.push(Prisma.sql`source = ${filters.source}`);
+  if (filters.role) parts.push(Prisma.sql`"salesRole" = ${filters.role}`);
   if (filters.principal) parts.push(Prisma.sql`lower(principal) = ${filters.principal.toLowerCase()}`);
   if (filters.channel) parts.push(Prisma.sql`channel = ${filters.channel}`);
   if (filters.segment) parts.push(Prisma.sql`segment = ${filters.segment}`);
@@ -90,9 +95,13 @@ function cte(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
   if (filters.view === "principal") {
     return Prisma.sql`WITH ${base},
       unit AS (
-        SELECT source, "outletKey", principal, principal AS principals, "outletName", channel, segment, location, region, territory, route,
+        SELECT source, "outletKey", principal, principal AS principals, "salesRole", "outletName", channel, segment, location, region, territory, route,
                "repName", latitude, longitude, "lastPurchaseDate", sales, transactions,
-               COALESCE("lastPurchaseDate" >= ${cutoff}, FALSE) AS active
+               COALESCE("lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
+               ("salesRole" = 'Primary Sales') AS "hasPrimary",
+               ("salesRole" = 'Secondary Sales') AS "hasSecondary",
+               COALESCE("lastPurchaseDate" >= ${cutoff} AND "salesRole" = 'Primary Sales', FALSE) AS "activePrimary",
+               COALESCE("lastPurchaseDate" >= ${cutoff} AND "salesRole" = 'Secondary Sales', FALSE) AS "activeSecondary"
         FROM base
       )`;
   }
@@ -105,13 +114,21 @@ function cte(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
     ),
     agg AS (
       SELECT source, "outletKey", MAX("lastPurchaseDate") AS "lastPurchaseDate", SUM(sales) AS sales, SUM(transactions) AS transactions,
-             STRING_AGG(principal, ', ' ORDER BY principal) AS principals
+             STRING_AGG(principal, ', ' ORDER BY principal) AS principals,
+             BOOL_OR("salesRole" = 'Primary Sales') AS "hasPrimary",
+             BOOL_OR("salesRole" = 'Secondary Sales') AS "hasSecondary",
+             COALESCE(BOOL_OR("salesRole" = 'Primary Sales' AND "lastPurchaseDate" >= ${cutoff}), FALSE) AS "activePrimary",
+             COALESCE(BOOL_OR("salesRole" = 'Secondary Sales' AND "lastPurchaseDate" >= ${cutoff}), FALSE) AS "activeSecondary"
       FROM base GROUP BY source, "outletKey"
     ),
     unit AS (
-      SELECT h.source, h."outletKey", a.principals AS principal, a.principals, h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
+      SELECT h.source, h."outletKey", a.principals AS principal, a.principals,
+             CASE WHEN a."hasPrimary" AND a."hasSecondary" THEN 'Primary + Secondary'
+                  WHEN a."hasSecondary" THEN 'Secondary Sales' ELSE 'Primary Sales' END AS "salesRole",
+             h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
              h."repName", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
-             COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active
+             COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
+             a."hasPrimary", a."hasSecondary", a."activePrimary", a."activeSecondary"
       FROM head h JOIN agg a USING (source, "outletKey")
     )`;
 }
@@ -125,7 +142,17 @@ function statusClause(status: OutletStatus): Prisma.Sql {
 /** Every breakdown carries both counts so the dashboard can show active against
  *  the full known universe; the status filter only narrows the headline totals
  *  and the outlet list. */
-export interface BreakdownRow {
+export interface RoleCounts {
+  /** Active outlets that bought through Primary / Secondary Sales. In the general
+   *  view an outlet reached by both roles is in both, so the two can sum to more
+   *  than `active`. */
+  activePrimary: number;
+  activeSecondary: number;
+  totalPrimary: number;
+  totalSecondary: number;
+}
+
+export interface BreakdownRow extends RoleCounts {
   name: string;
   active: number;
   total: number;
@@ -143,7 +170,7 @@ export interface OutletUniverseSummary {
   /** Distinct outlets under the same filters, whichever view is selected (an
    *  outlet buying several principals counts once). In the principal view
    *  `totals` counts outlet-principal pairs instead. */
-  distinct: { total: number; active: number };
+  distinct: { total: number; active: number } & RoleCounts;
   bySource: BreakdownRow[];
   byPrincipal: PrincipalBreakdownRow[];
   byRegion: BreakdownRow[];
@@ -155,17 +182,28 @@ export interface OutletUniverseSummary {
 
 const num = (value: unknown) => Number(value ?? 0);
 
+const ROLE_AGGREGATES = Prisma.sql`
+  COUNT(*) FILTER (WHERE "activePrimary")::int AS "activePrimary",
+  COUNT(*) FILTER (WHERE "activeSecondary")::int AS "activeSecondary",
+  COUNT(*) FILTER (WHERE "hasPrimary")::int AS "totalPrimary",
+  COUNT(*) FILTER (WHERE "hasSecondary")::int AS "totalSecondary"`;
+
+function roleCounts(row: Partial<Record<keyof RoleCounts, unknown>>): RoleCounts {
+  return { activePrimary: num(row.activePrimary), activeSecondary: num(row.activeSecondary), totalPrimary: num(row.totalPrimary), totalSecondary: num(row.totalSecondary) };
+}
+
 async function breakdown(filters: OutletFilters, scope: OutletScope, column: Prisma.Sql, limit?: number): Promise<BreakdownRow[]> {
-  const rows = await prisma.$queryRaw<{ name: string; active: number; total: number }[]>(Prisma.sql`
+  const rows = await prisma.$queryRaw<(RoleCounts & { name: string; active: number; total: number })[]>(Prisma.sql`
     ${cte(filters, scope)}
     SELECT COALESCE(NULLIF(BTRIM(${column}), ''), 'Unspecified') AS name,
            COUNT(*) FILTER (WHERE active)::int AS active,
-           COUNT(*)::int AS total
+           COUNT(*)::int AS total,
+           ${ROLE_AGGREGATES}
     FROM unit
     GROUP BY 1 ORDER BY active DESC, total DESC, name ASC
     ${limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty}
   `);
-  return rows.map((row) => ({ name: row.name, active: num(row.active), total: num(row.total) }));
+  return rows.map((row) => ({ name: row.name, active: num(row.active), total: num(row.total), ...roleCounts(row) }));
 }
 
 export async function getOutletUniverseSummary(filters: OutletFilters, scope: OutletScope): Promise<OutletUniverseSummary> {
@@ -180,15 +218,16 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
              COALESCE(SUM(sales), 0)::double precision AS sales, COALESCE(SUM(transactions), 0)::double precision AS transactions
       FROM unit WHERE ${statusClause(filters.status)}
     `),
-    prisma.$queryRaw<{ total: number; active: number }[]>(Prisma.sql`
+    prisma.$queryRaw<(RoleCounts & { total: number; active: number })[]>(Prisma.sql`
       ${cte({ ...filters, view: "general" }, scope)}
-      SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active FROM unit
+      SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active, ${ROLE_AGGREGATES} FROM unit
     `),
     prisma.$queryRaw<{ builtAt: Date | null }[]>(Prisma.sql`SELECT MAX("builtAt") AS "builtAt" FROM "OutletUniverse"`),
     breakdown(filters, scope, Prisma.sql`source`),
-    prisma.$queryRaw<{ name: string; source: string; active: number; total: number; sales: number }[]>(Prisma.sql`
+    prisma.$queryRaw<(RoleCounts & { name: string; source: string; active: number; total: number; sales: number })[]>(Prisma.sql`
       ${cte(principalFilters, scope)}
       SELECT principal AS name, source, COUNT(*) FILTER (WHERE active)::int AS active, COUNT(*)::int AS total,
+             ${ROLE_AGGREGATES},
              COALESCE(SUM(sales), 0)::double precision AS sales
       FROM unit
       GROUP BY principal, source ORDER BY active DESC, total DESC, name ASC
@@ -207,9 +246,9 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
     builtAt: builtAt[0]?.builtAt ? builtAt[0].builtAt.toISOString() : null,
     activeWindowDays: OUTLET_ACTIVE_WINDOW_DAYS,
     totals: { total, active, inactive: total - active, withCoordinates: num(t?.withCoordinates), sales: num(t?.sales), transactions: num(t?.transactions) },
-    distinct: { total: num(distinct[0]?.total), active: num(distinct[0]?.active) },
+    distinct: { total: num(distinct[0]?.total), active: num(distinct[0]?.active), ...roleCounts(distinct[0] ?? {}) },
     bySource,
-    byPrincipal: byPrincipal.map((row) => ({ name: row.name, source: row.source, active: num(row.active), total: num(row.total), sales: num(row.sales) })),
+    byPrincipal: byPrincipal.map((row) => ({ name: row.name, source: row.source, active: num(row.active), total: num(row.total), sales: num(row.sales), ...roleCounts(row) })),
     byRegion,
     byTerritory,
     byChannel,
@@ -223,6 +262,8 @@ export interface OutletListRow {
   outletKey: string;
   outletName: string;
   principals: string;
+  /** "Primary Sales", "Secondary Sales", or "Primary + Secondary" for a general-view outlet reached by both. */
+  salesRole: string;
   channel: string;
   segment: string;
   location: string;
@@ -238,7 +279,7 @@ export interface OutletListRow {
   active: boolean;
 }
 
-const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, channel, segment, location, region, territory, route, "repName",
+const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName",
   latitude, longitude, "lastPurchaseDate", sales::double precision AS sales, transactions::int AS transactions, active`;
 
 function toListRow(row: Omit<OutletListRow, "lastPurchaseDate"> & { lastPurchaseDate: Date | null }): OutletListRow {

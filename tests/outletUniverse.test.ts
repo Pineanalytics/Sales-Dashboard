@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanTerritory, locationFromPrincipal, normalizeChannel, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
+import { cleanTerritory, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { cleanLeverageUnit, eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
@@ -59,12 +59,13 @@ describe("outlet universe row builders", () => {
       pjpEmployeeCode: "E1",
       pjpRepName: "Jane Doe",
       pjpRegion: "",
+      salesRole: "Secondary Sales",
       mostRecentRep: "Other Rep",
       lastPurchaseDate: new Date("2026-09-30"),
       sales: 1200,
       timesBought: 4,
     });
-    expect(row).toMatchObject({ source: "PINE", repName: "Jane Doe", region: "Unspecified", channel: "Retail", segment: "Retailers", location: "Nairobi", route: null, latitude: null, longitude: 37.1 });
+    expect(row).toMatchObject({ source: "PINE", repName: "Jane Doe", region: "Unspecified", channel: "Retail", segment: "Retailers", location: "Nairobi", route: null, latitude: null, longitude: 37.1, salesRole: "Secondary Sales" });
   });
 
   it("builds a Leverage row with the branch as region and principal", () => {
@@ -131,7 +132,49 @@ describe("outlet universe row builders", () => {
   });
 });
 
+describe("outlet universe sales role", () => {
+  it("keeps Pine's role and defaults everything else to Primary", () => {
+    expect(normalizeSalesRole("Secondary Sales")).toBe("Secondary Sales");
+    expect(normalizeSalesRole("Primary Sales")).toBe("Primary Sales");
+    expect(normalizeSalesRole("something new")).toBe("Primary Sales");
+    expect(normalizeSalesRole(null)).toBe("Primary Sales");
+  });
+
+  it("tags Leverage and EABL rows Primary Sales", () => {
+    const leverage = leverageRow({ customerCode: "T1", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: "Shop", channel: "Retailer" });
+    const eabl = eablRow({ customerId: "K1", principal: "EABL-Nyeri", outletName: "Bar", channel: null, subChannel: null, territory: null, route: null, latitude: null, longitude: null, lastBuy: null, sales: null, transactions: null, salesman: null, segment: null });
+    expect(leverage.salesRole).toBe("Primary Sales");
+    expect(eabl.salesRole).toBe("Primary Sales");
+  });
+});
+
+describe("outlet universe exclusions", () => {
+  it("hides the test territory in either spelling and any spacing", () => {
+    expect(exclusionReason({ territory: "Mars_Test_Territory - MBSR", repName: "Jane" })).toBe("Test territory");
+    expect(exclusionReason({ territory: "Mars_Test_Territory", repName: null })).toBe("Test territory");
+    expect(exclusionReason({ territory: "mars test  territory", repName: null })).toBe("Test territory");
+  });
+
+  it("hides the Admin istrator placeholder rep, however it is spaced or cased", () => {
+    expect(exclusionReason({ territory: "Kitengela", repName: "Admin istrator" })).toBe("Admin istrator placeholder rep");
+    expect(exclusionReason({ territory: "Kitengela", repName: "  ADMIN   ISTRATOR " })).toBe("Admin istrator placeholder rep");
+  });
+
+  it("keeps real territories and reps, including other admin-like names", () => {
+    expect(exclusionReason({ territory: "Kitengela", repName: "Jane Doe" })).toBeNull();
+    expect(exclusionReason({ territory: "Tharaka - MBSR", repName: "admin pinefrost" })).toBeNull();
+    expect(exclusionReason({ territory: "Unspecified", repName: null })).toBeNull();
+  });
+});
+
 describe("outlet universe filter parsing", () => {
+  it("reads the sales role filter and ignores unknown values", () => {
+    expect(parseOutletFilters(new URLSearchParams({ role: "Secondary Sales" })).role).toBe("Secondary Sales");
+    expect(parseOutletFilters(new URLSearchParams({ role: "Primary Sales" })).role).toBe("Primary Sales");
+    expect(parseOutletFilters(new URLSearchParams({ role: "everything" })).role).toBeNull();
+    expect(parseOutletFilters(new URLSearchParams()).role).toBeNull();
+  });
+
   it("defaults to the principal view of active outlets", () => {
     const filters = parseOutletFilters(new URLSearchParams());
     expect(filters).toMatchObject({ view: "principal", status: "active", source: null, principal: null, q: "" });
