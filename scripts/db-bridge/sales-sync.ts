@@ -18,6 +18,10 @@
 //               2025+2026, matching the "backfill from January 2025" decision)
 //               plus the full current year of daily-grain rows. Run this once
 //               manually; NOT part of the routine 30-minute cadence.
+//   --skip-brand-customer  Add to --backfill (or a routine run) to leave the
+//               Customer & Brands tables untouched. The full backfill's single
+//               735k-row Brand&Customer upload exhausts the 1 GiB worker, so use
+//               this and `npm run brand-customer:sync` instead.
 //   --comparison-backfill  Daily-grain only: current MTD, the matching days
 //               in the previous month, and the same days last year. It does
 //               not run YTD_Raw, and is intentionally a one-off repair for
@@ -58,6 +62,11 @@ import { replacementPeriodsFromDailyWindows, replacementPeriodsFromMonthlyRows }
 
 const isBackfill = process.argv.includes("--backfill");
 const isComparisonBackfill = process.argv.includes("--comparison-backfill");
+// Leave the Customer & Brands tables alone: their ~735k-row backfill upload is a
+// single request that runs out of memory in the 1 GiB worker (use
+// `npm run brand-customer:sync` for them). Skipping it also skips building those
+// rows, so the rest of the run finishes cleanly, derived-target recompute included.
+const skipBrandCustomer = process.argv.includes("--skip-brand-customer");
 
 // Daily-grain fetch window. Backfill: Jan 1 of the CURRENT year through today
 // (the "widen to the full current year" decision — daily grain is not backfilled
@@ -140,8 +149,8 @@ async function main() {
   const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
   const monthlyRepSales = buildMonthlyRepSales(monthlyInputRows, products, warehousesData, principalsData, employees);
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
-  const monthlyCustomerSales = buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
-  const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
+  const monthlyCustomerSales = skipBrandCustomer ? [] : buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
+  const dailyCustomerSales = skipBrandCustomer ? [] : buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
   const unmappedProductSales = buildUnmappedProductSales(monthlyInputRows, products);
   const monthlyReplacePeriods = replacementPeriodsFromMonthlyRows(monthlyCustomerSales);
   const unmappedProductReplacePeriods = isBackfill
@@ -258,22 +267,26 @@ async function main() {
     );
   }
 
-  console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
-  const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-    body: JSON.stringify({
-      monthlyRows: monthlyCustomerSales,
-      dailyRows: dailyCustomerSales,
-      monthlyReplacePeriods,
-      dailyReplacePeriods,
-    }),
-  });
-  const brandCustomerBody = await brandCustomerResponse.json();
-  if (!brandCustomerResponse.ok) {
-    throw new Error(`Brand&Customer upload rejected (HTTP ${brandCustomerResponse.status}): ${JSON.stringify(brandCustomerBody)}`);
+  if (skipBrandCustomer) {
+    console.log("[sales-sync] --skip-brand-customer: Customer & Brands tables left untouched (run `npm run brand-customer:sync` for them).");
+  } else {
+    console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
+    const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+      body: JSON.stringify({
+        monthlyRows: monthlyCustomerSales,
+        dailyRows: dailyCustomerSales,
+        monthlyReplacePeriods,
+        dailyReplacePeriods,
+      }),
+    });
+    const brandCustomerBody = await brandCustomerResponse.json();
+    if (!brandCustomerResponse.ok) {
+      throw new Error(`Brand&Customer upload rejected (HTTP ${brandCustomerResponse.status}): ${JSON.stringify(brandCustomerBody)}`);
+    }
+    console.log(`[sales-sync] Brand&Customer upload succeeded. Saved ${brandCustomerBody.monthlyRows} monthly and ${brandCustomerBody.dailyRows} daily rows.`);
   }
-  console.log(`[sales-sync] Brand&Customer upload succeeded. Saved ${brandCustomerBody.monthlyRows} monthly and ${brandCustomerBody.dailyRows} daily rows.`);
 
   // RepContribution/DailyTarget now use SAP sales actuals, so refresh them in
   // the same transaction cycle rather than waiting for the next JPA sync.
