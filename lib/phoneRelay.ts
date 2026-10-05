@@ -18,8 +18,8 @@
 // drops pending commands - the phone shows the agents as offline until they re-sync.
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
-export type RelayTarget = "automation" | "panel";
-export type CommandType = "login" | "mfa" | "start" | "stop" | "backfill" | "push-uploads";
+export type RelayTarget = "automation" | "panel" | "server";
+export type CommandType = "login" | "mfa" | "start" | "stop" | "backfill" | "push-uploads" | "server-pull" | "server-backfill" | "server-halt" | "server-resume";
 
 export const COMMAND_TARGET: Record<CommandType, RelayTarget> = {
   login: "automation",
@@ -28,6 +28,11 @@ export const COMMAND_TARGET: Record<CommandType, RelayTarget> = {
   stop: "panel",
   backfill: "panel",
   "push-uploads": "panel",
+  // PINEFROSTSERVER (EABL Sales Export pipeline) - its own agent, a different machine.
+  "server-pull": "server",
+  "server-backfill": "server",
+  "server-halt": "server",
+  "server-resume": "server",
 };
 const ENCRYPTED_TYPES: CommandType[] = ["login", "mfa"];
 
@@ -49,6 +54,7 @@ export interface RelayCommand {
   target: RelayTarget;
   cipher?: string;
   date?: string;
+  replace?: boolean;
   createdAt: number;
   claimedAt?: number;
 }
@@ -66,7 +72,7 @@ interface RelayState {
 const g = globalThis as unknown as { __phoneRelayState?: RelayState };
 export function getRelayState(): RelayState {
   if (!g.__phoneRelayState) {
-    g.__phoneRelayState = { publicKey: null, agents: { automation: null, panel: null }, commands: [], results: [], keyFailures: new Map(), commandTimes: new Map() };
+    g.__phoneRelayState = { publicKey: null, agents: { automation: null, panel: null, server: null }, commands: [], results: [], keyFailures: new Map(), commandTimes: new Map() };
   }
   return g.__phoneRelayState;
 }
@@ -99,7 +105,7 @@ export function checkKey(kind: KeyKind, supplied: string | null, client: string,
   return "denied";
 }
 
-export interface EnqueueInput { type?: unknown; cipher?: unknown; date?: unknown }
+export interface EnqueueInput { type?: unknown; cipher?: unknown; date?: unknown; replace?: unknown }
 export type EnqueueResult = { ok: true; id: string } | { ok: false; error: string; status: number };
 
 function pruneCommands(state: RelayState, now: number) {
@@ -119,11 +125,12 @@ export function enqueueCommand(input: EnqueueInput, client: string, now: number)
     }
     command.cipher = input.cipher;
   }
-  if (type === "backfill") {
+  if (type === "backfill" || type === "server-backfill") {
     if (typeof input.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(Date.parse(input.date))) {
       return { ok: false, error: "Backfill needs a date (YYYY-MM-DD).", status: 400 };
     }
     command.date = input.date;
+    if (type === "server-backfill" && input.replace === true) command.replace = true; // re-pull a date that already has a delivered file
   }
   pruneCommands(state, now);
   // The latest login/MFA attempt supersedes an older unclaimed one of the same kind.
@@ -177,7 +184,7 @@ export function getPhoneView(now: number) {
   };
   return {
     publicKey: state.publicKey,
-    agents: { automation: agent("automation"), panel: agent("panel") },
+    agents: { automation: agent("automation"), panel: agent("panel"), server: agent("server") },
     pending: state.commands.length,
     results: state.results,
     serverTime: now,

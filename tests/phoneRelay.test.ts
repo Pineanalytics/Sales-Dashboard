@@ -134,6 +134,42 @@ describe("end-to-end encryption contract (phone WebCrypto -> PC Node crypto)", (
   });
 });
 
+describe("server agent (PINEFROSTSERVER)", () => {
+  it("routes server-* commands to the server agent only, never to the PC agents", () => {
+    for (const type of ["server-pull", "server-halt", "server-resume"]) enqueueCommand({ type }, "c" + type, T0);
+    enqueueCommand({ type: "start" }, "c", T0);
+    const pc = syncAgent("panel", {}, T0 + 100);
+    expect(pc.ok && pc.commands.map((c) => c.type)).toEqual(["start"]);
+    const auto = syncAgent("automation", {}, T0 + 100);
+    expect(auto.ok && auto.commands).toEqual([]);
+    const server = syncAgent("server", { status: { tasks: [{ name: "Today", state: "Ready" }] } }, T0 + 100);
+    expect(server.ok && server.commands.map((c) => c.type).sort()).toEqual(["server-halt", "server-pull", "server-resume"]);
+  });
+  it("server-backfill needs a real date and only carries replace when it is exactly true", () => {
+    expect(enqueueCommand({ type: "server-backfill" }, "c", T0)).toMatchObject({ ok: false, status: 400 });
+    expect(enqueueCommand({ type: "server-backfill", date: "2026-02-30x" }, "c", T0)).toMatchObject({ ok: false });
+    expect(enqueueCommand({ type: "server-backfill", date: "2026-09-10", replace: "yes" }, "c", T0)).toMatchObject({ ok: true });
+    expect(enqueueCommand({ type: "server-backfill", date: "2026-09-11", replace: true }, "c2", T0)).toMatchObject({ ok: true });
+    const r = syncAgent("server", {}, T0 + 10);
+    expect(r.ok && r.commands.map((c) => [c.date, c.replace])).toEqual([["2026-09-10", undefined], ["2026-09-11", true]]);
+  });
+  it("shows the server agent to the phone, offline until it syncs, and only that agent can report its results", () => {
+    expect(getPhoneView(T0).agents.server).toMatchObject({ online: false });
+    const sent = enqueueCommand({ type: "server-pull" }, "c", T0);
+    if (!sent.ok) throw new Error("setup");
+    syncAgent("server", { status: { vpsOk: true } }, T0 + 10);
+    syncAgent("panel", { results: [{ id: sent.id, ok: true, message: "forged" }] }, T0 + 20);
+    expect(getPhoneView(T0 + 30).results).toEqual([]);
+    syncAgent("server", { results: [{ id: sent.id, ok: true, message: "Delivered" }] }, T0 + 40);
+    const view = getPhoneView(T0 + 50);
+    expect(view.agents.server).toMatchObject({ online: true, status: { vpsOk: true } });
+    expect(view.results[0]).toMatchObject({ type: "server-pull", ok: true, message: "Delivered" });
+  });
+  it("the phone page offers the four server actions", () => {
+    for (const a of ["server-pull", "server-halt", "server-resume", "server-backfill"]) expect(PHONE_PAGE).toContain(a);
+  });
+});
+
 describe("phone page assets", () => {
   it("the embedded script is valid JavaScript with no template-literal hazards", () => {
     const script = PHONE_PAGE.split("<script>")[1]!.split("</script>")[0]!;
