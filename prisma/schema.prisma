@@ -2336,3 +2336,47 @@ model SfaCustomerActual {
   @@index([sfaCustomer])
   @@index([syncToken])
 }
+
+// Unified Active Outlet universe — one row per source x outlet x principal,
+// compiled from the three outlet sources so the Active Outlet module can
+// slice them together: Pine (ActiveOutlet, key = pine outlet id), Leverage
+// (Centegy DMS: SalesReturnLine + OutletSkuDailySales, key = customerCode) and
+// EABL DMS (EablCustomerMaster + EablCall, key = DMSCustomerCode). Rebuilt in
+// full by lib/outletUniverse/rebuild.ts (every ~30 min by the live-sync worker
+// and on demand by an admin) — never written to by a source sync directly, and
+// disposable: it can always be regenerated from the source tables.
+//
+// "Active" is NOT stored: it is read as lastPurchaseDate within
+// OUTLET_ACTIVE_WINDOW_DAYS (60, Pine's own rule) so the figure never goes stale
+// between rebuilds. There is no shared outlet id across the three systems, so
+// one physical shop served by two systems is two rows (see the module's note).
+model OutletUniverse {
+  id               String    @id @default(cuid())
+  source           String // "PINE" | "LEVERAGE" | "EABL"
+  outletKey        String // the source system's own outlet id
+  principal        String // Cost Centre / DMS principal as the source names it
+  outletName       String
+  channel          String // normalised, comparable across sources
+  segment          String // normalised outlet type / segment
+  rawChannel       String?
+  rawSegment       String?
+  location         String // branch / depot, e.g. "Nairobi", "Nyeri"
+  region           String
+  territory        String
+  route            String?
+  repCode          String?
+  repName          String?
+  latitude         Float?
+  longitude        Float?
+  lastPurchaseDate DateTime?
+  sales            Float     @default(0) // year-to-date, net of returns where the source has them
+  transactions     Int       @default(0)
+  builtAt          DateTime  @default(now())
+
+  @@unique([source, outletKey, principal])
+  @@index([principal])
+  @@index([lastPurchaseDate])
+  @@index([channel, segment])
+  @@index([region, territory])
+  @@index([repName])
+}
