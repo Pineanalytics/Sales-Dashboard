@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, locationFromPrincipal, normalizeChannel, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
-import { eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
+import { cleanLeverageUnit, eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
 describe("outlet universe normalisation", () => {
@@ -74,18 +74,39 @@ describe("outlet universe row builders", () => {
       lastBuy: new Date("2026-10-01"),
       sales: 5000,
       transactions: 3,
-      salesRepCode: "R1",
-      salesRepName: "Rep One",
-      routeName: "Firm sands",
+      salesRepCode: "B01",
+      salesRepName: "VAN B1_OB (TOTAL)_18048241",
       route: "B001",
+      routeDesc: "VAN B1_OB (CBD)",
       outletName: "Simbisa Karen(Shell)",
       channel: "LMT",
     });
-    expect(row).toMatchObject({ source: "LEVERAGE", principal: "Unilever-Nairobi", region: "Nairobi", territory: "Firm sands", route: "Firm sands", channel: "Modern Trade", segment: "Large Modern Trade" });
+    expect(row).toMatchObject({
+      source: "LEVERAGE",
+      principal: "Unilever-Nairobi",
+      region: "Nairobi",
+      territory: "Nairobi",
+      route: "VAN B1_OB (CBD) (B001)",
+      repName: "VAN B1_OB (TOTAL)",
+      channel: "Modern Trade",
+      segment: "Large Modern Trade",
+    });
+  });
+
+  it("falls back to the PJP code when the journey-plan roster has no description", () => {
+    const row = leverageRow({ customerCode: "T0002", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: "NY03", routeDesc: null, outletName: "Shop", channel: "Retailer" });
+    expect(row.route).toBe("NY03");
+    expect(row.repName).toBeNull();
+  });
+
+  it("strips the distributor-id suffix from a Leverage sales unit", () => {
+    expect(cleanLeverageUnit("NY_VAN_A_OB_18058585")).toBe("NY_VAN_A_OB");
+    expect(cleanLeverageUnit("Rep One")).toBe("Rep One");
+    expect(cleanLeverageUnit(null)).toBeNull();
   });
 
   it("names a Leverage outlet by its code when no outlet name was ever synced", () => {
-    const row = leverageRow({ customerCode: "T0001", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, routeName: null, route: null, outletName: null, channel: null });
+    const row = leverageRow({ customerCode: "T0001", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: null, channel: null });
     expect(row).toMatchObject({ outletName: "T0001", principal: "Unilever-Nyeri", territory: "Nyeri", channel: "Unspecified", lastPurchaseDate: null });
   });
 

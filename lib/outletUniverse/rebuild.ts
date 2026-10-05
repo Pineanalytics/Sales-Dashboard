@@ -99,15 +99,26 @@ interface LeverageSourceRow {
   transactions: number;
   salesRepCode: string | null;
   salesRepName: string | null;
-  routeName: string | null;
+  /** PJP code from the invoice line, e.g. "NY03". (The feed's own "routeName"
+   *  column holds the outlet's name, so it is never used as a route.) */
   route: string | null;
+  /** The PJP's description from the journey-plan roster, e.g. "NY_VAN_A2_OB". */
+  routeDesc: string | null;
   outletName: string | null;
   channel: string | null;
 }
 
+/** Centegy names a sales unit "<van or bike>_<distributor id>"; the id suffix only repeats the branch. */
+export function cleanLeverageUnit(name: string | null): string | null {
+  const text = nonEmpty(name);
+  return text ? text.replace(/_\d{6,}$/, "") : null;
+}
+
 export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
   const branch = SALES_RETURNS_BRANCH_LABELS[row.storageLocation] ?? row.storageLocation;
-  const route = nonEmpty(row.routeName) ?? nonEmpty(row.route);
+  const code = nonEmpty(row.route);
+  const desc = nonEmpty(row.routeDesc);
+  const route = desc && code ? `${desc} (${code})` : (desc ?? code);
   return {
     source: "LEVERAGE",
     outletKey: row.customerCode,
@@ -118,13 +129,13 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     rawChannel: nonEmpty(row.channel),
     rawSegment: null,
     location: branch,
-    // The Centegy feed has no territory above route: the branch is the region
-    // and the route's place name stands in as the territory.
+    // The Centegy feed has no area above the route: the branch is both the
+    // region and the territory. The "rep" is the van / bike sales unit.
     region: branch,
-    territory: route ?? branch,
+    territory: branch,
     route,
     repCode: nonEmpty(row.salesRepCode),
-    repName: nonEmpty(row.salesRepName),
+    repName: cleanLeverageUnit(row.salesRepName),
     latitude: null,
     longitude: null,
     lastPurchaseDate: row.lastBuy,
@@ -190,7 +201,7 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
   const rows = await prisma.$queryRaw<LeverageSourceRow[]>(Prisma.sql`
     WITH docs AS (
       SELECT "customerCode", "storageLocation", "deliveryDate", "documentType", "netSale", "invoiceNo",
-             "salesRepCode", "salesRepName", "routeName", route
+             "salesRepCode", "salesRepName", route
       FROM "SalesReturnLine"
       WHERE EXTRACT(YEAR FROM "deliveryDate") = EXTRACT(YEAR FROM now())
     ),
@@ -203,7 +214,7 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
     ),
     latest AS (
       SELECT DISTINCT ON ("customerCode", "storageLocation")
-             "customerCode", "storageLocation", "salesRepCode", "salesRepName", "routeName", route
+             "customerCode", "storageLocation", "salesRepCode", "salesRepName", route
       FROM docs
       WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)})
       ORDER BY "customerCode", "storageLocation", "deliveryDate" DESC, "invoiceNo" DESC
@@ -212,12 +223,18 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
       SELECT DISTINCT ON ("outletCode", distributor) "outletCode", distributor, "outletName", channel
       FROM "OutletSkuDailySales"
       ORDER BY "outletCode", distributor, date DESC
+    ),
+    plan AS (
+      SELECT DISTINCT ON (distributor, pjp) distributor, pjp, "routeDesc"
+      FROM "JourneyPlanAssignment"
+      ORDER BY distributor, pjp, "routeDesc"
     )
     SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions,
-           l."salesRepCode", l."salesRepName", l."routeName", l.route,
+           l."salesRepCode", l."salesRepName", l.route, p."routeDesc",
            n."outletName", n.channel
     FROM agg a
     LEFT JOIN latest l USING ("customerCode", "storageLocation")
+    LEFT JOIN plan p ON p.distributor = a."storageLocation" AND p.pjp = l.route
     LEFT JOIN names n ON n."outletCode" = a."customerCode" AND n.distributor = a."storageLocation"
   `);
   return rows.map(leverageRow);
