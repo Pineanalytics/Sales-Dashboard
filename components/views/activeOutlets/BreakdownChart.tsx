@@ -2,29 +2,42 @@
 
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { BreakdownRow, OutletStatus } from "@/lib/outletUniverse/query";
+import type { OutletSalesRole } from "@/lib/outletUniverse/normalize";
 import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
-const ACTIVE_COLOR = CHART_COLORS[1];
-const INACTIVE_COLOR = CHART_COLORS[9];
+const PRIMARY_COLOR = CHART_COLORS[0];
+const SECONDARY_COLOR = CHART_COLORS[2];
 
-/** Active (and, when the status filter allows, inactive) outlet counts per
- *  dimension value. Clicking a bar drills into it by setting that filter. */
+/** The count a bar shows for one role: active outlets, inactive ones, or the whole
+ *  known universe, following the status filter. */
+export function roleMetric(row: BreakdownRow, role: "Primary" | "Secondary", status: OutletStatus): number {
+  const active = role === "Primary" ? row.activePrimary : row.activeSecondary;
+  const total = role === "Primary" ? row.totalPrimary : row.totalSecondary;
+  if (status === "active") return active;
+  if (status === "inactive") return Math.max(0, total - active);
+  return total;
+}
+
+/** Outlet counts per dimension value, split into Primary and Secondary Sales
+ *  (stacked). Clicking a bar drills into it by setting that filter. */
 export function BreakdownChart({
   rows,
   status,
+  role,
   layout,
   onPick,
   rowHeight = 26,
 }: {
   rows: BreakdownRow[];
   status: OutletStatus;
+  role: OutletSalesRole | null;
   layout: "horizontal" | "vertical";
   onPick?: (name: string) => void;
   rowHeight?: number;
 }) {
-  const data = rows.map((row) => ({ name: row.name, Active: row.active, Inactive: Math.max(0, row.total - row.active) }));
-  const showActive = status !== "inactive";
-  const showInactive = status !== "active";
+  const data = rows.map((row) => ({ name: row.name, Primary: roleMetric(row, "Primary", status), Secondary: roleMetric(row, "Secondary", status) }));
+  const showPrimary = role !== "Secondary Sales";
+  const showSecondary = role !== "Primary Sales";
   const pick = (entry: unknown) => {
     const name = (entry as { name?: string } | null)?.name;
     if (name && onPick) onPick(name);
@@ -41,9 +54,9 @@ export function BreakdownChart({
           <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} interval={0} />
           <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} />
           <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-          {showActive && showInactive ? <Legend wrapperStyle={{ fontSize: 11 }} /> : null}
-          {showActive ? <Bar dataKey="Active" fill={ACTIVE_COLOR} radius={showInactive ? 0 : [6, 6, 0, 0]} {...barProps} /> : null}
-          {showInactive ? <Bar dataKey="Inactive" fill={INACTIVE_COLOR} radius={[6, 6, 0, 0]} {...barProps} /> : null}
+          {showPrimary && showSecondary ? <Legend wrapperStyle={{ fontSize: 11 }} /> : null}
+          {showPrimary ? <Bar dataKey="Primary" fill={PRIMARY_COLOR} radius={showSecondary ? 0 : [6, 6, 0, 0]} {...barProps} /> : null}
+          {showSecondary ? <Bar dataKey="Secondary" fill={SECONDARY_COLOR} radius={[6, 6, 0, 0]} {...barProps} /> : null}
         </BarChart>
       </ResponsiveContainer>
     );
@@ -56,9 +69,9 @@ export function BreakdownChart({
         <XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} />
         <YAxis type="category" dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} width={130} interval={0} />
         <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-        {showActive && showInactive ? <Legend wrapperStyle={{ fontSize: 11 }} /> : null}
-        {showActive ? <Bar dataKey="Active" fill={ACTIVE_COLOR} radius={showInactive ? 0 : [0, 6, 6, 0]} {...barProps} /> : null}
-        {showInactive ? <Bar dataKey="Inactive" fill={INACTIVE_COLOR} radius={[0, 6, 6, 0]} {...barProps} /> : null}
+        {showPrimary && showSecondary ? <Legend wrapperStyle={{ fontSize: 11 }} /> : null}
+        {showPrimary ? <Bar dataKey="Primary" fill={PRIMARY_COLOR} radius={showSecondary ? 0 : [0, 6, 6, 0]} {...barProps} /> : null}
+        {showSecondary ? <Bar dataKey="Secondary" fill={SECONDARY_COLOR} radius={[0, 6, 6, 0]} {...barProps} /> : null}
       </BarChart>
     </ResponsiveContainer>
   );

@@ -77,7 +77,7 @@ export function FilterBar({
   searchText: string;
   onSearchText: (value: string) => void;
 }) {
-  const hasFilter = Boolean(filters.source || filters.principal || filters.channel || filters.segment || filters.region || filters.territory || filters.route || filters.rep || filters.q || filters.status !== "active");
+  const hasFilter = Boolean(filters.role || filters.source || filters.principal || filters.channel || filters.segment || filters.region || filters.territory || filters.route || filters.rep || filters.q || filters.status !== "active");
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -109,6 +109,13 @@ export function FilterBar({
                 {OUTLET_SOURCE_LABELS[source]}
               </option>
             ))}
+          </select>
+        </Field>
+        <Field label="Sales Role">
+          <select aria-label="Sales Role" value={filters.role ?? ""} onChange={(event) => onChange({ role: (event.target.value || null) as OutletFilters["role"] })} className={selectClass}>
+            <option value="">Primary + Secondary (split)</option>
+            <option value="Primary Sales">Primary Sales only</option>
+            <option value="Secondary Sales">Secondary Sales only</option>
           </select>
         </Field>
         <ValueSelect label="Principal" value={filters.principal} values={options?.principals ?? []} onChange={(principal) => onChange({ principal })} />

@@ -31,6 +31,7 @@ export function OutletList({
           <Th>Outlet</Th>
           <Th>Source</Th>
           <Th>Principal(s)</Th>
+          <Th>Sales Role</Th>
           <Th>Channel</Th>
           <Th>Segment / Type</Th>
           <Th>Region</Th>
@@ -47,6 +48,7 @@ export function OutletList({
               <Td title={`${row.outletName} (${row.outletKey})`}>{row.outletName}</Td>
               <Td>{OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source}</Td>
               <Td title={row.principals}>{row.principals}</Td>
+              <Td>{row.salesRole.replace(" Sales", "")}</Td>
               <Td>{row.channel}</Td>
               <Td>{row.segment}</Td>
               <Td>{row.region}</Td>
@@ -62,7 +64,7 @@ export function OutletList({
           ))}
           {list.rows.length === 0 ? (
             <tr>
-              <td colSpan={12} className="px-3 py-8 text-center text-muted">
+              <td colSpan={13}className="px-3 py-8 text-center text-muted">
                 No outlets match these filters.
               </td>
             </tr>
