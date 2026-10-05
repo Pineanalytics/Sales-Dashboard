@@ -18,6 +18,13 @@
 //               2025+2026, matching the "backfill from January 2025" decision)
 //               plus the full current year of daily-grain rows. Run this once
 //               manually; NOT part of the routine 30-minute cadence.
+//   --skip-brand-customer  Add to --backfill (or a routine run) to leave the
+//               Customer & Brands tables untouched. The full backfill's single
+//               735k-row Brand&Customer upload exhausts the 1 GiB worker, so use
+//               this and `npm run brand-customer:sync` instead.
+//   --recost-history  Let --backfill re-cost closed months at today's SAP purchase
+//               prices. Off by default: a backfill otherwise keeps each closed
+//               row's stored COGS/GP ratios and refreshes only its revenue.
 //   --comparison-backfill  Daily-grain only: current MTD, the matching days
 //               in the previous month, and the same days last year. It does
 //               not run YTD_Raw, and is intentionally a one-off repair for
@@ -55,9 +62,51 @@ import {
   dailyRowsToMonthlyInput,
 } from "./transform/buildRepSales";
 import { replacementPeriodsFromDailyWindows, replacementPeriodsFromMonthlyRows } from "@/lib/salesReplacement";
+import { prisma } from "@/lib/db";
+import {
+  dailyKey,
+  dailyRepKey,
+  freezeCosts,
+  isClosedDay,
+  isClosedMonth,
+  monthlyKey,
+  monthlyRepKey,
+  recordRatios,
+  type CostRatioMap,
+} from "./transform/freezeClosedMonthCosts";
 
 const isBackfill = process.argv.includes("--backfill");
 const isComparisonBackfill = process.argv.includes("--comparison-backfill");
+// Leave the Customer & Brands tables alone: their ~735k-row backfill upload is a
+// single request that runs out of memory in the 1 GiB worker (use
+// `npm run brand-customer:sync` for them). Skipping it also skips building those
+// rows, so the rest of the run finishes cleanly, derived-target recompute included.
+const skipBrandCustomer = process.argv.includes("--skip-brand-customer");
+// A backfill keeps every closed month's stored margin and only refreshes its
+// revenue: SAP prices COGS from the CURRENT purchase price list, so re-reading
+// history would otherwise re-cost it (see transform/freezeClosedMonthCosts.ts).
+// Pass --recost-history to re-cost closed months on purpose.
+const recostHistory = process.argv.includes("--recost-history");
+
+/** The stored COGS/GP-to-revenue ratios of every closed row, read from the live tables before they are overwritten. */
+async function loadStoredCostRatios(asOf: Date) {
+  const monthly: CostRatioMap = new Map();
+  const monthlyRep: CostRatioMap = new Map();
+  const daily: CostRatioMap = new Map();
+  const dailyRep: CostRatioMap = new Map();
+  const day = (date: Date) => date.toISOString().slice(0, 10);
+  const [salesRecords, repMonths, dailyRows, dailyRepRows] = await Promise.all([
+    prisma.salesRecord.findMany({ select: { year: true, month: true, monthIndex: true, principal: true, revenue: true, cogs: true, grossProfit: true } }),
+    prisma.salesRepActual.findMany({ select: { year: true, month: true, monthIndex: true, principal: true, sapName: true, revenue: true, cogs: true, grossProfit: true } }),
+    prisma.dailySalesActual.findMany({ where: { date: { lt: new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1)) } }, select: { date: true, location: true, principal: true, revenue: true, cogs: true, grossProfit: true } }),
+    prisma.dailySalesRepActual.findMany({ where: { date: { lt: new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1)) } }, select: { date: true, principal: true, sapName: true, revenue: true, cogs: true, grossProfit: true } }),
+  ]);
+  for (const row of salesRecords) if (isClosedMonth(Number(row.year), row.monthIndex, asOf)) recordRatios(monthly, monthlyKey(row), row);
+  for (const row of repMonths) if (isClosedMonth(Number(row.year), row.monthIndex, asOf)) recordRatios(monthlyRep, monthlyRepKey(row), row);
+  for (const row of dailyRows) recordRatios(daily, dailyKey({ ...row, date: day(row.date) }), row);
+  for (const row of dailyRepRows) recordRatios(dailyRep, dailyRepKey({ ...row, date: day(row.date) }), row);
+  return { monthly, monthlyRep, daily, dailyRep };
+}
 
 // Daily-grain fetch window. Backfill: Jan 1 of the CURRENT year through today
 // (the "widen to the full current year" decision — daily grain is not backfilled
@@ -140,9 +189,22 @@ async function main() {
   const dailySales = buildDailySales(dailyRawRows, products, warehousesData, principalsData);
   const monthlyRepSales = buildMonthlyRepSales(monthlyInputRows, products, warehousesData, principalsData, employees);
   const dailyRepSales = buildDailyRepSales(dailyRawRows, products, warehousesData, principalsData, employees);
-  const monthlyCustomerSales = buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
-  const dailyCustomerSales = buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
+  const monthlyCustomerSales = skipBrandCustomer ? [] : buildMonthlyCustomerSales(monthlyInputRows, products, warehousesData, principalsData);
+  const dailyCustomerSales = skipBrandCustomer ? [] : buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
   const unmappedProductSales = buildUnmappedProductSales(monthlyInputRows, products);
+
+  if (isBackfill && !recostHistory) {
+    const ratios = await loadStoredCostRatios(asOfDate);
+    const frozen = {
+      monthly: freezeCosts(monthlySales, monthlyKey, (row) => isClosedMonth(Number(row.year), row.monthIndex, asOfDate), ratios.monthly),
+      monthlyRep: freezeCosts(monthlyRepSales, monthlyRepKey, (row) => isClosedMonth(Number(row.year), row.monthIndex, asOfDate), ratios.monthlyRep),
+      daily: freezeCosts(dailySales, dailyKey, (row) => isClosedDay(row.date, asOfDate), ratios.daily),
+      dailyRep: freezeCosts(dailyRepSales, dailyRepKey, (row) => isClosedDay(row.date, asOfDate), ratios.dailyRep),
+    };
+    console.log(
+      `[sales-sync] Kept the stored margin of closed months (revenue refreshed, COGS/GP not re-costed): ${frozen.monthly} principal-month, ${frozen.monthlyRep} rep-month, ${frozen.daily} principal-day and ${frozen.dailyRep} rep-day rows. Pass --recost-history to re-cost history.`
+    );
+  }
   const monthlyReplacePeriods = replacementPeriodsFromMonthlyRows(monthlyCustomerSales);
   const unmappedProductReplacePeriods = isBackfill
     ? replacementPeriodsFromMonthlyRows(monthlyInputRows.map((row) => ({ year: String(row.year), monthIndex: row.monthNo - 1 })))
@@ -258,22 +320,26 @@ async function main() {
     );
   }
 
-  console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
-  const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-    body: JSON.stringify({
-      monthlyRows: monthlyCustomerSales,
-      dailyRows: dailyCustomerSales,
-      monthlyReplacePeriods,
-      dailyReplacePeriods,
-    }),
-  });
-  const brandCustomerBody = await brandCustomerResponse.json();
-  if (!brandCustomerResponse.ok) {
-    throw new Error(`Brand&Customer upload rejected (HTTP ${brandCustomerResponse.status}): ${JSON.stringify(brandCustomerBody)}`);
+  if (skipBrandCustomer) {
+    console.log("[sales-sync] --skip-brand-customer: Customer & Brands tables left untouched (run `npm run brand-customer:sync` for them).");
+  } else {
+    console.log(`[sales-sync] Uploading Brand&Customer SAP actuals to ${appUrl}/api/sales/upload-brand-customer...`);
+    const brandCustomerResponse = await fetch(`${appUrl}/api/sales/upload-brand-customer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
+      body: JSON.stringify({
+        monthlyRows: monthlyCustomerSales,
+        dailyRows: dailyCustomerSales,
+        monthlyReplacePeriods,
+        dailyReplacePeriods,
+      }),
+    });
+    const brandCustomerBody = await brandCustomerResponse.json();
+    if (!brandCustomerResponse.ok) {
+      throw new Error(`Brand&Customer upload rejected (HTTP ${brandCustomerResponse.status}): ${JSON.stringify(brandCustomerBody)}`);
+    }
+    console.log(`[sales-sync] Brand&Customer upload succeeded. Saved ${brandCustomerBody.monthlyRows} monthly and ${brandCustomerBody.dailyRows} daily rows.`);
   }
-  console.log(`[sales-sync] Brand&Customer upload succeeded. Saved ${brandCustomerBody.monthlyRows} monthly and ${brandCustomerBody.dailyRows} daily rows.`);
 
   // RepContribution/DailyTarget now use SAP sales actuals, so refresh them in
   // the same transaction cycle rather than waiting for the next JPA sync.
