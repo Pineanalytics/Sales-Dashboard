@@ -1,16 +1,16 @@
 // Performance Analysis refresh: reads the year's SAP invoice and credit-note
-// lines one calendar month at a time (peak SAP/memory load is one month), builds
-// the report for both gross-profit measures, and replaces the stored snapshot
-// through /api/performance-analysis/upload. Memory-bounded the same way
-// brand-customer-sync.ts is: raw rows are reduced to compact lines as each month
-// is read, and only the small aggregate is ever sent.
+// lines one calendar month at a time (peak SAP load is one month), resolves
+// principals, holds closed-month gross profit to the stored margin, and replaces
+// the stored lines (PerformanceLine) one month per transaction. The page then
+// aggregates those lines for whatever period and principals a viewer selects.
 //
-// A failed month read aborts the run and leaves the previous snapshot in place:
-// a report built from a partial year would be wrong, not just stale.
+// Every month is read before anything is written: a failed read aborts the run
+// and leaves the previous lines untouched, since a report built from a partial
+// year would be wrong, not just stale. Writes go straight to Postgres from the
+// worker (like the coverage sync), one transaction per month.
 //
-//   npm run performance:sync                 current year, upload the snapshot
-//   npm run performance:sync -- --dry-run    read + build + tie-out, upload nothing
-//   npm run performance:sync -- --json=out.json   also write the snapshot to a file
+//   npm run performance:sync                 current year, replace the stored lines
+//   npm run performance:sync -- --dry-run    read + build + tie-out, write nothing
 //
 // Scheduled daily by scripts/continuous-sync-worker.ts (job "performance").
 try {
@@ -19,18 +19,15 @@ try {
   // env vars may already be provided by the container
 }
 
-import { writeFileSync } from "node:fs";
 import { prisma } from "@/lib/db";
-import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { aggregatePerformance } from "@/lib/performanceAnalysis/aggregate";
-import type { PerfLine, PerformanceSnapshotPayload } from "@/lib/performanceAnalysis/types";
+import type { PerfLine } from "@/lib/performanceAnalysis/types";
 import { loadConfigFromEnv, withConnection } from "../sql";
 import { fetchPerformanceLines } from "../queries/performanceLines";
 import { loadPrincipals, loadProducts, loadWarehouses } from "../reference/loadFromDb";
 import { buildPerformanceLines, holdClosedMonthGp, storedTotalsKey, type StoredMonthTotals } from "../transform/buildPerformanceLines";
 
-const DEFAULT_APP_URL = "https://pinefrostdb.com";
-const MAX_ATTEMPTS = 3;
+const INSERT_CHUNK = 4000;
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
@@ -41,36 +38,39 @@ function nairobiDate(instant: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
 }
 
-async function post(appUrl: string, apiKey: string, year: number, snapshot: PerformanceSnapshotPayload): Promise<void> {
-  let lastError = "";
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(`${appUrl}/api/performance-analysis/upload`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-        body: JSON.stringify({ year, snapshot }),
-      });
-      const text = await response.text();
-      if (response.ok) return;
-      lastError = `HTTP ${response.status}: ${text.slice(0, 200)}`;
-      if (response.status >= 400 && response.status < 500) break; // a rejected payload will not improve on retry
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    if (attempt < MAX_ATTEMPTS) {
-      console.error(`[performance] upload attempt ${attempt} failed (${lastError}); retrying...`);
-      await new Promise((resolve) => setTimeout(resolve, 3000 * attempt));
-    }
-  }
-  throw new Error(`upload failed: ${lastError}`);
+/** Replaces one month's stored lines in a single transaction, so readers see the old month or the new one, never half. */
+async function replaceMonth(year: number, monthIndex: number, lines: PerfLine[]): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.performanceLine.deleteMany({ where: { year, monthIndex } });
+      for (let start = 0; start < lines.length; start += INSERT_CHUNK) {
+        await tx.performanceLine.createMany({
+          data: lines.slice(start, start + INSERT_CHUNK).map((line) => ({
+            year,
+            monthIndex,
+            doc: line.doc,
+            customerCode: line.customerCode,
+            customerName: line.customerName,
+            rep: line.rep,
+            principal: line.principal,
+            itemCode: line.itemCode,
+            itemName: line.itemName,
+            warehouse: line.warehouse,
+            cases: line.cases,
+            sales: line.sales,
+            gp: line.gp,
+            gpRecorded: line.gpRecorded,
+          })),
+        });
+      }
+    },
+    { timeout: 300_000, maxWait: 60_000 }
+  );
 }
 
 async function main() {
   const config = loadConfigFromEnv();
   const dryRun = flag("dry-run");
-  const apiKey = process.env.UPLOAD_API_KEY;
-  if (!apiKey && !dryRun) throw new Error("Missing UPLOAD_API_KEY.");
-  const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
   const asOf = nairobiDate(new Date());
   const year = Number(option("year") ?? asOf.slice(0, 4));
@@ -102,7 +102,7 @@ async function main() {
 
   // Closed months keep the margin the rest of the dashboard shows (see holdClosedMonthGp).
   const stored = new Map<string, StoredMonthTotals>();
-  const records = await prisma.salesRecord.findMany({ where: { year: String(year) }, select: { month: true, monthIndex: true, principal: true, revenue: true, grossProfit: true } });
+  const records = await prisma.salesRecord.findMany({ where: { year: String(year) }, select: { monthIndex: true, principal: true, revenue: true, grossProfit: true } });
   for (const record of records) {
     const key = storedTotalsKey(`${year}-${String(record.monthIndex + 1).padStart(2, "0")}`, record.principal);
     const existing = stored.get(key) ?? { revenue: 0, grossProfit: 0 };
@@ -121,28 +121,30 @@ async function main() {
 
   const dashboard = aggregatePerformance(lines, { basis: "dashboard", asOf });
   const recorded = aggregatePerformance(lines, { basis: "recorded", asOf });
-  const snapshot: PerformanceSnapshotPayload = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    asOf,
-    lineCount: lines.length,
-    excludedSales: Math.round(excludedSales),
-    excludedLines,
-    dashboard,
-    recorded,
-  };
   console.log(
-    `[performance] ${lines.length} lines, ${dashboard.principals.length} principals, ${dashboard.months.length} months: net sales ${dashboard.kpi.sales}, dashboard GP ${dashboard.kpi.gp} (${dashboard.kpi.gpm}%), SAP recorded GP ${recorded.kpi.gp} (${recorded.kpi.gpm}%). Months: ${CANONICAL_MONTHS[0]}..${CANONICAL_MONTHS[lastMonthNo - 1]}.`
+    `[performance] ${lines.length} lines, ${dashboard.principals.length} principals, ${dashboard.months.length} months: net sales ${dashboard.kpi.sales}, dashboard GP ${dashboard.kpi.gp} (${dashboard.kpi.gpm}%), SAP recorded GP ${recorded.kpi.gp} (${recorded.kpi.gpm}%).`
   );
 
-  const jsonPath = option("json");
-  if (jsonPath) writeFileSync(jsonPath, JSON.stringify(snapshot));
   if (dryRun) {
-    console.log("[performance] Dry run complete; nothing uploaded.");
+    console.log("[performance] Dry run complete; nothing written.");
     return;
   }
-  await post(appUrl, apiKey!, year, snapshot);
-  console.log(`[performance] Done - snapshot saved (${Math.round(JSON.stringify(snapshot).length / 1024)} KB).`);
+
+  const byMonth = new Map<number, PerfLine[]>();
+  for (const line of lines) {
+    const monthIndex = Number(line.month.slice(5, 7)) - 1;
+    const bucket = byMonth.get(monthIndex) ?? [];
+    bucket.push(line);
+    byMonth.set(monthIndex, bucket);
+  }
+  for (let monthIndex = 0; monthIndex < lastMonthNo; monthIndex += 1) {
+    const monthLines = byMonth.get(monthIndex) ?? [];
+    await replaceMonth(year, monthIndex, monthLines);
+    console.log(`[performance] ${year}-${String(monthIndex + 1).padStart(2, "0")}: saved ${monthLines.length} lines.`);
+  }
+  const meta = { year, generatedAt: new Date(), asOf, lineCount: lines.length, payload: { excludedSales: Math.round(excludedSales), excludedLines } };
+  await prisma.performanceAnalysisSnapshot.upsert({ where: { year }, create: meta, update: meta });
+  console.log(`[performance] Done - ${lines.length} lines saved.`);
 }
 
 main()

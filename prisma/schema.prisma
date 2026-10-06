@@ -2416,13 +2416,10 @@ model GpMarginTarget {
   createdAt DateTime @default(now())
 }
 
-// The latest Performance Analysis report per calendar year: the whole aggregated
-// payload (lib/performanceAnalysis/types.ts, PerformanceSnapshotPayload) built by
-// scripts/db-bridge/performance-analysis/run.ts from SAP invoice and credit-note
-// lines, pushed through app/api/performance-analysis/upload. A derived, disposable
-// snapshot (one row per year, replaced on every run) rather than a line-level table:
-// the page only ever needs the aggregates, and ~575k SAP lines a year would be the
-// largest table in the database for no extra capability.
+// Run metadata for the Performance Analysis lines: one row per calendar year,
+// replaced on every run of scripts/db-bridge/performance-analysis/run.ts. `payload`
+// holds { excludedSales, excludedLines } (SAP lines left out for having no active
+// principal). The report itself is computed per request from PerformanceLine.
 model PerformanceAnalysisSnapshot {
   year        Int      @id
   generatedAt DateTime
@@ -2430,4 +2427,31 @@ model PerformanceAnalysisSnapshot {
   lineCount   Int
   payload     Json
   updatedAt   DateTime @updatedAt
+}
+
+// SAP invoice and credit-note lines behind the Performance Analysis page, collapsed to
+// Month x document type x customer x item x warehouse x salesperson (about 200k rows a
+// year). A derived, disposable copy: the SAP job deletes and re-inserts each month in
+// one transaction, and the page aggregates the lines for whatever period and principals
+// the viewer has selected. `gp` is the dashboard's own measure (closed months held to the
+// SalesRecord margin); `gpRecorded` is the margin SAP posted on the document.
+model PerformanceLine {
+  id           BigInt @id @default(autoincrement())
+  year         Int
+  monthIndex   Int // 0-11
+  doc          String // "invoice" | "credit"
+  customerCode String
+  customerName String
+  rep          String
+  principal    String // brand-level, e.g. "EABL"
+  itemCode     String
+  itemName     String
+  warehouse    String
+  cases        Float
+  sales        Float
+  gp           Float
+  gpRecorded   Float
+
+  @@index([year, monthIndex])
+  @@index([year, principal])
 }

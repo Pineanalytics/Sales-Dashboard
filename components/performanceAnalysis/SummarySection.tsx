@@ -7,36 +7,39 @@ import { Growth, Rich, count, kes, pct } from "./shared";
 
 export function SummarySection({ p }: { p: PerformancePayload }) {
   const k = p.kpi;
-  const quarter = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : null;
-  const month = p.labels.cm && p.labels.pm ? `${p.labels.cm} vs ${p.labels.pm}` : null;
+  const window = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : null;
+  // A single-month period compares that month with the one before it, so a separate month card would repeat it.
+  const month = p.labels.cm && p.labels.pm && p.labels.cm !== p.labels.cq ? `${p.labels.cm} vs ${p.labels.pm}` : null;
   const findings = buildFindings(p);
 
   return (
     <section id="summary" className="flex scroll-mt-4 flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <KpiCard size="fit" accent="revenue" label="Net sales YTD" value={kes(k.sales)} sublabel={`Gross invoiced ${kes(k.gross)}`} />
-        <KpiCard size="fit" accent="growth" label="Gross profit YTD" value={kes(k.gp)} sublabel={`GP margin ${pct(k.gpm, 2)}`} />
+        <KpiCard size="fit" accent="revenue" label="Net sales" value={kes(k.sales)} sublabel={`Gross invoiced ${kes(k.gross)}`} />
+        <KpiCard size="fit" accent="growth" label="Gross profit" value={kes(k.gp)} sublabel={`GP margin ${pct(k.gpm, 2)}`} />
         <KpiCard
           size="fit"
           accent="quarter"
-          label={quarter ? `${quarter} sales` : "Quarter sales"}
+          label={window ? `${window} sales` : "Sales change"}
           value={k.cqSales !== null ? kes(k.cqSales) : "–"}
-          sublabel={k.cqSales !== null ? <><Growth value={k.cqSalesGrowth} /> vs {kes(k.pqSales)}</> : "Needs two complete quarters"}
+          sublabel={k.cqSales !== null ? <><Growth value={k.cqSalesGrowth} /> vs {kes(k.pqSales)}</> : "No complete earlier period to compare"}
         />
         <KpiCard
           size="fit"
           accent="quarter"
-          label={quarter ? `${quarter} GP` : "Quarter GP"}
+          label={window ? `${window} GP` : "GP change"}
           value={k.cqGp !== null ? kes(k.cqGp) : "–"}
-          sublabel={k.cqGp !== null ? <><Growth value={k.cqGpGrowth} /> vs {kes(k.pqGp)}</> : "Needs two complete quarters"}
+          sublabel={k.cqGp !== null ? <><Growth value={k.cqGpGrowth} /> vs {kes(k.pqGp)}</> : "No complete earlier period to compare"}
         />
-        <KpiCard
-          size="fit"
-          accent="mission"
-          label={month ?? "Month"}
-          value={k.cmSales !== null ? kes(k.cmSales) : "–"}
-          sublabel={k.cmSales !== null && k.pmSales !== null ? <><Growth value={k.cmGrowth} /> vs {kes(k.pmSales)}</> : "Needs two full months"}
-        />
+        {month ? (
+          <KpiCard
+            size="fit"
+            accent="mission"
+            label={month}
+            value={k.cmSales !== null ? kes(k.cmSales) : "–"}
+            sublabel={k.cmSales !== null && k.pmSales !== null ? <><Growth value={k.cmGrowth} /> vs {kes(k.pmSales)}</> : "Needs two full months"}
+          />
+        ) : null}
         <KpiCard size="fit" accent="revenue" label="Credit notes" value={kes(-k.cn)} sublabel={`${pct(k.cnPct)} of gross invoicing`} />
         <KpiCard size="fit" accent="coverage" label="Active accounts" value={count(p.concentration.active)} sublabel={`${count(k.skus)} SKUs sold`} />
       </div>

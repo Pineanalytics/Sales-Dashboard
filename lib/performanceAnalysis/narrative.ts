@@ -20,21 +20,22 @@ const signedPct = (value: number | null): string => (value === null ? "n/a" : `$
 const signedKes = (value: number): string => `${value >= 0 ? "+" : "-"}${kes(Math.abs(value))}`;
 const monthName = (month: string): string => MONTH_ABBREV[Number(month.slice(5, 7)) - 1] ?? month;
 
-/** "1 Jan - 6 Oct 2026": from the first month of data to the date of the SAP read. */
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** The selected period in words: "September 2026", or "1 Jan \u2013 6 Oct 2026" (a month in progress ends on the date of the SAP read). */
 export function periodText(p: PerformancePayload): string {
-  if (p.months.length === 0) return "No data yet";
-  const [year, month, day] = p.asOf.split("-").map(Number);
-  return `1 ${monthName(p.months[0])} – ${day} ${MONTH_ABBREV[month - 1]} ${year}`;
+  if (p.scope.length === 0) return "the selected period";
+  const first = p.scope[0];
+  const last = p.scope[p.scope.length - 1];
+  if (p.scope.length === 1 && !p.mtd) return `${MONTH_FULL[Number(last.slice(5, 7)) - 1]} ${last.slice(0, 4)}`;
+  const endDay = p.mtd ? Number(p.asOf.split("-")[2]) : new Date(Date.UTC(Number(last.slice(0, 4)), Number(last.slice(5, 7)), 0)).getUTCDate();
+  const startYear = first.slice(0, 4) === last.slice(0, 4) ? "" : ` ${first.slice(0, 4)}`;
+  return `1 ${monthName(first)}${startYear} \u2013 ${endDay} ${monthName(last)} ${last.slice(0, 4)}`;
 }
 
-/** One line under the period: how many full months, and the month to date. */
-export function periodDetail(p: PerformancePayload): string {
-  const full = p.mtd ? p.months.length - 1 : p.months.length;
-  const fullText = `${full} full month${full === 1 ? "" : "s"}`;
-  if (!p.mtd || p.months.length === 0) return fullText;
-  const day = Number(p.asOf.split("-")[2]);
-  return `${fullText} + ${monthName(p.months[p.months.length - 1])} MTD (${day} day${day === 1 ? "" : "s"})`;
-}
+/** Months of the selected period, and those of them that are complete (the last is left out while it is in progress). */
+const scopeRows = (p: PerformancePayload) => p.monthly.filter((row) => row.inScope);
+const fullScopeRows = (p: PerformancePayload) => (p.mtd ? scopeRows(p).slice(0, -1) : scopeRows(p));
 
 const qLabel = (p: PerformancePayload): string => (p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "latest quarter");
 
@@ -61,7 +62,7 @@ export function buildFindings(p: PerformancePayload): string[] {
   // 1. Headline, and what moved the quarter
   const bridgeByGp = [...p.bridge].sort((a, b) => b.dg - a.dg);
   let headline = `Net sales of **${kes(k.sales)}** and GP of **${kes(k.gp)}** (${pct(k.gpm, 2)} margin) for ${periodText(p)}.`;
-  if (k.avgMonth !== null) headline += ` The average full month is ${kes(k.avgMonth)}.`;
+  if (k.avgMonth !== null && p.scope.length > 1) headline +=` The average full month is ${kes(k.avgMonth)}.`;
   if (k.cqSales !== null && k.pqSales !== null && p.labels.cq && p.labels.pq) {
     headline += ` ${p.labels.cq} (${kes(k.cqSales)}) was ${signedPct(k.cqSalesGrowth)} on ${p.labels.pq}, with GP ${signedPct(k.cqGpGrowth)}`;
     const gain = bridgeByGp[0];
@@ -93,7 +94,7 @@ export function buildFindings(p: PerformancePayload): string[] {
   if (worstRow && worst.dg < 0 && p.labels.cq && p.labels.pq) {
     let line = `**${worstRow.p} is the biggest GP risk**: sales ${signedPct(worstRow.cqGrowth)} in ${p.labels.cq}, GP ${signedPct(worstRow.cqGpGrowth)}, margin ${pct(worstRow.pqGpm)} to ${pct(worstRow.cqGpm)}.`;
     const own = p.belowCost.filter((item) => item.p === worstRow.p);
-    if (own.length > 0) line += ` ${own.length} of its items sell below cost, led by ${itemLabel(own[0])} (${pct(own[0].gpm)} on ${kes(own[0].sales)}).`;
+    if (own.length > 0) line += ` ${own.length} of its items ${own.length === 1 ? "sells" : "sell"} below cost, led by ${itemLabel(own[0])} (${pct(own[0].gpm)} on ${kes(own[0].sales)}).`;
     out.push(line);
   } else if (p.belowCost.length > 0) {
     const worstItem = p.belowCost[0];
@@ -138,7 +139,9 @@ export function buildFindings(p: PerformancePayload): string[] {
   }
 
   // 8. New-customer acquisition
-  const fullMovement = p.movement.slice(1, p.mtd ? -1 : undefined);
+  // Only the months of the selected period count, and at least three are needed for a trend.
+  const inScopeMonths = new Set(p.scope);
+  const fullMovement = p.movement.slice(1, p.mtd ? -1 : undefined).filter((row) => inScopeMonths.has(row.m));
   if (fullMovement.length >= 3) {
     const peak = fullMovement.reduce((best, row) => (row.new > best.new ? row : best), fullMovement[0]);
     const latest = fullMovement[fullMovement.length - 1];
@@ -153,8 +156,13 @@ export function buildFindings(p: PerformancePayload): string[] {
 
 export function principalLede(p: PerformancePayload): string {
   const [first, second] = p.principals;
-  if (!first) return "No sales have been recorded yet this year.";
-  let text = second ? `${first.p} and ${second.p} carry the business: together ${pct(first.share + second.share, 0)} of net sales.` : `${first.p} is the only principal selling so far.`;
+  if (!first) return "No sales were recorded in this period.";
+  if (!second) {
+    // One principal (a principal filter is on): describe it rather than rank it.
+    const change = first.cqGrowth !== null && p.labels.cq && p.labels.pq ? `, ${signedPct(first.cqGrowth)} ${qLabel(p)}` : "";
+    return `${first.p} sold ${kes(first.sales)} in this period at a ${pct(first.gpm, 1)} gross margin${change}.`;
+  }
+  let text = `${first.p} and ${second.p} carry the business: together ${pct(first.share + second.share, 0)} of net sales.`;
   const grower = materialPrincipals(p)
     .filter((row) => row.cqGrowth !== null && row.cqGrowth > 0)
     .sort((a, b) => (b.cqGrowth as number) - (a.cqGrowth as number))[0];
@@ -178,8 +186,9 @@ export function principalNote(p: PerformancePayload): string | null {
 const growthOf = (current: number, base: number): number => (base > 0 ? (current / base - 1) * 100 : 0);
 
 export function monthlyLede(p: PerformancePayload): string {
-  const full = p.mtd ? p.monthly.slice(0, -1) : p.monthly;
-  if (full.length === 0) return "No full month has closed yet.";
+  const full = fullScopeRows(p);
+  if (full.length === 0) return `Net sales so far are ${kes(p.kpi.sales)}; no month of this period has closed yet.`;
+  if (full.length === 1) return `Net sales were ${kes(full[0].sales)} in ${monthName(full[0].m)}${p.mtd ? `, with ${kes(p.kpi.mtdSales)} so far in the month in progress` : ""}. The trend below shows the months before it for context.`;
   const best = full.reduce((a, b) => (b.sales > a.sales ? b : a));
   const lowest = full.reduce((a, b) => (b.sales < a.sales ? b : a));
   return `Monthly net sales have ranged between ${kes(lowest.sales)} (${monthName(lowest.m)}) and ${kes(best.sales)} (${monthName(best.m)}) across ${full.length} full month${full.length === 1 ? "" : "s"}.`;
@@ -198,8 +207,8 @@ export type ItemView = "top10" | "top10gp" | "gainers" | "decliners" | "belowCos
 export function itemCaption(p: PerformancePayload, view: ItemView): string {
   const rows = p[view];
   if (rows.length === 0) {
-    if (view === "gainers" || view === "decliners") return "A quarter-on-quarter comparison needs two complete quarters.";
-    return view === "belowCost" ? "No item is selling below cost this year." : "Nothing to show yet.";
+    if (view === "gainers" || view === "decliners") return "A comparison needs a complete earlier period to compare against.";
+    return view === "belowCost" ? "No item is selling below cost in this period." : "Nothing to show yet.";
   }
   const lead = rows[0];
   switch (view) {
@@ -214,14 +223,14 @@ export function itemCaption(p: PerformancePayload, view: ItemView): string {
     case "decliners":
       return `The largest ${p.labels.cq} declines were ${itemLabel(lead)} (${signedKes(lead.delta)}${lead.cqGrowth !== null ? `, ${signedPct(lead.cqGrowth)}` : ""}) and ${rows[1] ? itemLabel(rows[1]) : "the next items"}.`;
     case "belowCost":
-      return `These items sold below recorded cost year to date; ${itemLabel(lead)} alone lost ${kes(-lead.gp)} of gross profit on ${kes(lead.sales)} of sales.`;
+      return `These items sold below cost in this period; ${itemLabel(lead)} alone lost ${kes(-lead.gp)} of gross profit on ${kes(lead.sales)} of sales.`;
   }
 }
 
 export function customerLede(p: PerformancePayload): string {
   const c = p.concentration;
   const lead = p.topTrade[0];
-  let text = `${c.active.toLocaleString()} accounts bought this year. Excluding route vans, counters and cash accounts leaves ${c.tActive.toLocaleString()} trade customers`;
+  let text = `${c.active.toLocaleString()} accounts bought in this period. Excluding route vans, counters and cash accounts leaves ${c.tActive.toLocaleString()} trade customers`;
   text += lead ? `, led by ${lead.name} at ${pct(lead.share, 1)} of trade sales.` : ".";
   return text;
 }
@@ -229,15 +238,15 @@ export function customerLede(p: PerformancePayload): string {
 export function customerNote(p: PerformancePayload): string | null {
   const c = p.concentration;
   if (c.internalCount === 0) return null;
-  const first = p.monthly[0];
-  const lastFull = (p.mtd ? p.monthly.slice(0, -1) : p.monthly).slice(-1)[0];
+  const first = scopeRows(p)[0];
+  const lastFull = fullScopeRows(p).slice(-1)[0];
   const trend = first && lastFull && first.sales !== 0 && lastFull.sales !== 0 && first.m !== lastFull.m ? ` Their share of sales went from ${pct(100 - (first.trade / first.sales) * 100, 0)} in ${monthName(first.m)} to ${pct(100 - (lastFull.trade / lastFull.sales) * 100, 0)} in ${monthName(lastFull.m)}.` : "";
   return `About ${pct(c.internalShare, 0)} of sales (${c.internalCount} accounts) is booked to route vans, counters and cash-customer accounts. These are internal selling points, not end customers, so the trade view excludes them.${trend}`;
 }
 
 export function growthLede(p: PerformancePayload): string {
-  const full = (p.mtd ? p.monthly.slice(0, -1) : p.monthly).filter((row) => row.gpm !== null);
-  if (full.length === 0) return "No full month has closed yet.";
+  const full = fullScopeRows(p).filter((row) => row.gpm !== null);
+  if (full.length === 0) return `Gross profit so far is ${kes(p.kpi.gp)} (${pct(p.kpi.gpm, 2)} margin); no month of this period has closed yet.`;
   const margins = full.map((row) => row.gpm as number);
   const lowM = Math.min(...margins);
   const highM = Math.max(...margins);
@@ -246,7 +255,7 @@ export function growthLede(p: PerformancePayload): string {
   const weak = materialPrincipals(p)
     .filter((row) => row.gpm !== null)
     .sort((a, b) => (a.gpm as number) - (b.gpm as number))[0];
-  let text = `Monthly gross margin has stayed between ${pct(lowM, 1)} and ${pct(highM, 1)}, with a year-to-date GP of ${kes(p.kpi.gp)}.`;
+  let text = full.length === 1 ? `Gross profit is ${kes(p.kpi.gp)} at a ${pct(p.kpi.gpm, 2)} margin.` : `Monthly gross margin has stayed between ${pct(lowM, 1)} and ${pct(highM, 1)}, with GP of ${kes(p.kpi.gp)} over the period.`;
   if (lead) text += ` ${lead.p} earns the most GP (${kes(lead.gp)} at ${pct(lead.gpm)})`;
   if (weak && weak.p !== lead?.p) text += `; ${weak.p} has the thinnest margin at ${pct(weak.gpm)}`;
   return `${text.replace(/\s+$/, "")}.`;
@@ -285,7 +294,7 @@ export function returnsNote(p: PerformancePayload): string | null {
     .sort((a, b) => (b.cnPct as number) - (a.cnPct as number))
     .slice(0, 4);
   if (ranked.length === 0) return null;
-  const monthlyRates = (p.mtd ? p.monthly.slice(0, -1) : p.monthly).filter((row) => row.cnPct !== null);
+  const monthlyRates = fullScopeRows(p).filter((row) => row.cnPct !== null);
   let text = `${ranked.map((row) => `${row.p} (${pct(row.cnPct, 0)})`).join(", ")} have the highest return rates.`;
   if (monthlyRates.length > 1) {
     const low = monthlyRates.reduce((a, b) => ((b.cnPct as number) < (a.cnPct as number) ? b : a));

@@ -2,13 +2,19 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aggregatePerformance } from "../lib/performanceAnalysis/aggregate";
-import { buildFindings, gpBasisNote, itemCaption, periodDetail, periodText } from "../lib/performanceAnalysis/narrative";
-import { isPerformanceSnapshotPayload } from "../lib/performanceAnalysis/store";
-import type { PerfLine, PerformanceSnapshotPayload } from "../lib/performanceAnalysis/types";
+import { buildFindings, gpBasisNote, itemCaption, periodText } from "../lib/performanceAnalysis/narrative";
+import type { PerfLine, PerformancePayload } from "../lib/performanceAnalysis/types";
+import { CustomersSection } from "../components/performanceAnalysis/CustomersSection";
+import { GrowthSection } from "../components/performanceAnalysis/GrowthSection";
+import { ItemsSection } from "../components/performanceAnalysis/ItemsSection";
+import { MonthlySection } from "../components/performanceAnalysis/MonthlySection";
+import { OperationsSection } from "../components/performanceAnalysis/OperationsSection";
 import { PerformanceAnalysisView } from "../components/performanceAnalysis/PerformanceAnalysisView";
+import { PrincipalsSection } from "../components/performanceAnalysis/PrincipalsSection";
+import { SummarySection } from "../components/performanceAnalysis/SummarySection";
 
 // Deterministic pseudo-random lines across ten months and several principals, so the
-// narrative and the page are exercised on data with the variety of a real year.
+// narrative and the sections are exercised on data with the variety of a real year.
 function sampleLines(): PerfLine[] {
   let seed = 11;
   const next = () => {
@@ -48,38 +54,40 @@ function sampleLines(): PerfLine[] {
   return lines;
 }
 
-function snapshot(): PerformanceSnapshotPayload {
-  const lines = sampleLines();
-  return {
-    version: 1,
-    generatedAt: "2026-10-06T10:00:00.000Z",
-    asOf: "2026-10-06",
-    lineCount: lines.length,
-    excludedSales: 1_250_000,
-    excludedLines: 12,
-    dashboard: aggregatePerformance(lines, { basis: "dashboard", asOf: "2026-10-06" }),
-    recorded: aggregatePerformance(lines, { basis: "recorded", asOf: "2026-10-06" }),
-  };
-}
+const lines = sampleLines();
+const asOf = "2026-10-06";
+const scopes: Record<string, string[]> = {
+  "year to date": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"],
+  "a full quarter": ["2026-07", "2026-08", "2026-09"],
+  "a single month": ["2026-09"],
+  "the month in progress": ["2026-10"],
+  "the first month of the year": ["2026-01"],
+};
+const reports = Object.fromEntries(Object.entries(scopes).map(([name, scopeMonths]) => [name, aggregatePerformance(lines, { basis: "dashboard", asOf, scopeMonths })])) as Record<string, PerformancePayload>;
 
 describe("performance analysis narrative", () => {
-  const p = snapshot().dashboard;
-
-  it("writes findings from the data, with no placeholder values", () => {
+  it.each(Object.keys(scopes))("writes findings from the data for %s, with no placeholder values", (name) => {
+    const p = reports[name];
     const findings = buildFindings(p);
-    expect(findings.length).toBeGreaterThanOrEqual(5);
+    expect(findings.length).toBeGreaterThanOrEqual(2);
     expect(findings[0]).toContain("Net sales of **KES");
-    for (const text of findings) {
-      expect(text).not.toMatch(/undefined|NaN|null|Infinity/);
-    }
+    for (const text of findings) expect(text).not.toMatch(/undefined|NaN|null|Infinity/);
   });
 
-  it("describes the period and each item view", () => {
-    expect(periodText(p)).toBe("1 Jan – 6 Oct 2026");
-    expect(periodDetail(p)).toBe("9 full months + Oct MTD (6 days)");
-    for (const view of ["top10", "top10gp", "gainers", "decliners", "belowCost"] as const) {
-      expect(itemCaption(p, view)).not.toMatch(/undefined|NaN/);
+  it("describes the selected period in words", () => {
+    expect(periodText(reports["year to date"])).toBe("1 Jan – 6 Oct 2026");
+    expect(periodText(reports["a full quarter"])).toBe("1 Jul – 30 Sep 2026");
+    expect(periodText(reports["a single month"])).toBe("September 2026");
+    expect(periodText(reports["the month in progress"])).toBe("1 Oct – 6 Oct 2026");
+  });
+
+  it("words every item view without placeholders, including when there is nothing to compare", () => {
+    for (const p of Object.values(reports)) {
+      for (const view of ["top10", "top10gp", "gainers", "decliners", "belowCost"] as const) {
+        expect(itemCaption(p, view)).not.toMatch(/undefined|NaN/);
+      }
     }
+    expect(itemCaption(reports["the month in progress"], "gainers")).toMatch(/complete earlier period/);
   });
 
   it("explains which gross profit measure is on screen", () => {
@@ -88,29 +96,27 @@ describe("performance analysis narrative", () => {
   });
 });
 
-describe("PerformanceAnalysisView", () => {
-  it("renders every section of the report", () => {
-    const html = renderToString(createElement(PerformanceAnalysisView, { snapshot: snapshot() }));
-    for (const heading of [
-      "What the numbers say",
-      "1. Trended performance per principal",
-      "2. Month-on-month performance",
-      "3. Top 10 item performance",
-      "4. Customer ranking and contribution",
-      "5. Growth, gross profit and margin",
-      "6. Branches, sales reps and returns",
-    ]) {
-      expect(html).toContain(heading);
-    }
-    expect(html).toContain("Dashboard GP");
-    expect(html).toContain("SAP recorded GP");
+describe("performance analysis sections", () => {
+  it.each(Object.keys(scopes))("render every section for %s", (name) => {
+    const p = reports[name];
+    const html = [SummarySection, PrincipalsSection, MonthlySection, ItemsSection, CustomersSection, GrowthSection, OperationsSection].map((Section) => renderToString(createElement(Section, { p }))).join("");
+    expect(html).toContain("What the numbers say");
+    expect(html).toContain("1. Trended performance per principal");
+    expect(html).toContain("2. Month-on-month performance");
+    expect(html).toContain("3. Top 10 item performance");
+    expect(html).toContain("4. Customer ranking and contribution");
+    expect(html).toContain("5. Growth, gross profit and margin");
+    expect(html).toContain("6. Branches, sales reps and returns");
     expect(html).not.toMatch(/undefined|NaN/);
   });
 
-  it("accepts a stored snapshot only when it has the expected shape", () => {
-    expect(isPerformanceSnapshotPayload(snapshot())).toBe(true);
-    expect(isPerformanceSnapshotPayload({ version: 1 })).toBe(false);
-    expect(isPerformanceSnapshotPayload(null)).toBe(false);
-    expect(isPerformanceSnapshotPayload({ ...snapshot(), recorded: undefined })).toBe(false);
+  it("shows tabs and no intro or period text on the page itself", () => {
+    const html = renderToString(createElement(PerformanceAnalysisView));
+    for (const tab of ["Summary", "Principals", "Month on month", "Top items", "Customers", "Growth &amp; GP", "Branches, reps &amp; returns"]) expect(html).toContain(tab);
+    expect(html).toContain("Dashboard GP");
+    expect(html).not.toContain("secondary sales across all principals");
+    expect(html).not.toContain("net of credit notes, in Kenyan shillings");
+    expect(html).not.toMatch(/Built .* \(Nairobi\)/);
+    expect(html).not.toMatch(/full months? \+/);
   });
 });

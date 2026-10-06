@@ -13,7 +13,7 @@ const ABC_LABELS: Record<AbcRow["cls"], string> = { A: "A · top 80% of sales", 
 export function CustomersSection({ p }: { p: PerformancePayload }) {
   const [view, setView] = useState<"topTrade" | "topCustomers">("topTrade");
   const c = p.concentration;
-  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Quarter";
+  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Change";
   const labels = monthLabels(p);
   // Month-on-month movement starts at the second month and leaves out a month still in progress.
   const movement = p.movement.slice(1, p.mtd ? -1 : undefined);
