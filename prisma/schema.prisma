@@ -2398,3 +2398,20 @@ model OutletUniverse {
   @@index([repName])
   @@index([salesRole])
 }
+
+// Gross-margin targets (percent) per principal brand, edited by an admin on
+// /admin/gp-targets and read by the Finance Presentation and the Financials
+// Sales Performance tab. Only values an admin has saved are stored: a brand with
+// no row keeps the policy default in lib/financePresentation.ts
+// (DEFAULT_GP_MARGIN_TARGETS), and the row keyed "__default__" is the target for
+// every brand without its own. Replaces the per-month Target.grossMarginTargetPct
+// for these views, which held a flat 10% placeholder for every principal.
+model GpMarginTarget {
+  id        String   @id @default(cuid())
+  brandKey  String   @unique // normalizePrincipalKey of the brand, e.g. "mars", or "__default__"
+  label     String // display name, e.g. "Mars"
+  targetPct Float // percent, e.g. 15 for 15%
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
