@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     const isCurrentMonth = year === now.getUTCFullYear() && monthIndex === now.getUTCMonth();
 
     const [selected, following] = await Promise.all([
-      getAgeingSnapshotForMonth(year, monthIndex),
+      getAgeingSnapshotForMonth(year, monthIndex, { blankWeeksNotElapsed: true }),
       // A closed month's end is the next month's "last month" point (nearest snapshot at or before its last day).
       isCurrentMonth ? Promise.resolve(null) : getAgeingSnapshotForMonth(nextYear, nextIndex),
     ]);

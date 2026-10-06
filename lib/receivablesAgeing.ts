@@ -75,13 +75,24 @@ export interface AgeingTrendForMonth {
  *  convention) in the selected month — auto-adjusting to however many weeks
  *  the selected month actually has. A week still in progress (or entirely in
  *  the future) has no snapshot yet and comes back with buckets: null. */
-export async function getAgeingSnapshotForMonth(year: number, monthIndex: number): Promise<AgeingTrendForMonth> {
+export async function getAgeingSnapshotForMonth(
+  year: number,
+  monthIndex: number,
+  options: { blankWeeksNotElapsed?: boolean } = {}
+): Promise<AgeingTrendForMonth> {
   const lastMonthEnd = new Date(Date.UTC(year, monthIndex, 0));
   const weeks = getWeeksInMonth(year, monthIndex);
-  const weekPoints = weeks.map((w, i) => ({
-    label: i === weeks.length - 1 ? `${w.weekLabel} (final)` : w.weekLabel,
-    asOfDate: new Date(Math.min(w.weekStartDate.getTime() + 6 * 86_400_000, Date.now())),
-  }));
+  const todayStart = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const weekPoints = weeks.map((w, i) => {
+    const weekEnd = w.weekStartDate.getTime() + 6 * 86_400_000;
+    return {
+      label: i === weeks.length - 1 ? `${w.weekLabel} (final)` : w.weekLabel,
+      asOfDate: new Date(Math.min(weekEnd, Date.now())),
+      // Opt-in: a week that has not finished yet has no closing position, so it is left blank
+      // instead of repeating the latest snapshot.
+      blank: options.blankWeeksNotElapsed === true && weekEnd >= todayStart,
+    };
+  });
 
   const latestNeeded = new Date(Math.max(lastMonthEnd.getTime(), ...weekPoints.map((p) => p.asOfDate.getTime())));
   const rows = await prisma.receivablesAgeingSnapshot.findMany({
@@ -113,6 +124,8 @@ export async function getAgeingSnapshotForMonth(year: number, monthIndex: number
 
   return {
     lastMonth: toPoint("Last Month Ageing", lastMonthEnd),
-    weeks: weekPoints.map((p) => toPoint(p.label, p.asOfDate)),
+    weeks: weekPoints.map((p) =>
+      p.blank ? { label: p.label, asOfDate: p.asOfDate.toISOString(), snapshotDate: null, buckets: null, isApproximate: false } : toPoint(p.label, p.asOfDate)
+    ),
   };
 }
