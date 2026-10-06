@@ -4,6 +4,7 @@ import { FinancialsView, type FinancialsTab } from "@/components/views/Financial
 import { canAccessFinancials } from "@/lib/pageAccess";
 import { getReceivablesDashboard } from "@/lib/receivables";
 import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
+import { getGpMarginTargets, withGpMarginTargets } from "@/lib/gpMarginTargets";
 import { getDebtByPrincipal } from "@/lib/financeDebtAttribution";
 import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
@@ -49,11 +50,16 @@ export default async function FinancialsPage({
   const currentYear = String(now.getUTCFullYear());
   const currentMonth = CANONICAL_MONTHS[now.getUTCMonth()];
 
-  const [gpTargets, debtAttribution, ageingTrend] = await Promise.all([
+  // The monthly Target table holds a flat 10% GP margin for every principal; the margin targets an admin
+  // maintains on /admin/gp-targets are the ones in force, so both Finance views agree.
+  const [gpTargetRows, gpMarginTargets, debtAttribution, ageingTrend] = await Promise.all([
     canViewProfitability ? getGpTargetsForPeriod(currentYear, currentMonth) : Promise.resolve([]),
+    getGpMarginTargets(),
     canViewProfitability || canViewReceivables ? getDebtByPrincipal() : Promise.resolve({ windowLabel: "Trailing 12 months", totalDebt: 0, unattributedDebt: 0, byPrincipal: [], customers: [] }),
     canViewReceivables ? getAgeingSnapshotForMonth(ageingYear, ageingMonthIndex) : Promise.resolve({ lastMonth: { label: "Last Month Ageing", asOfDate: now.toISOString(), snapshotDate: null, buckets: null, isApproximate: false }, weeks: [] }),
   ]);
+
+  const gpTargets = withGpMarginTargets(gpTargetRows, gpMarginTargets);
 
   return (
     <FinancialsView

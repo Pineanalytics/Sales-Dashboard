@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_GP_MARGIN_TARGETS,
+  GP_MARGIN_DEFAULT_KEY,
   buildGpTargetSummary,
+  describeGpMarginTargets,
+  mergeGpMarginTargets,
   daysCoverAtCost,
   describePeriod,
   gpMarginTargetPct,
@@ -12,6 +16,7 @@ import {
   runRateWindow,
   weeklyRunRateAtCost,
 } from "../lib/financePresentation";
+import { withGpMarginTargets } from "../lib/gpMarginTargets";
 
 describe("GP margin targets", () => {
   it("uses the policy targets for the five main brands and 10% for everyone else", () => {
@@ -91,6 +96,60 @@ describe("GP margin targets", () => {
     expect(summary.rows[0].achieved).toBeNull();
     expect(marginAchievementPct(null, 15)).toBeNull();
     expect(marginAchievementPct(8, 0)).toBeNull();
+  });
+});
+
+describe("editable GP margin targets", () => {
+  it("starts from the policy and lets a saved value win", () => {
+    expect(mergeGpMarginTargets([])).toEqual(DEFAULT_GP_MARGIN_TARGETS);
+    const merged = mergeGpMarginTargets([
+      { brandKey: "mars", targetPct: 16.5 },
+      { brandKey: "bidco", targetPct: 4 },
+      { brandKey: GP_MARGIN_DEFAULT_KEY, targetPct: 8 },
+    ]);
+    expect(merged.byBrand.mars).toBe(16.5);
+    expect(merged.byBrand.eabl).toBe(6); // untouched brands keep their default
+    expect(merged.byBrand.bidco).toBe(4);
+    expect(merged.defaultPct).toBe(8);
+    expect(gpMarginTargetPct("Mars-Nairobi", merged)).toBe(16.5);
+    expect(gpMarginTargetPct("Bidco-Nairobi", merged)).toBe(4);
+    expect(gpMarginTargetPct("Tropikal-Nairobi", merged)).toBe(8);
+  });
+
+  it("ignores a saved row that is not a number and does not mutate the policy defaults", () => {
+    const merged = mergeGpMarginTargets([{ brandKey: "mars", targetPct: Number.NaN }, { brandKey: "suntory", targetPct: 9 }]);
+    expect(merged.byBrand.mars).toBe(15);
+    expect(merged.byBrand.suntory).toBe(9);
+    expect(DEFAULT_GP_MARGIN_TARGETS.byBrand.suntory).toBe(7);
+  });
+
+  it("feeds the achievement listing", () => {
+    const targets = mergeGpMarginTargets([{ brandKey: "mars", targetPct: 10 }]);
+    const summary = buildGpTargetSummary([{ principal: "Mars-Nairobi", revenue: 1000, target: 1000, grossProfit: 100 }], targets);
+    expect(summary.rows[0]).toMatchObject({ marginTargetPct: 10, variancePp: 0, achieved: true });
+    expect(summary.rows[0].gpTarget).toBeCloseTo(100);
+  });
+
+  it("describes the targets in force for a heading", () => {
+    expect(describeGpMarginTargets(DEFAULT_GP_MARGIN_TARGETS)).toBe("Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, all others 10%");
+    const edited = mergeGpMarginTargets([{ brandKey: "mars", targetPct: 14 }, { brandKey: "bidco", targetPct: 5 }, { brandKey: GP_MARGIN_DEFAULT_KEY, targetPct: 9 }]);
+    expect(describeGpMarginTargets(edited)).toBe("Mars 14%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, Bidco 5%, all others 9%");
+  });
+});
+
+describe("Financials tab margin targets", () => {
+  it("swaps the flat stored margin for the target in force, keeping the revenue target weights", () => {
+    const targets = mergeGpMarginTargets([{ brandKey: "mars", targetPct: 16 }]);
+    const out = withGpMarginTargets(
+      [
+        { principal: "Mars-Nairobi", valueTarget: 100, grossProfitTarget: null, grossMarginTargetPct: 0.1 },
+        { principal: "EABL-Nyeri", valueTarget: 200, grossProfitTarget: null, grossMarginTargetPct: 0.1 },
+        { principal: "Tropikal-Nairobi", valueTarget: 50, grossProfitTarget: null, grossMarginTargetPct: null },
+      ],
+      targets
+    );
+    expect(out.map((g) => g.grossMarginTargetPct)).toEqual([0.16, 0.06, 0.1]);
+    expect(out.map((g) => g.valueTarget)).toEqual([100, 200, 50]);
   });
 });
 

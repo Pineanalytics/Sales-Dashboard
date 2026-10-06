@@ -12,6 +12,7 @@ import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getCurrentMonthPeri
 import {
   buildGpTargetSummary,
   daysCoverAtCost,
+  describeGpMarginTargets,
   describePeriod,
   isSameMonth,
   marginAchievementPct,
@@ -22,6 +23,7 @@ import {
   previousMonth,
   runRateWindow,
   weeklyRunRateAtCost,
+  type GpMarginTargets,
   type MonthRef,
 } from "@/lib/financePresentation";
 import { useDashboardStore } from "@/lib/store";
@@ -108,11 +110,13 @@ export function FinancePresentationView({
   payables,
   payablesByPrincipal,
   debtAttribution,
+  gpMarginTargets,
 }: {
   receivables: ReceivablesDashboard | null;
   payables: PayablesDashboard | null;
   payablesByPrincipal: PayablesByPrincipalRow[];
   debtAttribution: DebtAttribution;
+  gpMarginTargets: GpMarginTargets;
 }) {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
@@ -160,8 +164,8 @@ export function FinancePresentationView({
   const totalGrossProfit = top5.reduce((s, p) => s + p.grossProfit, 0) + othersAgg.grossProfit;
   const totalMarginPct = totalRevenue > 0 ? round1((totalGrossProfit / totalRevenue) * 100) : null;
 
-  // GP margin against the policy targets (Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, every other 10%).
-  const gpSummary = buildGpTargetSummary(byPrincipal.map((p) => ({ principal: p.principal, revenue: p.revenue, target: p.target, grossProfit: p.grossProfit })));
+  // GP margin against the targets in force (maintained on /admin/gp-targets).
+  const gpSummary = buildGpTargetSummary(byPrincipal.map((p) => ({ principal: p.principal, revenue: p.revenue, target: p.target, grossProfit: p.grossProfit })), gpMarginTargets);
   const marginTargetPct = gpSummary.total.marginTargetPct;
   const marginVsTargetPct = marginAchievementPct(periodSummary.grossMarginPct, marginTargetPct);
   const pp = (value: number | null) => (value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(1)}pp`);
@@ -378,7 +382,7 @@ export function FinancePresentationView({
 
             <div>
               <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                GP vs target — achieved · {periodText} · margin targets: Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, all others 10%
+                GP vs target — achieved · {periodText} · margin targets: {describeGpMarginTargets(gpMarginTargets)}
               </h4>
               <TableWrap>
                 <Thead>

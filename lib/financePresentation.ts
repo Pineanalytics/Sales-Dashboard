@@ -10,22 +10,49 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 // GP margin targets
 // ---------------------------------------------------------------------------
 
-/** Company policy gross-margin targets, in percent, by principal brand. Every other
- *  principal carries the default. These replace the flat 10% placeholder that was
- *  stored for every principal in the monthly Target table, which made the company
+/** Gross-margin targets in percent: one per principal brand, and the default every other brand carries. */
+export interface GpMarginTargets {
+  byBrand: Record<string, number>;
+  defaultPct: number;
+}
+
+/** The policy starting point: Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, every other brand 10%.
+ *  Admins change these on /admin/gp-targets; what they save overrides this. These replace the flat 10%
+ *  placeholder that was stored for every principal in the monthly Target table, which made the company
  *  target a meaningless 10% and the "vs Target" tile show the actual margin. */
-export const GP_MARGIN_TARGET_PCT_BY_BRAND: Record<string, number> = {
-  mars: 15,
-  eabl: 6,
-  suntory: 7,
-  upfield: 10,
-  weetabix: 10,
+export const DEFAULT_GP_MARGIN_TARGETS: GpMarginTargets = {
+  byBrand: { mars: 15, eabl: 6, suntory: 7, upfield: 10, weetabix: 10 },
+  defaultPct: 10,
 };
-export const GP_MARGIN_TARGET_PCT_DEFAULT = 10;
+
+/** The brand key under which the "all other brands" default is stored. */
+export const GP_MARGIN_DEFAULT_KEY = "__default__";
+
+/** Lays saved targets over the policy defaults; a saved row wins, anything not saved keeps its default. */
+export function mergeGpMarginTargets(saved: { brandKey: string; targetPct: number }[]): GpMarginTargets {
+  const merged: GpMarginTargets = { byBrand: { ...DEFAULT_GP_MARGIN_TARGETS.byBrand }, defaultPct: DEFAULT_GP_MARGIN_TARGETS.defaultPct };
+  for (const row of saved) {
+    if (!Number.isFinite(row.targetPct)) continue;
+    if (row.brandKey === GP_MARGIN_DEFAULT_KEY) merged.defaultPct = row.targetPct;
+    else merged.byBrand[row.brandKey] = row.targetPct;
+  }
+  return merged;
+}
 
 /** The target margin (percent) for a principal given as "Mars-Nairobi", "Mars" or any spelling the brand key reduces to. */
-export function gpMarginTargetPct(principal: string): number {
-  return GP_MARGIN_TARGET_PCT_BY_BRAND[normalizePrincipalKey(principal)] ?? GP_MARGIN_TARGET_PCT_DEFAULT;
+export function gpMarginTargetPct(principal: string, targets: GpMarginTargets = DEFAULT_GP_MARGIN_TARGETS): number {
+  return targets.byBrand[normalizePrincipalKey(principal)] ?? targets.defaultPct;
+}
+
+/** One line for a heading: the five main brands in order, any other brand with its own target, then "all others". */
+export function describeGpMarginTargets(targets: GpMarginTargets): string {
+  const main = ["mars", "eabl", "suntory", "upfield", "weetabix"];
+  const label = (key: string) => (key === "eabl" ? "EABL" : key.charAt(0).toUpperCase() + key.slice(1));
+  const extras = Object.keys(targets.byBrand)
+    .filter((key) => !main.includes(key) && targets.byBrand[key] !== targets.defaultPct)
+    .sort();
+  const parts = [...main, ...extras].map((key) => `${label(key)} ${targets.byBrand[key] ?? targets.defaultPct}%`);
+  return `${parts.join(", ")}, all others ${targets.defaultPct}%`;
 }
 
 export interface PrincipalSalesInput {
@@ -61,7 +88,7 @@ export interface GpTargetSummary {
 
 const TOP_BRANDS = ["mars", "suntory", "upfield", "eabl", "weetabix"];
 
-function brandLabel(principal: string): string {
+export function brandLabel(principal: string): string {
   const head = principal.split("-")[0].trim();
   // Brands spelled in capitals (EABL) keep them; the rest are shown as they are named in the data.
   return normalizePrincipalKey(head) === "eabl" ? "EABL" : head.charAt(0).toUpperCase() + head.slice(1);
@@ -69,7 +96,7 @@ function brandLabel(principal: string): string {
 
 /** One row per principal brand (locations combined), the five main brands first, then the rest by revenue.
  *  The total's target margin is the revenue-target-weighted average, so it equals total GP target / total revenue target. */
-export function buildGpTargetSummary(principals: PrincipalSalesInput[]): GpTargetSummary {
+export function buildGpTargetSummary(principals: PrincipalSalesInput[], targets: GpMarginTargets = DEFAULT_GP_MARGIN_TARGETS): GpTargetSummary {
   const byBrand = new Map<string, { label: string; revenue: number; target: number; hasTarget: boolean; gp: number }>();
   for (const p of principals) {
     const key = normalizePrincipalKey(p.principal);
@@ -84,7 +111,7 @@ export function buildGpTargetSummary(principals: PrincipalSalesInput[]): GpTarge
   }
 
   const rows: GpTargetRow[] = Array.from(byBrand.entries()).map(([key, e]) => {
-    const marginTargetPct = gpMarginTargetPct(key);
+    const marginTargetPct = gpMarginTargetPct(key, targets);
     const marginPct = e.revenue > 0 ? round1((e.gp / e.revenue) * 100) : null;
     const gpTarget = e.hasTarget ? (e.target * marginTargetPct) / 100 : null;
     const gpAchievementPct = gpTarget !== null && gpTarget > 0 ? round1((e.gp / gpTarget) * 100) : null;
