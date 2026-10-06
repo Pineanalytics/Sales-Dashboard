@@ -7,8 +7,8 @@ import type { PerformancePayload, RepRow, WarehouseRow } from "@/lib/performance
 import { Growth, NameCell, Note, Panel, SectionHeading, SortableTable, compact, count, pct, type Column } from "./shared";
 
 export function OperationsSection({ p }: { p: PerformancePayload }) {
-  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Quarter";
-  const returns = p.principals.filter((row) => row.sales > 2e7 && row.cnPct !== null).sort((a, b) => (b.cnPct as number) - (a.cnPct as number));
+  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Change";
+  const returns = p.principals.filter((row) => p.kpi.sales > 0 && row.share >= 1 && row.cnPct !== null).sort((a, b) => (b.cnPct as number) - (a.cnPct as number));
 
   const warehouseColumns: Column<WarehouseRow>[] = [
     { id: "warehouse", header: "Warehouse / van", align: "left", render: (row) => <NameCell name={row.n} />, sortValue: (row) => row.n },
@@ -38,7 +38,7 @@ export function OperationsSection({ p }: { p: PerformancePayload }) {
         <Panel title="Top 15 warehouses and vans">
           <SortableTable columns={warehouseColumns} rows={p.warehouses} rowKey={(row) => row.n} />
         </Panel>
-        <Panel title="Credit notes as % of gross invoicing" hint="principals over KES 20M">
+        <Panel title="Credit notes as % of gross invoicing" hint="principals with at least 1% of sales">
           {returns.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(260, returns.length * 30 + 40)}>
               <BarChart data={returns.map((row) => ({ principal: row.p, rate: row.cnPct }))} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>

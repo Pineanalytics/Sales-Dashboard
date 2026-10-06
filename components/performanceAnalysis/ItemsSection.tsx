@@ -11,9 +11,9 @@ export function ItemsSection({ p }: { p: PerformancePayload }) {
   const [view, setView] = useState<ItemView>("top10");
   const rows = p[view];
   const full = p.mtd ? p.months.length - 1 : p.months.length;
-  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Quarter";
+  const comparison = p.labels.cq && p.labels.pq ? `${p.labels.cq} vs ${p.labels.pq}` : "Change";
   const valueOf = (row: ItemRow) => (view === "top10gp" || view === "belowCost" ? row.gp : view === "gainers" || view === "decliners" ? row.delta : row.sales);
-  const chartTitle = { top10: "YTD net sales", top10gp: "YTD gross profit", gainers: `Change in sales, ${comparison}`, decliners: `Change in sales, ${comparison}`, belowCost: "YTD gross profit" }[view];
+  const chartTitle = { top10: "Net sales", top10gp: "Gross profit", gainers: `Change in sales, ${comparison}`, decliners: `Change in sales, ${comparison}`, belowCost: "Gross profit" }[view];
   const chartData = useMemo(() => rows.map((row) => ({ name: row.name.length > 30 ? `${row.name.slice(0, 29)}…` : row.name, full: row.name, value: valueOf(row) })), [rows, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const columns: Column<ItemRow & { rank: number }>[] = [

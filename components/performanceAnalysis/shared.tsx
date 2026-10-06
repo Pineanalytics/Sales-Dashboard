@@ -126,7 +126,20 @@ export interface Column<T> {
 }
 
 /** Table whose sortable headers re-order the rows, with the dashboard's table look. */
-export function SortableTable<T>({ columns, rows, rowKey, maxHeight }: { columns: Column<T>[]; rows: T[]; rowKey: (row: T, index: number) => string; maxHeight?: number }) {
+export function SortableTable<T>({
+  columns,
+  rows,
+  rowKey,
+  maxHeight,
+  rowClassName,
+}: {
+  columns: Column<T>[];
+  rows: T[];
+  rowKey: (row: T, index: number) => string;
+  maxHeight?: number;
+  /** Extra classes for a row, e.g. to dim months outside the selected period. */
+  rowClassName?: (row: T) => string | undefined;
+}) {
   const [sort, setSort] = useState<{ id: string; dir: 1 | -1 } | null>(null);
 
   const ordered = useMemo(() => {
@@ -170,7 +183,7 @@ export function SortableTable<T>({ columns, rows, rowKey, maxHeight }: { columns
           </thead>
           <tbody>
             {ordered.map((row, index) => (
-              <tr key={rowKey(row, index)} className="hover:bg-background-elevated/60">
+              <tr key={rowKey(row, index)} className={`hover:bg-background-elevated/60 ${rowClassName?.(row) ?? ""}`}>
                 {columns.map((column) => (
                   <td
                     key={column.id}

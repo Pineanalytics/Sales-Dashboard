@@ -35,10 +35,12 @@ export interface PerfLine {
 }
 
 export interface PerformanceLabels {
-  /** Latest complete quarter and the one before it, e.g. "Q3" / "Q2". Null when the year has no such quarter yet. */
+  /** The comparison window and the equal-length one before it, e.g. "Q3" / "Q2", "Sep" / "Aug" or "Jul–Aug" / "May–Jun".
+   *  The window is the latest complete calendar quarter inside a period longer than a quarter, otherwise the period's full months.
+   *  Null when the data cannot support the comparison (a month still in progress, or no earlier data). */
   cq: string | null;
   pq: string | null;
-  /** Latest full month and the one before it, e.g. "Sep" / "Aug". */
+  /** Latest full month of the period and the one before it, e.g. "Sep" / "Aug". */
   cm: string | null;
   pm: string | null;
 }
@@ -72,6 +74,8 @@ export interface PerformanceKpi {
 
 export interface MonthlyRow {
   m: string;
+  /** Whether this month is part of the selected period (earlier months are shown for context). */
+  inScope: boolean;
   sales: number;
   gp: number;
   cust: number;
@@ -96,7 +100,6 @@ export interface PrincipalRow {
   /** Net sales and GP per month, aligned to `months`. */
   m: number[];
   g: number[];
-  q1: number;
   pqSales: number;
   cqSales: number;
   cqGrowth: number | null;
@@ -208,7 +211,10 @@ export interface PerformancePayload {
   basis: GpBasis;
   /** Nairobi calendar date of the read, YYYY-MM-DD. */
   asOf: string;
+  /** Months the trend charts and tables span: from the first month with data to the last month of the selected period. */
   months: string[];
+  /** The months of the selected period itself (a subset of `months`); every total, ranking and share is over these. */
+  scope: string[];
   /** True when the last month is still in progress (month to date). */
   mtd: boolean;
   labels: PerformanceLabels;
@@ -237,15 +243,20 @@ export interface PerformancePayload {
   bridge: BridgeRow[];
 }
 
-/** What the sync stores: both gross-profit measures built from the same lines. */
-export interface PerformanceSnapshotPayload {
-  version: 1;
+/** Facts about the stored SAP lines, shown in the page footer. */
+export interface PerformanceMeta {
+  year: number;
   generatedAt: string;
   asOf: string;
   lineCount: number;
   /** Sales of SAP lines that map to no active principal, left out of every figure (they are outside the Sales Performance totals too). */
   excludedSales: number;
   excludedLines: number;
-  dashboard: PerformancePayload;
-  recorded: PerformancePayload;
+}
+
+/** What /api/performance-analysis returns: the report for the requested period and principals. */
+export interface PerformanceResponse {
+  meta: PerformanceMeta | null;
+  /** Null when no SAP lines exist yet. */
+  report: PerformancePayload | null;
 }

@@ -11,7 +11,7 @@ import { Growth, Note, Panel, SectionHeading, SortableTable, compact, count, kes
 export function MonthlySection({ p }: { p: PerformancePayload }) {
   const labels = useMemo(() => monthLabels(p), [p]);
   const last = p.months.length - 1;
-  const salesData = p.monthly.map((row, i) => ({ month: labels[i], sales: row.sales, mom: row.mom, partial: p.mtd && i === last }));
+  const salesData = p.monthly.map((row, i) => ({ month: labels[i], sales: row.sales, mom: row.mom, partial: p.mtd && i === last, inScope: row.inScope }));
   const full = p.mtd ? p.monthly.slice(0, -1) : p.monthly;
   const fullLabels = labels.slice(0, full.length);
   const custData = full.map((row, i) => ({ month: fullLabels[i], accounts: row.cust, average: row.dropSize }));
@@ -49,7 +49,7 @@ export function MonthlySection({ p }: { p: PerformancePayload }) {
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar yAxisId="sales" dataKey="sales" name="Net sales" fill="#24754f" radius={[4, 4, 0, 0]}>
                 {salesData.map((row) => (
-                  <Cell key={row.month} fill={row.partial ? "#b8c9b4" : "#24754f"} />
+                  <Cell key={row.month} fill={row.partial ? "#b2863f" : "#24754f"} fillOpacity={row.inScope ? 1 : 0.35} />
                 ))}
               </Bar>
               <Line yAxisId="mom" type="monotone" dataKey="mom" name="MoM %" stroke="#b2863f" strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
@@ -71,8 +71,8 @@ export function MonthlySection({ p }: { p: PerformancePayload }) {
           </ResponsiveContainer>
         </Panel>
       </div>
-      <Panel title="Monthly scorecard" hint="click a header to sort">
-        <SortableTable columns={columns} rows={p.monthly.map((row, i) => ({ ...row, label: labels[i] }))} rowKey={(row) => row.m} />
+      <Panel title="Monthly scorecard" hint="months outside the selected period are greyed; click a header to sort">
+        <SortableTable columns={columns} rows={p.monthly.map((row, i) => ({ ...row, label: labels[i] }))} rowKey={(row) => row.m} rowClassName={(row) => (row.inScope ? "" : "text-muted")} />
         {note ? <Note>{note}</Note> : null}
       </Panel>
     </section>

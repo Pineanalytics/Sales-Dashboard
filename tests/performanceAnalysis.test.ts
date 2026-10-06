@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregatePerformance } from "../lib/performanceAnalysis/aggregate";
+import { aggregatePerformance, comparisonWindows } from "../lib/performanceAnalysis/aggregate";
 import type { PerfLine } from "../lib/performanceAnalysis/types";
 
 function line(month: string, over: Partial<PerfLine>): PerfLine {
@@ -120,6 +120,101 @@ describe("aggregatePerformance", () => {
     expect(tiny.pqSales).toBe(20_000);
     expect(tiny.cqGrowth).toBeNull();
     expect(tiny.cqGpGrowth).toBeNull();
+  });
+});
+
+describe("aggregatePerformance for a selected period", () => {
+  const asOf = "2026-10-06";
+  const forScope = (scopeMonths: string[]) => aggregatePerformance(fixture(), { basis: "dashboard", asOf, scopeMonths });
+
+  it("cuts totals, rankings and shares to a single month and compares it with the month before", () => {
+    const p = forScope(["2026-09"]);
+    expect(p.scope).toEqual(["2026-09"]);
+    expect(p.mtd).toBe(false);
+    expect(p.kpi.sales).toBe(2_000_000);
+    expect(p.kpi.lines).toBe(2);
+    expect(p.labels).toMatchObject({ cq: "Sep", pq: "Aug", cm: "Sep", pm: "Aug" });
+    expect(p.kpi.cqSales).toBe(2_000_000);
+    expect(p.kpi.pqSales).toBe(1_900_000);
+    expect(p.kpi.cqSalesGrowth).toBe(5.3);
+    expect(p.principals.map((row) => [row.p, row.sales, row.share])).toEqual([
+      ["A", 1_500_000, 75],
+      ["B", 500_000, 25],
+    ]);
+    expect(p.topCustomers).toHaveLength(2);
+    expect(p.concentration.internalCount).toBe(1);
+  });
+
+  it("keeps earlier months for context but flags which belong to the period", () => {
+    const p = forScope(["2026-09"]);
+    expect(p.months).toEqual(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]);
+    expect(p.monthly.filter((row) => row.inScope).map((row) => row.m)).toEqual(["2026-09"]);
+    expect(p.principals[0].m).toHaveLength(6);
+  });
+
+  it("compares a full quarter with the quarter before it", () => {
+    const p = forScope(["2026-07", "2026-08", "2026-09"]);
+    expect(p.labels).toMatchObject({ cq: "Q3", pq: "Q2" });
+    expect(p.kpi.sales).toBe(5_900_000);
+    expect(p.kpi.cqSalesGrowth).toBe(31.1);
+    expect(p.principals[0].cqGrowth).toBe(46.7);
+  });
+
+  it("compares a two-month period with the two months before it", () => {
+    const p = forScope(["2026-07", "2026-08"]);
+    expect(p.labels).toMatchObject({ cq: "Jul–Aug", pq: "May–Jun" });
+    expect(p.kpi.cqSales).toBe(3_900_000);
+    expect(p.kpi.pqSales).toBe(3_000_000);
+  });
+
+  it("uses the latest complete quarter inside a longer period", () => {
+    const p = forScope(["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(p.labels).toMatchObject({ cq: "Q3", pq: "Q2" });
+    expect(p.mtd).toBe(true);
+  });
+
+  it("offers no comparison for a month still in progress, and none before the data starts", () => {
+    const mtd = forScope(["2026-10"]);
+    expect(mtd.mtd).toBe(true);
+    expect(mtd.kpi.sales).toBe(200_000);
+    expect(mtd.labels.cq).toBeNull();
+    expect(mtd.kpi.cqSalesGrowth).toBeNull();
+    expect(mtd.gainers).toEqual([]);
+    expect(mtd.bridge).toEqual([]);
+    const earliest = forScope(["2026-04"]);
+    expect(earliest.labels.cq).toBeNull();
+    expect(earliest.kpi.sales).toBe(1_500_000);
+  });
+
+  it("still lists a principal that stopped selling when it sold in the comparison window", () => {
+    const lines = [...fixture(), line("2026-08", { principal: "C", itemCode: "I3", itemName: "Old line", customerCode: "C3", customerName: "Beta", sales: 400_000 })];
+    const p = aggregatePerformance(lines, { basis: "dashboard", asOf, scopeMonths: ["2026-09"] });
+    const stopped = p.principals.find((row) => row.p === "C")!;
+    expect(stopped.sales).toBe(0);
+    expect(stopped.pqSales).toBe(400_000);
+    expect(stopped.cqGrowth).toBe(-100);
+    expect(p.decliners[0].code).toBe("I3");
+    // ...but it is not counted as a customer or SKU of the period
+    expect(p.kpi.skus).toBe(2);
+    expect(p.topCustomers.some((row) => row.code === "C3")).toBe(false);
+  });
+});
+
+describe("comparisonWindows", () => {
+  const has = (months: string[]) => (month: string) => months.includes(month);
+  const year = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"];
+
+  it("takes the latest complete quarter of a long period", () => {
+    expect(comparisonWindows(year, true, has(year))).toEqual({ current: ["2026-07", "2026-08", "2026-09"], prior: ["2026-04", "2026-05", "2026-06"] });
+  });
+
+  it("takes a short period's own full months", () => {
+    expect(comparisonWindows(["2026-09"], false, has(year))).toEqual({ current: ["2026-09"], prior: ["2026-08"] });
+  });
+
+  it("returns nothing when the earlier window has no data or the only month is in progress", () => {
+    expect(comparisonWindows(["2026-01"], false, has(year))).toEqual({ current: [], prior: [] });
+    expect(comparisonWindows(["2026-10"], true, has(year))).toEqual({ current: [], prior: [] });
   });
 });
 
