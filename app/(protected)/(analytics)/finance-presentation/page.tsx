@@ -2,43 +2,28 @@ import { auth } from "@/auth";
 import { canAccessFinancials } from "@/lib/pageAccess";
 import { getReceivablesDashboard } from "@/lib/receivables";
 import { getPayablesDashboard, getPayablesByPrincipal } from "@/lib/payables";
-import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
 import { getDebtByPrincipal } from "@/lib/financeDebtAttribution";
-import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
-import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { FinancePresentationView } from "@/components/views/FinancePresentationView";
 
 export const dynamic = "force-dynamic";
 
+// The slides follow the global reporting period on the client: sales and gross profit come from
+// the dataset, GP margin targets from lib/financePresentation.ts, and the weekly ageing from
+// /api/finance-presentation/ageing for the period's last month. Only the latest balances are
+// loaded here.
 export default async function FinancePresentationPage() {
   const session = await auth();
   const allowedPages = session?.user.allowedPages ?? [];
   if (!canAccessFinancials(session?.user.role, allowedPages)) return null;
 
   const canViewReceivables = session?.user.role === "ADMIN" || allowedPages.includes("receivables");
-  const canViewProfitability = session?.user.role === "ADMIN" || allowedPages.includes("profitability");
 
-  const now = new Date();
-  const currentYear = String(now.getUTCFullYear());
-  const currentMonth = CANONICAL_MONTHS[now.getUTCMonth()];
-
-  const [receivables, payables, payablesByPrincipal, gpTargets, debtAttribution, ageingTrend] = await Promise.all([
+  const [receivables, payables, payablesByPrincipal, debtAttribution] = await Promise.all([
     canViewReceivables ? getReceivablesDashboard() : Promise.resolve(null),
     canViewReceivables ? getPayablesDashboard() : Promise.resolve(null),
     canViewReceivables ? getPayablesByPrincipal() : Promise.resolve([]),
-    canViewProfitability ? getGpTargetsForPeriod(currentYear, currentMonth) : Promise.resolve([]),
     getDebtByPrincipal(),
-    canViewReceivables ? getAgeingSnapshotForMonth(now.getUTCFullYear(), now.getUTCMonth()) : Promise.resolve(null),
   ]);
 
-  return (
-    <FinancePresentationView
-      receivables={receivables}
-      payables={payables}
-      payablesByPrincipal={payablesByPrincipal}
-      gpTargets={gpTargets}
-      debtAttribution={debtAttribution}
-      ageingTrend={ageingTrend}
-    />
-  );
+  return <FinancePresentationView receivables={receivables} payables={payables} payablesByPrincipal={payablesByPrincipal} debtAttribution={debtAttribution} />;
 }
