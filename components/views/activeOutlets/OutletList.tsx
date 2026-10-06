@@ -3,7 +3,7 @@
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatCompact, formatNumber } from "@/lib/format";
-import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { OUTLET_SOURCE_LABELS, dormancyFlag, type OutletSource } from "@/lib/outletUniverse/normalize";
 import type { OutletListRow } from "@/lib/outletUniverse/query";
 
 export function OutletList({
@@ -57,14 +57,26 @@ export function OutletList({
               <Td>{row.repName ?? "—"}</Td>
               <Td>{row.lastPurchaseDate ?? "—"}</Td>
               <Td>
-                <span className={row.active ? "font-semibold text-accent-green" : "text-muted"}>{row.active ? "Active" : "Inactive"}</span>
+                {row.active ? (
+                  <span className="font-semibold text-accent-green">Active</span>
+                ) : (
+                  (() => {
+                    // A dormant outlet is flagged by how long it has been silent.
+                    const dormant = dormancyFlag(row.lastPurchaseDate);
+                    return (
+                      <span className={dormant?.flag === "Lost" ? "font-semibold text-accent-red" : "font-semibold text-brand-orange"}>
+                        {dormant ? (dormant.daysSince === null ? dormant.flag : `${dormant.flag} · ${dormant.daysSince} d`) : "Dormant"}
+                      </span>
+                    );
+                  })()
+                )}
               </Td>
               <Td align="right">{formatCompact(row.sales)}</Td>
             </tr>
           ))}
           {list.rows.length === 0 ? (
             <tr>
-              <td colSpan={13}className="px-3 py-8 text-center text-muted">
+              <td colSpan={13} className="px-3 py-8 text-center text-muted">
                 No outlets match these filters.
               </td>
             </tr>

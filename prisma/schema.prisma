@@ -2382,6 +2382,12 @@ model OutletUniverse {
   lastPurchaseDate DateTime?
   sales            Float     @default(0) // year-to-date, net of returns where the source has them
   transactions     Int       @default(0)
+  // Distinct days with a purchase in the 30 days before builtAt - the "buying at
+  // least twice a month" measure. purchaseDays30 is for this row's principal;
+  // outletPurchaseDays30 counts days across every principal the outlet buys in
+  // the same source (a day buying two principals is one day).
+  purchaseDays30       Int @default(0)
+  outletPurchaseDays30 Int @default(0)
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])

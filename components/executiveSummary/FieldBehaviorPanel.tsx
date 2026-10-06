@@ -6,8 +6,9 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { BinaryToggle } from "@/components/ui/BinaryToggle";
 import { formatNumber, formatPercent, strikeRateTier, tierTextClass } from "@/lib/format";
-import { summarizeCoverageForPeriod, resolvePeriodMonths, type PeriodSelection, type RoleCategory } from "@/lib/timeIntelligence";
-import { periodToDateRange, averageActiveOutletsForPeriod, type ActiveOutletsMonthlyRow } from "@/lib/executiveSummary";
+import { summarizeCoverageForPeriod, type PeriodSelection, type RoleCategory } from "@/lib/timeIntelligence";
+import { periodToDateRange } from "@/lib/executiveSummary";
+import type { ActiveUniverseStatus, UniverseTier } from "@/lib/outletUniverse/query";
 import type { Dataset } from "@/lib/types";
 
 type FieldRole = "Primary Sales" | "Secondary Sales";
@@ -84,66 +85,130 @@ function JpAdherenceTile({ selectedPrincipalKey, period, role }: { selectedPrinc
   );
 }
 
-/** /api/active-outlets returns a `monthly` array (year/monthIndex/principal/
- *  distinctOutlets) with no date-range query param, so this fetches once per
- *  principal and rolls the selected period's months up client-side via
- *  averageActiveOutletsForPeriod — averaged, not summed, since distinctOutlets
- *  is a per-month unique-outlet count (see that function's own doc comment
- *  for why summing would double-count repeat outlets across months). There is
- *  no addressable "universe" denominator outside the Mars-specific
- *  principal-kpis module, so this deliberately shows a reach count, not a
- *  coverage percentage. */
-// The API response's monthly rows carry salesRole too (needed to split this
-// tile by role); ActiveOutletsMonthlyRow itself omits it since most callers
-// only need the year/monthIndex/distinctOutlets shape it declares.
-type MonthlyRoleRow = ActiveOutletsMonthlyRow & { salesRole: string };
+type UniverseState = { status: "loading" } | { status: "error" } | { status: "idle"; data: ActiveUniverseStatus };
 
-function UniverseStatusTile({ selectedPrincipalKey, period, role }: { selectedPrincipalKey: string | null; period: PeriodSelection; role: FieldRole }) {
-  const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
-  const [monthly, setMonthly] = useState<MonthlyRoleRow[]>([]);
+/** The current active universe from the unified Active Outlet build: every principal's
+ *  distinct outlets (or the selected principal brand), as of the last compile — not a
+ *  monthly average, and not narrowed by the page's period. */
+function useActiveUniverse(selectedPrincipalKey: string | null): UniverseState {
+  const [state, setState] = useState<UniverseState>({ status: "loading" });
 
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
-      // The monthly aggregate is intentionally returned unfiltered by role
-      // (it carries its own salesRole per row, same as the Active Outlets
-      // page's own trend chart) — role is applied client-side below, not
-      // via the query string.
       const params = new URLSearchParams();
-      if (selectedPrincipalKey) params.set("principal", selectedPrincipalKey);
+      if (selectedPrincipalKey) params.set("principalKey", selectedPrincipalKey);
       try {
-        const res = await fetch(`/api/active-outlets?${params.toString()}`, { cache: "no-store", signal: controller.signal });
-        const body = (await res.json()) as { monthly?: MonthlyRoleRow[]; error?: string };
-        if (!res.ok) throw new Error(body.error || "Failed to load Active Outlets data.");
-        if (controller.signal.aborted) return;
-        setMonthly(body.monthly ?? []);
-        setStatus("idle");
+        const res = await fetch(`/api/outlet-universe/status?${params.toString()}`, { cache: "no-store", signal: controller.signal });
+        const body = (await res.json()) as ActiveUniverseStatus & { error?: string };
+        if (!res.ok) throw new Error(body.error || "Failed to load the active universe.");
+        if (!controller.signal.aborted) setState({ status: "idle", data: body });
       } catch (err) {
         if (!controller.signal.aborted) {
-          console.error("Executive summary: failed to load Active Outlets data", err);
-          setStatus("error");
+          console.error("Executive summary: failed to load the active universe", err);
+          setState({ status: "error" });
         }
       }
     })();
     return () => controller.abort();
   }, [selectedPrincipalKey]);
 
-  if (status === "loading") return <LoadingTile label="Universe Status" />;
-  if (status === "error") {
-    return <StubTile label="Universe Status" href="/active-outlets" note="Couldn't load for this selection — see full report" />;
+  return state;
+}
+
+type UniverseRole = "Primary Sales" | "Secondary Sales";
+
+/** Opens the Active Outlet module on its outlet listing, filtered to dormant outlets (optionally one role / principal brand). */
+function dormantHref(selectedPrincipalKey: string | null, role?: UniverseRole): string {
+  const params = new URLSearchParams({ tab: "active-outlets", view: "general", status: "inactive", list: "1" });
+  if (role) params.set("role", role);
+  if (selectedPrincipalKey) params.set("principalKey", selectedPrincipalKey);
+  return `/coverage?${params.toString()}`;
+}
+
+const pctOf = (part: number, whole: number) => (whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "—");
+
+function ActiveUniverseTile({ universe, selectedPrincipalKey }: { universe: UniverseState; selectedPrincipalKey: string | null }) {
+  if (universe.status === "loading") return <LoadingTile label="Active Universe" />;
+  if (universe.status === "error") {
+    return <StubTile label="Active Universe" href="/coverage?tab=active-outlets" note="Couldn't load — see the Active Outlet report" />;
   }
-  const roleMonthly = monthly.filter((m) => m.salesRole === role);
-  const avgOutlets = averageActiveOutletsForPeriod(roleMonthly, resolvePeriodMonths(period));
-  if (avgOutlets === null) {
-    return <StubTile label="Universe Status" href="/active-outlets" note="No data for this period — see full report" />;
-  }
+  const { all } = universe.data;
   return (
-    <KpiCard
-      accent="quarter"
-      label="Universe Status"
-      value={formatNumber(avgOutlets)}
-      sublabel="Avg. active outlets/month — no company-wide universe target exists outside Mars"
-    />
+    <Link href={selectedPrincipalKey ? `/coverage?tab=active-outlets&principalKey=${encodeURIComponent(selectedPrincipalKey)}` : "/coverage?tab=active-outlets"} className="block h-full">
+      <KpiCard
+        accent="quarter"
+        size="md"
+        label="Active Universe"
+        value={formatNumber(all.active)}
+        sublabel={`Distinct outlets bought in the last ${universe.data.activeWindowDays} days · ${pctOf(all.active, all.known)} of ${formatNumber(all.known)} known`}
+      />
+    </Link>
+  );
+}
+
+function SplitRow({ label, hint, primary, secondary, href }: { label: string; hint: string; primary: number; secondary: number; href?: { primary: string; secondary: string } }) {
+  const cell = "px-3 py-2 text-right tabular-nums";
+  return (
+    <tr className="border-t border-border/60">
+      <td className="px-3 py-2">
+        <span className="font-medium text-brand-navy">{label}</span>
+        <span className="block text-[11px] text-muted">{hint}</span>
+      </td>
+      <td className={cell}>
+        {href ? <Link href={href.primary} className="font-semibold text-accent-red hover:underline">{formatNumber(primary)} →</Link> : formatNumber(primary)}
+      </td>
+      <td className={cell}>
+        {href ? <Link href={href.secondary} className="font-semibold text-accent-red hover:underline">{formatNumber(secondary)} →</Link> : formatNumber(secondary)}
+      </td>
+    </tr>
+  );
+}
+
+/** Active universe split Primary / Secondary: actively buying, buying at least twice a month, dormant. */
+function ActiveUniverseSplit({ universe, selectedPrincipalKey }: { universe: UniverseState; selectedPrincipalKey: string | null }) {
+  if (universe.status !== "idle") return null;
+  const { data } = universe;
+  const p: UniverseTier = data.primary;
+  const s: UniverseTier = data.secondary;
+  return (
+    <div className="mt-3 rounded-xl border border-border/70 bg-surface">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-3 pt-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Active universe by sales role</h3>
+        <Link href={dormantHref(selectedPrincipalKey)} className="text-[11px] font-semibold text-primary-blue hover:underline">
+          View all {formatNumber(data.all.dormant)} dormant outlets →
+        </Link>
+      </div>
+      <table className="mt-1 w-full text-sm">
+        <thead>
+          <tr className="text-[11px] uppercase tracking-wide text-muted">
+            <th className="px-3 py-1 text-left font-medium" />
+            <th className="px-3 py-1 text-right font-medium">Primary</th>
+            <th className="px-3 py-1 text-right font-medium">Secondary</th>
+          </tr>
+        </thead>
+        <tbody>
+          <SplitRow label="Actively buying" hint={`Bought in the last ${data.activeWindowDays} days`} primary={p.active} secondary={s.active} />
+          <SplitRow
+            label={`Buying ${data.frequentMinDays}+ times a month`}
+            hint={`Bought on ${data.frequentMinDays}+ separate days in the last ${data.frequentWindowDays} days`}
+            primary={p.frequent}
+            secondary={s.frequent}
+          />
+          <SplitRow
+            label="Dormant"
+            hint={`No purchase in ${data.activeWindowDays}+ days — open the flagged list`}
+            primary={p.dormant}
+            secondary={s.dormant}
+            href={{ primary: dormantHref(selectedPrincipalKey, "Primary Sales"), secondary: dormantHref(selectedPrincipalKey, "Secondary Sales") }}
+          />
+        </tbody>
+      </table>
+      <p className="px-3 pb-3 pt-1 text-[11px] text-muted">
+        Dormant outlets are flagged <strong>Lapsed</strong> ({data.activeWindowDays}–{data.lostAfterDays - 1} days: {formatNumber(data.all.lapsed)}), <strong>Lost</strong> ({data.lostAfterDays}+ days: {formatNumber(data.all.lost)}) or no purchase this year ({formatNumber(data.all.noPurchase)}).
+        An outlet reached through both roles counts in both columns. Leverage and EABL DMS count as Primary.
+      </p>
+    </div>
   );
 }
 
@@ -213,6 +278,7 @@ export function FieldBehaviorPanel({
   // so this switches the whole panel instead of adding a 5th "combined" tile.
   const [role, setRole] = useState<FieldRole>("Primary Sales");
   const coverage = summarizeCoverageForPeriod(dataset, period, selectedPrincipalKey, ROLE_CATEGORY[role]);
+  const universe = useActiveUniverse(selectedPrincipalKey);
 
   return (
     <div id="field-behavior" className="@container h-full">
@@ -228,8 +294,9 @@ export function FieldBehaviorPanel({
           />
           <JpAdherenceTile selectedPrincipalKey={selectedPrincipalKey} period={period} role={role} />
           <TimeManagementTile selectedPrincipalKey={selectedPrincipalKey} role={role} />
-          <UniverseStatusTile selectedPrincipalKey={selectedPrincipalKey} period={period} role={role} />
+          <ActiveUniverseTile universe={universe} selectedPrincipalKey={selectedPrincipalKey} />
         </div>
+        <ActiveUniverseSplit universe={universe} selectedPrincipalKey={selectedPrincipalKey} />
       </SectionCard>
     </div>
   );

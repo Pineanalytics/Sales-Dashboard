@@ -128,8 +128,8 @@ export function FilterBar({
         <Field label="Status">
           <select aria-label="Status" value={filters.status} onChange={(event) => onChange({ status: event.target.value as OutletStatus })} className={selectClass}>
             <option value="active">Active (bought ≤ {OUTLET_ACTIVE_WINDOW_DAYS} days)</option>
-            <option value="inactive">Inactive</option>
-            <option value="all">Active + inactive</option>
+            <option value="inactive">Dormant (not bought in {OUTLET_ACTIVE_WINDOW_DAYS}+ days)</option>
+            <option value="all">Active + dormant</option>
           </select>
         </Field>
         <Field label="Find outlet">
