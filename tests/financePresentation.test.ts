@@ -76,6 +76,15 @@ describe("GP margin targets", () => {
     expect(summary.total.marginTargetPct).toBe(10); // revenue-weighted when no targets exist
   });
 
+  it("judges the margin target on margin, not on how much of the revenue target is sold so far", () => {
+    // Early in the period: a tenth of the revenue target sold, but at a margin above target.
+    const summary = buildGpTargetSummary([{ principal: "Suntory-Nairobi", revenue: 100, target: 1000, grossProfit: 8 }]);
+    const row = summary.rows[0];
+    expect(row.gpAchievementPct).toBeCloseTo(11.4, 1); // 8 of a 70 GP target
+    expect(row.variancePp).toBe(1); // 8% against the 7% target
+    expect(row.achieved).toBe(true);
+  });
+
   it("handles no revenue", () => {
     const summary = buildGpTargetSummary([{ principal: "Mars-Nairobi", revenue: 0, target: null, grossProfit: 0 }]);
     expect(summary.rows[0].marginPct).toBeNull();

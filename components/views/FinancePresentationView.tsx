@@ -273,12 +273,20 @@ export function FinancePresentationView({
 
   // Weekly ageing: every week of the selected month and of the month before it.
   const previous = previousMonth(endMonth);
-  const ageingRows: { label: string; point: AgeingSnapshotPoint }[] = ageing.data
-    ? [
-        ...ageing.data.previous.weeks.map((point) => ({ label: `${monthName(previous)} · ${point.label}`, point })),
-        ...ageing.data.selected.weeks.map((point) => ({ label: `${monthName(endMonth)} · ${point.label}`, point })),
-      ]
-    : [];
+  // A week with no newer snapshot than the row before it (a week still to come, or one that overlaps the
+  // month boundary) would only repeat that row, so it is left out.
+  const ageingRows: { label: string; point: AgeingSnapshotPoint }[] = [];
+  if (ageing.data) {
+    const candidates = [
+      ...ageing.data.previous.weeks.map((point) => ({ label: `${monthName(previous)} · ${point.label}`, point })),
+      ...ageing.data.selected.weeks.map((point) => ({ label: `${monthName(endMonth)} · ${point.label}`, point })),
+    ];
+    for (const row of candidates) {
+      const last = ageingRows[ageingRows.length - 1];
+      if (last && row.point.snapshotDate !== null && row.point.snapshotDate === last.point.snapshotDate) continue;
+      ageingRows.push(row);
+    }
+  }
   const balanceNote = isLiveMonth
     ? "Debtors as at today (live ledger)."
     : `Debtors as at the end of ${monthName(endMonth)} ${endMonth.year} (ageing snapshot); payables and stock are the latest balances.`;
@@ -319,10 +327,10 @@ export function FinancePresentationView({
         <SectionCard title="Slide 1 — Sales & Gross Profit" accent="blue">
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-3 @sm:grid-cols-3 @lg:grid-cols-6">
-              <KpiCard accent="revenue" label="Revenue" value={formatCompact(periodSummary.revenue)} sublabel={periodText} />
-              <KpiCard accent="mission" label="Vs Running Target" value={<span className={tierTextClass[achievementTier(periodSummary.achievementPct)]}>{formatPercent(periodSummary.achievementPct)}</span>} sublabel={periodSummary.target !== null ? `Target ${formatCompact(periodSummary.target)}` : "N/T"} />
-              <KpiCard accent="growth" label="Gross Profit" value={formatCompact(periodSummary.grossProfit)} sublabel={periodText} />
-              <KpiCard accent="growth" label="Gross Margin %" value={<span className={tierTextClass[marginTier(periodSummary.grossMarginPct)]}>{formatPercent(periodSummary.grossMarginPct)}</span>} sublabel="Actual, company-wide" />
+              <KpiCard size="fit" accent="revenue" label="Revenue" value={formatCompact(periodSummary.revenue)} sublabel={periodText} />
+              <KpiCard size="fit" accent="mission" label="Vs Running Target" value={<span className={tierTextClass[achievementTier(periodSummary.achievementPct)]}>{formatPercent(periodSummary.achievementPct)}</span>} sublabel={periodSummary.target !== null ? `Target ${formatCompact(periodSummary.target)}` : "N/T"} />
+              <KpiCard size="fit" accent="growth" label="Gross Profit" value={formatCompact(periodSummary.grossProfit)} sublabel={periodText} />
+              <KpiCard size="fit" accent="growth" label="Gross Margin %" value={<span className={tierTextClass[marginTier(periodSummary.grossMarginPct)]}>{formatPercent(periodSummary.grossMarginPct)}</span>} sublabel="Actual, company-wide" />
               <KpiCard
                 accent="mission"
                 label="GP Margin vs Target"
@@ -333,7 +341,7 @@ export function FinancePresentationView({
                     : "No target"
                 }
               />
-              <KpiCard accent="coverage" label="Net Working Capital" value={workingCapital !== null ? kes(workingCapital) : "—"} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
+              <KpiCard size="fit" accent="coverage" label="Net Working Capital" value={workingCapital !== null ? kes(workingCapital) : "—"} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
             </div>
 
             <TableWrap>
@@ -375,7 +383,7 @@ export function FinancePresentationView({
               <TableWrap>
                 <Thead>
                   <Th>Principal</Th><Th align="right">Revenue</Th><Th align="right">Target margin</Th><Th align="right">Actual margin</Th><Th align="right">Variance</Th>
-                  <Th align="right">GP target</Th><Th align="right">GP actual</Th><Th align="right">GP achieved</Th><Th align="right">Status</Th>
+                  <Th align="right">GP target</Th><Th align="right">GP actual</Th><Th align="right">GP achieved</Th><Th align="right">Margin target</Th>
                 </Thead>
                 <tbody>
                   {gpSummary.rows.map((r) => (
@@ -388,7 +396,7 @@ export function FinancePresentationView({
                       <Td align="right">{r.gpTarget !== null ? formatCompact(r.gpTarget) : "N/T"}</Td>
                       <Td align="right">{formatCompact(r.grossProfit)}</Td>
                       <Td align="right">{r.gpAchievementPct !== null ? <span className={tierTextClass[achievementTier(r.gpAchievementPct)]}>{formatPercent(r.gpAchievementPct)}</span> : "—"}</Td>
-                      <Td align="right">{r.achieved === null ? "—" : r.achieved ? <span className="font-semibold text-accent-green">Achieved</span> : <span className="font-semibold text-accent-red">Below target</span>}</Td>
+                      <Td align="right">{r.achieved === null ? "—" : r.achieved ? <span className="font-semibold text-accent-green">Met</span> : <span className="font-semibold text-accent-red">Not met</span>}</Td>
                     </tr>
                   ))}
                   <TotalRow>
@@ -400,11 +408,11 @@ export function FinancePresentationView({
                     <Td align="right">{gpSummary.total.gpTarget !== null ? formatCompact(gpSummary.total.gpTarget) : "N/T"}</Td>
                     <Td align="right">{formatCompact(gpSummary.total.grossProfit)}</Td>
                     <Td align="right">{gpSummary.total.gpAchievementPct !== null ? formatPercent(gpSummary.total.gpAchievementPct) : "—"}</Td>
-                    <Td align="right">{gpSummary.total.achieved === null ? "—" : gpSummary.total.achieved ? "Achieved" : "Below target"}</Td>
+                    <Td align="right">{gpSummary.total.achieved === null ? "—" : gpSummary.total.achieved ? "Met" : "Not met"}</Td>
                   </TotalRow>
                 </tbody>
               </TableWrap>
-              <p className="mt-2 text-[11px] text-muted">GP target = the principal&apos;s revenue target for the period × its target margin; GP achieved = GP actual ÷ GP target. Principals with no revenue target are judged on margin alone.</p>
+              <p className="mt-2 text-[11px] text-muted">GP target = the principal&apos;s revenue target for the period × its target margin; GP achieved = GP actual ÷ GP target, so it follows how much of the period&apos;s revenue target has been sold. Margin target is met when the actual margin is at or above the target margin.</p>
             </div>
           </div>
         </SectionCard>
@@ -417,14 +425,14 @@ export function FinancePresentationView({
             {receivables ? (
               <>
                 <div className="grid grid-cols-2 gap-3 @lg:grid-cols-4">
-                  <KpiCard accent="mission" label="Overall Debt" value={balances ? kes(balances.total) : "—"} sublabel={balances?.customers != null ? `${balances.customers} customers` : isLiveMonth ? "" : `At ${monthName(endMonth)} end`} />
-                  <KpiCard accent="growth" label="Current Debt" value={balances ? kes(balances.current) : "—"} sublabel="Within 30 days" />
-                  <KpiCard accent="quarter" label="Overdue Debt" value={balances ? kes(balances.overdue) : "—"} sublabel="Over 30 days" />
-                  <KpiCard accent="coverage" label="Over 90 Days" value={balances ? kes(balances.over90) : "—"} sublabel="Collection risk" />
-                  <KpiCard accent="mission" label="DSO" value={dso !== null ? `${dso.toFixed(1)}d` : "—"} sublabel="Days Sales Outstanding" />
-                  <KpiCard accent="quarter" label="Accounts Payable" value={payables ? kes(payables.ledgerBalance) : "N/A"} sublabel={payables ? `${payables.vendorCount} vendors${isLiveMonth ? "" : " · latest"}` : "Not yet synced"} />
-                  <KpiCard accent="revenue" label="Stock Opening Value" value={kes(dataset.stockTotal.value)} sublabel={isLiveMonth ? "Company-wide" : "Company-wide · latest"} />
-                  <KpiCard accent="mission" label="Net Working Capital" value={workingCapital !== null ? kes(workingCapital) : "—"} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
+                  <KpiCard size="fit" accent="mission" label="Overall Debt" value={balances ? kes(balances.total) : "—"} sublabel={balances?.customers != null ? `${balances.customers} customers` : isLiveMonth ? "" : `At ${monthName(endMonth)} end`} />
+                  <KpiCard size="fit" accent="growth" label="Current Debt" value={balances ? kes(balances.current) : "—"} sublabel="Within 30 days" />
+                  <KpiCard size="fit" accent="quarter" label="Overdue Debt" value={balances ? kes(balances.overdue) : "—"} sublabel="Over 30 days" />
+                  <KpiCard size="fit" accent="coverage" label="Over 90 Days" value={balances ? kes(balances.over90) : "—"} sublabel="Collection risk" />
+                  <KpiCard size="fit" accent="mission" label="DSO" value={dso !== null ? `${dso.toFixed(1)}d` : "—"} sublabel="Days Sales Outstanding" />
+                  <KpiCard size="fit" accent="quarter" label="Accounts Payable" value={payables ? kes(payables.ledgerBalance) : "N/A"} sublabel={payables ? `${payables.vendorCount} vendors${isLiveMonth ? "" : " · latest"}` : "Not yet synced"} />
+                  <KpiCard size="fit" accent="revenue" label="Stock Opening Value" value={kes(dataset.stockTotal.value)} sublabel={isLiveMonth ? "Company-wide" : "Company-wide · latest"} />
+                  <KpiCard size="fit" accent="mission" label="Net Working Capital" value={workingCapital !== null ? kes(workingCapital) : "—"} sublabel={payables ? "Stock + Receivables − Payables" : "Stock + Receivables (Payables not synced)"} />
                 </div>
                 {!balances && !isLiveMonth && !ageing.loading ? (
                   <p className="text-sm text-muted">No ageing snapshot exists for the end of {monthName(endMonth)} {endMonth.year}, so the debtor balances cannot be shown for this period.</p>
