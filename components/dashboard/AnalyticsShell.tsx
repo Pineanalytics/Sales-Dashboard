@@ -50,7 +50,8 @@ export function AnalyticsShell({
   // still reach /coverage, same special-case as Financials above.
   const isCoverage = pathname?.startsWith("/coverage") ?? false;
   const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
-  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/receivables") && !(isFinancials && !canViewProfitability);
+  // Performance Analysis reads its own stored SAP snapshot, not the workbook dataset.
+  const requiresDataset = !pathname?.startsWith("/coaching") && !pathname?.startsWith("/principal-kpis") && !pathname?.startsWith("/performance-analysis") && !pathname?.startsWith("/receivables") && !(isFinancials && !canViewProfitability);
 
   // Same fallback pattern as the old DashboardShell: the store starts empty
   // client-side, so render the SSR-provided dataset until the hydration

@@ -226,8 +226,12 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,pl,stock,receivables
+      CONTINUOUS_SYNC_JOBS: sales,performance,pl,stock,receivables
       SALES_INTERVAL_SECONDS: 300
+      # Performance Analysis: one full-year SAP read a day (container clock is UTC, so
+      # 00:30 here is 03:30 Nairobi). Not run on start.
+      PERFORMANCE_DAILY_AT: "00:30"
+      PERFORMANCE_RUN_ON_START: "false"
       PL_INTERVAL_SECONDS: 1800
       STOCK_INTERVAL_SECONDS: 900
       RECEIVABLES_INTERVAL_SECONDS: 1800

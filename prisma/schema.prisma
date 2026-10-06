@@ -2415,3 +2415,19 @@ model GpMarginTarget {
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 }
+
+// The latest Performance Analysis report per calendar year: the whole aggregated
+// payload (lib/performanceAnalysis/types.ts, PerformanceSnapshotPayload) built by
+// scripts/db-bridge/performance-analysis/run.ts from SAP invoice and credit-note
+// lines, pushed through app/api/performance-analysis/upload. A derived, disposable
+// snapshot (one row per year, replaced on every run) rather than a line-level table:
+// the page only ever needs the aggregates, and ~575k SAP lines a year would be the
+// largest table in the database for no extra capability.
+model PerformanceAnalysisSnapshot {
+  year        Int      @id
+  generatedAt DateTime
+  asOf        String // YYYY-MM-DD, Nairobi date of the SAP read
+  lineCount   Int
+  payload     Json
+  updatedAt   DateTime @updatedAt
+}
