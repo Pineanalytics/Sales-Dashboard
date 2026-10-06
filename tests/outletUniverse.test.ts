@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanTerritory, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
+import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
 import { cleanLeverageUnit, eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
@@ -180,7 +180,48 @@ describe("outlet universe exclusions", () => {
   });
 });
 
+describe("dormancy flags", () => {
+  const now = new Date("2026-10-06T08:00:00Z");
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000);
+
+  it("returns null for an outlet inside the activity window", () => {
+    expect(dormancyFlag(daysAgo(0), now)).toBeNull();
+    expect(dormancyFlag(daysAgo(90), now)).toBeNull();
+  });
+
+  it("flags a silent outlet Lapsed, then Lost, with the days since", () => {
+    expect(dormancyFlag(daysAgo(91), now)).toEqual({ flag: "Lapsed", daysSince: 91 });
+    expect(dormancyFlag(daysAgo(179), now)).toEqual({ flag: "Lapsed", daysSince: 179 });
+    expect(dormancyFlag(daysAgo(180), now)).toEqual({ flag: "Lost", daysSince: 180 });
+    expect(dormancyFlag(daysAgo(240).toISOString().slice(0, 10), now)?.flag).toBe("Lost");
+  });
+
+  it("flags an outlet with no purchase this year", () => {
+    expect(dormancyFlag(null, now)).toEqual({ flag: "No purchase this year", daysSince: null });
+  });
+});
+
+describe("30-day purchase days", () => {
+  it("carries Pine's per-principal and per-outlet counts, defaulting to 0", () => {
+    const base = { principal: "Mars-Nairobi", customerId: "1", outletName: "Shop", channel: "Retail", subChannel: "Retailers", territory: "Ruiru", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRepName: null, pjpRegion: null, salesRole: "Primary Sales", mostRecentRep: null, lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
+    expect(pineRow({ ...base, purchaseDays30: 3, outletPurchaseDays30: 5 })).toMatchObject({ purchaseDays30: 3, outletPurchaseDays30: 5 });
+    expect(pineRow(base)).toMatchObject({ purchaseDays30: 0, outletPurchaseDays30: 0 });
+  });
+
+  it("uses the same count for both fields on single-principal sources", () => {
+    const leverage = leverageRow({ customerCode: "T5", storageLocation: "18058585", lastBuy: null, sales: 0, transactions: 0, salesRepCode: null, salesRepName: null, route: null, routeDesc: null, outletName: "Shop", channel: "Retailer", latitude: null, longitude: null, days30: 4 });
+    expect(leverage).toMatchObject({ purchaseDays30: 4, outletPurchaseDays30: 4 });
+    const eabl = eablRow({ customerId: "K2", principal: "EABL-Nyeri", outletName: "Bar", channel: null, subChannel: null, territory: null, route: null, latitude: null, longitude: null, lastBuy: null, sales: null, transactions: null, salesman: null, segment: null, days30: 2 });
+    expect(eabl).toMatchObject({ purchaseDays30: 2, outletPurchaseDays30: 2 });
+  });
+});
+
 describe("outlet universe filter parsing", () => {
+  it("reads a principal brand key", () => {
+    expect(parseOutletFilters(new URLSearchParams({ principalKey: " Mars " })).principalKey).toBe("Mars");
+    expect(parseOutletFilters(new URLSearchParams()).principalKey).toBeNull();
+  });
+
   it("reads the sales role filter and ignores unknown values", () => {
     expect(parseOutletFilters(new URLSearchParams({ role: "Secondary Sales" })).role).toBe("Secondary Sales");
     expect(parseOutletFilters(new URLSearchParams({ role: "Primary Sales" })).role).toBe("Primary Sales");

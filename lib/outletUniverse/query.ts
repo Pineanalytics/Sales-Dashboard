@@ -1,6 +1,16 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { OUTLET_ACTIVE_WINDOW_DAYS, OUTLET_SALES_ROLES, OUTLET_SOURCES, type OutletSalesRole, type OutletSource } from "./normalize";
+import { normalizePrincipalKey } from "@/lib/normalize";
+import {
+  DORMANT_LOST_AFTER_DAYS,
+  FREQUENT_MIN_PURCHASE_DAYS,
+  FREQUENT_WINDOW_DAYS,
+  OUTLET_ACTIVE_WINDOW_DAYS,
+  OUTLET_SALES_ROLES,
+  OUTLET_SOURCES,
+  type OutletSalesRole,
+  type OutletSource,
+} from "./normalize";
 
 export type OutletView = "principal" | "general";
 export type OutletStatus = "active" | "inactive" | "all";
@@ -14,6 +24,8 @@ export interface OutletFilters {
   role: OutletSalesRole | null;
   source: OutletSource | null;
   principal: string | null;
+  /** A principal brand across every location ("Mars" = Mars-Nairobi and any other Mars row); how the dashboard's principal selector names it. */
+  principalKey: string | null;
   channel: string | null;
   segment: string | null;
   region: string | null;
@@ -43,6 +55,7 @@ export function parseOutletFilters(params: URLSearchParams): OutletFilters {
     role: (OUTLET_SALES_ROLES as string[]).includes(role ?? "") ? (role as OutletSalesRole) : null,
     source: (OUTLET_SOURCES as string[]).includes(source ?? "") ? (source as OutletSource) : null,
     principal: text(params.get("principal")),
+    principalKey: text(params.get("principalKey")),
     channel: text(params.get("channel")),
     segment: text(params.get("segment")),
     region: text(params.get("region")),
@@ -59,6 +72,11 @@ export function parseOutletFilters(params: URLSearchParams): OutletFilters {
  *  "Eabl-Nyeri") differently from the Principal table. */
 export type OutletScope = { principals: string[] } | null;
 
+/** Rows of one principal brand: "Mars-Nairobi" and "Ukl-Intl-Nairobi" reduce to "mars" and "ukl", the same key the dashboard's principal selector uses. */
+function principalKeyClause(key: string): Prisma.Sql {
+  return Prisma.sql`regexp_replace(lower(split_part(principal, '-', 1)), '[^a-z0-9]', '', 'g') = ${normalizePrincipalKey(key)}`;
+}
+
 function baseWhere(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`TRUE`];
   if (scope) {
@@ -67,6 +85,7 @@ function baseWhere(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
   if (filters.source) parts.push(Prisma.sql`source = ${filters.source}`);
   if (filters.role) parts.push(Prisma.sql`"salesRole" = ${filters.role}`);
   if (filters.principal) parts.push(Prisma.sql`lower(principal) = ${filters.principal.toLowerCase()}`);
+  if (filters.principalKey) parts.push(principalKeyClause(filters.principalKey));
   if (filters.channel) parts.push(Prisma.sql`channel = ${filters.channel}`);
   if (filters.segment) parts.push(Prisma.sql`segment = ${filters.segment}`);
   if (filters.region) parts.push(Prisma.sql`region = ${filters.region}`);
@@ -345,4 +364,90 @@ export async function getOutletFilterOptions(scope: OutletScope): Promise<Outlet
     distinct(Prisma.sql`"repName"`),
   ]);
   return { principals, channels, segments, regions, territories, routes, reps };
+}
+
+export interface UniverseTier {
+  /** Outlets known to the universe (for the role, when split). */
+  known: number;
+  /** Bought within the activity window. */
+  active: number;
+  /** Active and bought on at least FREQUENT_MIN_PURCHASE_DAYS separate days in the last FREQUENT_WINDOW_DAYS. */
+  frequent: number;
+  /** Known but not active. */
+  dormant: number;
+}
+
+export interface ActiveUniverseStatus {
+  builtAt: string | null;
+  activeWindowDays: number;
+  frequentWindowDays: number;
+  frequentMinDays: number;
+  lostAfterDays: number;
+  /** Distinct outlets, each counted once however many principals or roles it buys through. */
+  all: UniverseTier & { lapsed: number; lost: number; noPurchase: number };
+  /** An outlet reached through both roles counts in both, so these can sum to more than `all`. */
+  primary: UniverseTier;
+  secondary: UniverseTier;
+}
+
+/** The current active universe for the Executive Summary: distinct outlets across every
+ *  principal (or one principal brand), split Primary / Secondary, into those actively
+ *  buying, those buying at least twice in a month, and the dormant rest. */
+export async function getActiveUniverseStatus(scope: OutletScope, principalKey: string | null): Promise<ActiveUniverseStatus> {
+  const now = Date.now();
+  const active = new Date(now - OUTLET_ACTIVE_WINDOW_DAYS * 86_400_000);
+  const lost = new Date(now - DORMANT_LOST_AFTER_DAYS * 86_400_000);
+  const filters: OutletFilters = {
+    view: "general", status: "all", role: null, source: null, principal: null, principalKey, channel: null,
+    segment: null, region: null, territory: null, route: null, rep: null, q: "",
+  };
+  // With one principal chosen, frequency is that principal's own purchase days; across all
+  // principals it is the outlet's days in total (a day buying two principals is one day).
+  const days = principalKey ? Prisma.sql`"purchaseDays30"` : Prisma.sql`"outletPurchaseDays30"`;
+  const min = FREQUENT_MIN_PURCHASE_DAYS;
+
+  const [rows, built] = await Promise.all([
+    prisma.$queryRaw<Record<string, number>[]>(Prisma.sql`
+      WITH base AS (SELECT * FROM "OutletUniverse" WHERE ${baseWhere(filters, scope)}),
+      o AS (
+        SELECT source, "outletKey", MAX("lastPurchaseDate") AS lpd, MAX(${days}) AS fdays,
+          BOOL_OR("salesRole" = 'Primary Sales') AS hp,
+          BOOL_OR("salesRole" = 'Secondary Sales') AS hs,
+          COALESCE(BOOL_OR("lastPurchaseDate" >= ${active}), FALSE) AS act,
+          COALESCE(BOOL_OR("salesRole" = 'Primary Sales' AND "lastPurchaseDate" >= ${active}), FALSE) AS ap,
+          COALESCE(BOOL_OR("salesRole" = 'Secondary Sales' AND "lastPurchaseDate" >= ${active}), FALSE) AS asec,
+          COALESCE(BOOL_OR("salesRole" = 'Primary Sales' AND "lastPurchaseDate" >= ${active} AND "purchaseDays30" >= ${min}), FALSE) AS fp,
+          COALESCE(BOOL_OR("salesRole" = 'Secondary Sales' AND "lastPurchaseDate" >= ${active} AND "purchaseDays30" >= ${min}), FALSE) AS fs
+        FROM base GROUP BY source, "outletKey"
+      )
+      SELECT COUNT(*)::int AS known,
+        COUNT(*) FILTER (WHERE act)::int AS active,
+        COUNT(*) FILTER (WHERE act AND fdays >= ${min})::int AS frequent,
+        COUNT(*) FILTER (WHERE NOT act AND lpd IS NOT NULL AND lpd >= ${lost})::int AS lapsed,
+        COUNT(*) FILTER (WHERE NOT act AND lpd IS NOT NULL AND lpd < ${lost})::int AS lost,
+        COUNT(*) FILTER (WHERE lpd IS NULL)::int AS "noPurchase",
+        COUNT(*) FILTER (WHERE hp)::int AS "knownP", COUNT(*) FILTER (WHERE ap)::int AS "activeP", COUNT(*) FILTER (WHERE fp)::int AS "frequentP",
+        COUNT(*) FILTER (WHERE hs)::int AS "knownS", COUNT(*) FILTER (WHERE asec)::int AS "activeS", COUNT(*) FILTER (WHERE fs)::int AS "frequentS"
+      FROM o
+    `),
+    prisma.$queryRaw<{ builtAt: Date | null }[]>(Prisma.sql`SELECT MAX("builtAt") AS "builtAt" FROM "OutletUniverse"`),
+  ]);
+
+  const r = rows[0] ?? {};
+  const tier = (known: unknown, activeCount: unknown, frequent: unknown): UniverseTier => ({
+    known: num(known),
+    active: num(activeCount),
+    frequent: num(frequent),
+    dormant: Math.max(0, num(known) - num(activeCount)),
+  });
+  return {
+    builtAt: built[0]?.builtAt ? built[0].builtAt.toISOString() : null,
+    activeWindowDays: OUTLET_ACTIVE_WINDOW_DAYS,
+    frequentWindowDays: FREQUENT_WINDOW_DAYS,
+    frequentMinDays: FREQUENT_MIN_PURCHASE_DAYS,
+    lostAfterDays: DORMANT_LOST_AFTER_DAYS,
+    all: { ...tier(r.known, r.active, r.frequent), lapsed: num(r.lapsed), lost: num(r.lost), noPurchase: num(r.noPurchase) },
+    primary: tier(r.knownP, r.activeP, r.frequentP),
+    secondary: tier(r.knownS, r.activeS, r.frequentS),
+  };
 }

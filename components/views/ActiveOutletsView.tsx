@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Legend, Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/ui/KpiGrid";
@@ -24,6 +25,7 @@ const DEFAULT_FILTERS: OutletFilters = {
   role: null,
   source: null,
   principal: null,
+  principalKey: null,
   channel: null,
   segment: null,
   region: null,
@@ -35,12 +37,29 @@ const DEFAULT_FILTERS: OutletFilters = {
 
 function toParams(filters: OutletFilters, page?: number): URLSearchParams {
   const params = new URLSearchParams({ view: filters.view, status: filters.status });
-  for (const key of ["role", "source", "principal", "channel", "segment", "region", "territory", "route", "rep", "q"] as const) {
+  for (const key of ["role", "source", "principal", "principalKey", "channel", "segment", "region", "territory", "route", "rep", "q"] as const) {
     const value = filters[key];
     if (value) params.set(key, value);
   }
   if (page && page > 1) params.set("page", String(page));
   return params;
+}
+
+/** Lets another page (the Executive Summary's dormant-outlet link) open this module already filtered. */
+function initialFromParams(params: URLSearchParams): { filters: OutletFilters; tab: "dashboard" | "list" } {
+  const role = params.get("role");
+  const status = params.get("status");
+  const key = (params.get("principalKey") ?? "").trim().slice(0, 80);
+  return {
+    filters: {
+      ...DEFAULT_FILTERS,
+      view: params.get("view") === "general" ? "general" : "principal",
+      status: status === "inactive" || status === "all" ? status : "active",
+      role: role === "Primary Sales" || role === "Secondary Sales" ? role : null,
+      principalKey: key || null,
+    },
+    tab: params.get("list") === "1" ? "list" : "dashboard",
+  };
 }
 
 function minutesAgo(iso: string | null): string {
@@ -109,10 +128,12 @@ function PineMonthlyTrend() {
 }
 
 export function ActiveOutletsView() {
-  const [filters, setFilters] = useState<OutletFilters>(DEFAULT_FILTERS);
+  const searchParams = useSearchParams();
+  const [initial] = useState(() => initialFromParams(new URLSearchParams(searchParams.toString())));
+  const [filters, setFilters] = useState<OutletFilters>(initial.filters);
   const [searchText, setSearchText] = useState("");
   const [page, setPage] = useState(1);
-  const [tab, setTab] = useState<"dashboard" | "list">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "list">(initial.tab);
   const [payload, setPayload] = useState<UniversePayload | null>(null);
   const [options, setOptions] = useState<OutletFilterOptions | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
@@ -227,6 +248,14 @@ export function ActiveOutletsView() {
         }
       >
         <FilterBar filters={filters} options={options} onChange={patchFilters} onReset={resetFilters} searchText={searchText} onSearchText={setSearchText} />
+        {filters.principalKey ? (
+          <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+            Showing principal brand <strong className="text-primary-blue">{filters.principalKey}</strong> across all locations
+            <button onClick={() => patchFilters({ principalKey: null })} className="rounded-full border border-border px-2 py-0.5 font-semibold text-primary-blue hover:bg-accent-blue-soft">
+              Show all principals ✕
+            </button>
+          </p>
+        ) : null}
       </SectionCard>
 
       <div className="inline-flex w-fit gap-1 rounded-full bg-background-elevated p-0.5">

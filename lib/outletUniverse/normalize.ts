@@ -18,6 +18,24 @@ export const OUTLET_SOURCE_LABELS: Record<OutletSource, string> = {
  *  query time, so changing it needs no rebuild. */
 export const OUTLET_ACTIVE_WINDOW_DAYS = 90;
 
+/** "Buying at least twice a month": purchases on this many separate days within the last FREQUENT_WINDOW_DAYS. */
+export const FREQUENT_WINDOW_DAYS = 30;
+export const FREQUENT_MIN_PURCHASE_DAYS = 2;
+/** A dormant outlet is "Lost" once it has not bought for this long; before that it is "Lapsed". */
+export const DORMANT_LOST_AFTER_DAYS = 180;
+
+export type DormancyFlag = "Lapsed" | "Lost" | "No purchase this year";
+
+/** Flags a dormant outlet from its last purchase, or returns null when it is active.
+ *  `activeWindowDays` is the module's activity window (OUTLET_ACTIVE_WINDOW_DAYS).
+ *  The universe holds this year's data, so a missing last purchase means "none this year". */
+export function dormancyFlag(lastPurchase: Date | string | null, now: Date = new Date(), activeWindowDays: number = OUTLET_ACTIVE_WINDOW_DAYS): { flag: DormancyFlag; daysSince: number | null } | null {
+  if (!lastPurchase) return { flag: "No purchase this year", daysSince: null };
+  const daysSince = Math.floor((now.getTime() - new Date(lastPurchase).getTime()) / 86_400_000);
+  if (daysSince <= activeWindowDays) return null;
+  return { flag: daysSince >= DORMANT_LOST_AFTER_DAYS ? "Lost" : "Lapsed", daysSince };
+}
+
 export const UNSPECIFIED = "Unspecified";
 
 export type OutletSalesRole = "Primary Sales" | "Secondary Sales";

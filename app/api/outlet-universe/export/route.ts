@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
-import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { OUTLET_SOURCE_LABELS, dormancyFlag, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Sales YTD", "Transactions YTD"];
+const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Days Since Purchase", "Dormancy Flag", "Sales YTD", "Transactions YTD"];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
 function cell(value: string | number | null): string {
@@ -42,7 +42,9 @@ export async function GET(req: NextRequest) {
           row.latitude,
           row.longitude,
           row.lastPurchaseDate,
-          row.active ? "Active" : "Inactive",
+          row.active ? "Active" : "Dormant",
+          row.active ? null : (dormancyFlag(row.lastPurchaseDate)?.daysSince ?? null),
+          row.active ? null : (dormancyFlag(row.lastPurchaseDate)?.flag ?? null),
           Math.round(row.sales * 100) / 100,
           row.transactions,
         ]

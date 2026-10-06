@@ -35,6 +35,9 @@ export interface OutletUniverseRow {
   lastPurchaseDate: Date | null;
   sales: number;
   transactions: number;
+  /** Distinct days with a purchase in the last 30 days: this principal, then all of the outlet's principals in the source. */
+  purchaseDays30: number;
+  outletPurchaseDays30: number;
 }
 
 export interface OutletUniverseRebuildResult {
@@ -79,6 +82,8 @@ interface PineSourceRow {
   lastPurchaseDate: Date;
   sales: number;
   timesBought: number;
+  purchaseDays30?: number;
+  outletPurchaseDays30?: number;
 }
 
 export function pineRow(row: PineSourceRow): OutletUniverseRow {
@@ -104,6 +109,8 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     lastPurchaseDate: row.lastPurchaseDate,
     sales: row.sales,
     transactions: row.timesBought,
+    purchaseDays30: row.purchaseDays30 ?? 0,
+    outletPurchaseDays30: row.outletPurchaseDays30 ?? 0,
   };
 }
 
@@ -125,6 +132,8 @@ interface LeverageSourceRow {
   /** From the journey-plan roster (Centegy GeoCodeY / GeoCodeX), when the branch carries them. */
   latitude: number | null;
   longitude: number | null;
+  /** Distinct invoice days in the last 30 days. */
+  days30?: number | null;
 }
 
 /** Centegy names a sales unit "<van or bike>_<distributor id>"; the id suffix only repeats the branch. */
@@ -162,6 +171,8 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     lastPurchaseDate: row.lastBuy,
     sales: row.sales,
     transactions: row.transactions,
+    purchaseDays30: row.days30 ?? 0,
+    outletPurchaseDays30: row.days30 ?? 0,
   };
 }
 
@@ -180,6 +191,8 @@ interface EablSourceRow {
   transactions: number | null;
   salesman: string | null;
   segment: string | null;
+  /** Distinct days with a productive call in the last 30 days. */
+  days30?: number | null;
 }
 
 export function eablRow(row: EablSourceRow): OutletUniverseRow {
@@ -205,6 +218,8 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     lastPurchaseDate: row.lastBuy,
     sales: row.sales ?? 0,
     transactions: row.transactions ?? 0,
+    purchaseDays30: row.days30 ?? 0,
+    outletPurchaseDays30: row.days30 ?? 0,
   };
 }
 
@@ -216,7 +231,23 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
     FROM "ActiveOutlet"
     WHERE year = (SELECT MAX(year) FROM "ActiveOutlet")
   `);
-  return rows.map(pineRow);
+  // Purchase days over the last 30 days from the append-only event ledger: one
+  // count per principal, one per outlet across all of its principals.
+  const [perPrincipal, perOutlet] = await Promise.all([
+    prisma.$queryRaw<{ principal: string; customerId: string; days: number }[]>(Prisma.sql`
+      SELECT principal, "customerId", COUNT(DISTINCT date::date)::int AS days
+      FROM "ActiveOutletEvent" WHERE date >= now() - interval '30 days'
+      GROUP BY principal, "customerId"
+    `),
+    prisma.$queryRaw<{ customerId: string; days: number }[]>(Prisma.sql`
+      SELECT "customerId", COUNT(DISTINCT date::date)::int AS days
+      FROM "ActiveOutletEvent" WHERE date >= now() - interval '30 days'
+      GROUP BY "customerId"
+    `),
+  ]);
+  const principalDays = new Map(perPrincipal.map((r) => [`${r.principal}|${r.customerId}`, Number(r.days)]));
+  const outletDays = new Map(perOutlet.map((r) => [r.customerId, Number(r.days)]));
+  return rows.map((row) => pineRow({ ...row, purchaseDays30: principalDays.get(`${row.principal}|${row.customerId}`) ?? 0, outletPurchaseDays30: outletDays.get(row.customerId) ?? 0 }));
 }
 
 async function loadLeverage(): Promise<OutletUniverseRow[]> {
@@ -231,7 +262,8 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
       SELECT "customerCode", "storageLocation",
              MAX("deliveryDate") FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)})) AS "lastBuy",
              SUM("netSale")::double precision AS sales,
-             COUNT(DISTINCT "invoiceNo") FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)}))::int AS transactions
+             COUNT(DISTINCT "invoiceNo") FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)}))::int AS transactions,
+             COUNT(DISTINCT "deliveryDate"::date) FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)}) AND "deliveryDate" >= now() - interval '30 days')::int AS days30
       FROM docs GROUP BY "customerCode", "storageLocation"
     ),
     latest AS (
@@ -258,7 +290,7 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
       ORDER BY distributor, "customerCode", pjp
     )
-    SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions,
+    SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions, a.days30,
            l."salesRepCode", l."salesRepName", l.route, p."routeDesc",
            n."outletName", n.channel, g.latitude, g.longitude
     FROM agg a
@@ -276,7 +308,8 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
       SELECT "customerCode",
              MAX("callDate") FILTER (WHERE "isProductive") AS "lastBuy",
              SUM("netSales")::double precision AS sales,
-             COUNT(*) FILTER (WHERE "isProductive")::int AS transactions
+             COUNT(*) FILTER (WHERE "isProductive")::int AS transactions,
+             COUNT(DISTINCT "callDate"::date) FILTER (WHERE "isProductive" AND "callDate" >= now() - interval '30 days')::int AS days30
       FROM "EablCall"
       WHERE "customerCode" IS NOT NULL AND EXTRACT(YEAR FROM "callDate") = EXTRACT(YEAR FROM now())
       GROUP BY "customerCode"
@@ -288,7 +321,7 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
       ORDER BY "customerCode", "callDate" DESC, "timeIn" DESC NULLS LAST
     )
     SELECT m."customerId", m.principal, m."outletName", m.channel, m."subChannel", m.territory, m.route,
-           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, l.salesman, l.segment
+           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, c.days30, l.salesman, l.segment
     FROM "EablCustomerMaster" m
     LEFT JOIN calls c ON c."customerCode" = m."customerId"
     LEFT JOIN latest l ON l."customerCode" = m."customerId"
