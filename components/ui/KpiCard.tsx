@@ -31,7 +31,7 @@ interface KpiCardProps {
   /** Overrides the accent's default icon. Pass `null` to hide the icon entirely. */
   icon?: ReactNode | null;
   /** "lg" (default) is the 42px numeric KPI style; "md" suits longer text values (names, status labels, gauges). */
-  size?: "lg" | "md";
+  size?: "lg" | "md" | "fit";
   /** Small up/down trend pill, e.g. { value: 5.2, caption: "vs last month" }. */
   delta?: KpiDelta;
   /** Historical values for a minimal trend line under the KPI value — omit for none. */
@@ -41,6 +41,9 @@ interface KpiCardProps {
 const VALUE_SIZE_CLASS = {
   lg: "text-[32px] leading-tight",
   md: "text-xl leading-snug",
+  // The figure scales with the tile's own width (full 32px once the tile is wide enough) so a long
+  // money value such as "KES 201.5M" never overflows a narrow tile.
+  fit: "text-[clamp(18px,14cqw,32px)] leading-tight",
 } as const;
 
 const ACCENT_ICON: Record<KpiAccent, typeof Money20Regular> = {
@@ -61,7 +64,7 @@ export function KpiCard({ label, value, sublabel, accent = "revenue", icon, size
 
   return (
     <div
-      className={`h-full rounded-xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-3.5 flex flex-col gap-1 min-w-0 shadow-[0_1px_3px_rgba(11,61,53,0.06)] ring-1 ring-black/[0.06] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(11,61,53,0.12)] hover:-translate-y-0.5`}
+      className={`${size === "fit" ? "@container " : ""}h-full rounded-xl border-t-4 ${kpiAccentBorderClass[accent]} bg-surface p-3.5 flex flex-col gap-1 min-w-0 shadow-[0_1px_3px_rgba(11,61,53,0.06)] ring-1 ring-black/[0.06] transition-all duration-300 hover:shadow-[0_8px_20px_rgba(11,61,53,0.12)] hover:-translate-y-0.5`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted truncate" title={label}>{label}</span>

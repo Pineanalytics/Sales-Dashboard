@@ -50,7 +50,7 @@ export interface GpTargetRow {
   gpTarget: number | null;
   /** GP achieved as a percentage of the GP target, or null without a GP target. */
   gpAchievementPct: number | null;
-  /** True when the GP target is met (or, with no GP target, when the margin target is). */
+  /** True when the actual margin is at or above the target margin. (GP achieved % tracks the revenue sold so far; this does not.) */
   achieved: boolean | null;
 }
 
@@ -99,7 +99,7 @@ export function buildGpTargetSummary(principals: PrincipalSalesInput[]): GpTarge
       grossProfit: e.gp,
       gpTarget,
       gpAchievementPct,
-      achieved: gpAchievementPct !== null ? gpAchievementPct >= 100 : variancePp === null ? null : variancePp >= 0,
+      achieved: variancePp === null ? null : variancePp >= 0,
     };
   });
 
@@ -137,7 +137,7 @@ export function buildGpTargetSummary(principals: PrincipalSalesInput[]): GpTarge
       grossProfit,
       gpTarget,
       gpAchievementPct,
-      achieved: gpAchievementPct !== null ? gpAchievementPct >= 100 : variancePp === null ? null : variancePp >= 0,
+      achieved: variancePp === null ? null : variancePp >= 0,
     },
   };
 }
