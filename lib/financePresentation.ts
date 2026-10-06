@@ -169,6 +169,48 @@ export function buildGpTargetSummary(principals: PrincipalSalesInput[], targets:
   };
 }
 
+/** The five main brands, shown individually everywhere on the slides. */
+export const TOP_BRAND_KEYS = ["mars", "suntory", "upfield", "eabl", "weetabix"];
+
+/** The five main brands as individual rows (in that order) and every other brand compressed into one
+ *  "All Other Principals" row: revenue, GP and GP target are summed, and the target margin is the
+ *  revenue-target-weighted average of the brands it covers. `otherCount` is the number shown in the label. */
+export function splitGpTargetRows(rows: GpTargetRow[], otherCount: number = rows.length): { top: GpTargetRow[]; others: GpTargetRow | null } {
+  const isTop = (row: GpTargetRow) => TOP_BRAND_KEYS.includes(normalizePrincipalKey(row.label));
+  const top = TOP_BRAND_KEYS.map((key) => rows.find((row) => isTop(row) && normalizePrincipalKey(row.label) === key)).filter((row): row is GpTargetRow => row !== undefined);
+  const rest = rows.filter((row) => !isTop(row));
+  if (rest.length === 0) return { top, others: null };
+
+  const revenue = rest.reduce((s, r) => s + r.revenue, 0);
+  const grossProfit = rest.reduce((s, r) => s + r.grossProfit, 0);
+  const withTarget = rest.filter((r) => r.revenueTarget !== null);
+  const revenueTarget = withTarget.length > 0 ? withTarget.reduce((s, r) => s + (r.revenueTarget ?? 0), 0) : null;
+  const gpTarget = withTarget.length > 0 ? withTarget.reduce((s, r) => s + (r.gpTarget ?? 0), 0) : null;
+  const marginTargetPct =
+    revenueTarget !== null && revenueTarget > 0 && gpTarget !== null
+      ? (gpTarget / revenueTarget) * 100
+      : revenue > 0
+        ? rest.reduce((s, r) => s + r.marginTargetPct * r.revenue, 0) / revenue
+        : rest[0].marginTargetPct;
+  const marginPct = revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
+  const variancePp = marginPct !== null ? round1(marginPct - marginTargetPct) : null;
+  return {
+    top,
+    others: {
+      label: `All Other Principals (${otherCount})`,
+      revenue,
+      revenueTarget,
+      marginTargetPct: round1(marginTargetPct),
+      marginPct,
+      variancePp,
+      grossProfit,
+      gpTarget,
+      gpAchievementPct: gpTarget !== null && gpTarget > 0 ? round1((grossProfit / gpTarget) * 100) : null,
+      achieved: variancePp === null ? null : variancePp >= 0,
+    },
+  };
+}
+
 /** Actual margin as a share of the target margin (a 8.2% actual against a 10% target is 82%). */
 export function marginAchievementPct(marginPct: number | null, targetPct: number | null): number | null {
   if (marginPct === null || targetPct === null || targetPct <= 0) return null;

@@ -11,6 +11,7 @@ import { aggregateStockByPrincipal } from "@/lib/stock";
 import { summarizeSalesForPeriod, summarizeSalesByPrincipal, getCurrentMonthPeriod, resolvePeriodMonths, CANONICAL_MONTHS, type PeriodSelection } from "@/lib/timeIntelligence";
 import {
   buildGpTargetSummary,
+  splitGpTargetRows,
   daysCoverAtCost,
   describeGpMarginTargets,
   describePeriod,
@@ -20,7 +21,6 @@ import {
   nairobiToday,
   periodElapsedDays,
   periodEndMonth,
-  previousMonth,
   runRateWindow,
   weeklyRunRateAtCost,
   type GpMarginTargets,
@@ -54,7 +54,6 @@ function ageingRowTotal(point: AgeingSnapshotPoint) {
 
 interface AgeingPayload {
   selected: AgeingTrendForMonth;
-  previous: AgeingTrendForMonth;
   /** The balance at the selected month's end; null while the month is still the current one. */
   monthEnd: AgeingSnapshotPoint | null;
 }
@@ -166,6 +165,7 @@ export function FinancePresentationView({
 
   // GP margin against the targets in force (maintained on /admin/gp-targets).
   const gpSummary = buildGpTargetSummary(byPrincipal.map((p) => ({ principal: p.principal, revenue: p.revenue, target: p.target, grossProfit: p.grossProfit })), gpMarginTargets);
+  const gpListing = splitGpTargetRows(gpSummary.rows, otherRows.length);
   const marginTargetPct = gpSummary.total.marginTargetPct;
   const marginVsTargetPct = marginAchievementPct(periodSummary.grossMarginPct, marginTargetPct);
   const pp = (value: number | null) => (value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(1)}pp`);
@@ -275,22 +275,10 @@ export function FinancePresentationView({
   const nwc = (stockValue: number, debt: number, payable: number) => stockValue + debt - payable;
   const cover = (value: number | null) => (value === null ? "—" : value.toFixed(1));
 
-  // Weekly ageing: every week of the selected month and of the month before it.
-  const previous = previousMonth(endMonth);
-  // A week with no newer snapshot than the row before it (a week still to come, or one that overlaps the
-  // month boundary) would only repeat that row, so it is left out.
-  const ageingRows: { label: string; point: AgeingSnapshotPoint }[] = [];
-  if (ageing.data) {
-    const candidates = [
-      ...ageing.data.previous.weeks.map((point) => ({ label: `${monthName(previous)} · ${point.label}`, point })),
-      ...ageing.data.selected.weeks.map((point) => ({ label: `${monthName(endMonth)} · ${point.label}`, point })),
-    ];
-    for (const row of candidates) {
-      const last = ageingRows[ageingRows.length - 1];
-      if (last && row.point.snapshotDate !== null && row.point.snapshotDate === last.point.snapshotDate) continue;
-      ageingRows.push(row);
-    }
-  }
+  // Full weekly breakdown, same as the main Ageing Trend tab — last month's
+  // closing balance (the opening position), then every week of the selected
+  // month distinctly (not condensed down to a single "latest week" row).
+  const ageingRows: AgeingSnapshotPoint[] = ageing.data ? [ageing.data.selected.lastMonth, ...ageing.data.selected.weeks] : [];
   const balanceNote = isLiveMonth
     ? "Debtors as at today (live ledger)."
     : `Debtors as at the end of ${monthName(endMonth)} ${endMonth.year} (ageing snapshot); payables and stock are the latest balances.`;
@@ -390,8 +378,8 @@ export function FinancePresentationView({
                   <Th align="right">GP target</Th><Th align="right">GP actual</Th><Th align="right">GP achieved</Th><Th align="right">Margin target</Th>
                 </Thead>
                 <tbody>
-                  {gpSummary.rows.map((r) => (
-                    <tr key={r.label}>
+                  {[...gpListing.top, ...(gpListing.others ? [gpListing.others] : [])].map((r) => (
+                    <tr key={r.label} className={r === gpListing.others ? "text-muted-strong" : undefined}>
                       <Td>{r.label}</Td>
                       <Td align="right">{formatCompact(r.revenue)}</Td>
                       <Td align="right">{r.marginTargetPct.toFixed(1)}%</Td>
@@ -450,7 +438,7 @@ export function FinancePresentationView({
             {receivables ? (
               <div>
                 <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                  Ageing trend — weekly, {monthName(previous)} and {monthName(endMonth)} {endMonth.year}
+                  Ageing trend — last month closing, then each week distinctly ({monthName(endMonth)} {endMonth.year})
                 </h4>
                 {ageing.loading ? <p className="text-sm text-muted">Loading the ageing…</p> : null}
                 {ageing.error ? <p className="text-sm text-muted">The ageing could not be loaded.</p> : null}
@@ -458,11 +446,11 @@ export function FinancePresentationView({
                   <TableWrap>
                     <Thead><Th>Period</Th><Th align="right">Total</Th><Th align="right">Current (0–30 days)</Th><Th align="right">60 days</Th><Th align="right">90 days</Th><Th align="right">Over 90 days</Th></Thead>
                     <tbody>
-                      {ageingRows.map(({ label, point }) => {
+                      {ageingRows.map((point) => {
                         const t = ageingRowTotal(point);
                         return (
-                          <tr key={label}>
-                            <Td>{label}</Td>
+                          <tr key={point.label}>
+                            <Td>{point.label}</Td>
                             <Td align="right" className="font-semibold">{t ? kes(t.total) : "—"}</Td>
                             {(["current", "days60", "days90", "daysOver90"] as const).map((key) => (
                               <Td key={key} align="right">

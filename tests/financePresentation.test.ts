@@ -5,6 +5,7 @@ import {
   buildGpTargetSummary,
   describeGpMarginTargets,
   mergeGpMarginTargets,
+  splitGpTargetRows,
   daysCoverAtCost,
   describePeriod,
   gpMarginTargetPct,
@@ -134,6 +135,52 @@ describe("editable GP margin targets", () => {
     expect(describeGpMarginTargets(DEFAULT_GP_MARGIN_TARGETS)).toBe("Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, all others 10%");
     const edited = mergeGpMarginTargets([{ brandKey: "mars", targetPct: 14 }, { brandKey: "bidco", targetPct: 5 }, { brandKey: GP_MARGIN_DEFAULT_KEY, targetPct: 9 }]);
     expect(describeGpMarginTargets(edited)).toBe("Mars 14%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, Bidco 5%, all others 9%");
+  });
+});
+
+describe("GP vs target listing: five main brands, the rest compressed", () => {
+  const principals = [
+    { principal: "Mars-Nairobi", revenue: 1000, target: 1000, grossProfit: 150 },
+    { principal: "Suntory-Nairobi", revenue: 500, target: 500, grossProfit: 35 },
+    { principal: "Upfield-Nairobi", revenue: 400, target: 400, grossProfit: 40 },
+    { principal: "EABL-Nyeri", revenue: 800, target: 800, grossProfit: 48 },
+    { principal: "Weetabix-Nairobi", revenue: 300, target: 300, grossProfit: 30 },
+    { principal: "Tropikal-Nairobi", revenue: 100, target: 100, grossProfit: 12 },
+    { principal: "Unilever-Nairobi", revenue: 200, target: 400, grossProfit: 16 },
+    { principal: "Unilever-Nyeri", revenue: 300, target: 400, grossProfit: 24 },
+  ];
+
+  it("lists the five main brands in the table's own order and folds everyone else into one row", () => {
+    const { top, others } = splitGpTargetRows(buildGpTargetSummary(principals).rows, 3);
+    expect(top.map((r) => r.label)).toEqual(["Mars", "Suntory", "Upfield", "EABL", "Weetabix"]);
+    expect(others?.label).toBe("All Other Principals (3)");
+    expect(others).toMatchObject({ revenue: 600, grossProfit: 52, revenueTarget: 900 });
+    expect(others?.gpTarget).toBeCloseTo(90); // 900 x 10%
+    expect(others?.marginTargetPct).toBe(10);
+    expect(others?.marginPct).toBeCloseTo(8.7, 1);
+    expect(others?.variancePp).toBeCloseTo(-1.3, 1);
+    expect(others?.achieved).toBe(false);
+  });
+
+  it("weights the compressed target margin when the other brands carry different targets", () => {
+    const targets = mergeGpMarginTargets([{ brandKey: "tropikal", targetPct: 20 }]);
+    const { others } = splitGpTargetRows(
+      buildGpTargetSummary(
+        [
+          { principal: "Tropikal-Nairobi", revenue: 100, target: 100, grossProfit: 12 }, // 20% target
+          { principal: "Unilever-Nairobi", revenue: 300, target: 300, grossProfit: 24 }, // 10% target
+        ],
+        targets
+      ).rows
+    );
+    // (100 x 20% + 300 x 10%) / 400 = 12.5%
+    expect(others?.marginTargetPct).toBe(12.5);
+  });
+
+  it("has no compressed row when only the main brands sold", () => {
+    const { top, others } = splitGpTargetRows(buildGpTargetSummary([{ principal: "Mars-Nairobi", revenue: 100, target: 100, grossProfit: 15 }]).rows);
+    expect(top).toHaveLength(1);
+    expect(others).toBeNull();
   });
 });
 
