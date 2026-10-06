@@ -5,10 +5,10 @@ import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Receivables ageing for the Finance Presentation's selected month: every week of that
- *  month and of the month before it, plus the balance at the selected month's end (the
- *  figure the slide's debtor tiles use when the month is already closed). Same
- *  permission as the Receivables module. */
+/** Receivables ageing for the Finance Presentation's selected month: the previous month's closing
+ *  balance and every week of the selected month (the original Ageing Trend layout), plus the balance
+ *  at the selected month's end (the figure the slide's debtor tiles use when the month is already
+ *  closed). Same permission as the Receivables module. */
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
@@ -24,21 +24,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const previousYear = monthIndex === 0 ? year - 1 : year;
-    const previousIndex = monthIndex === 0 ? 11 : monthIndex - 1;
     const nextYear = monthIndex === 11 ? year + 1 : year;
     const nextIndex = monthIndex === 11 ? 0 : monthIndex + 1;
     const now = new Date();
     const isCurrentMonth = year === now.getUTCFullYear() && monthIndex === now.getUTCMonth();
 
-    const [selected, previous, following] = await Promise.all([
+    const [selected, following] = await Promise.all([
       getAgeingSnapshotForMonth(year, monthIndex),
-      getAgeingSnapshotForMonth(previousYear, previousIndex),
       // A closed month's end is the next month's "last month" point (nearest snapshot at or before its last day).
       isCurrentMonth ? Promise.resolve(null) : getAgeingSnapshotForMonth(nextYear, nextIndex),
     ]);
     return NextResponse.json(
-      { selected, previous, monthEnd: following ? following.lastMonth : null },
+      { selected, monthEnd: following ? following.lastMonth : null },
       { headers: { "Cache-Control": "private, no-store" } }
     );
   } catch (error) {
