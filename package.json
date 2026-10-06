@@ -23,6 +23,7 @@
     "payables:sync": "tsx scripts/db-bridge/payables/run.ts",
     "sfa-sales:sync": "tsx scripts/db-bridge/sfa-sales-sync.ts",
     "brand-customer:sync": "tsx scripts/db-bridge/brand-customer-sync.ts",
+    "performance:sync": "tsx scripts/db-bridge/performance-analysis/run.ts",
     "active-outlets:sync": "tsx scripts/db-bridge/active-outlets/run.ts",
     "timestamps:sync": "tsx scripts/db-bridge/timestamps/run.ts",
     "eabl-call-performance:sync": "tsx scripts/db-bridge/eabl-call-performance/run.ts",

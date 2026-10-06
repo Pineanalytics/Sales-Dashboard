@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "pl" | "stock" | "receivables";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "performance" | "pl" | "stock" | "receivables";
 
 interface JobDefinition {
   name: JobName;
@@ -36,6 +36,10 @@ const jobs: Record<JobName, JobDefinition> = {
   // and small current-period updates between those passes.
   "mars-kpis": { name: "mars-kpis", entry: "scripts/db-bridge/principal-kpis/mars-sync.ts", intervalEnv: "MARS_KPIS_INTERVAL_SECONDS", defaultSeconds: 900, runOnStartEnv: "MARS_KPIS_RUN_ON_START" },
   sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 300 },
+  // Performance Analysis reads the whole year of SAP document lines (~575k), so it
+  // runs once a day in the small hours rather than on the 5-minute sales cadence,
+  // and it never runs on start (a deploy must not trigger a year-long SAP read).
+  performance: { name: "performance", entry: "scripts/db-bridge/performance-analysis/run.ts", intervalEnv: "PERFORMANCE_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "PERFORMANCE_DAILY_AT", runOnStartEnv: "PERFORMANCE_RUN_ON_START" },
   pl: { name: "pl", entry: "scripts/pl-bridge/run.ts", intervalEnv: "PL_INTERVAL_SECONDS", defaultSeconds: 1800 },
   stock: { name: "stock", entry: "scripts/db-bridge/stock-sync.ts", intervalEnv: "STOCK_INTERVAL_SECONDS", defaultSeconds: 900 },
   receivables: { name: "receivables", entry: "scripts/db-bridge/receivables/run.ts", intervalEnv: "RECEIVABLES_INTERVAL_SECONDS", defaultSeconds: 1800 },
