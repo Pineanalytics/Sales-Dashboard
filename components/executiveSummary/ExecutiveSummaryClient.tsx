@@ -12,7 +12,7 @@ import { OrderFulfillmentPanel } from "./OrderFulfillmentPanel";
 import { FieldBehaviorPanel } from "./FieldBehaviorPanel";
 import { FinancialsPanel } from "./FinancialsPanel";
 import { TeamLeaderPerformancePanel } from "./TeamLeaderPerformancePanel";
-import type { ReceivablesDashboard } from "@/lib/receivables";
+import type { ReceivablesSummary } from "@/lib/receivables";
 
 /** Matches ReportCatalog.tsx's own periodLabelFor exactly — small enough
  *  that duplicating it locally beats exporting a one-off cross-module
@@ -26,7 +26,7 @@ export function ExecutiveSummaryClient({
   receivables,
   canViewReceivables,
 }: {
-  receivables: ReceivablesDashboard | null;
+  receivables: ReceivablesSummary | null;
   canViewReceivables: boolean;
 }) {
   const dataset = useDashboardStore((s) => s.dataset);

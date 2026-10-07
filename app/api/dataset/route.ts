@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { NextRequest, NextResponse } from "next/server";
 import { getLiveDataset, getSnapshotById, filterDatasetToPrincipals } from "@/lib/datasetStore";
 import { auth } from "@/auth";
@@ -38,7 +39,16 @@ export async function GET(req: NextRequest) {
       dataset = filterDatasetToPrincipals(dataset, principalKeys);
     }
 
-    return NextResponse.json({ dataset });
+    // The dataset is a ~1.5 MB JSON document that the browser must download before most analytics pages can
+    // draw. It compresses roughly tenfold, and on a modest connection the download was the whole delay, so it
+    // is sent gzip-compressed whenever the client accepts it.
+    const body = JSON.stringify({ dataset });
+    if (/\bgzip\b/.test(req.headers.get("accept-encoding") ?? "")) {
+      return new NextResponse(new Uint8Array(gzipSync(body)), {
+        headers: { "Content-Type": "application/json", "Content-Encoding": "gzip", Vary: "Accept-Encoding" },
+      });
+    }
+    return new NextResponse(body, { headers: { "Content-Type": "application/json" } });
   } catch (err) {
     console.error("Failed to load dataset", err);
     return NextResponse.json({ error: "Failed to load dataset." }, { status: 500 });

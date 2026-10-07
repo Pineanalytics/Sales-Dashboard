@@ -32,43 +32,62 @@ export interface PayablesByPrincipalRow {
   outstanding: number;
 }
 
+interface VendorBalance {
+  vendorCode: string;
+  vendorName: string;
+  outstanding: number;
+}
+
+/** What is owed to each vendor, summed in the database. The open-item table is read once per page here,
+ *  as a handful of grouped rows, instead of every open item twice (once per payables helper). */
+async function loadVendorBalances(): Promise<VendorBalance[]> {
+  const rows = await prisma.payableOpenItem.groupBy({ by: ["vendorCode", "vendorName"], _sum: { openBalance: true } });
+  const byVendor = new Map<string, VendorBalance>();
+  for (const row of rows) {
+    const existing = byVendor.get(row.vendorCode);
+    if (existing) existing.outstanding += row._sum.openBalance ?? 0;
+    else byVendor.set(row.vendorCode, { vendorCode: row.vendorCode, vendorName: row.vendorName, outstanding: row._sum.openBalance ?? 0 });
+  }
+  return Array.from(byVendor.values());
+}
+
+function rollUpByPrincipal(vendors: VendorBalance[]): PayablesByPrincipalRow[] {
+  const byPrincipal = new Map<string, number>();
+  for (const vendor of vendors) {
+    const principalKey = VENDOR_PRINCIPAL_CODES[vendor.vendorCode];
+    if (!principalKey) continue;
+    byPrincipal.set(principalKey, (byPrincipal.get(principalKey) ?? 0) + vendor.outstanding);
+  }
+  return Array.from(byPrincipal.entries()).map(([principalKey, outstanding]) => ({ principalKey, outstanding }));
+}
+
+async function buildDashboard(vendors: VendorBalance[]): Promise<PayablesDashboard | null> {
+  const latest = await prisma.payablesSyncRun.findFirst({ orderBy: { completedAt: "desc" } });
+  if (!latest) return null;
+  return {
+    asOf: latest.sourceDate.toISOString(),
+    vendorCount: latest.vendorCount,
+    openItemCount: latest.openItemCount,
+    ledgerBalance: latest.ledgerBalance,
+    largestVendors: [...vendors].sort((a, b) => b.outstanding - a.outstanding).slice(0, TOP_N_VENDORS),
+  };
+}
+
 /** Rolls up every PayableOpenItem to its mapped principal, via
  *  VENDOR_PRINCIPAL_CODES above. A principal absent from the result has no
  *  mapped vendor at all, not necessarily zero payables — callers should
  *  treat a missing key the same as 0 for display, same as debtAttribution's
  *  own byPrincipal map elsewhere in Finance Presentation. */
 export async function getPayablesByPrincipal(): Promise<PayablesByPrincipalRow[]> {
-  const openItems = await prisma.payableOpenItem.findMany({ select: { vendorCode: true, openBalance: true } });
-  const byPrincipal = new Map<string, number>();
-  for (const item of openItems) {
-    const principalKey = VENDOR_PRINCIPAL_CODES[item.vendorCode];
-    if (!principalKey) continue;
-    byPrincipal.set(principalKey, (byPrincipal.get(principalKey) ?? 0) + item.openBalance);
-  }
-  return Array.from(byPrincipal.entries()).map(([principalKey, outstanding]) => ({ principalKey, outstanding }));
+  return rollUpByPrincipal(await loadVendorBalances());
 }
 
 export async function getPayablesDashboard(): Promise<PayablesDashboard | null> {
-  const latest = await prisma.payablesSyncRun.findFirst({ orderBy: { completedAt: "desc" } });
-  if (!latest) return null;
+  return buildDashboard(await loadVendorBalances());
+}
 
-  const openItems = await prisma.payableOpenItem.findMany({ select: { vendorCode: true, vendorName: true, openBalance: true } });
-  const byVendor = new Map<string, { vendorName: string; outstanding: number }>();
-  for (const item of openItems) {
-    const row = byVendor.get(item.vendorCode) ?? { vendorName: item.vendorName, outstanding: 0 };
-    row.outstanding += item.openBalance;
-    byVendor.set(item.vendorCode, row);
-  }
-  const largestVendors = Array.from(byVendor.entries())
-    .map(([vendorCode, row]) => ({ vendorCode, vendorName: row.vendorName, outstanding: row.outstanding }))
-    .sort((a, b) => b.outstanding - a.outstanding)
-    .slice(0, TOP_N_VENDORS);
-
-  return {
-    asOf: latest.sourceDate.toISOString(),
-    vendorCount: latest.vendorCount,
-    openItemCount: latest.openItemCount,
-    ledgerBalance: latest.ledgerBalance,
-    largestVendors,
-  };
+/** Both of the above from a single read, for the Finance Presentation, which needs the totals and the per-principal split. */
+export async function getPayablesFinanceData(): Promise<{ dashboard: PayablesDashboard | null; byPrincipal: PayablesByPrincipalRow[] }> {
+  const vendors = await loadVendorBalances();
+  return { dashboard: await buildDashboard(vendors), byPrincipal: rollUpByPrincipal(vendors) };
 }
