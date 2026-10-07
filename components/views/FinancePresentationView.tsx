@@ -27,7 +27,7 @@ import {
   type MonthRef,
 } from "@/lib/financePresentation";
 import { useDashboardStore } from "@/lib/store";
-import type { ReceivablesDashboard } from "@/lib/receivables";
+import type { ReceivablesSummary } from "@/lib/receivables";
 import type { PayablesDashboard, PayablesByPrincipalRow } from "@/lib/payables";
 import type { DebtAttribution } from "@/lib/financeDebtAttribution";
 import type { AgeingTrendForMonth, AgeingSnapshotPoint } from "@/lib/receivablesAgeing";
@@ -111,10 +111,10 @@ export function FinancePresentationView({
   debtAttribution,
   gpMarginTargets,
 }: {
-  receivables: ReceivablesDashboard | null;
+  receivables: ReceivablesSummary | null;
   payables: PayablesDashboard | null;
   payablesByPrincipal: PayablesByPrincipalRow[];
-  debtAttribution: DebtAttribution;
+  debtAttribution: Omit<DebtAttribution, "customers">;
   gpMarginTargets: GpMarginTargets;
 }) {
   const dataset = useDashboardStore((s) => s.dataset);

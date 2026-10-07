@@ -6,7 +6,7 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { formatCompact, formatPercent, marginTier, tierTextClass } from "@/lib/format";
 import { summarizeSalesForPeriod, type PeriodSelection } from "@/lib/timeIntelligence";
 import type { Dataset } from "@/lib/types";
-import type { ReceivablesDashboard } from "@/lib/receivables";
+import type { ReceivablesSummary } from "@/lib/receivables";
 
 const RISK_BUCKETS = ["61–90 days", "Over 90 days"] as const;
 const CREDIT_EXPOSURE_HREF = "/financials?tab=credit-exposure&status=over-limit";
@@ -21,7 +21,7 @@ export function FinancialsPanel({
   dataset: Dataset;
   selectedPrincipalKey: string | null;
   period: PeriodSelection;
-  receivables: ReceivablesDashboard | null;
+  receivables: ReceivablesSummary | null;
   canViewReceivables: boolean;
 }) {
   const summary = summarizeSalesForPeriod(dataset, period, selectedPrincipalKey);
