@@ -33,7 +33,6 @@ function row(over: Partial<PerformanceLineRow>): PerformanceLineRow {
     qtySold: 120,
     packSize: 12,
     salesAmount: 1000,
-    recordedGp: 50,
     grossMargin: 100,
     ...over,
   };
@@ -43,7 +42,7 @@ describe("buildPerformanceLines", () => {
   it("maps an item to its brand-level principal and converts quantity to cases", () => {
     const { lines, salesRecordKeys } = buildPerformanceLines([row({})], products, warehouses, principals);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ month: "2026-03", doc: "invoice", principal: "Mars", cases: 10, sales: 1000, gp: 100, gpRecorded: 50, warehouse: "Nairobi Main Warehouse" });
+    expect(lines[0]).toMatchObject({ month: "2026-03", doc: "invoice", principal: "Mars", cases: 10, sales: 1000, gp: 100, warehouse: "Nairobi Main Warehouse" });
     expect(salesRecordKeys).toEqual(["Mars-Nairobi"]);
   });
 
@@ -83,12 +82,6 @@ describe("holdClosedMonthGp", () => {
     expect(total).toBeCloseTo(20, 6); // 400 revenue x 5%
     expect(built.lines[0].gp).toBeCloseTo(5, 6);
     expect(built.lines[1].gp).toBeCloseTo(15, 6);
-  });
-
-  it("never touches the SAP recorded GP", () => {
-    const built = twoLines();
-    holdClosedMonthGp(built, new Map([[storedTotalsKey("2026-03", "Mars-Nairobi"), { revenue: 1000, grossProfit: 50 }]]), "2026-10");
-    expect(built.lines.map((l) => l.gpRecorded)).toEqual([50, 50]);
   });
 
   it("leaves the current month and unstored groups alone", () => {

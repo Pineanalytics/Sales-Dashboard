@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { aggregatePerformance } from "../lib/performanceAnalysis/aggregate";
-import { buildFindings, gpBasisNote, itemCaption, periodText } from "../lib/performanceAnalysis/narrative";
+import { GP_DEFINITION_NOTE, buildFindings, itemCaption, periodText } from "../lib/performanceAnalysis/narrative";
 import type { PerfLine, PerformancePayload } from "../lib/performanceAnalysis/types";
 import { CustomersSection } from "../components/performanceAnalysis/CustomersSection";
 import { GrowthSection } from "../components/performanceAnalysis/GrowthSection";
@@ -47,7 +47,6 @@ function sampleLines(): PerfLine[] {
         cases: credit ? -5 : 20,
         sales,
         gp: Math.round(sales * (next() * 0.16 - 0.03)),
-        gpRecorded: Math.round(sales * (next() * 0.1)),
       });
     }
   }
@@ -63,7 +62,7 @@ const scopes: Record<string, string[]> = {
   "the month in progress": ["2026-10"],
   "the first month of the year": ["2026-01"],
 };
-const reports = Object.fromEntries(Object.entries(scopes).map(([name, scopeMonths]) => [name, aggregatePerformance(lines, { basis: "dashboard", asOf, scopeMonths })])) as Record<string, PerformancePayload>;
+const reports = Object.fromEntries(Object.entries(scopes).map(([name, scopeMonths]) => [name, aggregatePerformance(lines, { asOf, scopeMonths })])) as Record<string, PerformancePayload>;
 
 describe("performance analysis narrative", () => {
   it.each(Object.keys(scopes))("writes findings from the data for %s, with no placeholder values", (name) => {
@@ -90,9 +89,8 @@ describe("performance analysis narrative", () => {
     expect(itemCaption(reports["the month in progress"], "gainers")).toMatch(/complete earlier period/);
   });
 
-  it("explains which gross profit measure is on screen", () => {
-    expect(gpBasisNote("dashboard")).toMatch(/Sales Performance/);
-    expect(gpBasisNote("recorded")).toMatch(/moving-average/);
+  it("explains what gross profit means on the page", () => {
+    expect(GP_DEFINITION_NOTE).toMatch(/Sales Performance and Financials/);
   });
 });
 
@@ -113,7 +111,8 @@ describe("performance analysis sections", () => {
   it("shows tabs and no intro or period text on the page itself", () => {
     const html = renderToString(createElement(PerformanceAnalysisView));
     for (const tab of ["Summary", "Principals", "Month on month", "Top items", "Customers", "Growth &amp; GP", "Branches, reps &amp; returns"]) expect(html).toContain(tab);
-    expect(html).toContain("Dashboard GP");
+    expect(html).not.toContain("SAP recorded GP");
+    expect(html).not.toContain("Gross profit basis");
     expect(html).not.toContain("secondary sales across all principals");
     expect(html).not.toContain("net of credit notes, in Kenyan shillings");
     expect(html).not.toMatch(/Built .* \(Nairobi\)/);

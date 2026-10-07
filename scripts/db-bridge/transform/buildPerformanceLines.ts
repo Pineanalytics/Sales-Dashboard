@@ -66,7 +66,6 @@ export function buildPerformanceLines(
       cases: row.packSize && row.packSize > 0 && Number.isFinite(row.qtySold) ? row.qtySold / row.packSize : 0,
       sales: row.salesAmount,
       gp: row.grossMargin,
-      gpRecorded: row.recordedGp,
     });
     salesRecordKeys.push(principalRow.principal);
   }
@@ -83,11 +82,10 @@ export const storedTotalsKey = (month: string, salesRecordPrincipal: string) => 
 
 /** The SAP query prices cost from TODAY's purchase price list, so re-reading a closed month re-costs it
  *  (see freezeClosedMonthCosts.ts). The dashboard keeps closed months at the margin they were stored with.
- *  For every closed (month, principal) that has a stored SalesRecord, this moves the dashboard-basis GP
- *  of its lines so the group's margin equals the stored margin applied to the freshly read revenue. The
- *  shift is spread over the lines in proportion to their revenue, so item-to-item differences survive and
- *  the group total ties exactly. Returns how many (month, principal) groups were adjusted. The recorded
- *  basis is never touched: it is SAP's own posted figure and does not move with price lists. */
+ *  For every closed (month, principal) that has a stored SalesRecord, this moves the GP of its lines
+ *  so the group's margin equals the stored margin applied to the freshly read revenue. The shift is spread
+ *  over the lines in proportion to their revenue, so item-to-item differences survive and the group total
+ *  ties exactly. Returns how many (month, principal) groups were adjusted. */
 export function holdClosedMonthGp(built: BuiltPerformanceLines, stored: Map<string, StoredMonthTotals>, asOfMonth: string): number {
   const groups = new Map<string, { revenue: number; gp: number; indexes: number[] }>();
   built.lines.forEach((line, index) => {

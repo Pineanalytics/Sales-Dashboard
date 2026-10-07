@@ -17,7 +17,6 @@ function line(month: string, over: Partial<PerfLine>): PerfLine {
     cases: 10,
     sales,
     gp: sales * 0.1,
-    gpRecorded: sales * 0.05,
     ...over,
   };
 }
@@ -28,7 +27,7 @@ function line(month: string, over: Partial<PerfLine>): PerfLine {
 //   Oct: A 0.2M (month to date)
 function fixture(): PerfLine[] {
   const lines: PerfLine[] = [];
-  const bLine = (month: string) => line(month, { principal: "B", itemCode: "I2", itemName: "Item Two", customerCode: "C2", customerName: "Route 5 van", sales: 500_000, gp: -25_000, gpRecorded: 0 });
+  const bLine = (month: string) => line(month, { principal: "B", itemCode: "I2", itemName: "Item Two", customerCode: "C2", customerName: "Route 5 van", sales: 500_000, gp: -25_000 });
   for (const month of ["2026-04", "2026-05", "2026-06"]) {
     lines.push(line(month, { sales: 1_000_000 }), bLine(month));
   }
@@ -41,7 +40,7 @@ function fixture(): PerfLine[] {
 }
 
 describe("aggregatePerformance", () => {
-  const p = aggregatePerformance(fixture(), { basis: "dashboard", asOf: "2026-10-06" });
+  const p = aggregatePerformance(fixture(), { asOf: "2026-10-06" });
 
   it("detects the month-to-date month and the comparison periods", () => {
     expect(p.mtd).toBe(true);
@@ -105,18 +104,14 @@ describe("aggregatePerformance", () => {
     expect(p.movement[1]).toMatchObject({ m: "2026-05", active: 1, retained: 1, new: 0 });
   });
 
-  it("builds the same lines on the SAP-recorded gross profit when asked", () => {
-    const recorded = aggregatePerformance(fixture(), { basis: "recorded", asOf: "2026-10-06" });
-    expect(recorded.basis).toBe("recorded");
-    expect(recorded.kpi.sales).toBe(p.kpi.sales);
-    expect(recorded.kpi.gp).toBe(380_000);
-    expect(recorded.kpi.gp).not.toBe(p.kpi.gp);
+  it("totals gross profit from the lines' own GP", () => {
     expect(p.kpi.gp).toBe(610_000);
+    expect(p.kpi.gpm).toBe(5.75);
   });
 
   it("hides growth where the comparison base is too small to mean anything", () => {
     const lines = [...fixture(), line("2026-06", { principal: "C", itemCode: "I3", itemName: "Tiny", customerCode: "C3", customerName: "Beta", sales: 20_000 }), line("2026-09", { principal: "C", itemCode: "I3", itemName: "Tiny", customerCode: "C3", customerName: "Beta", sales: 90_000 })];
-    const tiny = aggregatePerformance(lines, { basis: "dashboard", asOf: "2026-10-06" }).principals.find((row) => row.p === "C")!;
+    const tiny = aggregatePerformance(lines, { asOf: "2026-10-06" }).principals.find((row) => row.p === "C")!;
     expect(tiny.pqSales).toBe(20_000);
     expect(tiny.cqGrowth).toBeNull();
     expect(tiny.cqGpGrowth).toBeNull();
@@ -125,7 +120,7 @@ describe("aggregatePerformance", () => {
 
 describe("aggregatePerformance for a selected period", () => {
   const asOf = "2026-10-06";
-  const forScope = (scopeMonths: string[]) => aggregatePerformance(fixture(), { basis: "dashboard", asOf, scopeMonths });
+  const forScope = (scopeMonths: string[]) => aggregatePerformance(fixture(), { asOf, scopeMonths });
 
   it("cuts totals, rankings and shares to a single month and compares it with the month before", () => {
     const p = forScope(["2026-09"]);
@@ -188,7 +183,7 @@ describe("aggregatePerformance for a selected period", () => {
 
   it("still lists a principal that stopped selling when it sold in the comparison window", () => {
     const lines = [...fixture(), line("2026-08", { principal: "C", itemCode: "I3", itemName: "Old line", customerCode: "C3", customerName: "Beta", sales: 400_000 })];
-    const p = aggregatePerformance(lines, { basis: "dashboard", asOf, scopeMonths: ["2026-09"] });
+    const p = aggregatePerformance(lines, { asOf, scopeMonths: ["2026-09"] });
     const stopped = p.principals.find((row) => row.p === "C")!;
     expect(stopped.sales).toBe(0);
     expect(stopped.pqSales).toBe(400_000);
@@ -221,7 +216,7 @@ describe("comparisonWindows", () => {
 describe("aggregatePerformance with little data", () => {
   it("returns blank comparisons rather than failing before a quarter has closed", () => {
     const lines = [line("2026-01", { sales: 100_000 }), line("2026-02", { sales: 120_000 })];
-    const p = aggregatePerformance(lines, { basis: "dashboard", asOf: "2026-03-02" });
+    const p = aggregatePerformance(lines, { asOf: "2026-03-02" });
     expect(p.mtd).toBe(false);
     expect(p.labels.cq).toBeNull();
     expect(p.labels.pq).toBeNull();
@@ -233,7 +228,7 @@ describe("aggregatePerformance with little data", () => {
   });
 
   it("handles a month still in progress as the only month", () => {
-    const p = aggregatePerformance([line("2026-01", { sales: 50_000 })], { basis: "dashboard", asOf: "2026-01-09" });
+    const p = aggregatePerformance([line("2026-01", { sales: 50_000 })], { asOf: "2026-01-09" });
     expect(p.mtd).toBe(true);
     expect(p.kpi.avgMonth).toBeNull();
     expect(p.kpi.mtdSales).toBe(50_000);
@@ -241,7 +236,7 @@ describe("aggregatePerformance with little data", () => {
   });
 
   it("returns an empty report for no lines", () => {
-    const p = aggregatePerformance([], { basis: "dashboard", asOf: "2026-01-09" });
+    const p = aggregatePerformance([], { asOf: "2026-01-09" });
     expect(p.months).toEqual([]);
     expect(p.kpi.sales).toBe(0);
     expect(p.principals).toEqual([]);

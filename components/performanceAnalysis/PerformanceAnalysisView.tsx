@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useDashboardStore } from "@/lib/store";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CANONICAL_MONTHS, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
-import { GP_BASIS_LABELS, type GpBasis, type PerformanceResponse } from "@/lib/performanceAnalysis/types";
+import type { PerformanceResponse } from "@/lib/performanceAnalysis/types";
 import { CustomersSection } from "./CustomersSection";
 import { GrowthSection } from "./GrowthSection";
 import { ItemsSection } from "./ItemsSection";
@@ -12,7 +12,7 @@ import { MonthlySection } from "./MonthlySection";
 import { OperationsSection } from "./OperationsSection";
 import { PrincipalsSection } from "./PrincipalsSection";
 import { SummarySection } from "./SummarySection";
-import { Panel, Segmented } from "./shared";
+import { Panel } from "./shared";
 
 const TABS = [
   { id: "summary", label: "Summary" },
@@ -46,18 +46,17 @@ export function PerformanceAnalysisView() {
   const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const [tab, setTab] = useState<TabId>("summary");
-  const [basis, setBasis] = useState<GpBasis>("dashboard");
   const [state, setState] = useState<LoadState>({ key: "" });
 
   const query = useMemo(() => {
     const period = effectivePeriod(selectedPeriod, hasUserSelectedPeriod);
     const months = period.year ? resolvePeriodMonths(period).map((m) => monthKey(m.year, m.monthIndex)) : [];
     if (months.length === 0) return "";
-    const params = new URLSearchParams({ months: months.join(","), basis });
+    const params = new URLSearchParams({ months: months.join(",") });
     const principals = Array.from(new Set(selectedPrincipalKeys.map((key) => normalizePrincipalKey(key)).filter(Boolean)));
     if (principals.length > 0) params.set("principals", principals.join(","));
     return params.toString();
-  }, [selectedPeriod, hasUserSelectedPeriod, selectedPrincipalKeys, basis]);
+  }, [selectedPeriod, hasUserSelectedPeriod, selectedPrincipalKeys]);
 
   useEffect(() => {
     if (!query) return;
@@ -103,15 +102,6 @@ export function PerformanceAnalysisView() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted">Gross profit basis</span>
-          <Segmented
-            label="Gross profit basis"
-            value={basis}
-            onChange={setBasis}
-            options={(Object.keys(GP_BASIS_LABELS) as GpBasis[]).map((value) => ({ value, label: GP_BASIS_LABELS[value] }))}
-          />
-        </div>
       </div>
       {!hasUserSelectedPeriod ? <p className="-mt-2 text-xs text-muted">Showing the year to date. Choose a period above to narrow it.</p> : null}
 
@@ -147,7 +137,7 @@ export function PerformanceAnalysisView() {
 
           <footer className="border-t border-border pt-4 text-[13px] text-muted">
             Source: SAP Business One invoices and credit notes, {report.kpi.lines.toLocaleString()} document lines in this selection, {report.kpi.customers.toLocaleString()} customer accounts, {report.kpi.skus.toLocaleString()} SKUs.
-            Sales = line total excl. VAT, invoices less credit notes. {GP_BASIS_LABELS[basis]} shown.
+            Sales = line total excl. VAT, invoices less credit notes.
             {meta && meta.excludedLines > 0 ? ` ${meta.excludedLines.toLocaleString()} lines (KES ${(meta.excludedSales / 1e6).toFixed(1)}M) belong to items with no active principal and are left out, as they are on Sales Performance.` : ""}
             {report.labels.cq && report.labels.pq ? ` Growth compares ${report.labels.cq} with ${report.labels.pq}.` : ""}
           </footer>

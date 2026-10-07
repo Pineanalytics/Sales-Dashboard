@@ -2434,7 +2434,8 @@ model PerformanceAnalysisSnapshot {
 // year). A derived, disposable copy: the SAP job deletes and re-inserts each month in
 // one transaction, and the page aggregates the lines for whatever period and principals
 // the viewer has selected. `gp` is the dashboard's own measure (closed months held to the
-// SalesRecord margin); `gpRecorded` is the margin SAP posted on the document.
+// SalesRecord margin). `gpRecorded` (the margin SAP posted on the document) is no longer
+// read or written; the column is kept, defaulted, because dropping it would be destructive.
 model PerformanceLine {
   id           BigInt @id @default(autoincrement())
   year         Int
@@ -2450,7 +2451,7 @@ model PerformanceLine {
   cases        Float
   sales        Float
   gp           Float
-  gpRecorded   Float
+  gpRecorded   Float  @default(0)
 
   @@index([year, monthIndex])
   @@index([year, principal])

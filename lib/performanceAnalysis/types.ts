@@ -3,14 +3,6 @@
 // computed by lib/performanceAnalysis/aggregate.ts (a port of the standalone
 // build_dashboard.py report) and stored whole in PerformanceAnalysisSnapshot.
 
-/** Which gross-profit measure a payload was built from. */
-export type GpBasis = "dashboard" | "recorded";
-
-export const GP_BASIS_LABELS: Record<GpBasis, string> = {
-  dashboard: "Dashboard GP",
-  recorded: "SAP recorded GP",
-};
-
 /** One SAP document line, collapsed to Month x document type x customer x item x warehouse x rep. */
 export interface PerfLine {
   /** YYYY-MM */
@@ -30,8 +22,6 @@ export interface PerfLine {
   sales: number;
   /** Gross profit on the dashboard's own definition (sales - quantity x current purchase price), held to the Sales Performance totals for closed months. */
   gp: number;
-  /** Gross profit as SAP recorded it on the document (moving-average cost). */
-  gpRecorded: number;
 }
 
 export interface PerformanceLabels {
@@ -208,7 +198,6 @@ export interface BridgeRow {
 }
 
 export interface PerformancePayload {
-  basis: GpBasis;
   /** Nairobi calendar date of the read, YYYY-MM-DD. */
   asOf: string;
   /** Months the trend charts and tables span: from the first month with data to the last month of the selected period. */

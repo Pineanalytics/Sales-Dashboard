@@ -22,8 +22,6 @@ export interface PerformanceLineRow {
   packSize: number | null;
   /** Net sales excl. VAT (credit notes already negative). */
   salesAmount: number;
-  /** SAP's own gross profit on the document (moving-average cost). */
-  recordedGp: number;
   /** Gross sales less quantity x current purchase price: the dashboard's GP. */
   grossMargin: number;
 }
@@ -41,7 +39,6 @@ interface PerformanceLineRecord {
   QtySold: number;
   "Pack Size": number | null;
   "Sales Amount": number;
-  "Recorded GP": number;
   "Gross Margin": number;
 }
 
@@ -77,7 +74,6 @@ export async function fetchPerformanceLines(pool: sql.ConnectionPool, start: str
                   WHEN T0.isIns = 'N' AND T1.LineTotal > T1.StockSum AND T1.StockSum <> 0 THEN T1.StockSum
                   ELSE T1.LineTotal
               END AS [Sales Amount],
-              T1.GrssProfit AS [Recorded GP],
               T1.Quantity * T1.PriceBefDi AS [Gross Sales],
               T1.PriceBefDi AS [Price Before Discount]
           FROM OINV T0
@@ -102,7 +98,6 @@ export async function fetchPerformanceLines(pool: sql.ConnectionPool, start: str
                   WHEN T1.StockSum = 0 THEN -T1.LineTotal
                   ELSE -T1.StockSum
               END AS [Sales Amount],
-              -T1.GrssProfit AS [Recorded GP],
               -T1.Quantity * T1.PriceBefDi AS [Gross Sales],
               T1.PriceBefDi AS [Price Before Discount]
           FROM ORIN T0
@@ -123,7 +118,6 @@ export async function fetchPerformanceLines(pool: sql.ConnectionPool, start: str
           SUM(SL.QtySold) AS QtySold,
           MAX(SL.[Pack Size]) AS [Pack Size],
           SUM(SL.[Sales Amount]) AS [Sales Amount],
-          SUM(SL.[Recorded GP]) AS [Recorded GP],
           SUM(CASE WHEN SL.QtySold <> 0 AND ABS(SL.[Price Before Discount]) < 0.01 THEN 0
                    ELSE SL.[Gross Sales] - (SL.QtySold * ISNULL(PL.[Purchase Price], 0))
               END) AS [Gross Margin]
@@ -155,7 +149,6 @@ export async function fetchPerformanceLines(pool: sql.ConnectionPool, start: str
     qtySold: Number(r.QtySold) || 0,
     packSize: r["Pack Size"] && r["Pack Size"] > 0 ? Number(r["Pack Size"]) : null,
     salesAmount: Number(r["Sales Amount"]) || 0,
-    recordedGp: Number(r["Recorded GP"]) || 0,
     grossMargin: Number(r["Gross Margin"]) || 0,
   }));
 }
