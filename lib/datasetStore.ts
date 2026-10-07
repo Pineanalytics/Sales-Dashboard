@@ -4,6 +4,7 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
+import { dormantBrandKeysFromPrincipals } from "./stock";
 import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup, getUpfieldMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
@@ -599,16 +600,18 @@ async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): 
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
   const withSales = await timed("sales", () => overlaySales(dataset));
-  const [withTargets, withPL, withCoverage, withBrandCustomer, withStock] = await Promise.all([
+  const [withTargets, withPL, withCoverage, withBrandCustomer, withStock, dormantPrincipalKeys] = await Promise.all([
     timed("targets", () => overlayTargets(withSales)),
     timed("pl", () => overlayPL(dataset)),
     timed("coverage", () => overlayCoverage(dataset)),
     includeBrandCustomer ? timed("brandCustomer", () => overlayBrandCustomer(dataset)) : Promise.resolve(dataset),
     timed("stock", () => overlayStock(dataset)),
+    timed("dormantPrincipals", async () => dormantBrandKeysFromPrincipals(await prisma.principal.findMany({ select: { principal: true, stockDormant: true } }))),
   ]);
   console.log(`[datasetStore] overlayAdminData total: ${Date.now() - overallStart}ms`);
   return {
     ...withTargets,
+    dormantPrincipalKeys,
     monthlyPL: withPL.monthlyPL,
     monthlyCoverage: withCoverage.monthlyCoverage,
     monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,

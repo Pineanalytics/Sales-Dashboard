@@ -136,6 +136,9 @@ export interface Dataset {
   monthlyPL: MonthlyPLRow[];
   stockTotal: StockTotal;
   stockItems: StockItem[];
+  /** Normalized brand keys an admin has flagged as dormant for stock (Principal.stockDormant): stopped
+   *  principals still holding stock, left out of the operational Stock Balance whatever their recent sales. */
+  dormantPrincipalKeys?: string[];
   /** Present only when the dashboard's operational stock has been replaced by
    * the latest complete direct SAP snapshot. */
   stockSource?: {

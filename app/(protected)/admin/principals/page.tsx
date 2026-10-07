@@ -69,7 +69,9 @@ export default async function AdminPrincipalsPage({
             Team Leaders
           </Link>
           ). Supervisor is independently settable — for a principal a Supervisor manages directly, with no Team Leader recorded — and defaults to the
-          ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it.
+          ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it. &quot;Dormant stock&quot; marks a stopped principal that
+          still holds stock: its stock is left out of the Stock Balance (and listed under Dormant Stock) even while it still shows sales, and the Stock
+          Balance extract marks it Inactive. It is separate from Status, which also decides whether a principal&apos;s sales are counted.
         </p>
       </div>
 
@@ -122,6 +124,13 @@ export default async function AdminPrincipalsPage({
               </select>
             </div>
             <div className="flex flex-col gap-2">
+              <label className={labelClass}>Dormant stock</label>
+              <label className="flex items-center gap-2 py-2 text-sm text-foreground">
+                <input type="checkbox" name="stockDormant" className="h-4 w-4" />
+                Stopped principal still holding stock
+              </label>
+            </div>
+            <div className="flex flex-col gap-2">
               <label className={labelClass}>Team Leader (credited for TL Ranking)</label>
               <select name="teamLeaderId" defaultValue="" className={selectClass}>
                 <option value="">— none —</option>
@@ -166,6 +175,7 @@ export default async function AdminPrincipalsPage({
                   <th className="px-6 py-3 text-left font-medium">Main principal</th>
                   <th className="px-6 py-3 text-left font-medium">Location</th>
                   <th className="px-6 py-3 text-left font-medium">Status</th>
+                  <th className="px-6 py-3 text-left font-medium">Stock</th>
                   <th className="px-6 py-3 text-left font-medium">Supervisor</th>
                   <th className="px-6 py-3 text-left font-medium">Head of Sales</th>
                   <th className="px-6 py-3 text-left font-medium">Team Leader (ranking)</th>
@@ -177,7 +187,7 @@ export default async function AdminPrincipalsPage({
                 {principals.map((p) =>
                   editing?.id === p.id ? (
                     <tr key={p.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={9} className="px-6 py-4 border-b border-border/60">
+                      <td colSpan={10} className="px-6 py-4 border-b border-border/60">
                         <form action={updatePrincipalAction} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
                           <input type="hidden" name="principalId" value={p.id} />
                           <div className="flex flex-col gap-1">
@@ -198,6 +208,13 @@ export default async function AdminPrincipalsPage({
                               <option value="Active">Active</option>
                               <option value="Past">Past</option>
                             </select>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className={labelClass}>Dormant stock</label>
+                            <label className="flex items-center gap-2 py-2 text-sm text-foreground">
+                              <input type="checkbox" name="stockDormant" defaultChecked={p.stockDormant} className="h-4 w-4" />
+                              Stopped, still holds stock
+                            </label>
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Supervisor</label>
@@ -239,6 +256,9 @@ export default async function AdminPrincipalsPage({
                       <td className="px-6 py-3 border-b border-border/60">{p.location}</td>
                       <td className="px-6 py-3 border-b border-border/60">{p.status}</td>
                       <td className="px-6 py-3 border-b border-border/60">
+                        {p.stockDormant ? <span className="rounded-full bg-accent-amber-soft px-2.5 py-0.5 text-xs font-semibold text-accent-amber">Dormant stock</span> : <span className="text-muted">Active</span>}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60">
                         {p.supervisorId ? supervisorNameById.get(p.supervisorId) ?? "—" : <span className="text-muted">—</span>}
                       </td>
                       <td className="px-6 py-3 border-b border-border/60">
@@ -279,7 +299,7 @@ export default async function AdminPrincipalsPage({
                 )}
                 {principals.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={10} className="px-6 py-8 text-center text-muted">
                       No principals yet.
                     </td>
                   </tr>
