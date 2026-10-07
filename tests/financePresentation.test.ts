@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GP_MARGIN_TARGETS,
   GP_MARGIN_DEFAULT_KEY,
+  GP_MARGIN_OVERALL_KEY,
   buildGpTargetSummary,
   describeGpMarginTargets,
   mergeGpMarginTargets,
@@ -59,17 +60,27 @@ describe("GP margin targets", () => {
     expect(marginAchievementPct(10, 15)).toBe(66.7);
   });
 
-  it("weights the company target margin by revenue targets", () => {
+  it("uses the overall company target margin (10% by default), not the blend of the brand targets", () => {
     const summary = buildGpTargetSummary([
       { principal: "Mars-Nairobi", revenue: 100, target: 100, grossProfit: 15 }, // 15% target
       { principal: "Suntory-Nairobi", revenue: 300, target: 300, grossProfit: 21 }, // 7% target
     ]);
-    // (100*15% + 300*7%) / 400 = 9%
-    expect(summary.total.marginTargetPct).toBe(9);
+    // The brand blend would be (100*15% + 300*7%) / 400 = 9%; the company target stays 10%.
+    expect(summary.total.marginTargetPct).toBe(10);
     expect(summary.total.marginPct).toBe(9);
+    expect(summary.total.variancePp).toBe(-1);
+    expect(summary.total.achieved).toBe(false);
+    // The brand rows keep their own targets, and the GP target is still the sum of theirs.
+    expect(summary.rows.map((r) => r.marginTargetPct)).toEqual([15, 7]);
     expect(summary.total.gpTarget).toBeCloseTo(36);
     expect(summary.total.gpAchievementPct).toBe(100);
-    expect(summary.total.achieved).toBe(true);
+  });
+
+  it("lets an admin change the overall target without touching the brand targets", () => {
+    const targets = mergeGpMarginTargets([{ brandKey: GP_MARGIN_OVERALL_KEY, targetPct: 11 }]);
+    expect(targets.overallPct).toBe(11);
+    expect(targets.byBrand).toEqual(DEFAULT_GP_MARGIN_TARGETS.byBrand);
+    expect(buildGpTargetSummary([{ principal: "Mars-Nairobi", revenue: 100, target: 100, grossProfit: 15 }], targets).total.marginTargetPct).toBe(11);
   });
 
   it("falls back to the margin target when a principal has no revenue target", () => {

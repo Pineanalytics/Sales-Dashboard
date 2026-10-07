@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { DEFAULT_GP_MARGIN_TARGETS, GP_MARGIN_DEFAULT_KEY } from "@/lib/financePresentation";
+import { DEFAULT_GP_MARGIN_TARGETS, GP_MARGIN_DEFAULT_KEY, GP_MARGIN_OVERALL_KEY } from "@/lib/financePresentation";
 import { normalizePrincipalKey } from "@/lib/normalize";
 
 async function requireAdmin() {
@@ -32,7 +32,8 @@ export async function saveGpMarginTargetsAction(formData: FormData) {
       problems.push(`${label}: enter a percentage from 0 to ${MAX_PCT}.`);
       continue;
     }
-    updates.push({ brandKey: brandKey === GP_MARGIN_DEFAULT_KEY ? brandKey : normalizePrincipalKey(brandKey), label, targetPct: Math.round(value * 100) / 100 });
+    const special = brandKey === GP_MARGIN_DEFAULT_KEY || brandKey === GP_MARGIN_OVERALL_KEY;
+    updates.push({ brandKey: special ? brandKey : normalizePrincipalKey(brandKey), label, targetPct: Math.round(value * 100) / 100 });
   }
   if (problems.length > 0) redirect("/admin/gp-targets?error=" + encodeURIComponent(problems.join(" ")));
 
@@ -40,7 +41,12 @@ export async function saveGpMarginTargetsAction(formData: FormData) {
   let cleared = 0;
   await prisma.$transaction(async (tx) => {
     for (const update of updates) {
-      const policy = update.brandKey === GP_MARGIN_DEFAULT_KEY ? DEFAULT_GP_MARGIN_TARGETS.defaultPct : (DEFAULT_GP_MARGIN_TARGETS.byBrand[update.brandKey] ?? DEFAULT_GP_MARGIN_TARGETS.defaultPct);
+      const policy =
+        update.brandKey === GP_MARGIN_OVERALL_KEY
+          ? DEFAULT_GP_MARGIN_TARGETS.overallPct
+          : update.brandKey === GP_MARGIN_DEFAULT_KEY
+            ? DEFAULT_GP_MARGIN_TARGETS.defaultPct
+            : (DEFAULT_GP_MARGIN_TARGETS.byBrand[update.brandKey] ?? DEFAULT_GP_MARGIN_TARGETS.defaultPct);
       if (update.targetPct === policy) {
         const removed = await tx.gpMarginTarget.deleteMany({ where: { brandKey: update.brandKey } });
         cleared += removed.count;

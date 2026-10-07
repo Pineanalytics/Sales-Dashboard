@@ -39,6 +39,7 @@ type Props = {
   initialCreditStatus?: "over-limit";
   receivables: ReceivablesDashboard | null;
   gpTargets: PrincipalGpTarget[];
+  overallMarginTargetPct: number;
   debtAttribution: DebtAttribution;
   ageingTrend: AgeingTrendForMonth;
   ageingYear: number;
@@ -62,6 +63,7 @@ export function FinancialsView({
   initialCreditStatus,
   receivables,
   gpTargets,
+  overallMarginTargetPct,
   debtAttribution,
   ageingTrend,
   ageingYear,
@@ -173,6 +175,7 @@ export function FinancialsView({
               dataset={dataset}
               selectedPrincipalKey={selectedPrincipalKey}
               gpTargets={gpTargets}
+              overallMarginTargetPct={overallMarginTargetPct}
               receivablesOutstanding={receivables.ledgerBalance}
               debtAttribution={debtAttribution}
             />

@@ -14,26 +14,34 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export interface GpMarginTargets {
   byBrand: Record<string, number>;
   defaultPct: number;
+  /** The company-wide margin target shown on the total line, independent of the per-brand targets. */
+  overallPct: number;
 }
 
-/** The policy starting point: Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, every other brand 10%.
+/** The policy starting point: Mars 15%, EABL 6%, Suntory 7%, Upfield 10%, Weetabix 10%, every other brand 10%,
+ *  and a flat 10% for the company as a whole (the total no longer drifts to the revenue-weighted blend of the brands).
  *  Admins change these on /admin/gp-targets; what they save overrides this. These replace the flat 10%
  *  placeholder that was stored for every principal in the monthly Target table, which made the company
  *  target a meaningless 10% and the "vs Target" tile show the actual margin. */
 export const DEFAULT_GP_MARGIN_TARGETS: GpMarginTargets = {
   byBrand: { mars: 15, eabl: 6, suntory: 7, upfield: 10, weetabix: 10 },
   defaultPct: 10,
+  overallPct: 10,
 };
 
 /** The brand key under which the "all other brands" default is stored. */
 export const GP_MARGIN_DEFAULT_KEY = "__default__";
 
+/** The key under which the company-wide (overall) margin target is stored. */
+export const GP_MARGIN_OVERALL_KEY = "__overall__";
+
 /** Lays saved targets over the policy defaults; a saved row wins, anything not saved keeps its default. */
 export function mergeGpMarginTargets(saved: { brandKey: string; targetPct: number }[]): GpMarginTargets {
-  const merged: GpMarginTargets = { byBrand: { ...DEFAULT_GP_MARGIN_TARGETS.byBrand }, defaultPct: DEFAULT_GP_MARGIN_TARGETS.defaultPct };
+  const merged: GpMarginTargets = { byBrand: { ...DEFAULT_GP_MARGIN_TARGETS.byBrand }, defaultPct: DEFAULT_GP_MARGIN_TARGETS.defaultPct, overallPct: DEFAULT_GP_MARGIN_TARGETS.overallPct };
   for (const row of saved) {
     if (!Number.isFinite(row.targetPct)) continue;
-    if (row.brandKey === GP_MARGIN_DEFAULT_KEY) merged.defaultPct = row.targetPct;
+    if (row.brandKey === GP_MARGIN_OVERALL_KEY) merged.overallPct = row.targetPct;
+    else if (row.brandKey === GP_MARGIN_DEFAULT_KEY) merged.defaultPct = row.targetPct;
     else merged.byBrand[row.brandKey] = row.targetPct;
   }
   return merged;
@@ -95,7 +103,7 @@ export function brandLabel(principal: string): string {
 }
 
 /** One row per principal brand (locations combined), the five main brands first, then the rest by revenue.
- *  The total's target margin is the revenue-target-weighted average, so it equals total GP target / total revenue target. */
+ *  The total's target margin is the overall company target (10% by default); its GP target is still the sum of the brand GP targets. */
 export function buildGpTargetSummary(principals: PrincipalSalesInput[], targets: GpMarginTargets = DEFAULT_GP_MARGIN_TARGETS): GpTargetSummary {
   const byBrand = new Map<string, { label: string; revenue: number; target: number; hasTarget: boolean; gp: number }>();
   for (const p of principals) {
@@ -141,15 +149,10 @@ export function buildGpTargetSummary(principals: PrincipalSalesInput[], targets:
   const withTarget = rows.filter((r) => r.revenueTarget !== null);
   const revenueTarget = withTarget.length > 0 ? withTarget.reduce((s, r) => s + (r.revenueTarget ?? 0), 0) : null;
   const gpTarget = withTarget.length > 0 ? withTarget.reduce((s, r) => s + (r.gpTarget ?? 0), 0) : null;
-  // Target margin: weight by the revenue target when there is one, otherwise by actual revenue.
-  const weightedMargin =
-    revenueTarget !== null && revenueTarget > 0 && gpTarget !== null
-      ? (gpTarget / revenueTarget) * 100
-      : revenue > 0
-        ? rows.reduce((s, r) => s + r.marginTargetPct * r.revenue, 0) / revenue
-        : null;
+  // The company's margin target is its own figure (10% by default), not the revenue-weighted blend of the brand
+  // targets, which read 9.3% and moved with the sales mix. The brand rows keep their own targets.
   const marginPct = revenue > 0 ? round1((grossProfit / revenue) * 100) : null;
-  const marginTargetPct = weightedMargin === null ? null : round1(weightedMargin);
+  const marginTargetPct = round1(targets.overallPct);
   const gpAchievementPct = gpTarget !== null && gpTarget > 0 ? round1((grossProfit / gpTarget) * 100) : null;
   const variancePp = marginPct !== null && marginTargetPct !== null ? round1(marginPct - marginTargetPct) : null;
 

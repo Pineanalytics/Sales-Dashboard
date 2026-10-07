@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { listGpMarginTargetRows } from "@/lib/gpMarginTargets";
-import { GP_MARGIN_DEFAULT_KEY } from "@/lib/financePresentation";
+import { GP_MARGIN_DEFAULT_KEY, GP_MARGIN_OVERALL_KEY } from "@/lib/financePresentation";
 import { resetGpMarginTargetsAction, saveGpMarginTargetsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export default async function AdminGpTargetsPage({ searchParams }: { searchParam
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
 
   const { error, success } = await searchParams;
-  const { rows, defaultRow } = await listGpMarginTargetRows();
+  const { rows, defaultRow, overallRow } = await listGpMarginTargetRows();
 
   return (
     <div className="min-h-screen bg-background">
@@ -46,6 +46,17 @@ export default async function AdminGpTargetsPage({ searchParams }: { searchParam
                   </tr>
                 </thead>
                 <tbody>
+                  <tr className="border-b-2 border-border">
+                    <td className="py-2 pr-4">
+                      <span className="font-medium text-foreground">Overall (company total)</span>
+                      {overallRow.customised ? <span className="ml-2 rounded-full bg-accent-blue-soft px-2 py-0.5 text-[11px] font-semibold text-primary-blue">edited</span> : null}
+                      <input type="hidden" name={`label:${GP_MARGIN_OVERALL_KEY}`} value="Overall (company total)" />
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      <input name={`pct:${GP_MARGIN_OVERALL_KEY}`} type="number" min={0} max={100} step="0.1" defaultValue={overallRow.targetPct} className={inputClass} aria-label="Overall company target margin %" />
+                    </td>
+                    <td className="py-2 text-right text-muted">{overallRow.defaultPct}%</td>
+                  </tr>
                   {rows.map((row) => (
                     <tr key={row.brandKey} className="border-t border-border/60">
                       <td className="py-2 pr-4">

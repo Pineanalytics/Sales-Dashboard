@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import { DEFAULT_GP_MARGIN_TARGETS, brandLabel, mergeGpMarginTargets, type GpMarginTargets } from "@/lib/financePresentation";
+import { DEFAULT_GP_MARGIN_TARGETS, GP_MARGIN_DEFAULT_KEY, GP_MARGIN_OVERALL_KEY, brandLabel, mergeGpMarginTargets, type GpMarginTargets } from "@/lib/financePresentation";
 import type { PrincipalGpTarget } from "@/lib/financeGpTarget";
 
 /** The gross-margin targets in force: what an admin has saved, over the policy defaults. */
@@ -21,7 +21,11 @@ export interface GpMarginTargetRow {
 }
 
 /** One editable row per brand: the five main brands plus every other brand that has a principal. */
-export async function listGpMarginTargetRows(): Promise<{ rows: GpMarginTargetRow[]; defaultRow: { targetPct: number; defaultPct: number; customised: boolean } }> {
+export async function listGpMarginTargetRows(): Promise<{
+  rows: GpMarginTargetRow[];
+  defaultRow: { targetPct: number; defaultPct: number; customised: boolean };
+  overallRow: { targetPct: number; defaultPct: number; customised: boolean };
+}> {
   const [targets, principals, saved] = await Promise.all([
     getGpMarginTargets(),
     prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true } }),
@@ -33,7 +37,7 @@ export async function listGpMarginTargetRows(): Promise<{ rows: GpMarginTargetRo
     const key = normalizePrincipalKey(principal);
     if (key && !brands.has(key)) brands.set(key, brandLabel(principal));
   }
-  for (const row of saved) if (row.brandKey !== "__default__" && !brands.has(row.brandKey)) brands.set(row.brandKey, row.label);
+  for (const row of saved) if (row.brandKey !== GP_MARGIN_DEFAULT_KEY && row.brandKey !== GP_MARGIN_OVERALL_KEY && !brands.has(row.brandKey)) brands.set(row.brandKey, row.label);
 
   const main = Object.keys(DEFAULT_GP_MARGIN_TARGETS.byBrand);
   const order = (key: string) => (main.includes(key) ? main.indexOf(key) : main.length);
@@ -46,7 +50,8 @@ export async function listGpMarginTargetRows(): Promise<{ rows: GpMarginTargetRo
     .sort((a, b) => order(a.brandKey) - order(b.brandKey) || a.label.localeCompare(b.label));
   return {
     rows,
-    defaultRow: { targetPct: targets.defaultPct, defaultPct: DEFAULT_GP_MARGIN_TARGETS.defaultPct, customised: savedByKey.has("__default__") && savedByKey.get("__default__")?.targetPct !== DEFAULT_GP_MARGIN_TARGETS.defaultPct },
+    defaultRow: { targetPct: targets.defaultPct, defaultPct: DEFAULT_GP_MARGIN_TARGETS.defaultPct, customised: savedByKey.has(GP_MARGIN_DEFAULT_KEY) && savedByKey.get(GP_MARGIN_DEFAULT_KEY)?.targetPct !== DEFAULT_GP_MARGIN_TARGETS.defaultPct },
+    overallRow: { targetPct: targets.overallPct, defaultPct: DEFAULT_GP_MARGIN_TARGETS.overallPct, customised: savedByKey.has(GP_MARGIN_OVERALL_KEY) && savedByKey.get(GP_MARGIN_OVERALL_KEY)?.targetPct !== DEFAULT_GP_MARGIN_TARGETS.overallPct },
   };
 }
 
