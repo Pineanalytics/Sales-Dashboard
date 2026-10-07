@@ -106,7 +106,15 @@ describe("buildStockExtract: every SKU, with SKU status and inactivity", () => {
     expect(retired[col("Opening Pcs")]).toBe(0);
     expect(retired[col("Days Cover")]).toBe("");
     expect(retired[col("SKU Inactivity Period")]).toBe("3 Nov 2025 – 7 Oct 2026 (339 days)");
-    expect(String(retired[col("Action")])).toMatch(/Dormant/);
+    expect(retired[col("Action")]).toBe("Out of stock – no pieces on hand");
+  });
+
+  it("does not contradict an Active SKU with a no-sale action when it sold recently from another warehouse", () => {
+    const sold = buildStockExtract(dataset({ dormantStockItems: [dormant("Mars-Nairobi", "Sold Elsewhere", "2026-09-20")] }));
+    const r = sold.itemRows.find((x) => x[col("Item")] === "Sold Elsewhere")!;
+    expect(r[col("SKU Status")]).toBe("Active");
+    expect(r[col("SKU Inactivity Period")]).toBe("");
+    expect(String(r[col("Action")])).not.toMatch(/no sale in 3 months/);
   });
 
   it("leaves status blank when the stock source carries no sale dates at all", () => {
