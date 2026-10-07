@@ -15,7 +15,6 @@ import type {
   BridgeRow,
   Concentration,
   CustomerRow,
-  GpBasis,
   ItemRow,
   MonthlyRow,
   MovementRow,
@@ -160,7 +159,6 @@ interface GroupAcc {
 }
 
 export interface AggregateOptions {
-  basis: GpBasis;
   /** Nairobi calendar date of the read, YYYY-MM-DD. Decides whether the last month of the period is complete. */
   asOf: string;
   /** The months of the selected period (YYYY-MM). Defaults to every month that has lines. */
@@ -169,7 +167,6 @@ export interface AggregateOptions {
 
 function emptyPayload(options: AggregateOptions, scope: string[]): PerformancePayload {
   return {
-    basis: options.basis,
     asOf: options.asOf,
     months: [],
     scope,
@@ -221,7 +218,6 @@ function emptyPayload(options: AggregateOptions, scope: string[]): PerformancePa
 }
 
 export function aggregatePerformance(allLines: PerfLine[], options: AggregateOptions): PerformancePayload {
-  const gpOf = options.basis === "recorded" ? (line: PerfLine) => line.gpRecorded : (line: PerfLine) => line.gp;
   const dataMonths = new Set<string>();
   for (const line of allLines) dataMonths.add(line.month);
   const sortedData = Array.from(dataMonths).sort();
@@ -286,7 +282,7 @@ export function aggregatePerformance(allLines: PerfLine[], options: AggregateOpt
     const mi = monthIndex.get(line.month);
     if (mi === undefined) continue; // after the end of the period
     const inScope = scopeSet.has(line.month);
-    const gp = gpOf(line);
+    const gp = line.gp;
     const internal = INTERNAL_ACCOUNT_PATTERN.test(line.customerName);
 
     let month = byMonth.get(line.month);
@@ -670,7 +666,6 @@ export function aggregatePerformance(allLines: PerfLine[], options: AggregateOpt
     : [];
 
   return {
-    basis: options.basis,
     asOf: options.asOf,
     months,
     scope,

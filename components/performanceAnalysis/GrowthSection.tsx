@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import { CHART_AXIS_COLOR, CHART_GRID_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
-import { gpBasisNote, gpNote, growthLede } from "@/lib/performanceAnalysis/narrative";
+import { GP_DEFINITION_NOTE, gpNote, growthLede } from "@/lib/performanceAnalysis/narrative";
 import type { PerformancePayload, PrincipalRow } from "@/lib/performanceAnalysis/types";
 import { monthLabels } from "./PrincipalsSection";
 import { Growth, Note, PALETTE, Panel, SectionHeading, SortableTable, compact, count, kes, pct, type Column } from "./shared";
@@ -118,7 +118,7 @@ export function GrowthSection({ p }: { p: PerformancePayload }) {
       <Panel title="Growth and margin scorecard by principal">
         <SortableTable columns={columns} rows={p.principals.filter((row) => row.sales > 1e5)} rowKey={(row) => row.p} />
         {note ? <Note>{note}</Note> : null}
-        <Note>{gpBasisNote(p.basis)}</Note>
+        <Note>{GP_DEFINITION_NOTE}</Note>
       </Panel>
     </section>
   );

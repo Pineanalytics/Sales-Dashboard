@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { aggregatePerformance } from "./aggregate";
-import type { GpBasis, PerfLine, PerformanceMeta, PerformanceResponse } from "./types";
+import type { PerfLine, PerformanceMeta, PerformanceResponse } from "./types";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 4;
@@ -55,7 +55,7 @@ async function loadLines(meta: PerformanceMeta, principalKeys: string[]): Promis
 
   const rows = await prisma.performanceLine.findMany({
     where: { year: meta.year, principal: { in: labels } },
-    select: { monthIndex: true, doc: true, customerCode: true, customerName: true, rep: true, principal: true, itemCode: true, itemName: true, warehouse: true, cases: true, sales: true, gp: true, gpRecorded: true },
+    select: { monthIndex: true, doc: true, customerCode: true, customerName: true, rep: true, principal: true, itemCode: true, itemName: true, warehouse: true, cases: true, sales: true, gp: true },
   });
   const lines: PerfLine[] = rows.map((row) => ({
     month: monthKey(meta.year, row.monthIndex),
@@ -70,7 +70,6 @@ async function loadLines(meta: PerformanceMeta, principalKeys: string[]): Promis
     cases: row.cases,
     sales: row.sales,
     gp: row.gp,
-    gpRecorded: row.gpRecorded,
   }));
   remember(key, lines);
   return lines;
@@ -81,7 +80,6 @@ export interface PerformanceReportRequest {
   months: string[];
   /** Selected principal keys (normalizePrincipalKey form); empty = all. */
   principalKeys: string[];
-  basis: GpBasis;
 }
 
 /** The report for one period and principal selection, from the stored SAP lines. */
@@ -97,5 +95,5 @@ export async function buildPerformanceReport(request: PerformanceReportRequest):
   if (scopeMonths.length === 0) return { meta, report: null };
 
   const lines = await loadLines(meta, request.principalKeys);
-  return { meta, report: aggregatePerformance(lines, { basis: request.basis, asOf: meta.asOf, scopeMonths }) };
+  return { meta, report: aggregatePerformance(lines, { asOf: meta.asOf, scopeMonths }) };
 }

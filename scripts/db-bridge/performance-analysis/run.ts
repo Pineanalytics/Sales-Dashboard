@@ -59,7 +59,6 @@ async function replaceMonth(year: number, monthIndex: number, lines: PerfLine[])
             cases: line.cases,
             sales: line.sales,
             gp: line.gp,
-            gpRecorded: line.gpRecorded,
           })),
         });
       }
@@ -119,11 +118,8 @@ async function main() {
   }
   console.log(`[performance] Left out ${excludedLines} line(s) with no active principal, sales ${Math.round(excludedSales)}.`);
 
-  const dashboard = aggregatePerformance(lines, { basis: "dashboard", asOf });
-  const recorded = aggregatePerformance(lines, { basis: "recorded", asOf });
-  console.log(
-    `[performance] ${lines.length} lines, ${dashboard.principals.length} principals, ${dashboard.months.length} months: net sales ${dashboard.kpi.sales}, dashboard GP ${dashboard.kpi.gp} (${dashboard.kpi.gpm}%), SAP recorded GP ${recorded.kpi.gp} (${recorded.kpi.gpm}%).`
-  );
+  const report = aggregatePerformance(lines, { asOf });
+  console.log(`[performance] ${lines.length} lines, ${report.principals.length} principals, ${report.months.length} months: net sales ${report.kpi.sales}, GP ${report.kpi.gp} (${report.kpi.gpm}%).`);
 
   if (dryRun) {
     console.log("[performance] Dry run complete; nothing written.");

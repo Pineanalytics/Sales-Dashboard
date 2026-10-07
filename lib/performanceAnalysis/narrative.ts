@@ -2,7 +2,7 @@
 // refresh. The standalone report's commentary was hand-written for one period;
 // here each sentence is derived from the payload, so it is always about the
 // numbers on the screen. `**text**` marks the figures the renderer bolds.
-import type { GpBasis, ItemRow, PerformancePayload, PrincipalRow } from "./types";
+import type { ItemRow, PerformancePayload, PrincipalRow } from "./types";
 
 const MONTH_ABBREV = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -261,11 +261,9 @@ export function growthLede(p: PerformancePayload): string {
   return `${text.replace(/\s+$/, "")}.`;
 }
 
-export function gpBasisNote(basis: GpBasis): string {
-  return basis === "dashboard"
-    ? "Gross profit here is the dashboard's own measure (sales less quantity at the current purchase price), the same one Sales Performance and Financials use, with closed months held at the margin they were stored with. Switch to SAP recorded GP to see the margin SAP posted on each document."
-    : "Gross profit here is the margin SAP posted on each document (its moving-average cost). It will differ from the dashboard GP used on Sales Performance and Financials, which prices cost from the purchase price list.";
-}
+/** What "gross profit" means on this page. */
+export const GP_DEFINITION_NOTE =
+  "Gross profit is sales less quantity at the current purchase price, the same measure Sales Performance and Financials use, with closed months held at the margin they were stored with.";
 
 export function gpNote(p: PerformancePayload): string | null {
   if (!p.labels.cq || !p.labels.pq) return null;
