@@ -4,6 +4,7 @@ import { aggregateStockByPrincipal, classifyDormantPrincipals, dormantBrandKeysF
 import { REPORT_DEFINITIONS } from "../lib/reports/definitions";
 import { normalizePrincipalKey } from "../lib/normalize";
 import { reportToExcelBlob } from "../lib/reports/toExcel";
+import { STOCK_EXTRACT_ITEM_COLUMNS } from "../lib/stockExtract";
 import type { Dataset, StockItem } from "../lib/types";
 
 function item(principal: string, name: string, value: number, rr: number, action = "🟢 OK"): StockItem {
@@ -106,7 +107,8 @@ describe("Stock Balance extract", () => {
   it("lists all stock held, with a Principal Status column", async () => {
     const report = await build(dataset({ dormantPrincipalKeys: ["signify", "promasidor"] }));
     const items = report.sections[0];
-    expect(items.columns).toEqual(["Principal", "Principal Status", "Item", "Opening Value", "RR Week Value", "Days Cover", "Action"]);
+    expect(items.columns).toEqual(STOCK_EXTRACT_ITEM_COLUMNS);
+    expect(items.columns.slice(0, 4)).toEqual(["Principal", "Principal Status", "Principal Dormancy Period", "Principal Last Sale"]);
     expect(items.rows).toHaveLength(5); // nothing is left out
     const status = Object.fromEntries(items.rows.map((row) => [row[0], row[1]]));
     expect(status).toEqual({ "Mars-Nairobi": "Active", "Signify-Nairobi": "Inactive", "Promasidor-Nairobi": "Inactive", "DKT-Nairobi": "Inactive" });

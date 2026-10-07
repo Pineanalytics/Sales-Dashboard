@@ -6,7 +6,7 @@ process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchStockBalance } from "./queries/stockBalance";
-import { fetchRecentActiveSales, fetchStandardStockDemand } from "./queries/standardStock";
+import { fetchLastSaleByItem, fetchRecentActiveSales, fetchStandardStockDemand } from "./queries/standardStock";
 import { loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildDirectStock } from "./transform/buildDirectStock";
 
@@ -30,21 +30,22 @@ async function main() {
   const activeSalesStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth() - 3, asOfDate.getUTCDate()));
 
   console.log(`[stock-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
-  const [{ stockRows, demandRows, recentSalesRows }, products, warehouses, principals] = await Promise.all([
+  const [{ stockRows, demandRows, recentSalesRows, lastSaleRows }, products, warehouses, principals] = await Promise.all([
     withConnection(config, async (pool) => {
-      const [stockRows, demandRows, recentSalesRows] = await Promise.all([
+      const [stockRows, demandRows, recentSalesRows, lastSaleRows] = await Promise.all([
         fetchStockBalance(pool, asOfDate),
         fetchStandardStockDemand(pool, yearStart, asOfDate),
         fetchRecentActiveSales(pool, activeSalesStart, asOfDate),
+        fetchLastSaleByItem(pool),
       ]);
-      return { stockRows, demandRows, recentSalesRows };
+      return { stockRows, demandRows, recentSalesRows, lastSaleRows };
     }),
     loadProducts(),
     loadWarehouses(),
     loadPrincipals(),
   ]);
 
-  const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate);
+  const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate, lastSaleRows);
   if (result.items.length === 0) throw new Error("Direct SAP stock build produced zero dashboard rows; preserving the prior snapshot.");
   console.log(`[stock-sync] Built ${result.items.length} operational and ${result.dormantItems.length} dormant out-of-stock rows from ${stockRows.length} balance and ${demandRows.length} demand rows.`);
 
@@ -80,6 +81,7 @@ async function main() {
         rrWeekVolume: item.rrWeekVolume,
         daysCover: item.daysCover,
         action: item.action,
+        lastSaleDate: item.lastSaleDate ?? null,
       })),
       dormantRows: result.dormantItems.map((row) => ({ ...row, lastSaleDate: row.lastSaleDate?.toISOString().slice(0, 10) ?? null })),
       physicalSourceRows: stockRows.length,

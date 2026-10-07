@@ -5,7 +5,7 @@ import { stockStatus, weightedCoverDays } from "@/lib/parseWorkbook";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { StockItem } from "@/lib/types";
 import type { StockBalanceRow } from "../queries/stockBalance";
-import type { RecentActiveSaleRow, StandardStockDemandRow } from "../queries/standardStock";
+import type { LastSaleByItemRow, RecentActiveSaleRow, StandardStockDemandRow } from "../queries/standardStock";
 import type { ProductRow } from "../reference/loadFromDb";
 import type { PrincipalRow, WarehouseRow } from "./buildMonthlySales";
 
@@ -85,8 +85,11 @@ export function buildDirectStock(
   products: ProductRow[],
   warehouses: WarehouseRow[],
   principals: PrincipalRow[],
-  asOfDate: Date
+  asOfDate: Date,
+  /** The all-history last invoice date per item. Optional: without it the extract's inactivity columns are blank. */
+  lastSaleByItem: LastSaleByItemRow[] = []
 ): DirectStockBuildResult {
+  const allTimeLastSale = new Map(lastSaleByItem.map((row) => [row.itemCode, midnightUtc(row.lastSaleDate)]));
   const productByItemCode = new Map(products.map((product) => [product.itemNo, product]));
   const warehouseByCode = new Map(warehouses.map((warehouse) => [warehouse.warehouseCode, warehouse]));
   const principalByName = new Map(principals.map((principal) => [principal.principal, principal]));
@@ -106,6 +109,8 @@ export function buildDirectStock(
     rrWeekValue: number;
     rrWeekVolume: number;
     lastSaleDate: Date | null;
+    /** Most recent invoice of any of the item's codes, across all history (not limited to the dormancy window). */
+    lastSaleAny: Date | null;
     matchedDemand: boolean;
   }
 
@@ -137,10 +142,13 @@ export function buildDirectStock(
         rrWeekValue: 0,
         rrWeekVolume: 0,
         lastSaleDate: null,
+        lastSaleAny: null,
         matchedDemand: false,
       };
       byPrincipalItem.set(key, aggregate);
     }
+    const everSold = allTimeLastSale.get(row.itemCode);
+    if (everSold && (!aggregate.lastSaleAny || everSold > aggregate.lastSaleAny)) aggregate.lastSaleAny = everSold;
     if (product.packSize && product.packSize !== 0) aggregate.openingVolume += finite(row.onhandQty / product.packSize);
     aggregate.openingPcs += finite(row.onhandQty);
     aggregate.openingValue += finite(row.stockValue);
@@ -182,6 +190,7 @@ export function buildDirectStock(
       rrWeekValue: finite(demand.rrWeekValue),
       rrWeekVolume: product.packSize && product.packSize !== 0 ? finite(demand.rrWeekVolume / product.packSize) : 0,
       lastSaleDate: recentSaleByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`) ?? null,
+      lastSaleAny: allTimeLastSale.get(demandRow.itemCode) ?? null,
       matchedDemand: true,
     });
   }
@@ -192,7 +201,7 @@ export function buildDirectStock(
     // physical pieces—not accounting valuation—to identify true stock-outs:
     // a free/zero-valued item still on hand must remain operational.
     .filter((row) => row.openingPcs <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
-    .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: finite(row.openingPcs), openingValue: finite(row.openingValue), lastSaleDate: row.lastSaleDate }));
+    .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: finite(row.openingPcs), openingValue: finite(row.openingValue), lastSaleDate: row.lastSaleAny ?? row.lastSaleDate }));
   const activeItems = aggregates.filter((row) => !dormantItems.some((dormant) => dormant.principal === row.principal && dormant.item === row.item));
   return {
     matchedDemandRows: activeItems.filter((row) => row.matchedDemand).length,
@@ -217,6 +226,7 @@ export function buildDirectStock(
         rrWeekVolume,
         daysCover,
         action: stockStatus(daysCover, row.openingValue, row.rrWeekValue),
+        lastSaleDate: (row.lastSaleAny ?? row.lastSaleDate)?.toISOString().slice(0, 10) ?? null,
       };
     }),
   };

@@ -18,6 +18,9 @@ interface StockUploadRow {
   rrWeekVolume: number;
   daysCover: number;
   action: string;
+  /** Most recent invoice date of the item across all history, YYYY-MM-DD, or null if never invoiced. Optional so an
+   *  older sync script that does not send it keeps working (the stored value is then null). */
+  lastSaleDate?: string | null;
 }
 
 interface DormantStockUploadRow {
@@ -60,6 +63,7 @@ function isValidRow(value: unknown): value is StockUploadRow {
   const row = value as Record<string, unknown>;
   return nonBlankText(row.principal) && nonBlankText(row.item) && nonBlankText(row.itemCode) && nonBlankText(row.action)
     && nullableOptionalText(row.brand)
+    && (row.lastSaleDate === undefined || row.lastSaleDate === null || parseSourceDate(row.lastSaleDate) !== null)
     && finiteNumber(row.openingVolume) && finiteNumber(row.openingPcs) && finiteNumber(row.openingValue)
     && finiteNumber(row.rrWeekValue) && finiteNumber(row.rrWeekVolume) && finiteNumber(row.daysCover);
 }
@@ -111,7 +115,7 @@ export async function POST(req: NextRequest) {
       // one complete new snapshot always replaces one complete old snapshot.
       await tx.stockActual.deleteMany();
       await tx.stockActual.createMany({
-        data: stockRows.map((row) => ({ ...row, sourceDate })),
+        data: stockRows.map((row) => ({ ...row, sourceDate, lastSaleDate: row.lastSaleDate ? parseSourceDate(row.lastSaleDate) : null })),
       });
       await tx.dormantStockActual.deleteMany();
       if (dormantStockRows.length > 0) {

@@ -4,9 +4,9 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
-import { dormantBrandKeysFromPrincipals } from "./stock";
+import { dormantBrandKeysFromPrincipals, dormantSinceByBrandKey } from "./stock";
 import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup, getUpfieldMonthlyCoverageRollup } from "./jpAdherence";
-import type { Dataset, DatasetSnapshotSummary, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
+import type { Dataset, DatasetSnapshotSummary, DormantStockItem, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
 // The primary dashboard dataset is composed from tables written by the
 // server-to-server syncs. The legacy Snapshot blob is archive-only and is not
@@ -545,7 +545,10 @@ async function overlayPL(dataset: Dataset): Promise<Dataset> {
  * Stock Balance. Dormant zero-piece items deliberately live in
  * DormantStockActual instead, so they cannot inflate the live action list. */
 async function overlayStock(dataset: Dataset): Promise<Dataset> {
-  const rows = await prisma.stockActual.findMany({ orderBy: { sourceDate: "desc" } });
+  const [rows, dormantRows] = await Promise.all([
+    prisma.stockActual.findMany({ orderBy: { sourceDate: "desc" } }),
+    prisma.dormantStockActual.findMany({ select: { principal: true, item: true, itemCode: true, openingPcs: true, openingValue: true, lastSaleDate: true } }),
+  ]);
   if (rows.length === 0) return dataset;
 
   // row.brand (SAP's own OMRC "Manufacturer" master, see StockActual's schema
@@ -561,6 +564,8 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
     principal: row.principal,
     key: normalizePrincipalKey(row.principal),
     item: row.item,
+    itemCode: row.itemCode,
+    lastSaleDate: row.lastSaleDate ? row.lastSaleDate.toISOString().slice(0, 10) : null,
     brand: row.brand?.trim() || seriesByItemCode.get(row.itemCode) || null,
     openingVolume: row.openingVolume,
     openingPcs: row.openingPcs,
@@ -571,9 +576,19 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
     action: row.action,
   }));
   const sourceDate = rows.reduce((latest, row) => row.sourceDate > latest ? row.sourceDate : latest, rows[0].sourceDate);
+  const dormantStockItems: DormantStockItem[] = dormantRows.map((row) => ({
+    principal: row.principal,
+    key: normalizePrincipalKey(row.principal),
+    item: row.item,
+    itemCode: row.itemCode,
+    openingPcs: row.openingPcs,
+    openingValue: row.openingValue,
+    lastSaleDate: row.lastSaleDate ? row.lastSaleDate.toISOString().slice(0, 10) : null,
+  }));
   return {
     ...dataset,
     stockItems,
+    dormantStockItems,
     stockTotal: stockTotalFromItems(stockItems),
     stockSource: { kind: "sap-direct", sourceDate: sourceDate.toISOString(), itemCount: stockItems.length },
   };
@@ -600,18 +615,23 @@ async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): 
   // overlaySales must run before overlayTargets — it can replace/append
   // monthlySales rows, and overlayTargets's merge needs to see the final set.
   const withSales = await timed("sales", () => overlaySales(dataset));
-  const [withTargets, withPL, withCoverage, withBrandCustomer, withStock, dormantPrincipalKeys] = await Promise.all([
+  const [withTargets, withPL, withCoverage, withBrandCustomer, withStock, dormantPrincipalFlags] = await Promise.all([
     timed("targets", () => overlayTargets(withSales)),
     timed("pl", () => overlayPL(dataset)),
     timed("coverage", () => overlayCoverage(dataset)),
     includeBrandCustomer ? timed("brandCustomer", () => overlayBrandCustomer(dataset)) : Promise.resolve(dataset),
     timed("stock", () => overlayStock(dataset)),
-    timed("dormantPrincipals", async () => dormantBrandKeysFromPrincipals(await prisma.principal.findMany({ select: { principal: true, stockDormant: true } }))),
+    timed("dormantPrincipals", async () => {
+      const principals = await prisma.principal.findMany({ select: { principal: true, stockDormant: true, stockDormantSince: true } });
+      return { keys: dormantBrandKeysFromPrincipals(principals), since: dormantSinceByBrandKey(principals) };
+    }),
   ]);
   console.log(`[datasetStore] overlayAdminData total: ${Date.now() - overallStart}ms`);
   return {
     ...withTargets,
-    dormantPrincipalKeys,
+    dormantPrincipalKeys: dormantPrincipalFlags.keys,
+    dormantPrincipalSince: dormantPrincipalFlags.since,
+    dormantStockItems: withStock.dormantStockItems,
     monthlyPL: withPL.monthlyPL,
     monthlyCoverage: withCoverage.monthlyCoverage,
     monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,
@@ -670,10 +690,11 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyBrandCustomer = dataset.monthlyBrandCustomer.filter((r) => principalKeys.has(r.principalKey));
   const monthlyPL = dataset.monthlyPL.filter((r) => principalKeys.has(r.principalKey));
   const stockItems = dataset.stockItems.filter((i) => principalKeys.has(i.key));
+  const dormantStockItems = dataset.dormantStockItems?.filter((i) => principalKeys.has(i.key));
 
   const stockTotal = stockTotalFromItems(stockItems);
 
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, stockTotal };
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal };
 }
 
 async function loadLiveDataset(includeBrandCustomer: boolean): Promise<Dataset | null> {

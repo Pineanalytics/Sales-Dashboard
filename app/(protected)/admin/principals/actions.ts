@@ -18,6 +18,14 @@ function str(formData: FormData, name: string): string {
   return String(formData.get(name) || "").trim();
 }
 
+/** A YYYY-MM-DD date input as a UTC date, or null when blank or not a real date. */
+function nullableDate(formData: FormData, name: string): Date | null {
+  const v = str(formData, name);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const date = new Date(`${v}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function nullableStr(formData: FormData, name: string): string | null {
   const v = str(formData, name);
   return v || null;
@@ -63,6 +71,7 @@ export async function createPrincipalAction(formData: FormData) {
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
         stockDormant: formData.get("stockDormant") === "on",
+        stockDormantSince: formData.get("stockDormant") === "on" ? nullableDate(formData, "stockDormantSince") : null,
         teamLeaderId,
         supervisorId,
       },
@@ -94,6 +103,7 @@ export async function updatePrincipalAction(formData: FormData) {
         locationCode: nullableStr(formData, "locationCode"),
         status: str(formData, "status") || "Active",
         stockDormant: formData.get("stockDormant") === "on",
+        stockDormantSince: formData.get("stockDormant") === "on" ? nullableDate(formData, "stockDormantSince") : null,
         teamLeaderId,
         supervisorId,
       },

@@ -16,6 +16,11 @@ export interface StandardStockDemandRow {
   lastSale: Date;
 }
 
+export interface LastSaleByItemRow {
+  itemCode: string;
+  lastSaleDate: Date;
+}
+
 export interface RecentActiveSaleRow {
   itemCode: string;
   warehouseCode: string;
@@ -133,4 +138,19 @@ export async function fetchRecentActiveSales(
       GROUP BY T1."ItemCode", T1."WhsCode";
     `);
   return result.recordset.map((row) => ({ itemCode: row["Item Code"], warehouseCode: row["Warehouse Code"], lastSaleDate: row["Last Sale"] }));
+}
+
+/** The most recent invoice date of every item that has ever been invoiced, across all history (SAP goes back to
+ *  2021). The three-month window above can only say "sold recently or not"; this says when it last sold, which is
+ *  what an inactivity period needs. Items never invoiced have no row. Invoices only, like the window above: a
+ *  credit note is a return, not a sale. About 2,200 rows; about 3 seconds on the production SAP database. */
+export async function fetchLastSaleByItem(pool: sql.ConnectionPool): Promise<LastSaleByItemRow[]> {
+  const result = await pool.request().query<{ "Item Code": string; "Last Sale": Date }>(`
+    SELECT T1."ItemCode" AS "Item Code", MAX(T0."TaxDate") AS "Last Sale"
+    FROM OINV T0
+    INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+    WHERE T0."CANCELED" = 'N'
+    GROUP BY T1."ItemCode";
+  `);
+  return result.recordset.map((row) => ({ itemCode: row["Item Code"], lastSaleDate: row["Last Sale"] }));
 }

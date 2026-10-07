@@ -26,5 +26,6 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyBrandCustomer = dataset.monthlyBrandCustomer.filter((row) => principalKeys.has(row.principalKey));
   const monthlyPL = dataset.monthlyPL.filter((row) => principalKeys.has(row.principalKey));
   const stockItems = dataset.stockItems.filter((item) => principalKeys.has(item.key));
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, stockTotal: stockTotalFromItems(stockItems) };
+  const dormantStockItems = dataset.dormantStockItems?.filter((item) => principalKeys.has(item.key));
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal: stockTotalFromItems(stockItems) };
 }

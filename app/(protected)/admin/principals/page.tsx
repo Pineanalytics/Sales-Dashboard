@@ -70,7 +70,7 @@ export default async function AdminPrincipalsPage({
           </Link>
           ). Supervisor is independently settable — for a principal a Supervisor manages directly, with no Team Leader recorded — and defaults to the
           ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it. &quot;Dormant stock&quot; marks a stopped principal that
-          still holds stock: its stock is left out of the Stock Balance (and listed under Dormant Stock) even while it still shows sales, and the Stock
+          still holds stock (optionally with the date it stopped, which shows as its dormancy period in the extract): its stock is left out of the Stock Balance (and listed under Dormant Stock) even while it still shows sales, and the Stock
           Balance extract marks it Inactive. It is separate from Status, which also decides whether a principal&apos;s sales are counted.
         </p>
       </div>
@@ -129,6 +129,8 @@ export default async function AdminPrincipalsPage({
                 <input type="checkbox" name="stockDormant" className="h-4 w-4" />
                 Stopped principal still holding stock
               </label>
+              <label className={labelClass}>Dormant since (optional)</label>
+              <input type="date" name="stockDormantSince" className={inputClass} />
             </div>
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Team Leader (credited for TL Ranking)</label>
@@ -215,6 +217,7 @@ export default async function AdminPrincipalsPage({
                               <input type="checkbox" name="stockDormant" defaultChecked={p.stockDormant} className="h-4 w-4" />
                               Stopped, still holds stock
                             </label>
+                            <input type="date" name="stockDormantSince" defaultValue={p.stockDormantSince ? p.stockDormantSince.toISOString().slice(0, 10) : ""} className={inputClass} aria-label="Dormant since" />
                           </div>
                           <div className="flex flex-col gap-1">
                             <label className={labelClass}>Supervisor</label>
@@ -256,7 +259,7 @@ export default async function AdminPrincipalsPage({
                       <td className="px-6 py-3 border-b border-border/60">{p.location}</td>
                       <td className="px-6 py-3 border-b border-border/60">{p.status}</td>
                       <td className="px-6 py-3 border-b border-border/60">
-                        {p.stockDormant ? <span className="rounded-full bg-accent-amber-soft px-2.5 py-0.5 text-xs font-semibold text-accent-amber">Dormant stock</span> : <span className="text-muted">Active</span>}
+                        {p.stockDormant ? <span className="rounded-full bg-accent-amber-soft px-2.5 py-0.5 text-xs font-semibold text-accent-amber">Dormant stock{p.stockDormantSince ? ` since ${p.stockDormantSince.toISOString().slice(0, 10)}` : ""}</span> : <span className="text-muted">Active</span>}
                       </td>
                       <td className="px-6 py-3 border-b border-border/60">
                         {p.supervisorId ? supervisorNameById.get(p.supervisorId) ?? "—" : <span className="text-muted">—</span>}

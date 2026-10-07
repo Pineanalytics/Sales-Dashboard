@@ -22,6 +22,7 @@ import {
 } from "@/lib/timeIntelligence";
 import { principalsByRevenueDesc } from "@/lib/selectors";
 import { aggregateStockByPrincipal, stockPrincipalStatuses, sumStockRollups } from "@/lib/stock";
+import { STOCK_EXTRACT_ITEM_COLUMNS, STOCK_EXTRACT_PRINCIPAL_COLUMNS, buildStockExtract, formatExtractDate } from "@/lib/stockExtract";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { ReportContent } from "./types";
 
@@ -207,17 +208,19 @@ const profitabilityReport: ReportDefinition = {
 const stockReport: ReportDefinition = {
   key: "stock",
   label: "Stock Balance",
-  description: "All stock held by item, across every principal, with each principal marked Active or Inactive.",
+  description: "Every SKU with its stock, last sale and period of inactivity, with each SKU and principal marked active or dormant.",
   pageKey: "stock",
   async build({ dataset, principalKey }) {
     if (!dataset) return emptyReport("Stock Balance");
 
-    // The extract lists ALL stock held, including that of dormant principals (stopped principals still selling
-    // down what is left), because it is a record of what is on the shelves. Each principal is marked Active or
-    // Inactive so the operational view (which leaves Inactive ones out) can be reproduced by filtering the column.
+    // The extract lists EVERY SKU, including the stock of dormant principals and the zero-stock SKUs the screen leaves
+    // out, because it is a record of what is on the shelves and what has stopped moving. Principals are marked Active or
+    // Inactive and SKUs Active or Dormant, with the period of inactivity, so the operational view (which leaves
+    // Inactive principals out) can be reproduced by filtering the status columns. See lib/stockExtract.ts.
     // Stock has no location split - like StockView.tsx, roll up by normalized brand key.
     const brandKey = principalKey ? normalizePrincipalKey(principalKey) : null;
     const filteredItems = brandKey ? dataset.stockItems.filter((i) => i.key === brandKey) : dataset.stockItems;
+    const extract = buildStockExtract(dataset, { brandKey });
     const statusByKey = stockPrincipalStatuses(dataset);
     const statusOf = (key: string) => statusByKey.get(key) ?? "Active";
 
@@ -230,28 +233,22 @@ const stockReport: ReportDefinition = {
       title: brandKey ? `Stock Balance — ${principalKey}` : "Stock Balance",
       generatedAt: new Date(),
       summary: [
+        { label: "Stock as at", value: formatExtractDate(extract.asOf) },
         { label: "Total Value (all stock held)", value: all.value.toLocaleString() },
         { label: "Active Principals — Value", value: active.value.toLocaleString() },
         { label: "Inactive Principals — Value", value: inactive.value.toLocaleString() },
         { label: "Total Volume", value: all.volume.toLocaleString() },
         { label: "Item Count", value: all.itemCount.toLocaleString() },
+        { label: "SKUs listed (all)", value: extract.skuCounts.total.toLocaleString() },
+        { label: "Active SKUs (sold in last 3 months)", value: extract.skuCounts.active.toLocaleString() },
+        { label: "Dormant SKUs (no sale in 3 months)", value: extract.skuCounts.dormant.toLocaleString() },
         { label: "Out of Stock (active principals)", value: active.outOfStockCount.toLocaleString() },
         { label: "Running Out (active principals)", value: active.runningOutCount.toLocaleString() },
         { label: "OK (active principals)", value: active.okCount.toLocaleString() },
       ],
       sections: [
-        {
-          title: "Stock Items",
-          columns: ["Principal", "Principal Status", "Item", "Opening Value", "RR Week Value", "Days Cover", "Action"],
-          rows: filteredItems.map((s) => [s.principal, statusOf(s.key), s.item, round2(s.openingValue), round2(s.rrWeekValue), round2(s.daysCover), s.action]),
-        },
-        {
-          title: "By Principal",
-          columns: ["Principal", "Principal Status", "Items", "Opening Value", "Opening Volume", "RR Week Value", "Days Cover"],
-          rows: [...rollups]
-            .sort((a, b) => b.value - a.value)
-            .map((r) => [r.name, statusOf(r.key), r.itemCount, round2(r.value), round2(r.volume), round2(r.rrWeekValue), round2(r.daysStock)]),
-        },
+        { title: "Stock Items", columns: STOCK_EXTRACT_ITEM_COLUMNS, rows: extract.itemRows },
+        { title: "By Principal", columns: STOCK_EXTRACT_PRINCIPAL_COLUMNS, rows: extract.principalRows },
       ],
     };
   },
