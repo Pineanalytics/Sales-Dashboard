@@ -134,7 +134,9 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         value: item.openingValue,
         rrWeekValue: 0,
         daysCover: "" as const,
-        action: "Dormant – out of stock, no sale in 3 months",
+        // Zero stock is all these rows certify: they were set aside by the warehouse-level three-month rule, while
+        // SKU Status uses the item's last sale in any warehouse, so an item can be listed here and still be Active.
+        action: "Out of stock – no pieces on hand",
         lastSaleDate: item.lastSaleDate,
       })),
   ];
