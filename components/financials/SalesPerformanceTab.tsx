@@ -31,12 +31,15 @@ export function SalesPerformanceTab({
   dataset,
   selectedPrincipalKey,
   gpTargets,
+  overallMarginTargetPct,
   receivablesOutstanding,
   debtAttribution,
 }: {
   dataset: Dataset;
   selectedPrincipalKey: string | null;
   gpTargets: PrincipalGpTarget[];
+  /** The company-wide margin target in percent, shown when no principal is selected. */
+  overallMarginTargetPct: number;
   receivablesOutstanding: number;
   debtAttribution: DebtAttribution;
 }) {
@@ -109,7 +112,9 @@ export function SalesPerformanceTab({
       marginWeightSum += weight;
     }
   }
-  const marginTargetPct = marginWeightSum > 0 ? (weightedMarginSum / marginWeightSum) * 100 : null;
+  // With no principal selected the company target applies (10% by default), not the blend of the brand targets.
+  const blendedMarginTargetPct = marginWeightSum > 0 ? (weightedMarginSum / marginWeightSum) * 100 : null;
+  const marginTargetPct = selectedPrincipalKey ? blendedMarginTargetPct : overallMarginTargetPct;
 
   // Stock + debt, side by side per principal — same top-5/other-principals/
   // totals shape as the sales table above, reusing lib/stock.ts's rollups

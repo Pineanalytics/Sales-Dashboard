@@ -69,6 +69,7 @@ export default async function FinancialsPage({
       canViewReceivables={canViewReceivables && data !== null}
       canViewProfitability={canViewProfitability}
       gpTargets={gpTargets}
+      overallMarginTargetPct={gpMarginTargets.overallPct}
       debtAttribution={debtAttribution}
       ageingTrend={ageingTrend}
       ageingYear={ageingYear}
