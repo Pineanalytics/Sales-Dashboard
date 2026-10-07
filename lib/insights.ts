@@ -7,7 +7,7 @@ import {
   summarizeCoverageForPeriod,
   type PeriodSelection,
 } from "./timeIntelligence";
-import { aggregateStockByPrincipal } from "./stock";
+import { aggregateStockByPrincipal, classifyDormantPrincipals } from "./stock";
 import { normalizePrincipalKey } from "./normalize";
 
 export interface Insight {
@@ -42,7 +42,10 @@ export function generatePortfolioInsights(dataset: Dataset, period: PeriodSelect
     });
   }
 
-  const stockRollups = aggregateStockByPrincipal(dataset);
+  // Operational stock risk: dormant principals (stopped, selling down leftovers) are not an ordering problem.
+  const allStockRollups = aggregateStockByPrincipal(dataset);
+  const { dormantKeys } = classifyDormantPrincipals(dataset, allStockRollups.map((r) => r.key));
+  const stockRollups = allStockRollups.filter((r) => !dormantKeys.has(r.key));
   const stockRisk = stockRollups.filter((r) => r.outOfStockCount > 0).sort((a, b) => b.outOfStockCount - a.outOfStockCount);
   const totalOOS = stockRollups.reduce((s, r) => s + r.outOfStockCount, 0);
   if (stockRisk.length > 0) {

@@ -53,7 +53,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   // Dormant Stock instead of cluttering operational Stock Balance — except a
   // handful of newly onboarded/"emerging" principals (see
   // classifyDormantPrincipals's own doc comment).
-  const { dormantKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
+  const { dormantKeys, flaggedKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
   const rollups = allRollups.filter((r) => !dormantKeys.has(r.key));
   const dormantRollups = allRollups.filter((r) => dormantKeys.has(r.key));
   // The portfolio ("all principals") baseline must exclude dormant stock too —
@@ -149,9 +149,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   if (selectedIsDormant) {
     return (
       <div className="flex flex-col gap-6">
-        <SectionCard title={`${selectedDormantRollup?.name ?? "This principal"} has no active sales`}>
+        <SectionCard title={`${selectedDormantRollup?.name ?? "This principal"} is a dormant principal`}>
           <p className="p-1 text-sm text-muted">
-            No Sales revenue in the last three months, so its stock has moved out of operational Stock Balance.
+            {normalizedSelectedKey !== null && flaggedKeys.has(normalizedSelectedKey) ? "It is marked as a stopped principal still holding stock" : "It has had no Sales revenue in the last three months"}, so its stock has moved out of operational Stock Balance.
             {selectedDormantRollup ? ` ${formatNumber(selectedDormantRollup.itemCount)} item(s) worth ${formatCompact(selectedDormantRollup.value)} remain on hand.` : ""}
             {" "}<Link href="/dormant-stock" className="font-semibold text-primary-blue hover:underline">View it in Dormant Stock →</Link>
           </p>
@@ -170,8 +170,8 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
       {!selectedRollup && dormantRollups.length > 0 && (
         <SectionCard title="Dormant principals excluded" action={<Link href="/dormant-stock" className="text-xs font-semibold text-primary-blue hover:underline">Open Dormant Stock →</Link>}>
           <p className="p-1 text-sm text-muted">
-            {dormantRollups.length} principal{dormantRollups.length === 1 ? "" : "s"} with no Sales revenue in the last three months (
-            {dormantRollups.map((r) => r.name).sort().join(", ")}) are excluded from the figures below and shown in Dormant Stock instead.
+            {dormantRollups.length} dormant principal{dormantRollups.length === 1 ? "" : "s"}, either marked as stopped principals still holding stock or with no Sales revenue in the last three months (
+            {dormantRollups.map((r) => r.name).sort().join(", ")}), {dormantRollups.length === 1 ? "is" : "are"} excluded from the figures below and shown in Dormant Stock instead.
           </p>
         </SectionCard>
       )}

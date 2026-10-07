@@ -732,6 +732,12 @@ model Principal {
   location      String
   locationCode  String?
   status        String   @default("Active") // "Active" | "Past"
+  // Principals that have stopped working with us but still hold stock that is being sold down. Their stock is
+  // left out of the operational Stock Balance (and listed under Dormant Stock) even though they still show
+  // sales, which the automatic "no sales in three months" rule cannot catch. A brand counts as dormant only
+  // when every one of its principal rows is flagged. The Stock Balance Excel extract still lists all of it,
+  // with an Active/Inactive column. Independent of `status`, which also decides whether sales are counted.
+  stockDormant  Boolean  @default(false)
   teamLeaderId  String? // the Team Leader credited with 100% of this principal's MTD revenue for TL Ranking (lib/tlRanking.ts) — not the real multi-Team-Leader roster (TeamLeaderAssignment is). null for "Past"/unowned principals.
   // Independently settable — not merely derived from teamLeaderId — so a
   // Supervisor who manages a principal directly, with no Team Leader

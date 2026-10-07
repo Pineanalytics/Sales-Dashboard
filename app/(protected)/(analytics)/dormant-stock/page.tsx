@@ -73,8 +73,11 @@ export default function DormantStockPage() {
   const dormantPrincipals = useMemo(() => {
     if (!dataset) return [];
     const rollups = aggregateStockByPrincipal(dataset);
-    const { dormantKeys } = classifyDormantPrincipals(dataset, rollups.map((r) => r.key));
-    return rollups.filter((r) => dormantKeys.has(r.key)).sort((a, b) => b.value - a.value);
+    const { dormantKeys, flaggedKeys } = classifyDormantPrincipals(dataset, rollups.map((r) => r.key));
+    return rollups
+      .filter((r) => dormantKeys.has(r.key))
+      .map((r) => ({ ...r, flagged: flaggedKeys.has(r.key) }))
+      .sort((a, b) => b.value - a.value);
   }, [dataset]);
   const scopedDormantPrincipals = selectedPrincipalKey
     ? dormantPrincipals.filter((r) => r.key === selectedPrincipalKey)
@@ -89,10 +92,10 @@ export default function DormantStockPage() {
   return (
     <div className="flex flex-col gap-6">
       {scopedDormantPrincipals.length > 0 && (
-        <SectionCard title="Dormant Principals (No Active Sales)">
-          <p className="p-1 text-sm text-muted">No Sales revenue in the last three months. Their stock is excluded from operational Stock Balance and shown here instead.</p>
-          <TableWrap><Thead><Th>Principal</Th><Th align="right">Stock Value</Th><Th align="right">Items</Th><Th align="right">Cover Days</Th><Th align="center">Status</Th></Thead><tbody>
-            {scopedDormantPrincipals.map((r) => <tr key={r.key}><Td>{r.name}</Td><Td align="right">{formatCompact(r.value)}</Td><Td align="right">{formatNumber(r.itemCount)}</Td><Td align="right">{r.daysStock.toFixed(1)}</Td><Td align="center"><StockStatusPill action={r.action} /></Td></tr>)}
+        <SectionCard title="Dormant Principals">
+          <p className="p-1 text-sm text-muted">Principals that have stopped working with us (marked on the Principals admin page, even if they still show sales while selling down their stock) or that have had no Sales revenue in the last three months. Their stock is excluded from operational Stock Balance and shown here instead; the Stock Balance extract still lists it, marked Inactive.</p>
+          <TableWrap><Thead><Th>Principal</Th><Th>Why dormant</Th><Th align="right">Stock Value</Th><Th align="right">Items</Th><Th align="right">Cover Days</Th><Th align="center">Status</Th></Thead><tbody>
+            {scopedDormantPrincipals.map((r) => <tr key={r.key}><Td>{r.name}</Td><Td>{r.flagged ? "Marked dormant" : "No sales in 3 months"}</Td><Td align="right">{formatCompact(r.value)}</Td><Td align="right">{formatNumber(r.itemCount)}</Td><Td align="right">{r.daysStock.toFixed(1)}</Td><Td align="center"><StockStatusPill action={r.action} /></Td></tr>)}
           </tbody></TableWrap>
         </SectionCard>
       )}

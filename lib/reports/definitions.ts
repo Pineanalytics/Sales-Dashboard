@@ -21,7 +21,7 @@ import {
   resolvePeriodMonths,
 } from "@/lib/timeIntelligence";
 import { principalsByRevenueDesc } from "@/lib/selectors";
-import { aggregateStockByPrincipal } from "@/lib/stock";
+import { aggregateStockByPrincipal, stockPrincipalStatuses, sumStockRollups } from "@/lib/stock";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { ReportContent } from "./types";
 
@@ -207,34 +207,50 @@ const profitabilityReport: ReportDefinition = {
 const stockReport: ReportDefinition = {
   key: "stock",
   label: "Stock Balance",
-  description: "Current stock position by item, across every principal.",
+  description: "All stock held by item, across every principal, with each principal marked Active or Inactive.",
   pageKey: "stock",
   async build({ dataset, principalKey }) {
     if (!dataset) return emptyReport("Stock Balance");
-    const { stockTotal, stockItems } = dataset;
 
-    // Stock has no location split — like StockView.tsx, roll up by normalized brand key.
+    // The extract lists ALL stock held, including that of dormant principals (stopped principals still selling
+    // down what is left), because it is a record of what is on the shelves. Each principal is marked Active or
+    // Inactive so the operational view (which leaves Inactive ones out) can be reproduced by filtering the column.
+    // Stock has no location split - like StockView.tsx, roll up by normalized brand key.
     const brandKey = principalKey ? normalizePrincipalKey(principalKey) : null;
-    const filteredItems = brandKey ? stockItems.filter((i) => i.key === brandKey) : stockItems;
-    const rollup = brandKey ? aggregateStockByPrincipal(dataset).find((r) => r.key === brandKey) ?? null : null;
-    const summaryTotals = rollup ?? stockTotal;
+    const filteredItems = brandKey ? dataset.stockItems.filter((i) => i.key === brandKey) : dataset.stockItems;
+    const statusByKey = stockPrincipalStatuses(dataset);
+    const statusOf = (key: string) => statusByKey.get(key) ?? "Active";
+
+    const rollups = aggregateStockByPrincipal({ ...dataset, stockItems: filteredItems });
+    const active = sumStockRollups(rollups.filter((r) => statusOf(r.key) === "Active"));
+    const inactive = sumStockRollups(rollups.filter((r) => statusOf(r.key) === "Inactive"));
+    const all = sumStockRollups(rollups);
 
     return {
       title: brandKey ? `Stock Balance — ${principalKey}` : "Stock Balance",
       generatedAt: new Date(),
       summary: [
-        { label: "Total Value", value: summaryTotals.value.toLocaleString() },
-        { label: "Total Volume", value: summaryTotals.volume.toLocaleString() },
-        { label: "Item Count", value: (rollup ? rollup.itemCount : stockTotal.itemCount).toLocaleString() },
-        { label: "Out of Stock", value: summaryTotals.outOfStockCount.toLocaleString() },
-        { label: "Running Out", value: summaryTotals.runningOutCount.toLocaleString() },
-        { label: "OK", value: (rollup ? rollup.okCount : stockTotal.okCount).toLocaleString() },
+        { label: "Total Value (all stock held)", value: all.value.toLocaleString() },
+        { label: "Active Principals — Value", value: active.value.toLocaleString() },
+        { label: "Inactive Principals — Value", value: inactive.value.toLocaleString() },
+        { label: "Total Volume", value: all.volume.toLocaleString() },
+        { label: "Item Count", value: all.itemCount.toLocaleString() },
+        { label: "Out of Stock (active principals)", value: active.outOfStockCount.toLocaleString() },
+        { label: "Running Out (active principals)", value: active.runningOutCount.toLocaleString() },
+        { label: "OK (active principals)", value: active.okCount.toLocaleString() },
       ],
       sections: [
         {
           title: "Stock Items",
-          columns: ["Principal", "Item", "Opening Value", "RR Week Value", "Days Cover", "Action"],
-          rows: filteredItems.map((s) => [s.principal, s.item, round2(s.openingValue), round2(s.rrWeekValue), round2(s.daysCover), s.action]),
+          columns: ["Principal", "Principal Status", "Item", "Opening Value", "RR Week Value", "Days Cover", "Action"],
+          rows: filteredItems.map((s) => [s.principal, statusOf(s.key), s.item, round2(s.openingValue), round2(s.rrWeekValue), round2(s.daysCover), s.action]),
+        },
+        {
+          title: "By Principal",
+          columns: ["Principal", "Principal Status", "Items", "Opening Value", "Opening Volume", "RR Week Value", "Days Cover"],
+          rows: [...rollups]
+            .sort((a, b) => b.value - a.value)
+            .map((r) => [r.name, statusOf(r.key), r.itemCount, round2(r.value), round2(r.volume), round2(r.rrWeekValue), round2(r.daysStock)]),
         },
       ],
     };

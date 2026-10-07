@@ -150,7 +150,8 @@ describe("report definitions reuse the same selectors the live views call", () =
     const content = await stockDef.build(ctx);
     expect(content.summary?.find((s) => s.label === "Item Count")?.value).toBe("2");
     expect(content.sections[0].rows).toHaveLength(2);
-    expect(content.sections[0].rows[0][1]).toBe("Item A");
+    expect(content.sections[0].columns[1]).toBe("Principal Status");
+    expect(content.sections[0].rows[0][2]).toBe("Item A");
   });
 
   it("dataset-backed reports return an empty-but-valid report when dataset is null", async () => {
@@ -176,7 +177,7 @@ describe("report definitions reuse the same selectors the live views call", () =
 
     const content = await stockDef.build(ctx);
     expect(content.sections[0].rows).toHaveLength(1);
-    expect(content.sections[0].rows[0][1]).toBe("Item A");
+    expect(content.sections[0].rows[0][2]).toBe("Item A");
   });
 
   it("coverage report respects repFilter (case-insensitive substring)", async () => {

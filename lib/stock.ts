@@ -226,17 +226,40 @@ const EMERGING_PRINCIPAL_KEYS = new Set(["Energia", "EFL", "Bennet", "Milly Frui
 const DORMANT_SALES_WINDOW_MONTHS = 3;
 
 export interface StockDormancyResult {
+  /** Every principal left out of the operational Stock Balance: flagged ones plus those with no recent sales. */
   dormantKeys: Set<string>;
   activeKeys: Set<string>;
+  /** The subset of dormantKeys an admin flagged (Principal.stockDormant), whatever their recent sales. */
+  flaggedKeys: Set<string>;
 }
 
-/** A principal counts as commercially dormant when it has zero recorded
- *  Sales revenue across the most recent three (year, monthIndex) periods
- *  actually present in dataset.monthlySales - not the last three calendar
- *  months by wall-clock date, since a dataset can legitimately lag behind
- *  "today". Mirrors DormantStockActual's own three-month no-activity
- *  convention (see its schema comment), just applied per principal instead
- *  of per SKU, so "dormant" means the same thing in both places. */
+/** The brand keys an admin has flagged as dormant for stock. Stock is grouped by brand (the part of the principal
+ *  name before its location, e.g. "Weetabix" for both Weetabix-Nairobi and Weetabix-Machakos), so a brand counts as
+ *  dormant only when EVERY one of its principal rows is flagged: flagging one location of a live brand must not bury
+ *  the whole brand's stock. */
+export function dormantBrandKeysFromPrincipals(principals: { principal: string; stockDormant: boolean }[]): string[] {
+  const byKey = new Map<string, { flagged: number; total: number }>();
+  for (const row of principals) {
+    const key = normalizePrincipalKey(row.principal);
+    if (!key) continue;
+    const entry = byKey.get(key) ?? { flagged: 0, total: 0 };
+    entry.total += 1;
+    if (row.stockDormant) entry.flagged += 1;
+    byKey.set(key, entry);
+  }
+  return Array.from(byKey.entries())
+    .filter(([, entry]) => entry.flagged === entry.total)
+    .map(([key]) => key)
+    .sort();
+}
+
+/** A principal is dormant for stock when an admin has flagged it (a stopped principal still selling its leftover
+ *  stock keeps showing sales, so sales alone cannot tell), or when it has zero recorded Sales revenue across the
+ *  most recent three (year, monthIndex) periods actually present in dataset.monthlySales - not the last three
+ *  calendar months by wall-clock date, since a dataset can legitimately lag behind "today". The three-month rule
+ *  mirrors DormantStockActual's own no-activity convention (see its schema comment), just applied per principal
+ *  instead of per SKU, so "dormant" means the same thing in both places. A flag outranks the emerging-principal
+ *  exemption and any amount of recent revenue. */
 export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Iterable<string>): StockDormancyResult {
   const periods = Array.from(new Set(dataset.monthlySales.map((r) => `${r.year}|${r.monthIndex}`)))
     .sort()
@@ -249,9 +272,16 @@ export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Itera
     revenueByKey.set(row.principalKey, (revenueByKey.get(row.principalKey) ?? 0) + row.revenue);
   }
 
+  const flagged = new Set(dataset.dormantPrincipalKeys ?? []);
   const dormantKeys = new Set<string>();
   const activeKeys = new Set<string>();
+  const flaggedKeys = new Set<string>();
   for (const key of principalKeys) {
+    if (flagged.has(key)) {
+      dormantKeys.add(key);
+      flaggedKeys.add(key);
+      continue;
+    }
     if (EMERGING_PRINCIPAL_KEYS.has(key)) {
       activeKeys.add(key);
       continue;
@@ -259,5 +289,13 @@ export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Itera
     if ((revenueByKey.get(key) ?? 0) > 0) activeKeys.add(key);
     else dormantKeys.add(key);
   }
-  return { dormantKeys, activeKeys };
+  return { dormantKeys, activeKeys, flaggedKeys };
+}
+
+/** "Active" or "Inactive" per stock item's brand, for extracts that list all stock but must say which principals still
+ *  operate. Inactive = dormant by the rule above. */
+export function stockPrincipalStatuses(dataset: Dataset): Map<string, "Active" | "Inactive"> {
+  const keys = Array.from(new Set(dataset.stockItems.map((item) => item.key)));
+  const { dormantKeys } = classifyDormantPrincipals(dataset, keys);
+  return new Map(keys.map((key) => [key, dormantKeys.has(key) ? "Inactive" : "Active"]));
 }
