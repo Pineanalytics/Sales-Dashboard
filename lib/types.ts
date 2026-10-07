@@ -92,6 +92,11 @@ export interface StockItem {
   principal: string;
   key: string;
   item: string;
+  /** SAP item code, when the source carries it (the live SAP feed does; legacy Excel snapshots do not). */
+  itemCode?: string;
+  /** Most recent invoice of this item across all SAP history (YYYY-MM-DD); null when it has never been invoiced,
+   *  undefined when the source does not carry it. Drives the Stock Balance extract's inactivity columns. */
+  lastSaleDate?: string | null;
   /** SAP's own OMRC "Manufacturer" master (queried as "Brand/Manufacturer" in
    *  scripts/db-bridge/queries/stockBalance.ts - this business repurposes it
    *  to record product brand), falling back to Product Master's "series"
@@ -128,6 +133,17 @@ export interface ReportMeta {
   sheet: string;
 }
 
+export interface DormantStockItem {
+  principal: string;
+  key: string;
+  item: string;
+  itemCode: string;
+  openingPcs: number;
+  openingValue: number;
+  /** Most recent SAP invoice of the item (YYYY-MM-DD); null when it has never been invoiced. */
+  lastSaleDate: string | null;
+}
+
 export interface Dataset {
   monthlySales: MonthlySalesRow[];
   monthlyCoverage: MonthlyCoverageRow[];
@@ -139,6 +155,12 @@ export interface Dataset {
   /** Normalized brand keys an admin has flagged as dormant for stock (Principal.stockDormant): stopped
    *  principals still holding stock, left out of the operational Stock Balance whatever their recent sales. */
   dormantPrincipalKeys?: string[];
+  /** When an admin recorded each flagged principal as dormant (YYYY-MM-DD), by normalized brand key; the earliest
+   *  date among the brand's flagged principal rows. Absent for a principal whose start date was not recorded. */
+  dormantPrincipalSince?: Record<string, string>;
+  /** Zero-stock SKUs with no invoice in three months (DormantStockActual), which the operational stock list leaves out
+   *  but the Stock Balance extract lists, so it can cover every SKU. */
+  dormantStockItems?: DormantStockItem[];
   /** Present only when the dashboard's operational stock has been replaced by
    * the latest complete direct SAP snapshot. */
   stockSource?: {

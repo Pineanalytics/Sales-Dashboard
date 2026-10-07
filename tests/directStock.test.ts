@@ -63,6 +63,32 @@ describe("direct SAP stock transform", () => {
     expect(result.dormantItems).toEqual([expect.objectContaining({ principal: "Mars-Nairobi", item: "Dormant widget", openingValue: 0, lastSaleDate: null })]);
   });
 
+  it("carries each item's all-history last sale date through, beyond the three-month dormancy window", () => {
+    const result = buildDirectStock(
+      [
+        { itemCode: "SKU-OLD", itemName: "Old seller", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 5, avgPrice: 10, stockValue: 50 },
+        { itemCode: "SKU-GONE", itemName: "Gone seller", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 },
+        { itemCode: "SKU-NEVER", itemName: "Never sold", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 },
+      ],
+      [], [],
+      [
+        { itemNo: "SKU-OLD", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+        { itemNo: "SKU-GONE", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+        { itemNo: "SKU-NEVER", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+      ],
+      [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }],
+      [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }],
+      new Date("2026-10-07T00:00:00Z"),
+      [{ itemCode: "SKU-OLD", lastSaleDate: new Date("2026-03-14T08:30:00Z") }, { itemCode: "SKU-GONE", lastSaleDate: new Date("2025-11-02T00:00:00Z") }]
+    );
+    // dormancy itself is unchanged: still decided only by pieces on hand and the three-month window
+    expect(result.items).toEqual([expect.objectContaining({ itemCode: "SKU-OLD", lastSaleDate: "2026-03-14" })]);
+    expect(result.dormantItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemCode: "SKU-GONE", lastSaleDate: new Date("2025-11-02T00:00:00Z") }),
+      expect.objectContaining({ itemCode: "SKU-NEVER", lastSaleDate: null }),
+    ]));
+  });
+
   it("uses the SKU code when SAP has a stock row without an item name", () => {
     const result = buildDirectStock(
       [{ itemCode: "SKU-NAMELESS", itemName: "", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 0, avgPrice: null, stockValue: 0 }],

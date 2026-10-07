@@ -253,6 +253,21 @@ export function dormantBrandKeysFromPrincipals(principals: { principal: string; 
     .sort();
 }
 
+/** When each dormant brand was recorded as dormant (YYYY-MM-DD): the earliest date among its flagged principal rows, for brands
+ *  that are dormant as a whole. Brands whose start date was never entered are left out. */
+export function dormantSinceByBrandKey(principals: { principal: string; stockDormant: boolean; stockDormantSince: Date | null }[]): Record<string, string> {
+  const dormant = new Set(dormantBrandKeysFromPrincipals(principals));
+  const since: Record<string, string> = {};
+  for (const row of principals) {
+    if (!row.stockDormant || !row.stockDormantSince) continue;
+    const key = normalizePrincipalKey(row.principal);
+    if (!dormant.has(key)) continue;
+    const date = row.stockDormantSince.toISOString().slice(0, 10);
+    if (!since[key] || date < since[key]) since[key] = date;
+  }
+  return since;
+}
+
 /** A principal is dormant for stock when an admin has flagged it (a stopped principal still selling its leftover
  *  stock keeps showing sales, so sales alone cannot tell), or when it has zero recorded Sales revenue across the
  *  most recent three (year, monthIndex) periods actually present in dataset.monthlySales - not the last three
