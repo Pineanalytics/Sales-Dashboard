@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import { getLiveBrandCustomerRows } from "@/lib/datasetStore";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { buildBrandExtract, buildCustomerExtract, trimLargeExtract } from "@/lib/brandCustomerExtract";
+import { buildBrandExtract, buildCustomerExtract, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
+import { buildSfaCustomerExtract } from "@/lib/sfaCustomerExtract";
+import { missingSfaPeriods } from "@/lib/sfaPortfolio";
+import { getSfaOutletRows } from "@/lib/sfaPortfolioData";
 import { extractToXlsxBuffer } from "@/lib/extractWorkbook";
 
 export const runtime = "nodejs";
@@ -12,6 +15,10 @@ export const dynamic = "force-dynamic";
 // The detailed Excel extracts behind the Customer & Brand Portfolio page. Built here, not in the browser, because
 // the raw sheet is one row per month, product, rep and customer: tens of thousands of rows for a single principal.
 // A selection past LARGE_EXTRACT_RAW_ROWS gets the summary and breakdown sheets without the row-level ones (trimLargeExtract).
+//
+// Brands: SAP item-level rows (the customer there is the SAP billing account). Customers: the SFA outlet the sales app
+// sold to, from the SFA-outlet tables; if any selected month is not loaded at outlet level it falls back to SAP
+// billing accounts and the Summary says so.
 
 interface MonthRef { year: string; monthIndex: number }
 
@@ -29,6 +36,11 @@ function label(request: NextRequest, name: string, fallback: string): string {
 
 function fileSlug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 60) || "all";
+}
+
+/** Adds a line to an extract's Summary sheet. */
+function withSummaryNote(extract: BrandCustomerExtract, note: [string, string]): BrandCustomerExtract {
+  return { ...extract, sheets: extract.sheets.map((sheet) => (sheet.name === "Summary" ? { ...sheet, rows: [...sheet.rows, [], note] } : sheet)) };
 }
 
 export async function GET(request: NextRequest) {
@@ -53,15 +65,28 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
-    const currentRows = current.filter((row) => inScope(row.principal));
-    const priorYearRows = priorYear.filter((row) => inScope(row.principal));
-
     const principalLabel = label(request, "principalLabel", "All principals");
     const periodLabel = label(request, "label", "Selected period");
-    const input = { currentRows, priorYearRows };
-    const extractScope = { principalLabel, periodLabel, generatedAt: new Date() };
-    const built = kind === "brands" ? buildBrandExtract(input, extractScope) : buildCustomerExtract(input, extractScope);
+    const extractScope: ExtractScope = { principalLabel, periodLabel, generatedAt: new Date() };
+
+    let built: BrandCustomerExtract;
+    if (kind === "customers") {
+      const [sfaCurrent, sfaPrior] = await Promise.all([getSfaOutletRows(currentPeriods), getSfaOutletRows(priorYearPeriods)]);
+      const missing = missingSfaPeriods(currentPeriods, sfaCurrent);
+      if (missing.length === 0) {
+        const priorYearAvailable = missingSfaPeriods(priorYearPeriods, sfaPrior).length === 0;
+        built = buildSfaCustomerExtract({ currentRows: sfaCurrent.filter((row) => inScope(row.principal)), priorYearRows: priorYearAvailable ? sfaPrior.filter((row) => inScope(row.principal)) : null }, extractScope);
+      } else {
+        const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
+        built = withSummaryNote(
+          buildCustomerExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope),
+          ["Customer source", `SAP billing accounts, not SFA outlets: outlet-level sales are not loaded for ${missing.join(", ")}. Several outlets can sit behind one billing account.`]
+        );
+      }
+    } else {
+      const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
+      built = buildBrandExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope);
+    }
     const extract = trimLargeExtract(built);
 
     const body = extractToXlsxBuffer(extract.sheets);

@@ -2292,8 +2292,8 @@ model UpfieldDataEdgeTriggerRequest {
 // outlet the SFA app sold to (U_CustomerName) rather than the shared billing
 // account (CardName), and to Order 360: OrderRecord.erpNumber == docNum and
 // OrderRecord.invoiceNumber == numAtCard (confirmed against live SAP). Additive
-// and independent of the existing sales tables — nothing reads it yet except
-// the admin principal-reconciliation view.
+// and independent of the existing sales tables. Read by the Customer analysis
+// (month-on-month by invoice date) and the admin principal-reconciliation view.
 model SalesDocument {
   id              String   @id @default(cuid())
   docType         String // "INVOICE" | "CREDIT_NOTE"

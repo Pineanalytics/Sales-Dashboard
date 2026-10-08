@@ -232,8 +232,12 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,performance,pl,stock,receivables
+      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,performance,pl,stock,receivables
       SALES_INTERVAL_SECONDS: 300
+      # SFA-outlet sales for the Customer analysis: the current and previous month every hour, and once on start so a
+      # deploy loads the current month straight away.
+      SFA_SALES_INTERVAL_SECONDS: 3600
+      SFA_SALES_RUN_ON_START: "true"
       # Performance Analysis: one full-year SAP read a day (container clock is UTC, so
       # 00:30 here is 03:30 Nairobi). Not run on start.
       PERFORMANCE_DAILY_AT: "00:30"

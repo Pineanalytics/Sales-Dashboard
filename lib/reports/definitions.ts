@@ -366,6 +366,8 @@ const customersReport: ReportDefinition = {
   async build({ period, principalKey, periodLabel }) {
     const portfolio = await fetchCustomerPortfolio(period, principalKey);
     const { totals } = portfolio;
+    const isSfa = portfolio.meta?.customerSource === "SFA";
+    const priorYearAvailable = portfolio.meta?.priorYearAvailable ?? true;
 
     return {
       title: `Customers & Brands — ${periodLabel}`,
@@ -375,14 +377,14 @@ const customersReport: ReportDefinition = {
         { label: "Cases", value: round2(totals.cases).toLocaleString() },
         { label: "Gross Profit", value: round2(totals.grossProfit).toLocaleString() },
         { label: "Gross Margin %", value: totals.grossMarginPct !== null ? `${round2(totals.grossMarginPct)}%` : "N/A" },
-        { label: "Buying Customers", value: totals.customerCount.toLocaleString() },
+        { label: isSfa ? "Buying Customers (SFA outlets)" : "Buying Customers (SAP billing accounts)", value: totals.customerCount.toLocaleString() },
         { label: "Top 10 Customer Share %", value: totals.topTenSharePct !== null ? `${round2(totals.topTenSharePct)}%` : "N/A" },
       ],
       sections: [
         {
           title: "Customer Ranking",
-          columns: ["Rank", "Customer", "Tier", "Principal(s)", "Products", "Cases", "Revenue", "Gross Profit", "Margin %", "Contribution %", "Cumulative %", "YoY Growth %"],
-          rows: portfolio.customers.map((c) => [c.rank, c.customerName, c.tier, c.principals.join(", "), c.brandCount, round2(c.cases), round2(c.revenue), round2(c.grossProfit), pctCell(c.grossMarginPct), pctCell(c.contributionPct), pctCell(c.cumulativeContributionPct), pctCell(c.yoyGrowthPct)]),
+          columns: ["Rank", isSfa ? "SFA Customer" : "Customer", "Billing Account(s)", "Tier", "Principal(s)", isSfa ? "Invoices" : "Products", "Cases", "Revenue", "Gross Profit", "Margin %", "Contribution %", "Cumulative %", "YoY Growth %"],
+          rows: portfolio.customers.map((c) => [c.rank, c.customerName, (c.accounts ?? []).join(", "), c.tier, c.principals.join(", "), isSfa ? (c.invoices ?? "") : c.brandCount, round2(c.cases), round2(c.revenue), round2(c.grossProfit), pctCell(c.grossMarginPct), pctCell(c.contributionPct), pctCell(c.cumulativeContributionPct), priorYearAvailable ? pctCell(c.yoyGrowthPct) : "N/A"]),
         },
         {
           title: "Brands & Products",

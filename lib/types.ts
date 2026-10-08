@@ -64,6 +64,12 @@ export interface MonthlyBrandCustomerRow {
   brand?: string;
   salesEmployee: string;
   customerName: string;
+  /** Set only on rows built from the SFA-outlet tables, where customerName is the outlet: the SAP billing account behind it. */
+  accountName?: string;
+  /** SFA outlets only: the phone number pulled out of the outlet name, "" when none. */
+  sfaContact?: string;
+  /** SFA outlets only: invoices and credit notes behind the row (counted per principal). */
+  docCount?: number;
   cases: number;
   revenue: number;
   grossProfit: number;

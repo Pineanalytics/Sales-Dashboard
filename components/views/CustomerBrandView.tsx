@@ -19,12 +19,14 @@ const TIER_STYLE: Record<CustomerTier, { tier: "good" | "warn" | "neutral" | "ba
   Adjustment: { tier: "bad", note: "Non-positive net revenue" },
 };
 
-function growthLabel(value: number | null, current: number) {
+function growthLabel(value: number | null, current: number, available = true) {
+  if (!available) return "—";
   if (value === null) return current > 0 ? "New" : "—";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function growthClass(value: number | null, current: number) {
+function growthClass(value: number | null, current: number, available = true) {
+  if (!available) return "text-muted";
   if (value === null) return current > 0 ? "text-emerald-700" : "text-muted";
   return value >= 0 ? "text-emerald-700" : "text-red-600";
 }
@@ -40,6 +42,11 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
   const [tierFilter, setTierFilter] = useState<CustomerTier | "All">("All");
   const [search, setSearch] = useState("");
   const { totals, customers, brands, principals, tierSummary } = portfolio;
+  // SFA outlets are the customers when every selected month is loaded at outlet level; otherwise SAP billing accounts.
+  const isSfa = portfolio.meta?.customerSource === "SFA";
+  const priorYearAvailable = portfolio.meta?.priorYearAvailable ?? true;
+  const momAvailable = portfolio.meta?.momAvailable ?? true;
+  const missingSfaMonths = portfolio.meta?.missingSfaPeriods ?? [];
   const visibleCustomers = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return customers.filter((customer) =>
@@ -61,7 +68,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-primary-blue">Customer & Brand Portfolio</p>
           <h2 className="text-lg font-bold text-brand-navy">Customer contribution, tiering and growth</h2>
-          <p className="text-xs text-muted-strong">{selectedPrincipalKey ?? "All principals"} · {period.kind} {period.year}{period.month ? ` through ${period.month}` : ""}</p>
+          <p className="text-xs text-muted-strong">{selectedPrincipalKey ?? "All principals"} · {period.kind} {period.year}{period.month ? ` through ${period.month}` : ""}{view === "customers" ? (isSfa ? " · Customers are SFA outlets" : " · Customers are SAP billing accounts") : ""}</p>
         </div>
         <div className="flex flex-wrap items-start justify-end gap-2">
           <BrandCustomerExtractButton kind={view} />
@@ -74,6 +81,16 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
 
       {view === "customers" ? (
         <>
+          {!isSfa && missingSfaMonths.length > 0 ? (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Showing SAP billing accounts, not SFA outlets: outlet-level sales are not loaded for {missingSfaMonths.join(", ")}. Several outlets can sit behind one billing account, such as a van or &quot;Cash Customer&quot; account.
+            </p>
+          ) : null}
+          {isSfa && !priorYearAvailable ? (
+            <p className="rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted-strong">
+              Customer growth against last year is not shown: last year&apos;s sales are not loaded at outlet level yet. Totals still compare with last year.
+            </p>
+          ) : null}
           <KpiGrid>
             <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={formatCompact(totals.revenue)} sublabel={`${formatNumber(totals.customerCount)} buying customers`} />
             <KpiCard accent="growth" label={`${period.kind} vs ${priorYear} full period`} value={growthLabel(totals.yoyGrowthPct, totals.revenue)} sublabel={`${formatCompact(totals.priorYearRevenue)} full prior-year equivalent`} />
@@ -116,13 +133,13 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer or principal…" className="ml-auto min-w-[240px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground" />
             </div>
             <TableWrap>
-              <Thead><Th align="center">Rank</Th><Th>Customer</Th><Th align="center">Tier</Th><Th>Principal(s)</Th><Th align="right">Products</Th><Th align="right">Revenue</Th><Th align="right">Contribution</Th><Th align="right">Cum. Share</Th><Th align="right">MoM Growth</Th><Th align="right">YoY Growth</Th><Th align="right">GP Margin</Th></Thead>
+              <Thead><Th align="center">Rank</Th><Th>Customer</Th><Th align="center">Tier</Th><Th>Principal(s)</Th><Th align="right">{isSfa ? "Invoices" : "Products"}</Th><Th align="right">Revenue</Th><Th align="right">Contribution</Th><Th align="right">Cum. Share</Th><Th align="right">MoM Growth</Th><Th align="right">YoY Growth</Th><Th align="right">GP Margin</Th></Thead>
               <tbody>
                 {visibleCustomers.slice(0, 100).map((customer) => (
                   <tr key={`${customer.rank}-${customer.customerName}`}>
-                    <Td align="center" className="text-muted">{customer.rank}</Td><Td><span className="font-semibold text-brand-navy">{customer.customerName}</span></Td><Td align="center"><Badge tier={TIER_STYLE[customer.tier].tier}>{customer.tier}</Badge></Td>
-                    <Td title={customer.principals.join(", ")}>{customer.principals.slice(0, 2).join(", ")}{customer.principals.length > 2 ? ` +${customer.principals.length - 2}` : ""}</Td><Td align="right">{customer.brandCount}</Td><Td align="right">{formatCompact(customer.revenue)}</Td><Td align="right">{formatPercent(customer.contributionPct)}</Td><Td align="right">{formatPercent(customer.cumulativeContributionPct)}</Td>
-                    <Td align="right" className={growthClass(customer.momGrowthPct, customer.latestMonthRevenue)}>{growthLabel(customer.momGrowthPct, customer.latestMonthRevenue)}</Td><Td align="right" className={growthClass(customer.yoyGrowthPct, customer.revenue)}>{growthLabel(customer.yoyGrowthPct, customer.revenue)}</Td><Td align="right"><Badge tier={marginTier(customer.grossMarginPct)}>{formatPercent(customer.grossMarginPct)}</Badge></Td>
+                    <Td align="center" className="text-muted">{customer.rank}</Td><Td><span className="font-semibold text-brand-navy">{customer.customerName}</span>{isSfa && customer.contact ? <span className="ml-1.5 text-[11px] text-muted">{customer.contact}</span> : null}{isSfa && customer.accounts && customer.accounts.length > 0 && !customer.accounts.every((account) => account.toLowerCase() === customer.customerName.toLowerCase()) ? <span className="block text-[11px] text-muted" title={customer.accounts.join(", ")}>Account: {customer.accounts[0]}{customer.accounts.length > 1 ? ` +${customer.accounts.length - 1}` : ""}</span> : null}</Td><Td align="center"><Badge tier={TIER_STYLE[customer.tier].tier}>{customer.tier}</Badge></Td>
+                    <Td title={customer.principals.join(", ")}>{customer.principals.slice(0, 2).join(", ")}{customer.principals.length > 2 ? ` +${customer.principals.length - 2}` : ""}</Td><Td align="right">{isSfa ? (customer.invoices !== undefined ? formatNumber(customer.invoices) : "—") : customer.brandCount}</Td><Td align="right">{formatCompact(customer.revenue)}</Td><Td align="right">{formatPercent(customer.contributionPct)}</Td><Td align="right">{formatPercent(customer.cumulativeContributionPct)}</Td>
+                    <Td align="right" className={growthClass(customer.momGrowthPct, customer.latestMonthRevenue, momAvailable)}>{growthLabel(customer.momGrowthPct, customer.latestMonthRevenue, momAvailable)}</Td><Td align="right" className={growthClass(customer.yoyGrowthPct, customer.revenue, priorYearAvailable)}>{growthLabel(customer.yoyGrowthPct, customer.revenue, priorYearAvailable)}</Td><Td align="right"><Badge tier={marginTier(customer.grossMarginPct)}>{formatPercent(customer.grossMarginPct)}</Badge></Td>
                   </tr>
                 ))}
                 {visibleCustomers.length === 0 ? <tr><td className="py-8 text-center text-muted" colSpan={11}>No customers match this filter.</td></tr> : null}
@@ -130,7 +147,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
             </TableWrap>
             {visibleCustomers.length > 100 ? <p className="mt-2 text-right text-xs text-muted">Showing the first 100 of {visibleCustomers.length} matching customers.</p> : null}
           </SectionCard>
-          <p className="text-xs text-muted">Customer matching normalizes case and repeated spaces only; punctuation variants remain separate SAP accounts. Tiering excludes non-positive revenue from the Pareto denominator. YoY compares the full selected YTD with the full equivalent prior-year YTD; LYSP and MoM use the same elapsed calendar day.</p>
+          <p className="text-xs text-muted">{isSfa ? "Customers are the outlets the SFA app sold to (SAP U_CustomerName; the billing account is shown underneath when it differs), matched ignoring case, spacing and punctuation. Where SFA left the name blank the billing account is used." : "Customer matching normalizes case and repeated spaces only; punctuation variants remain separate SAP accounts."} Tiering excludes non-positive revenue from the Pareto denominator. YoY compares the full selected YTD with the full equivalent prior-year YTD; LYSP and MoM use the same elapsed calendar day.</p>
         </>
       ) : (
         <>

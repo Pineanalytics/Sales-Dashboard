@@ -4,7 +4,9 @@ import { getLiveBrandCustomerRows, getLiveDailyBrandCustomerRows } from "@/lib/d
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { applyCanonicalPortfolioComparisons, summarizeCustomerPortfolio } from "@/lib/customerPortfolio";
+import { applyCanonicalPortfolioComparisons, summarizeCustomerPortfolio, type CustomerPortfolioSummary } from "@/lib/customerPortfolio";
+import { missingSfaPeriods, sfaDocumentsToPortfolioRows, sfaOutletKey, sfaOutletRowsToPortfolioRows } from "@/lib/sfaPortfolio";
+import { getSfaDocumentRows, getSfaOutletRows } from "@/lib/sfaPortfolioData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,9 +71,17 @@ export async function GET(request: NextRequest) {
     const lyLatestStart = monthStart(lyLatest);
     const lyLatestEnd = monthEnd(lyLatest, effectiveDay);
 
+    // Customers are the SFA outlets (U_CustomerName) when every requested month is loaded at outlet level,
+    // otherwise the SAP billing accounts (CardName), exactly as before, and the response says which.
+    const priorYearRequested = priorYearPeriods.length > 0 ? priorYearPeriods : currentPeriods.map(priorYearPeriod);
+    const [sfaCurrent, sfaPriorYear] = await Promise.all([getSfaOutletRows(currentPeriods), getSfaOutletRows(priorYearRequested)]);
+    const missingSfa = missingSfaPeriods(currentPeriods, sfaCurrent);
+    const useSfa = missingSfa.length === 0;
+
     const [rows, previousDayRows, monthlySales, previousDaily, lyLatestDaily] = await Promise.all([
-      getLiveBrandCustomerRows(allPeriods),
-      getLiveDailyBrandCustomerRows(previousStart, previousEnd),
+      // Outlet portfolios still take their brand/product breakdown from the item-level rows, but only for the selected months.
+      getLiveBrandCustomerRows(useSfa ? currentPeriods : allPeriods),
+      useSfa ? Promise.resolve([]) : getLiveDailyBrandCustomerRows(previousStart, previousEnd),
       prisma.salesRecord.findMany({
         where: { OR: [...currentPeriods, ...priorYearPeriods, previous].map((period) => ({ year: period.year, monthIndex: period.monthIndex })) },
         select: { year: true, monthIndex: true, principal: true, revenue: true },
@@ -96,15 +106,34 @@ export async function GET(request: NextRequest) {
     const scopedLyLatestDaily = lyLatestDaily.filter((row) => inScope(row.principal));
     const lyspRevenue = scopedLyLatestDaily.length > 0 ? priorCompletedRevenue + sum(scopedLyLatestDaily, (row) => row.revenue) : null;
 
-    const portfolio = summarizeCustomerPortfolio({
-      currentRows: scopedRows.filter((row) => belongs(row, currentKeys)),
-      latestMonthRows: scopedRows.filter((row) => belongs(row, latestKeys)),
-      previousMonthRows: scopedPreviousDayRows,
-      priorYearRows: scopedRows.filter((row) => belongs(row, priorYearKeys)),
-    });
-    return NextResponse.json({
-      portfolio: applyCanonicalPortfolioComparisons(portfolio, { revenue: currentRevenue, priorYearRevenue, lyspRevenue, latestMonthRevenue, previousMonthRevenue, previousFullMonthRevenue, comparisonDay }),
-    }, { headers: { "Cache-Control": "private, no-store" } });
+    let portfolio: CustomerPortfolioSummary;
+    if (useSfa) {
+      // Month-on-month is day-aligned from the invoices themselves (the monthly outlet rows carry no day): the same
+      // days of the latest and the previous month. A mixed-principal invoice counts under its dominant principal here.
+      const [latestDocs, previousDocs] = await Promise.all([getSfaDocumentRows(latestStart, monthEnd(latest, effectiveDay)), getSfaDocumentRows(previousStart, previousEnd)]);
+      const latestMonthRows = sfaDocumentsToPortfolioRows(latestDocs.filter((doc) => inScope(doc.principal)));
+      const previousMonthRows = sfaDocumentsToPortfolioRows(previousDocs.filter((doc) => inScope(doc.principal)));
+      const priorYearAvailable = missingSfaPeriods(priorYearRequested, sfaPriorYear).length === 0;
+      portfolio = summarizeCustomerPortfolio({
+        currentRows: sfaOutletRowsToPortfolioRows(sfaCurrent.filter((row) => inScope(row.principal))),
+        latestMonthRows,
+        previousMonthRows,
+        priorYearRows: priorYearAvailable ? sfaOutletRowsToPortfolioRows(sfaPriorYear.filter((row) => inScope(row.principal))) : [],
+        customerKey: sfaOutletKey,
+        brandRows: scopedRows.filter((row) => belongs(row, currentKeys)),
+      });
+      portfolio.meta = { customerSource: "SFA", missingSfaPeriods: [], priorYearAvailable, momAvailable: previousDocs.length > 0 };
+    } else {
+      portfolio = summarizeCustomerPortfolio({
+        currentRows: scopedRows.filter((row) => belongs(row, currentKeys)),
+        latestMonthRows: scopedRows.filter((row) => belongs(row, latestKeys)),
+        previousMonthRows: scopedPreviousDayRows,
+        priorYearRows: scopedRows.filter((row) => belongs(row, priorYearKeys)),
+      });
+      portfolio.meta = { customerSource: "ACCOUNT", missingSfaPeriods: missingSfa, priorYearAvailable: true, momAvailable: true };
+    }
+    const result = applyCanonicalPortfolioComparisons(portfolio, { revenue: currentRevenue, priorYearRevenue, lyspRevenue, latestMonthRevenue, previousMonthRevenue, previousFullMonthRevenue, comparisonDay });
+    return NextResponse.json({ portfolio: { ...result, meta: portfolio.meta } }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Failed to load customer portfolio", error);
     return NextResponse.json({ error: "Failed to load customer portfolio." }, { status: 500 });
