@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
+import { BrandCustomerExtractButton } from "@/components/reports/BrandCustomerExtractButton";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, formatPercent, marginTier } from "@/lib/format";
 import type { CustomerPortfolioSummary, CustomerTier } from "@/lib/customerPortfolio";
@@ -51,6 +52,7 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
   const principalChartHeight = Math.max(300, principals.length * 28);
   const topBrandTotal = brands.slice(0, 7).reduce((sum, brand) => sum + brand.revenue, 0);
   const doughnutData = [...brands.slice(0, 7).map((brand) => ({ name: brand.name, value: brand.revenue })), { name: "Others", value: Math.max(0, totals.revenue - topBrandTotal) }].filter((item) => item.value > 0);
+  const doughnutTotal = doughnutData.reduce((sum, item) => sum + item.value, 0);
   const priorYear = String(Number(period.year) - 1);
 
   return (
@@ -61,9 +63,12 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
           <h2 className="text-lg font-bold text-brand-navy">Customer contribution, tiering and growth</h2>
           <p className="text-xs text-muted-strong">{selectedPrincipalKey ?? "All principals"} · {period.kind} {period.year}{period.month ? ` through ${period.month}` : ""}</p>
         </div>
-        <div className="inline-flex rounded-full bg-background-elevated p-0.5">
-          <button onClick={() => setView("customers")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "customers" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Customer analysis</button>
-          <button onClick={() => setView("brands")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "brands" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Brands & products</button>
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <BrandCustomerExtractButton kind={view} />
+          <div className="inline-flex rounded-full bg-background-elevated p-0.5">
+            <button onClick={() => setView("customers")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "customers" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Customer analysis</button>
+            <button onClick={() => setView("brands")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "brands" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Brands & products</button>
+          </div>
         </div>
       </div>
 
@@ -129,12 +134,12 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
         </>
       ) : (
         <>
-          <KpiGrid>
-            <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={formatCompact(totals.revenue)} /><KpiCard accent="revenue" label={`${period.kind} Cases`} value={formatNumber(totals.cases)} /><KpiCard accent="quarter" label="Gross Margin" value={formatPercent(totals.grossMarginPct)} /><KpiCard accent="growth" label="Top Customer" value={customers[0]?.customerName ?? "—"} sublabel={customers[0] ? formatCompact(customers[0].revenue) : undefined} /><KpiCard accent="mission" label="Top Brand / Product" value={brands[0]?.name ?? "—"} sublabel={brands[0] ? formatCompact(brands[0].revenue) : undefined} />
-          </KpiGrid>
+          <div className="grid grid-cols-1 min-[560px]:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_repeat(2,minmax(0,2fr))] gap-3">
+            <KpiCard accent="revenue" label={`${period.kind} Revenue`} value={formatCompact(totals.revenue)} /><KpiCard accent="revenue" label={`${period.kind} Cases`} value={formatNumber(totals.cases)} /><KpiCard accent="quarter" label="Gross Margin" value={formatPercent(totals.grossMarginPct)} /><KpiCard accent="growth" size="md" label="Top Customer" value={customers[0]?.customerName ?? "—"} sublabel={customers[0] ? formatCompact(customers[0].revenue) : undefined} /><KpiCard accent="mission" size="md" label="Top Brand / Product" value={brands[0]?.name ?? "—"} sublabel={brands[0] ? formatCompact(brands[0].revenue) : undefined} />
+          </div>
           <ChartGrid>
-            <SectionCard title="Brand / Product Revenue Share"><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={doughnutData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={100} paddingAngle={2}>{doughnutData.map((_, index) => <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}</Pie><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, color: "var(--muted-strong)" }} /></PieChart></ResponsiveContainer></SectionCard>
-            <SectionCard title="Top 10 Customers by Revenue"><ResponsiveContainer width="100%" height={300}><BarChart data={topCustomersChart} margin={{ top: 8, right: 8, left: 0, bottom: 32 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} /><XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={11} interval={0} angle={-35} textAnchor="end" height={70} /><YAxis stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(value) => formatCompact(Number(value))} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Bar dataKey="value" fill="var(--primary-blue)" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></SectionCard>
+            <SectionCard title="Brand / Product Revenue Share"><ResponsiveContainer width="100%" height={300}><PieChart><Pie data={doughnutData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={100} paddingAngle={2}>{doughnutData.map((_, index) => <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}</Pie><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Legend wrapperStyle={{ fontSize: 11, color: "var(--muted-strong)" }} formatter={(name) => { const slice = doughnutData.find((item) => item.name === name); return slice && doughnutTotal > 0 ? `${name} · ${formatPercent((slice.value / doughnutTotal) * 100)}` : name; }} /></PieChart></ResponsiveContainer></SectionCard>
+            <SectionCard title="Top 10 Customers by Revenue" action={<span className="text-xs text-muted">Selected period</span>}><ResponsiveContainer width="100%" height={300}><BarChart data={topCustomersChart} layout="vertical" margin={{ top: 4, right: 14, left: 24, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} /><XAxis type="number" stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(value) => formatCompact(Number(value))} /><YAxis type="category" dataKey="name" width={150} stroke={CHART_AXIS_COLOR} fontSize={10} tickFormatter={(name: string) => (name.length > 24 ? `${name.slice(0, 23)}…` : name)} /><Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(value) => formatCompact(Number(value))} /><Bar dataKey="value" fill="var(--primary-blue)" radius={[0, 6, 6, 0]} /></BarChart></ResponsiveContainer></SectionCard>
           </ChartGrid>
           <SectionCard title="Brand / Product Performance" action={<span className="text-xs text-muted">SAP item-level performance for the selected period and principal</span>}>
             <TableWrap><Thead><Th>Brand / Product</Th><Th align="right">Cases</Th><Th align="right">Revenue</Th><Th align="right">Gross Profit</Th><Th align="center">Margin</Th><Th align="center">Contribution</Th></Thead><tbody>{brands.map((brand) => <tr key={brand.name}><Td><span className="font-semibold text-brand-navy">{brand.name}</span></Td><Td align="right">{formatNumber(brand.cases)}</Td><Td align="right">{formatCompact(brand.revenue)}</Td><Td align="right">{formatCompact(brand.grossProfit)}</Td><Td align="center"><Badge tier={marginTier(brand.grossMarginPct)}>{formatPercent(brand.grossMarginPct)}</Badge></Td><Td align="center">{formatPercent(brand.contributionPct)}</Td></tr>)}<TotalRow><Td>Total</Td><Td align="right">{formatNumber(totals.cases)}</Td><Td align="right">{formatCompact(totals.revenue)}</Td><Td align="right">{formatCompact(totals.grossProfit)}</Td><Td align="center"><Badge tier={marginTier(totals.grossMarginPct)}>{formatPercent(totals.grossMarginPct)}</Badge></Td><Td align="center">{formatPercent(totals.revenue !== 0 ? 100 : null)}</Td></TotalRow></tbody></TableWrap>

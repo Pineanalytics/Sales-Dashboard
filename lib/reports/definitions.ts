@@ -15,15 +15,14 @@ import {
   summarizePLForPeriod,
   summarizePLByPrincipal,
   summarizePLByAccount,
-  summarizeBrandCustomerByCustomer,
   summarizeBrandCustomerByRep,
-  summarizeBrandCustomerByPrincipal,
   resolvePeriodMonths,
 } from "@/lib/timeIntelligence";
 import { principalsByRevenueDesc } from "@/lib/selectors";
 import { aggregateStockByPrincipal, stockPrincipalStatuses, sumStockRollups } from "@/lib/stock";
 import { STOCK_EXTRACT_ITEM_COLUMNS, STOCK_EXTRACT_PRINCIPAL_COLUMNS, buildStockExtract, formatExtractDate } from "@/lib/stockExtract";
 import { normalizePrincipalKey } from "@/lib/normalize";
+import type { CustomerPortfolioSummary } from "@/lib/customerPortfolio";
 import type { ReportContent } from "./types";
 
 export interface ReportContext {
@@ -337,29 +336,63 @@ const repsReport: ReportDefinition = {
   },
 };
 
+/** The brand/customer rows are not part of the in-browser dataset (they load on demand, per period and principal), so
+ *  this report reads the same on-demand portfolio the Customers page does. What it lists is what the page shows. */
+async function fetchCustomerPortfolio(period: PeriodSelection, principalKey: string | null): Promise<CustomerPortfolioSummary> {
+  const months = resolvePeriodMonths(period);
+  const ym = (year: string, monthIndex: number) => `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+  const params = new URLSearchParams();
+  for (const m of months) params.append("period", ym(m.year, m.monthIndex));
+  const latest = months[months.length - 1];
+  if (latest) {
+    params.append("latestPeriod", ym(latest.year, latest.monthIndex));
+    params.append("previousPeriod", latest.monthIndex === 0 ? ym(String(Number(latest.year) - 1), 11) : ym(latest.year, latest.monthIndex - 1));
+  }
+  for (const m of months) params.append("priorYearPeriod", ym(String(Number(m.year) - 1), m.monthIndex));
+  if (principalKey) params.append("principal", principalKey);
+  const response = await fetch(`/api/customer-portfolio?${params.toString()}`, { cache: "no-store" });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "Failed to load customer portfolio.");
+  return body.portfolio as CustomerPortfolioSummary;
+}
+
+const pctCell = (n: number | null): string | number => (n === null ? "N/A" : round2(n));
+
 const customersReport: ReportDefinition = {
   key: "customers",
   label: "Customers & Brands",
-  description: "Revenue by customer and by principal for the current period.",
+  description: "Customer ranking and tiering, brands and products, and principals for the current period. For the full raw-data extracts use the Brand and Customer extract buttons on the Customers page.",
   pageKey: "customers",
-  async build({ dataset, period, principalKey, periodLabel }) {
-    if (!dataset) return emptyReport("Customers & Brands");
-    const byCustomer = summarizeBrandCustomerByCustomer(dataset, period, principalKey).sort((a, b) => b.revenue - a.revenue);
-    const byPrincipal = summarizeBrandCustomerByPrincipal(dataset, period).sort((a, b) => b.revenue - a.revenue);
+  async build({ period, principalKey, periodLabel }) {
+    const portfolio = await fetchCustomerPortfolio(period, principalKey);
+    const { totals } = portfolio;
 
     return {
       title: `Customers & Brands — ${periodLabel}`,
       generatedAt: new Date(),
+      summary: [
+        { label: "Revenue", value: round2(totals.revenue).toLocaleString() },
+        { label: "Cases", value: round2(totals.cases).toLocaleString() },
+        { label: "Gross Profit", value: round2(totals.grossProfit).toLocaleString() },
+        { label: "Gross Margin %", value: totals.grossMarginPct !== null ? `${round2(totals.grossMarginPct)}%` : "N/A" },
+        { label: "Buying Customers", value: totals.customerCount.toLocaleString() },
+        { label: "Top 10 Customer Share %", value: totals.topTenSharePct !== null ? `${round2(totals.topTenSharePct)}%` : "N/A" },
+      ],
       sections: [
         {
-          title: "By Customer",
-          columns: ["Customer", "Cases", "Revenue", "Gross Profit", "Margin %"],
-          rows: byCustomer.map((c) => [c.customerName, round2(c.cases), round2(c.revenue), round2(c.grossProfit), c.grossMarginPct !== null ? c.grossMarginPct : "N/A"]),
+          title: "Customer Ranking",
+          columns: ["Rank", "Customer", "Tier", "Principal(s)", "Products", "Cases", "Revenue", "Gross Profit", "Margin %", "Contribution %", "Cumulative %", "YoY Growth %"],
+          rows: portfolio.customers.map((c) => [c.rank, c.customerName, c.tier, c.principals.join(", "), c.brandCount, round2(c.cases), round2(c.revenue), round2(c.grossProfit), pctCell(c.grossMarginPct), pctCell(c.contributionPct), pctCell(c.cumulativeContributionPct), pctCell(c.yoyGrowthPct)]),
+        },
+        {
+          title: "Brands & Products",
+          columns: ["Brand / Product", "Cases", "Revenue", "Gross Profit", "Margin %", "Contribution %"],
+          rows: portfolio.brands.map((b) => [b.name, round2(b.cases), round2(b.revenue), round2(b.grossProfit), pctCell(b.grossMarginPct), pctCell(b.contributionPct)]),
         },
         {
           title: "By Principal",
-          columns: ["Principal", "Cases", "Revenue", "Gross Profit", "Margin %"],
-          rows: byPrincipal.map((p) => [p.principal, round2(p.cases), round2(p.revenue), round2(p.grossProfit), p.grossMarginPct !== null ? p.grossMarginPct : "N/A"]),
+          columns: ["Principal", "Cases", "Revenue", "Gross Profit", "Margin %", "Contribution %"],
+          rows: portfolio.principals.map((p) => [p.name, round2(p.cases), round2(p.revenue), round2(p.grossProfit), pctCell(p.grossMarginPct), pctCell(p.contributionPct)]),
         },
       ],
     };
