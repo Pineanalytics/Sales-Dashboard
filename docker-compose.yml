@@ -9,6 +9,12 @@
 
 services:
   postgres:
+    # Pinned to a fixed name (and every DATABASE_URL below points at it) because the self-hosted
+    # Supabase stack on the same pinefrost_default network also has a service called "postgres", so the bare
+    # "postgres" alias resolved ambiguously. This used to be patched onto the VPS copy by
+    # /usr/local/bin/caddy-supabase-watchdog.sh after every deploy, which force-recreated Postgres and
+    # left it stopped. Keeping the pin in the committed file means the deploy no longer strips it.
+    container_name: pinefrost-postgres-1
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -54,8 +60,8 @@ services:
     environment:
       # Single source of truth for the DB password is POSTGRES_PASSWORD above —
       # these are assembled here rather than duplicated as separate secrets in .env.
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       # HOSTNAME is deliberately NOT set here — Docker reserves it and silently drops any
       # value passed via `environment:`/`-e` (confirmed: it never even reaches Config.Env).
       # See the Dockerfile's CMD for the actual fix (HOSTNAME must be overridden at the
@@ -97,8 +103,8 @@ services:
     env_file:
       - .sync.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       # Use the same HTTPS ingress as the established bridge jobs. It handles
       # large JSON request streaming more consistently than the raw internal
       # Next server under concurrent worker writes.
@@ -128,8 +134,8 @@ services:
       - .sync.env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       # The worker and API share this private Docker network; keep bridge
       # uploads server-to-server rather than traversing the public proxy.
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
@@ -162,8 +168,8 @@ services:
       - .sync.env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
       CONTINUOUS_SYNC_JOBS: mars-kpis
       MARS_KPIS_INTERVAL_SECONDS: 900
@@ -191,8 +197,8 @@ services:
       - .sync.env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
+      DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
       CONTINUOUS_SYNC_JOBS: order-360
       ORDER_360_DAILY_AT: "18:30"

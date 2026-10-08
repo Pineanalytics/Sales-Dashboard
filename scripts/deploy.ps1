@@ -194,8 +194,8 @@ try {
 
         Write-Host "==> Pushing the additive Prisma schema before restarting application containers..." -ForegroundColor Cyan
         $pushCmd = 'source ' + $RemotePath + '/.env && docker run --rm --network pinefrost_default ' +
-            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
-            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@pinefrost-postgres-1:5432/$POSTGRES_DB ' +
+            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@pinefrost-postgres-1:5432/$POSTGRES_DB ' +
             '-w /app pinefrost-builder:latest node ./node_modules/prisma/build/index.js db push'
         Invoke-Ssh $pushCmd
         Write-Host "    Database backup: $dbBackup" -ForegroundColor Green
@@ -203,8 +203,8 @@ try {
 
     if ($BackfillLiveDataset) {
         $backfillBase = 'source ' + $RemotePath + '/.env && docker run --rm --network pinefrost_default ' +
-            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
-            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB ' +
+            '-e DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@pinefrost-postgres-1:5432/$POSTGRES_DB ' +
+            '-e DIRECT_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@pinefrost-postgres-1:5432/$POSTGRES_DB ' +
             '-w /app pinefrost-builder:latest node --import tsx scripts/backfill-live-dataset.ts'
         Write-Host "==> Dry-running the legacy Snapshot backfill on production Postgres..." -ForegroundColor Cyan
         Invoke-Ssh $backfillBase
