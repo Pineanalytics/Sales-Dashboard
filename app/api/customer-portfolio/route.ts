@@ -5,8 +5,8 @@ import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { applyCanonicalPortfolioComparisons, summarizeCustomerPortfolio, type CustomerPortfolioSummary } from "@/lib/customerPortfolio";
-import { missingSfaPeriods, sfaDocumentsToPortfolioRows, sfaOutletKey, sfaOutletRowsToPortfolioRows } from "@/lib/sfaPortfolio";
-import { getSfaDocumentRows, getSfaOutletRows } from "@/lib/sfaPortfolioData";
+import { missingSfaPeriods, onlyPrincipals, sfaDocumentsToPortfolioRows, sfaOutletKey, sfaOutletRowsToPortfolioRows } from "@/lib/sfaPortfolio";
+import { getDashboardPrincipals, getSfaDocumentRows, getSfaOutletRows } from "@/lib/sfaPortfolioData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,7 +74,12 @@ export async function GET(request: NextRequest) {
     // Customers are the SFA outlets (U_CustomerName) when every requested month is loaded at outlet level,
     // otherwise the SAP billing accounts (CardName), exactly as before, and the response says which.
     const priorYearRequested = priorYearPeriods.length > 0 ? priorYearPeriods : currentPeriods.map(priorYearPeriod);
-    const [sfaCurrent, sfaPriorYear] = await Promise.all([getSfaOutletRows(currentPeriods), getSfaOutletRows(priorYearRequested)]);
+    const [sfaCurrent, sfaPriorYear, currentPrincipals, priorYearPrincipals] = await Promise.all([
+      getSfaOutletRows(currentPeriods),
+      getSfaOutletRows(priorYearRequested),
+      getDashboardPrincipals(currentPeriods),
+      getDashboardPrincipals(priorYearRequested),
+    ]);
     const missingSfa = missingSfaPeriods(currentPeriods, sfaCurrent);
     const useSfa = missingSfa.length === 0;
 
@@ -111,14 +116,15 @@ export async function GET(request: NextRequest) {
       // Month-on-month is day-aligned from the invoices themselves (the monthly outlet rows carry no day): the same
       // days of the latest and the previous month. A mixed-principal invoice counts under its dominant principal here.
       const [latestDocs, previousDocs] = await Promise.all([getSfaDocumentRows(latestStart, monthEnd(latest, effectiveDay)), getSfaDocumentRows(previousStart, previousEnd)]);
-      const latestMonthRows = sfaDocumentsToPortfolioRows(latestDocs.filter((doc) => inScope(doc.principal)));
-      const previousMonthRows = sfaDocumentsToPortfolioRows(previousDocs.filter((doc) => inScope(doc.principal)));
+      // Both sides use the current dashboard principal set, so the two months compare like with like.
+      const latestMonthRows = sfaDocumentsToPortfolioRows(onlyPrincipals(latestDocs, currentPrincipals).filter((doc) => inScope(doc.principal)));
+      const previousMonthRows = sfaDocumentsToPortfolioRows(onlyPrincipals(previousDocs, currentPrincipals).filter((doc) => inScope(doc.principal)));
       const priorYearAvailable = missingSfaPeriods(priorYearRequested, sfaPriorYear).length === 0;
       portfolio = summarizeCustomerPortfolio({
-        currentRows: sfaOutletRowsToPortfolioRows(sfaCurrent.filter((row) => inScope(row.principal))),
+        currentRows: sfaOutletRowsToPortfolioRows(onlyPrincipals(sfaCurrent, currentPrincipals).filter((row) => inScope(row.principal))),
         latestMonthRows,
         previousMonthRows,
-        priorYearRows: priorYearAvailable ? sfaOutletRowsToPortfolioRows(sfaPriorYear.filter((row) => inScope(row.principal))) : [],
+        priorYearRows: priorYearAvailable ? sfaOutletRowsToPortfolioRows(onlyPrincipals(sfaPriorYear, priorYearPrincipals).filter((row) => inScope(row.principal))) : [],
         customerKey: sfaOutletKey,
         brandRows: scopedRows.filter((row) => belongs(row, currentKeys)),
       });

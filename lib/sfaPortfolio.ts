@@ -98,6 +98,13 @@ export function sfaDocumentsToPortfolioRows(rows: SfaDocumentRow[]): MonthlyBran
   );
 }
 
+/** Keeps the rows of the principals in `allowed`. The SFA tables hold every principal SAP sold (including ones the
+ *  dashboard has never carried, such as Nestle in 2025), while the headline figures come from the dashboard's own sales
+ *  actuals; limiting the outlet rows to the same principals keeps customer figures and headlines on one basis. */
+export function onlyPrincipals<T extends { principal: string }>(rows: T[], allowed: ReadonlySet<string>): T[] {
+  return rows.filter((row) => allowed.has(row.principal));
+}
+
 /** Requested months ("YYYY-MM") that no row covers. Pass the rows before any principal filtering, so a restricted
  *  viewer whose principals simply sold nothing in a month does not look like missing data. */
 export function missingSfaPeriods(requested: MonthRef[], rows: { year: string; monthIndex: number }[]): string[] {

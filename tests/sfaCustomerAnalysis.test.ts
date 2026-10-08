@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { summarizeCustomerPortfolio } from "../lib/customerPortfolio";
-import { missingSfaPeriods, sfaDocumentsToPortfolioRows, sfaOutletKey, sfaOutletRowsToPortfolioRows, type SfaDocumentRow, type SfaOutletRow } from "../lib/sfaPortfolio";
+import { missingSfaPeriods, onlyPrincipals, sfaDocumentsToPortfolioRows, sfaOutletKey, sfaOutletRowsToPortfolioRows, type SfaDocumentRow, type SfaOutletRow } from "../lib/sfaPortfolio";
 import { buildSfaCustomerExtract } from "../lib/sfaCustomerExtract";
 import { trimLargeExtract, type ExtractSheet } from "../lib/brandCustomerExtract";
 import { extractToXlsxBuffer } from "../lib/extractWorkbook";
@@ -47,6 +47,13 @@ describe("SFA outlet portfolio rows", () => {
   it("matches outlet names ignoring case, spacing and punctuation", () => {
     expect(sfaOutletKey("CAROL  MPESA-SHOP")).toBe(sfaOutletKey("Carol Mpesa Shop"));
     expect(sfaOutletKey("Kamau Shop")).not.toBe(sfaOutletKey("Kamau Shops"));
+  });
+
+  it("limits outlet rows to the principals the dashboard carries, so customer figures match the headlines", () => {
+    const rows = [outlet({ principal: "Mars-Nairobi", revenue: 100 }), outlet({ principal: "Nestle-Nairobi", revenue: 900 }), outlet({ principal: "Suntory-Nairobi", revenue: 50 })];
+    const kept = onlyPrincipals(rows, new Set(["Mars-Nairobi", "Suntory-Nairobi"]));
+    expect(kept.map((r) => r.principal)).toEqual(["Mars-Nairobi", "Suntory-Nairobi"]);
+    expect(onlyPrincipals(rows, new Set())).toEqual([]);
   });
 
   it("reports the requested months no row covers", () => {

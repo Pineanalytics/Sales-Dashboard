@@ -5,8 +5,8 @@ import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { buildBrandExtract, buildCustomerExtract, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
 import { buildSfaCustomerExtract } from "@/lib/sfaCustomerExtract";
-import { missingSfaPeriods } from "@/lib/sfaPortfolio";
-import { getSfaOutletRows } from "@/lib/sfaPortfolioData";
+import { missingSfaPeriods, onlyPrincipals } from "@/lib/sfaPortfolio";
+import { getDashboardPrincipals, getSfaOutletRows } from "@/lib/sfaPortfolioData";
 import { extractToXlsxBuffer } from "@/lib/extractWorkbook";
 
 export const runtime = "nodejs";
@@ -71,11 +71,22 @@ export async function GET(request: NextRequest) {
 
     let built: BrandCustomerExtract;
     if (kind === "customers") {
-      const [sfaCurrent, sfaPrior] = await Promise.all([getSfaOutletRows(currentPeriods), getSfaOutletRows(priorYearPeriods)]);
+      const [sfaCurrent, sfaPrior, currentPrincipals, priorYearPrincipals] = await Promise.all([
+        getSfaOutletRows(currentPeriods),
+        getSfaOutletRows(priorYearPeriods),
+        getDashboardPrincipals(currentPeriods),
+        getDashboardPrincipals(priorYearPeriods),
+      ]);
       const missing = missingSfaPeriods(currentPeriods, sfaCurrent);
       if (missing.length === 0) {
         const priorYearAvailable = missingSfaPeriods(priorYearPeriods, sfaPrior).length === 0;
-        built = buildSfaCustomerExtract({ currentRows: sfaCurrent.filter((row) => inScope(row.principal)), priorYearRows: priorYearAvailable ? sfaPrior.filter((row) => inScope(row.principal)) : null }, extractScope);
+        built = buildSfaCustomerExtract(
+          {
+            currentRows: onlyPrincipals(sfaCurrent, currentPrincipals).filter((row) => inScope(row.principal)),
+            priorYearRows: priorYearAvailable ? onlyPrincipals(sfaPrior, priorYearPrincipals).filter((row) => inScope(row.principal)) : null,
+          },
+          extractScope
+        );
       } else {
         const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
         built = withSummaryNote(

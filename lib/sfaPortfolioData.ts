@@ -12,6 +12,19 @@ export async function getSfaOutletRows(periods: MonthRef[]): Promise<SfaOutletRo
   });
 }
 
+/** The principals the dashboard's sales actuals carry for the given months: the basis for headline figures, so the SFA-outlet
+ *  rows are limited to them (see onlyPrincipals). */
+export async function getDashboardPrincipals(periods: MonthRef[]): Promise<Set<string>> {
+  const unique = Array.from(new Map(periods.map((period) => [`${period.year}|${period.monthIndex}`, period])).values());
+  if (unique.length === 0) return new Set();
+  const rows = await prisma.salesRecord.findMany({
+    where: { OR: unique.map((period) => ({ year: period.year, monthIndex: period.monthIndex })) },
+    select: { principal: true },
+    distinct: ["principal"],
+  });
+  return new Set(rows.map((row) => row.principal));
+}
+
 /** SalesDocument rows (invoices and credit notes) dated within [start, end], both UTC dates. */
 export async function getSfaDocumentRows(start: Date, end: Date): Promise<SfaDocumentRow[]> {
   return prisma.salesDocument.findMany({
