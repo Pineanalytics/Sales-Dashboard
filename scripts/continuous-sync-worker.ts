@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "performance" | "pl" | "stock" | "receivables";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "sfa-sales" | "performance" | "pl" | "stock" | "receivables";
 
 interface JobDefinition {
   name: JobName;
@@ -14,6 +14,10 @@ interface JobDefinition {
   defaultSeconds: number;
   dailyAtEnv?: string;
   runOnStartEnv?: string;
+  /** Extra command-line arguments for the job script. */
+  args?: string[];
+  /** NODE_OPTIONS for this job only, so one memory-hungry read does not raise the limit for every job in the container. */
+  nodeOptions?: string;
 }
 
 const jobs: Record<JobName, JobDefinition> = {
@@ -36,6 +40,9 @@ const jobs: Record<JobName, JobDefinition> = {
   // and small current-period updates between those passes.
   "mars-kpis": { name: "mars-kpis", entry: "scripts/db-bridge/principal-kpis/mars-sync.ts", intervalEnv: "MARS_KPIS_INTERVAL_SECONDS", defaultSeconds: 900, runOnStartEnv: "MARS_KPIS_RUN_ON_START" },
   sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 300 },
+  // SFA-outlet sales (SalesDocument + SfaCustomerActual), which the Customer analysis ranks. Two months each run, so the
+  // previous month keeps absorbing late SAP postings and a month rollover needs no special case.
+  "sfa-sales": { name: "sfa-sales", entry: "scripts/db-bridge/sfa-sales-sync.ts", intervalEnv: "SFA_SALES_INTERVAL_SECONDS", defaultSeconds: 3600, runOnStartEnv: "SFA_SALES_RUN_ON_START", args: ["--months=2"], nodeOptions: "--max-old-space-size=700" },
   // Performance Analysis reads the whole year of SAP document lines (~575k), so it
   // runs once a day in the small hours rather than on the 5-minute sales cadence,
   // and it never runs on start (a deploy must not trigger a year-long SAP read).
@@ -72,9 +79,9 @@ function run(job: JobDefinition): Promise<void> {
   const startedAt = new Date();
   console.log(`[worker] ${job.name} started at ${startedAt.toISOString()}.`);
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", job.entry], {
+    const child = spawn(process.execPath, ["--import", "tsx", job.entry, ...(job.args ?? [])], {
       stdio: "inherit",
-      env: process.env,
+      env: job.nodeOptions ? { ...process.env, NODE_OPTIONS: job.nodeOptions } : process.env,
     });
     child.on("error", reject);
     child.on("exit", (code, signal) => {

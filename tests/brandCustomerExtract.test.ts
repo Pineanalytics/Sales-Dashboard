@@ -75,7 +75,7 @@ describe("buildBrandExtract", () => {
     expect(galaxy[col(s, "Revenue per Case")]).toBe(100);
     expect(galaxy[col(s, "Contribution % of Principal")]).toBe(87.5); // 3500 of Mars' 4000
     expect(galaxy[col(s, "Contribution % of Total")]).toBe(r1(3500, totalRevenue));
-    expect(galaxy[col(s, "Customers")]).toBe(2);
+    expect(galaxy[col(s, "SAP Accounts")]).toBe(2);
     expect(galaxy[col(s, "Reps")]).toBe(2);
     expect(galaxy[col(s, "Top Rep")]).toBe("Amina");
     expect(galaxy[col(s, "Reps Who Sold")]).toBe("Amina (85.7%), Brian (14.3%)");
@@ -117,7 +117,7 @@ describe("buildBrandExtract", () => {
     expect(bounty[col(s, "Cases (Volume)")]).toBe(5);
     expect(bounty[col(s, "Revenue (Value)")]).toBe(500);
     expect(bounty[col(s, "Gross Profit")]).toBe(-10);
-    expect(bounty[col(s, "Customer")]).toBe("Naivas Westlands");
+    expect(bounty[col(s, "SAP Account")]).toBe("Naivas Westlands");
     // the raw sheet adds up to the total
     expect(s.rows.reduce((sum, r) => sum + (r[col(s, "Revenue (Value)")] as number), 0)).toBe(totalRevenue);
   });
@@ -196,9 +196,9 @@ describe("trimLargeExtract", () => {
   it("drops the row-level sheets past the limit and says so in the Summary", () => {
     const extract = buildCustomerExtract({ currentRows: current, priorYearRows: priorYear }, scope);
     const trimmed = trimLargeExtract(extract, 3);
-    expect(trimmed.sheets.map((s) => s.name)).toEqual(["Summary", "Customer Ranking", "Customer by Month", "Customer by Rep"]);
+    expect(trimmed.sheets.map((s) => s.name)).toEqual(["Summary", "Customer Ranking"]);
     const note = sheet(trimmed.sheets, "Summary").rows.find((r) => r[0] === "Not included")?.[1] as string;
-    expect(note).toContain("Customer by Brand and Raw Data");
+    expect(note).toContain("Customer by Month, Customer by Brand, Customer by Rep and Raw Data");
     expect(note).toContain("5 raw rows");
     expect(trimmed.rawRowCount).toBe(5);
     const brands = trimLargeExtract(buildBrandExtract({ currentRows: current, priorYearRows: priorYear }, scope), 3);

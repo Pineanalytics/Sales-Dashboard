@@ -139,7 +139,7 @@ function summarySheet(kind: "brands" | "customers", rows: MonthlyBrandCustomerRo
     ["Gross profit", r2(grossProfit)],
     ["Gross margin %", marginOf(grossProfit, revenue)],
     ["Brands / products sold", new Set(rows.map((r) => `${principalOf(r)}${SEP}${brandOf(r)}`)).size],
-    ["Customers", new Set(rows.map(customerKeyOf)).size],
+    [kind === "brands" ? "SAP accounts (customers)" : "Customers", new Set(rows.map(customerKeyOf)).size],
     ["Sales reps who sold", new Set(rows.map(repOf)).size],
     [],
     ["Contribution %", "A line's revenue as a percentage of the revenue shown for the same filter (or of its principal, month or customer where the column says so)."],
@@ -159,7 +159,7 @@ function rawSheet(rows: MonthlyBrandCustomerRow[], totalRevenue: number, custome
   groups.sort((a, b) => a.parts[0].localeCompare(b.parts[0]) || a.parts[1].localeCompare(b.parts[1]) || a.parts[2].localeCompare(b.parts[2]) || a.acc.customerName.localeCompare(b.acc.customerName) || a.parts[3].localeCompare(b.parts[3]));
   const columns = customerFirst
     ? ["Month", "Year", "Period", "Customer", "Principal", "Brand / Product", "Sales Rep", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Total"]
-    : ["Month", "Year", "Period", "Principal", "Brand / Product", "Sales Rep", "Customer", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Total"];
+    : ["Month", "Year", "Period", "Principal", "Brand / Product", "Sales Rep", "SAP Account", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Total"];
   const out = groups.map((g) => {
     const [period, principal, brand, rep] = g.parts;
     const year = period.slice(0, 4);
@@ -241,17 +241,17 @@ export function buildBrandExtract(input: { currentRows: MonthlyBrandCustomerRow[
       summarySheet("brands", currentRows, scope),
       {
         name: "Brand Performance",
-        columns: ["Principal", "Brand / Product", "Rank in Principal", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Principal", "Contribution % of Total", "Customers", "Reps", "Top Rep", "Top Rep Share %", "Reps Who Sold", "Months Sold", "Prior-Year Revenue", "YoY Growth %"],
+        columns: ["Principal", "Brand / Product", "Rank in Principal", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Principal", "Contribution % of Total", "SAP Accounts", "Reps", "Top Rep", "Top Rep Share %", "Reps Who Sold", "Months Sold", "Prior-Year Revenue", "YoY Growth %"],
         rows: performanceRows,
       },
       {
         name: "Brand by Month",
-        columns: ["Month", "Year", "Period", "Principal", "Brand / Product", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Month", "Contribution % of Principal in Month", "Customers", "Reps", "Reps Who Sold"],
+        columns: ["Month", "Year", "Period", "Principal", "Brand / Product", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Revenue per Case", "Contribution % of Month", "Contribution % of Principal in Month", "SAP Accounts", "Reps", "Reps Who Sold"],
         rows: monthlyRows,
       },
       {
         name: "Brand by Rep",
-        columns: ["Principal", "Brand / Product", "Sales Rep", "Rank in Brand", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Contribution % of Brand", "Contribution % of Total", "Customers", "Months Sold"],
+        columns: ["Principal", "Brand / Product", "Sales Rep", "Rank in Brand", "Cases (Volume)", "Revenue (Value)", "Gross Profit", "Margin %", "Contribution % of Brand", "Contribution % of Total", "SAP Accounts", "Months Sold"],
         rows: repRows,
       },
       raw.sheet,
@@ -344,13 +344,19 @@ export function buildCustomerExtract(input: { currentRows: MonthlyBrandCustomerR
   };
 }
 
-/** Above this many raw rows the two biggest row-level sheets are left out (see trimLargeExtract). */
-export const LARGE_EXTRACT_RAW_ROWS = 100_000;
-const ROW_LEVEL_SHEETS = new Set(["Raw Data", "Customer by Brand"]);
+/** Above this many raw rows the row-level sheets are left out (see trimLargeExtract). A single large principal (about
+ *  30,000 raw rows) still gets everything; an all-principals full year (90,000 to 170,000) does not. */
+export const LARGE_EXTRACT_RAW_ROWS = 40_000;
+const ROW_LEVEL_SHEETS = new Set(["Raw Data", "Customer by Brand", "Customer by Month", "Customer by Principal", "Customer by Rep"]);
 
-/** An all-principals, full-year selection runs to well over a hundred thousand raw rows: a workbook of that size is
- *  too heavy to build in the app and to download. Past the limit the extract keeps every summary and breakdown sheet
- *  and drops the row-level ones, and the Summary says so, with how to get them (pick a principal or a shorter period). */
+function listNames(names: string[]): string {
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** An all-principals, full-year selection runs to tens of thousands of customers and rows: a workbook of that size
+ *  (well over 100 MB) is too heavy to build in the app and to download. Past the limit the extract keeps the summary,
+ *  the ranking and the other roll-up sheets and drops the row-level ones, and the Summary says so, with how to get
+ *  them (pick one or more principals, or a shorter period). */
 export function trimLargeExtract(extract: BrandCustomerExtract, limit = LARGE_EXTRACT_RAW_ROWS): BrandCustomerExtract {
   if (extract.rawRowCount <= limit) return extract;
   const dropped = extract.sheets.filter((sheet) => ROW_LEVEL_SHEETS.has(sheet.name)).map((sheet) => sheet.name);
@@ -358,7 +364,7 @@ export function trimLargeExtract(extract: BrandCustomerExtract, limit = LARGE_EX
     .filter((sheet) => !ROW_LEVEL_SHEETS.has(sheet.name))
     .map((sheet) =>
       sheet.name === "Summary"
-        ? { ...sheet, rows: [...sheet.rows, [], ["Not included", `${dropped.join(" and ")}: this selection has ${extract.rawRowCount.toLocaleString("en-US")} raw rows, over the ${limit.toLocaleString("en-US")} limit. Choose one or more principals, or a shorter period, to get them.`]] }
+        ? { ...sheet, rows: [...sheet.rows, [], ["Not included", `${listNames(dropped)}: this selection has ${extract.rawRowCount.toLocaleString("en-US")} raw rows, over the ${limit.toLocaleString("en-US")} limit. Choose one or more principals, or a shorter period, to get them.`]] }
         : sheet
     );
   return { ...extract, sheets };

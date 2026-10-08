@@ -19,6 +19,14 @@ export interface CustomerPortfolioRow {
   momGrowthPct: number | null;
   priorYearRevenue: number;
   yoyGrowthPct: number | null;
+  /** SFA-outlet portfolios only: the phone number from the outlet name, "" when none. */
+  contact?: string;
+  /** SFA-outlet portfolios only: the SAP billing account(s) the outlet buys through. */
+  accounts?: string[];
+  /** SFA-outlet portfolios only: invoices and credit notes, counted per principal. */
+  invoices?: number;
+  /** Distinct sales reps who sold to the customer, when the rows carry a rep. */
+  reps?: number;
 }
 
 export interface PortfolioDimensionRow {
@@ -30,7 +38,20 @@ export interface PortfolioDimensionRow {
   contributionPct: number | null;
 }
 
+/** Where a portfolio's customers come from, and what could not be compared. */
+export interface PortfolioMeta {
+  /** "SFA": the outlet the SFA app sold to (U_CustomerName). "ACCOUNT": the SAP billing account (CardName). */
+  customerSource: "SFA" | "ACCOUNT";
+  /** Requested months ("YYYY-MM") that have no SFA-outlet rows, which is why the portfolio fell back to billing accounts. */
+  missingSfaPeriods: string[];
+  /** False when the prior-year months are not loaded at outlet level, so customer growth cannot be shown. */
+  priorYearAvailable: boolean;
+  /** False when no outlet-level invoices exist for the comparison month, so customer month-on-month growth cannot be shown. */
+  momAvailable: boolean;
+}
+
 export interface CustomerPortfolioSummary {
+  meta?: PortfolioMeta;
   totals: {
     revenue: number;
     grossProfit: number;
@@ -62,6 +83,10 @@ interface CustomerAccumulator {
   customerName: string;
   principals: Set<string>;
   brands: Set<string>;
+  accounts: Set<string>;
+  reps: Set<string>;
+  contacts: Map<string, number>;
+  docs: number;
   cases: number;
   revenue: number;
   grossProfit: number;
@@ -109,20 +134,28 @@ export function applyCanonicalPortfolioComparisons(
   };
 }
 
-function customerMap(rows: MonthlyBrandCustomerRow[]) {
+function customerMap(rows: MonthlyBrandCustomerRow[], keyOf: (name: string) => string = customerKey) {
   const map = new Map<string, CustomerAccumulator>();
   for (const row of rows) {
-    const key = customerKey(row.customerName || "Unspecified customer");
+    const key = keyOf(row.customerName || "Unspecified customer");
     const current = map.get(key) ?? {
       customerName: row.customerName.trim() || "Unspecified customer",
       principals: new Set<string>(),
       brands: new Set<string>(),
+      accounts: new Set<string>(),
+      reps: new Set<string>(),
+      contacts: new Map<string, number>(),
+      docs: 0,
       cases: 0,
       revenue: 0,
       grossProfit: 0,
     };
     current.principals.add(row.principal);
     if (row.brand?.trim()) current.brands.add(row.brand.trim());
+    if (row.accountName?.trim()) current.accounts.add(row.accountName.trim());
+    if (row.salesEmployee?.trim()) current.reps.add(row.salesEmployee.trim());
+    if (row.sfaContact) current.contacts.set(row.sfaContact, (current.contacts.get(row.sfaContact) ?? 0) + Math.abs(row.revenue));
+    current.docs += row.docCount ?? 0;
     current.cases += row.cases;
     current.revenue += row.revenue;
     current.grossProfit += row.grossProfit;
@@ -157,16 +190,22 @@ export function summarizeCustomerPortfolio({
   latestMonthRows,
   previousMonthRows,
   priorYearRows,
+  customerKey: keyOf = customerKey,
+  brandRows = currentRows,
 }: {
   currentRows: MonthlyBrandCustomerRow[];
   latestMonthRows: MonthlyBrandCustomerRow[];
   previousMonthRows: MonthlyBrandCustomerRow[];
   priorYearRows: MonthlyBrandCustomerRow[];
+  /** How two customer names are decided to be the same customer. Defaults to case and spacing only; SFA outlets also ignore punctuation. */
+  customerKey?: (name: string) => string;
+  /** Rows the brand/product breakdown is built from, when the customer rows have no product detail (SFA outlets). */
+  brandRows?: MonthlyBrandCustomerRow[];
 }): CustomerPortfolioSummary {
-  const current = customerMap(currentRows);
-  const latest = customerMap(latestMonthRows);
-  const previous = customerMap(previousMonthRows);
-  const priorYear = customerMap(priorYearRows);
+  const current = customerMap(currentRows, keyOf);
+  const latest = customerMap(latestMonthRows, keyOf);
+  const previous = customerMap(previousMonthRows, keyOf);
+  const priorYear = customerMap(priorYearRows, keyOf);
   const revenue = currentRows.reduce((sum, row) => sum + row.revenue, 0);
   const positiveRevenue = [...current.values()].reduce((sum, row) => sum + Math.max(0, row.revenue), 0);
   let runningPositiveRevenue = 0;
@@ -198,6 +237,10 @@ export function summarizeCustomerPortfolio({
         momGrowthPct: growth(latestRevenue, previousRevenue),
         priorYearRevenue,
         yoyGrowthPct: growth(row.revenue, priorYearRevenue),
+        ...(row.accounts.size > 0 ? { accounts: [...row.accounts].sort() } : {}),
+        ...(row.contacts.size > 0 ? { contact: [...row.contacts.entries()].sort((a, b) => b[1] - a[1])[0][0] } : {}),
+        ...(row.docs > 0 ? { invoices: row.docs } : {}),
+        ...(row.reps.size > 0 ? { reps: row.reps.size } : {}),
       };
     });
 
@@ -239,7 +282,7 @@ export function summarizeCustomerPortfolio({
       return { tier, customerCount: rows.length, revenue: tierRevenue, revenueSharePct: revenue !== 0 ? (tierRevenue / revenue) * 100 : null };
     }),
     customers,
-    brands: dimension(currentRows, "brand", revenue),
+    brands: dimension(brandRows, "brand", brandRows.reduce((sum, row) => sum + row.revenue, 0)),
     principals: dimension(currentRows, "principal", revenue),
   };
 }
