@@ -74,7 +74,7 @@ export function KpiCard({ label, value, sublabel, accent = "revenue", icon, size
           </span>
         ) : null}
       </div>
-      <div className={`min-h-[36px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-brand-navy truncate`}>
+      <div className={`min-h-[36px] flex items-center ${VALUE_SIZE_CLASS[size]} font-semibold tabular-nums text-brand-navy truncate`} title={typeof value === "string" ? value : undefined}>
         {value}
       </div>
       {delta || sublabel ? (
