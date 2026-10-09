@@ -10,6 +10,7 @@ import {
   updateSupervisorDirectHodAction,
   updateSupervisorVisiblePagesAction,
   updateSupervisorCanEditTargetsAction,
+  updateSupervisorEmailAction,
   retireAndReplaceSupervisorAction,
   updateManagerHodAction,
   createHodAction,
@@ -42,7 +43,7 @@ import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 // override) — these aliases thread that concrete shape through every
 // generic *Node type below instead of falling back to the bare defaults,
 // which would type it away by the time it reaches SupervisorNodeView.
-type TreeSupervisor = HierarchySupervisor & { visiblePages: string[]; canEditTargets: boolean };
+type TreeSupervisor = HierarchySupervisor & { email: string | null; visiblePages: string[]; canEditTargets: boolean };
 type TreeSupervisorNode = SupervisorNode<HierarchyTeamLeader, TreeSupervisor>;
 type TreeManagerNode = ManagerNode<HierarchyTeamLeader, TreeSupervisor>;
 type TreeHodNode = HodNode<HierarchyTeamLeader, TreeSupervisor>;
@@ -678,6 +679,23 @@ function SupervisorNodeView({
             Save
           </button>
         </form>
+        <form action={updateSupervisorEmailAction} className="flex items-center gap-1.5">
+          <input type="hidden" name="supervisorId" value={supervisor.id} />
+          <span className="text-[13px] text-muted">Email</span>
+          <input
+            type="email"
+            name="email"
+            defaultValue={supervisor.email ?? ""}
+            placeholder="— none —"
+            className={inputClass + " py-1 text-xs"}
+          />
+          <button type="submit" className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+            Save
+          </button>
+        </form>
+        <p className="text-[12px] text-muted">
+          Matched against registered logins on <Link href="/admin/users" className="text-primary-blue hover:underline">Manage Users</Link> to suggest and label the right link.
+        </p>
         <TeamLeaderRosterPanel
           teamLeaders={teamLeaderRowsFor(supervisor.teamLeaders)}
           allTeamLeaders={allTeamLeaders}

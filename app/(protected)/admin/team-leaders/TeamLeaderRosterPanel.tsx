@@ -9,6 +9,7 @@ import {
   updateTeamLeaderSupervisorAction,
   updateTeamLeaderVisiblePagesAction,
   updateTeamLeaderCanEditTargetsAction,
+  updateTeamLeaderEmailAction,
   retireAndReplaceTeamLeaderAction,
 } from "./actions";
 import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
@@ -16,6 +17,7 @@ import { ALL_PAGE_KEYS, PAGE_LABELS } from "@/lib/pageAccess";
 export interface TeamLeaderRow {
   id: string;
   name: string;
+  email: string | null;
   supervisorId: string | null;
   assignmentCount: number;
   activeAssignmentCount: number;
@@ -206,6 +208,22 @@ export function TeamLeaderRosterPanel({
                         >
                           Save
                         </button>
+                      </form>
+                      <form action={updateTeamLeaderEmailAction} className="flex flex-col gap-2 border-t border-border/60 pt-3">
+                        <input type="hidden" name="teamLeaderId" value={tl.id} />
+                        <label className="text-[13px] font-medium text-muted-strong">
+                          Email
+                          <span className="ml-1 font-normal text-muted">— matched against registered logins on Manage Users to suggest and label the right link</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input type="email" name="email" defaultValue={tl.email ?? ""} placeholder="— none —" className={inputClass} />
+                          <button
+                            type="submit"
+                            className="shrink-0 rounded-full bg-background px-4 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft"
+                          >
+                            Save
+                          </button>
+                        </div>
                       </form>
                       <div className="flex gap-2 border-t border-border/60 pt-3">
                         <Link

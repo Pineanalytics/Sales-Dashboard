@@ -41,13 +41,42 @@ describe("parseSalesLeadershipSourceRows", () => {
     },
   ];
 
-  it("parses the four org-chart columns, ignoring the email columns", () => {
+  it("parses the four org-chart columns plus the Sales Supervisor/Team Leader email columns", () => {
     const parsed = parseSalesLeadershipSourceRows(rows, 2);
     expect(parsed).toEqual([
-      { principal: "Upfield-Nairobi", supervisorName: "Emmy", teamLeaderName: "Emmy", hodName: "Angela Sitati" },
-      { principal: "Mars-Nairobi", supervisorName: "Lucy", teamLeaderName: "Benson Mbivi", hodName: "Angela Sitati" },
-      { principal: "Mars-Nairobi", supervisorName: "Lucy", teamLeaderName: "Shekila Hassan", hodName: "Angela Sitati" },
+      {
+        principal: "Upfield-Nairobi",
+        supervisorName: "Emmy",
+        supervisorEmail: "emily.mbithe@pinefrost.co.ke",
+        teamLeaderName: "Emmy",
+        teamLeaderEmail: "emily.mbithe@pinefrost.co.ke",
+        hodName: "Angela Sitati",
+      },
+      {
+        principal: "Mars-Nairobi",
+        supervisorName: "Lucy",
+        supervisorEmail: null,
+        teamLeaderName: "Benson Mbivi",
+        teamLeaderEmail: null,
+        hodName: "Angela Sitati",
+      },
+      {
+        principal: "Mars-Nairobi",
+        supervisorName: "Lucy",
+        supervisorEmail: null,
+        teamLeaderName: "Shekila Hassan",
+        teamLeaderEmail: null,
+        hodName: "Angela Sitati",
+      },
     ]);
+  });
+
+  it("lowercases the email columns for case-insensitive matching", () => {
+    const parsed = parseSalesLeadershipSourceRows(
+      [{ ...rows[0], "Sales Supervisor Email": "Emily.Mbithe@Pinefrost.co.ke" }],
+      2
+    );
+    expect(parsed[0].supervisorEmail).toBe("emily.mbithe@pinefrost.co.ke");
   });
 
   it("keeps a self-represented row (same name as Supervisor and Team Leader) as-is, no special-casing", () => {

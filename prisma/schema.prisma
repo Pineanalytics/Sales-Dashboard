@@ -141,6 +141,13 @@ model TargetAuditLog {
 model TeamLeader {
   id             String   @id @default(cuid())
   name           String   @unique
+  // Links this roster entity to a registered login by email (set manually on
+  // /admin/team-leaders or populated by the Sales Leadership CSV importer's
+  // "Team Leader Email" column) — lets /admin/users auto-suggest and label
+  // the right User<->TeamLeader link instead of relying on name-matching.
+  // Independent of User.teamLeaderId: that's the actual login link, this is
+  // just the identifier the two sides are matched by.
+  email          String?  @unique
   supervisorId   String?
   createdAt      DateTime @default(now())
   // Admin-set override of which report pages this Team Leader's logged-in User
@@ -213,6 +220,8 @@ model TeamLeaderRelief {
 model Supervisor {
   id             String   @id @default(cuid())
   name           String   @unique
+  // Same email-based login-matching link as TeamLeader.email above.
+  email          String?  @unique
   managerId      String?
   directHodId    String?
   createdAt      DateTime @default(now())
