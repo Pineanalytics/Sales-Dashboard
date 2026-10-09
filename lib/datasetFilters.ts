@@ -1,3 +1,4 @@
+import { OUT_OF_STOCK_DAYS, RUNNING_OUT_DAYS } from "./stockThresholds";
 import type { Dataset, StockItem, StockTotal } from "./types";
 
 function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
@@ -15,7 +16,7 @@ function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
     else noDataCount += 1;
   }
   const daysStock = value > 0 && rrWeekValue > 0 ? Math.round(((value / rrWeekValue) * 7) * 10) / 10 : 0;
-  const action = value <= 0 || daysStock < 7 ? "🔴 Out of Stock - To Order" : rrWeekValue <= 0 ? "⚪ No Sales Data" : daysStock < 14 ? "🟡 Running Out" : "🟢 OK";
+  const action = value <= 0 ? "🔴 Out of Stock - To Order" : rrWeekValue <= 0 ? "⚪ No Sales Data" : daysStock < OUT_OF_STOCK_DAYS ? "🔴 Out of Stock - To Order" : daysStock < RUNNING_OUT_DAYS ? "🟡 Running Out" : "🟢 OK";
   return { volume, pcs, value, rrWeekValue, rrWeekVolume, daysStock, itemCount: stockItems.length, outOfStockCount, runningOutCount, okCount, noDataCount, action };
 }
 

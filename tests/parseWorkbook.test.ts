@@ -29,12 +29,18 @@ describe("stock status thresholds", () => {
     expect(stockStatus(0, 500, 0)).toContain("No Sales Data");
   });
 
-  it("flags out of stock below 7 days cover", () => {
-    expect(stockStatus(3.5, 1000, 2000)).toContain("Out of Stock");
+  it("flags out of stock only below 2 days cover", () => {
+    expect(stockStatus(1, 1000, 7000)).toContain("Out of Stock");
+    expect(stockStatus(1.9, 1000, 3700)).toContain("Out of Stock");
+    // 2 days is no longer out of stock, and neither is anything up to a week
+    expect(stockStatus(2, 1000, 3500)).toContain("Running Out");
+    expect(stockStatus(3.5, 1000, 2000)).toContain("Running Out");
+    expect(stockStatus(6.9, 1000, 1000)).toContain("Running Out");
   });
 
-  it("flags running out between 7 and 14 days cover", () => {
+  it("flags running out from 2 days up to 14 days cover", () => {
     expect(stockStatus(7, 1000, 1000)).toContain("Running Out");
+    expect(stockStatus(13.9, 1000, 500)).toContain("Running Out");
   });
 
   it("flags OK at or above 14 days cover", () => {
