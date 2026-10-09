@@ -15,6 +15,8 @@ import {
   assignPrincipalToTeamLeaderAction,
   uploadRosterCsvAction,
   uploadSalesLeadershipCsvAction,
+  mergeTeamLeadersAction,
+  mergeSupervisorsAction,
   createReliefAction,
   endReliefAction,
   deleteReliefAction,
@@ -306,6 +308,85 @@ export default async function AdminTeamLeadersPage({
                 Upload
               </button>
             </form>
+          </div>
+        ) : null}
+
+        {isAdmin && (teamLeaders.length > 1 || supervisors.length > 1) ? (
+          <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex flex-col gap-5">
+            <div>
+              <h2 className="text-lg font-semibold text-primary-blue">Merge duplicate names</h2>
+              <p className="mt-1 text-[13px] text-muted">
+                When a CSV import spells the same person differently (e.g. &quot;Eve&quot; and &quot;Eve Theuri&quot;), it creates a
+                second row instead of recognizing the same person. Pick the one to keep and the one to merge away —
+                every rep assignment, target, and reporting line moves to the one you keep, then the other is removed.
+              </p>
+            </div>
+            {teamLeaders.length > 1 ? (
+              <form action={mergeTeamLeadersAction} className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Keep this Team Leader</label>
+                  <select name="winnerTeamLeaderId" required defaultValue="" className={inputClass}>
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {teamLeaders.map((tl) => (
+                      <option key={tl.id} value={tl.id}>
+                        {labelForName(tl.name, "Team Leader", ambiguousNames)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Merge this one into it</label>
+                  <select name="loserTeamLeaderId" required defaultValue="" className={inputClass}>
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {teamLeaders.map((tl) => (
+                      <option key={tl.id} value={tl.id}>
+                        {labelForName(tl.name, "Team Leader", ambiguousNames)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white">
+                  Merge Team Leaders
+                </button>
+              </form>
+            ) : null}
+            {supervisors.length > 1 ? (
+              <form action={mergeSupervisorsAction} className="flex flex-wrap items-end gap-3 border-t border-border/60 pt-4">
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Keep this Supervisor</label>
+                  <select name="winnerSupervisorId" required defaultValue="" className={inputClass}>
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {supervisors.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {labelForName(s.name, "Supervisor", ambiguousNames)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Merge this one into it</label>
+                  <select name="loserSupervisorId" required defaultValue="" className={inputClass}>
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {supervisors.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {labelForName(s.name, "Supervisor", ambiguousNames)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white">
+                  Merge Supervisors
+                </button>
+              </form>
+            ) : null}
           </div>
         ) : null}
 
