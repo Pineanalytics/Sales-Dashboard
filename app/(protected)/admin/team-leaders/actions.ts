@@ -287,6 +287,47 @@ export async function updateSupervisorCanEditTargetsAction(formData: FormData) {
   redirect("/admin/team-leaders?success=" + encodeURIComponent("Monthly Target permission updated."));
 }
 
+/** Sets TeamLeader.email — the identifier /admin/users matches against
+ *  registered logins to auto-suggest and label the right User link (see
+ *  that model's own schema comment). Blank clears it. */
+export async function updateTeamLeaderEmailAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "teamLeaderId");
+  const email = str(formData, "email").toLowerCase() || null;
+
+  try {
+    await prisma.teamLeader.update({ where: { id }, data: { email } });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    redirect(
+      "/admin/team-leaders?error=" +
+        encodeURIComponent(code === "P2002" ? "That email is already linked to a different Team Leader." : "Failed to update the email.")
+    );
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Email updated."));
+}
+
+/** Same mechanism as updateTeamLeaderEmailAction, one tier up
+ *  (Supervisor.email). */
+export async function updateSupervisorEmailAction(formData: FormData) {
+  await requireAdmin();
+  const id = str(formData, "supervisorId");
+  const email = str(formData, "email").toLowerCase() || null;
+
+  try {
+    await prisma.supervisor.update({ where: { id }, data: { email } });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    redirect(
+      "/admin/team-leaders?error=" +
+        encodeURIComponent(code === "P2002" ? "That email is already linked to a different Sales Supervisor." : "Failed to update the email.")
+    );
+  }
+
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Email updated."));
+}
+
 /** Sets which Manager a Supervisor reports to — Supervisor.managerId, same role
  *  one tier up as TeamLeader.supervisorId above. Setting a real Manager clears
  *  directHodId — a Supervisor reports through exactly one path at a time (see
@@ -607,6 +648,9 @@ export async function uploadSalesLeadershipCsvAction(formData: FormData) {
     totalReactivated > 0 ? `${totalReactivated} reactivated` : null,
     result.multiTeamLeaderPrincipals.length > 0
       ? `${result.multiTeamLeaderPrincipals.length} Principal(s) shared by multiple Team Leaders left unchanged at the rep level (${result.multiTeamLeaderPrincipals.join(", ")}) — use Assignments below to (re)split those`
+      : null,
+    result.emailConflicts.length > 0
+      ? `${result.emailConflicts.length} email(s) could not be linked — already in use by a different entity: ${result.emailConflicts.join("; ")}`
       : null,
   ].filter(Boolean);
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Sales Leadership import: ${parts.join(", ")}.`));

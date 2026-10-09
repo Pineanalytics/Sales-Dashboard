@@ -7,8 +7,8 @@ import { ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUN
 import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { UserAccessToolbar } from "@/components/admin/UserAccessToolbar";
+import { NewUserForm } from "@/components/admin/NewUserForm";
 import {
-  createUserAction,
   deleteUserAction,
   approveUserAction,
   rejectUserAction,
@@ -70,6 +70,23 @@ export default async function AdminUsersPage({
     set.add(a.teamLeaderId);
     teamLeaderIdsBySupervisor.set(a.supervisorId, set);
   }
+
+  // Lets a TL/Supervisor dropdown option show the registered login already
+  // matched to that roster entry by email (set on /admin/team-leaders, or by
+  // the Sales Leadership CSV importer), and lets an unlinked user's own
+  // dropdown default to the entry matching their own email — see
+  // prisma/schema.prisma's TeamLeader.email/Supervisor.email comment.
+  const userByEmail = new Map(allUsers.map((u) => [u.email.toLowerCase(), u]));
+  function teamLeaderOptionLabel(tl: { name: string; email: string | null }): string {
+    const matched = tl.email ? userByEmail.get(tl.email.toLowerCase()) : undefined;
+    return matched ? `${tl.name} — registered as "${matched.name || matched.email}"` : tl.name;
+  }
+  function supervisorOptionLabel(s: { name: string; email: string | null }): string {
+    const matched = s.email ? userByEmail.get(s.email.toLowerCase()) : undefined;
+    return matched ? `${s.name} — registered as "${matched.name || matched.email}"` : s.name;
+  }
+  const teamLeaderByEmail = new Map(teamLeaders.filter((tl) => tl.email).map((tl) => [tl.email!.toLowerCase(), tl.id]));
+  const supervisorByEmail = new Map(supervisors.filter((s) => s.email).map((s) => [s.email!.toLowerCase(), s.id]));
 
   return (
     <div className="min-h-screen bg-background">
@@ -150,106 +167,10 @@ export default async function AdminUsersPage({
 
         <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <h2 className="text-lg font-semibold text-primary-blue">Add a new user</h2>
-          <form action={createUserAction} className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="name" className="text-[13px] font-medium text-muted-strong">
-                Name (optional)
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label htmlFor="email" className="text-[13px] font-medium text-muted-strong">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label htmlFor="password" className="text-[13px] font-medium text-muted-strong">
-                Password (min 8 characters)
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label htmlFor="role" className="text-[13px] font-medium text-muted-strong">
-                Role
-              </label>
-              <select
-                id="role"
-                name="role"
-                defaultValue="VIEWER"
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              >
-                <option value="VIEWER">Viewer — read-only dashboard access</option>
-                <option value="ADMIN">Admin — can upload new snapshots</option>
-                <option value="TEAM_LEADER">Team Leader — enters their own Weekly Targets</option>
-                <option value="SUPERVISOR">Sales Supervisor — manages their whole Team Leader group's roster/targets</option>
-                <option value="HOD">Head of Sales — fills the company-wide HOD Performance Tracker</option>
-                <option value="DIRECTOR">Director — reviews the HOD Performance Tracker</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label htmlFor="teamLeaderId" className="text-[13px] font-medium text-muted-strong">
-                Team Leader link (only used if Role is Team Leader)
-              </label>
-              <select
-                id="teamLeaderId"
-                name="teamLeaderId"
-                defaultValue=""
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              >
-                <option value="">— none —</option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label htmlFor="supervisorId" className="text-[13px] font-medium text-muted-strong">
-                Sales Supervisor link (only used if Role is Sales Supervisor)
-              </label>
-              <select
-                id="supervisorId"
-                name="supervisorId"
-                defaultValue=""
-                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none focus:border-secondary-blue"
-              >
-                <option value="">— none —</option>
-                {supervisors.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="sm:col-span-2">
-              <button
-                type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
-              >
-                Create user
-              </button>
-            </div>
-          </form>
+          <NewUserForm
+            teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, email: tl.email }))}
+            supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, email: s.email }))}
+          />
           {teamLeaders.length === 0 ? (
             <p className="mt-2 text-xs text-muted">
               No Team Leaders exist yet — add them on the <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">Team Leaders</Link> page first.
@@ -387,31 +308,37 @@ export default async function AdminUsersPage({
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Team Leader link</span>
                       <select
                         name="teamLeaderId"
-                        defaultValue={u.teamLeaderId ?? ""}
+                        defaultValue={u.teamLeaderId ?? teamLeaderByEmail.get(u.email.toLowerCase()) ?? ""}
                         className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
                       >
                         <option value="">— none —</option>
                         {teamLeaders.map((tl) => (
                           <option key={tl.id} value={tl.id}>
-                            {tl.name}
+                            {teamLeaderOptionLabel(tl)}
                           </option>
                         ))}
                       </select>
+                      {!u.teamLeaderId && teamLeaderByEmail.has(u.email.toLowerCase()) ? (
+                        <span className="text-[11px] text-accent-green">Suggested from matching email — Save role to confirm.</span>
+                      ) : null}
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Supervisor link</span>
                       <select
                         name="supervisorId"
-                        defaultValue={u.supervisorId ?? ""}
+                        defaultValue={u.supervisorId ?? supervisorByEmail.get(u.email.toLowerCase()) ?? ""}
                         className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
                       >
                         <option value="">— none —</option>
                         {supervisors.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.name}
+                            {supervisorOptionLabel(s)}
                           </option>
                         ))}
                       </select>
+                      {!u.supervisorId && supervisorByEmail.has(u.email.toLowerCase()) ? (
+                        <span className="text-[11px] text-accent-green">Suggested from matching email — Save role to confirm.</span>
+                      ) : null}
                     </div>
                     <button
                       type="submit"

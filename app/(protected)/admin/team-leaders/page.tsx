@@ -395,6 +395,7 @@ export default async function AdminTeamLeadersPage({
             teamLeaders={teamLeaders.map((tl) => ({
               id: tl.id,
               name: tl.name,
+              email: tl.email,
               supervisorId: tl.supervisorId,
               assignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).length,
               activeAssignmentCount: (assignmentsByTeamLeader.get(tl.id) ?? []).filter((assignment) => assignment.active).length,
@@ -405,6 +406,7 @@ export default async function AdminTeamLeadersPage({
             supervisors={supervisors.map((s) => ({
               id: s.id,
               name: s.name,
+              email: s.email,
               managerId: s.managerId,
               directHodId: s.directHodId,
               visiblePages: s.visiblePages,

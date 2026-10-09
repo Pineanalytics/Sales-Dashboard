@@ -33,10 +33,15 @@
 // importer DOES create one when missing, since this file is explicitly the
 // source of truth for a brand-new Principal's leadership (e.g. Bidco).
 //
-// The Sales Supervisor/Team Leader/Head of Sales Email columns are parsed
-// but currently unused — linking a login (User.teamLeaderId/supervisorId) to
-// an org entity is handled separately via /admin/users, matching how
-// upsertRosterRows also never touches User.
+// The Sales Supervisor/Team Leader Email columns are parsed and written to
+// Supervisor.email/TeamLeader.email (see prisma/schema.prisma) — a stable
+// identifier /admin/users uses to auto-suggest and label the right
+// User<->TeamLeader/Supervisor link, since roster names and a login's
+// registered name don't always match exactly. Linking the login itself
+// (User.teamLeaderId/supervisorId) still happens separately via
+// /admin/users, matching how upsertRosterRows also never touches User. The
+// Head Of Sales Email column has no equivalent login-link mechanism yet
+// (Hod carries no User FK) and stays unused.
 import * as XLSX from "xlsx";
 import { prisma } from "./db";
 import { assignPrincipalRepsToTeamLeader, recomputeRosterDerived, type AssignPrincipalResult } from "./rosterAssignment";
@@ -44,7 +49,9 @@ import { assignPrincipalRepsToTeamLeader, recomputeRosterDerived, type AssignPri
 export interface SalesLeadershipRow {
   principal: string;
   supervisorName: string;
+  supervisorEmail: string | null;
   teamLeaderName: string;
+  teamLeaderEmail: string | null;
   hodName: string;
 }
 
@@ -62,6 +69,14 @@ function requiredText(row: SourceRow, column: string, rowNumber: number): string
   return value;
 }
 
+/** Optional email column — lowercased for case-insensitive matching against
+ *  User.email elsewhere; blank/missing is fine, this file's org-chart data
+ *  doesn't depend on it. */
+function optionalEmail(row: SourceRow, column: string): string | null {
+  const value = text(row[column]).toLowerCase();
+  return value || null;
+}
+
 export function parseSalesLeadershipSourceRows(source: SourceRow[], rowNumberOffset: number): SalesLeadershipRow[] {
   return source
     .filter((row) => text(row.Principal) !== "")
@@ -70,7 +85,9 @@ export function parseSalesLeadershipSourceRows(source: SourceRow[], rowNumberOff
       return {
         principal: requiredText(row, "Principal", rowNumber),
         supervisorName: requiredText(row, "Sales Supervisor", rowNumber),
+        supervisorEmail: optionalEmail(row, "Sales Supervisor Email"),
         teamLeaderName: requiredText(row, "Team Leader", rowNumber),
+        teamLeaderEmail: optionalEmail(row, "Team Leader Email"),
         hodName: requiredText(row, "Head Of Sales", rowNumber),
       };
     });
@@ -111,6 +128,9 @@ export interface SalesLeadershipImportResult {
   assignments: ({ principal: string; teamLeaderId: string } & AssignPrincipalResult)[];
   /** Left untouched at the rep level — see file header comment. */
   multiTeamLeaderPrincipals: string[];
+  /** Supervisor/Team Leader Email values that couldn't be saved because that
+   *  email is already linked to a different Supervisor/Team Leader row. */
+  emailConflicts: string[];
 }
 
 export async function upsertSalesLeadership(rows: SalesLeadershipRow[], userEmail: string): Promise<SalesLeadershipImportResult> {
@@ -124,12 +144,34 @@ export async function upsertSalesLeadership(rows: SalesLeadershipRow[], userEmai
   }
 
   const supervisorNames = Array.from(new Set(rows.map((r) => r.supervisorName.trim())));
-  const existingSupervisors = await prisma.supervisor.findMany({ where: { name: { in: supervisorNames } }, select: { id: true, name: true } });
+  const existingSupervisors = await prisma.supervisor.findMany({ where: { name: { in: supervisorNames } }, select: { id: true, name: true, email: true } });
   const supervisorByName = new Map(existingSupervisors.map((s) => [s.name, s.id]));
+  const supervisorEmailByName = new Map(existingSupervisors.map((s) => [s.name, s.email]));
+  // First non-blank email the file gives for each name — later rows for the
+  // same Supervisor never carry a different email in practice, but a blank
+  // one on a later row must not clobber an earlier non-blank value.
+  const supervisorFileEmailByName = new Map<string, string>();
+  for (const r of rows) {
+    const name = r.supervisorName.trim();
+    if (r.supervisorEmail && !supervisorFileEmailByName.has(name)) supervisorFileEmailByName.set(name, r.supervisorEmail);
+  }
   for (const name of supervisorNames) {
     if (supervisorByName.has(name)) continue;
-    const created = await prisma.supervisor.create({ data: { name } });
+    const created = await prisma.supervisor.create({ data: { name, email: supervisorFileEmailByName.get(name) ?? null } });
     supervisorByName.set(name, created.id);
+    supervisorEmailByName.set(name, created.email);
+  }
+  const emailConflicts: string[] = [];
+  for (const [name, fileEmail] of supervisorFileEmailByName) {
+    const supervisorId = supervisorByName.get(name);
+    if (!supervisorId || supervisorEmailByName.get(name) === fileEmail) continue;
+    try {
+      await prisma.supervisor.update({ where: { id: supervisorId }, data: { email: fileEmail } });
+    } catch (err: unknown) {
+      const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+      if (code !== "P2002") throw err;
+      emailConflicts.push(`${fileEmail} (Sales Supervisor ${name} — already linked to a different Supervisor)`);
+    }
   }
   const supervisorToHodName = new Map(rows.map((r) => [r.supervisorName.trim(), r.hodName.trim()]));
   for (const [supName, hodName] of supervisorToHodName) {
@@ -141,12 +183,30 @@ export async function upsertSalesLeadership(rows: SalesLeadershipRow[], userEmai
   }
 
   const teamLeaderNames = Array.from(new Set(rows.map((r) => r.teamLeaderName.trim())));
-  const existingTls = await prisma.teamLeader.findMany({ where: { name: { in: teamLeaderNames } }, select: { id: true, name: true } });
+  const existingTls = await prisma.teamLeader.findMany({ where: { name: { in: teamLeaderNames } }, select: { id: true, name: true, email: true } });
   const teamLeaderByName = new Map(existingTls.map((tl) => [tl.name, tl.id]));
+  const teamLeaderEmailByName = new Map(existingTls.map((tl) => [tl.name, tl.email]));
+  const teamLeaderFileEmailByName = new Map<string, string>();
+  for (const r of rows) {
+    const name = r.teamLeaderName.trim();
+    if (r.teamLeaderEmail && !teamLeaderFileEmailByName.has(name)) teamLeaderFileEmailByName.set(name, r.teamLeaderEmail);
+  }
   for (const name of teamLeaderNames) {
     if (teamLeaderByName.has(name)) continue;
-    const created = await prisma.teamLeader.create({ data: { name } });
+    const created = await prisma.teamLeader.create({ data: { name, email: teamLeaderFileEmailByName.get(name) ?? null } });
     teamLeaderByName.set(name, created.id);
+    teamLeaderEmailByName.set(name, created.email);
+  }
+  for (const [name, fileEmail] of teamLeaderFileEmailByName) {
+    const teamLeaderId = teamLeaderByName.get(name);
+    if (!teamLeaderId || teamLeaderEmailByName.get(name) === fileEmail) continue;
+    try {
+      await prisma.teamLeader.update({ where: { id: teamLeaderId }, data: { email: fileEmail } });
+    } catch (err: unknown) {
+      const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+      if (code !== "P2002") throw err;
+      emailConflicts.push(`${fileEmail} (Team Leader ${name} — already linked to a different Team Leader)`);
+    }
   }
   const teamLeaderToSupervisorName = new Map(rows.map((r) => [r.teamLeaderName.trim(), r.supervisorName.trim()]));
   for (const [tlName, supName] of teamLeaderToSupervisorName) {
@@ -223,5 +283,6 @@ export async function upsertSalesLeadership(rows: SalesLeadershipRow[], userEmai
     principalOwnershipUpdates,
     assignments,
     multiTeamLeaderPrincipals,
+    emailConflicts,
   };
 }
