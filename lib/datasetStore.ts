@@ -573,7 +573,9 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
     rrWeekValue: row.rrWeekValue,
     rrWeekVolume: row.rrWeekVolume,
     daysCover: row.daysCover,
-    action: row.action,
+    // Derived here from the days of cover rather than read from the stored label, so a change to the status tiers
+    // (lib/stockThresholds.ts) shows at once instead of waiting for the next stock sync to rewrite every row.
+    action: stockStatus(row.daysCover, row.openingValue, row.rrWeekValue),
   }));
   const sourceDate = rows.reduce((latest, row) => row.sourceDate > latest ? row.sourceDate : latest, rows[0].sourceDate);
   const dormantStockItems: DormantStockItem[] = dormantRows.map((row) => ({

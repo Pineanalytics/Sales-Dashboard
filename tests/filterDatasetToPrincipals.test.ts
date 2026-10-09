@@ -66,6 +66,19 @@ describe("filterDatasetToPrincipals", () => {
     expect(result.stockTotal.action).not.toBe("stale-company-wide-total");
   });
 
+  it("labels the rolled-up stock Out of Stock only below 2 days of cover", () => {
+    const withCover = (daysCover: number, rrWeekValue: number) => {
+      const dataset = baseDataset();
+      dataset.stockItems = [{ principal: "Bic-Nairobi", key: "bic", item: "Item A", openingVolume: 10, openingPcs: 100, openingValue: 1000, rrWeekValue, rrWeekVolume: 5, daysCover, action: "" }];
+      return filterDatasetToPrincipals(dataset, new Set(["bic"])).stockTotal;
+    };
+    // 1,000 of stock at 3,500 a week is 2 days: Running Out, not Out of Stock (it was, below 7 days)
+    expect(withCover(2, 3500).action).toContain("Running Out");
+    expect(withCover(5, 1400).action).toContain("Running Out");
+    // 1,000 at 7,000 a week is 1 day
+    expect(withCover(1, 7000).action).toContain("Out of Stock");
+  });
+
   it("returns everything when every principal is in the allowed set", () => {
     const result = filterDatasetToPrincipals(baseDataset(), new Set(["bic", "efl"]));
     expect(result.monthlySales).toHaveLength(2);
