@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { parseRosterCsv, RosterParseError, upsertRosterRows } from "@/lib/rosterImport";
 import { assignPrincipalRepsToTeamLeader, recomputeRosterDerived } from "@/lib/rosterAssignment";
 import { parseSalesLeadershipCsv, SalesLeadershipParseError, upsertSalesLeadership } from "@/lib/salesLeadershipImport";
+import { mergeTeamLeaders, mergeSupervisors } from "@/lib/rosterMerge";
 import { resolveScopeForSession, type TeamLeaderScope } from "@/lib/teamLeaderScope";
 import { isPageKey } from "@/lib/pageAccess";
 import type { TeamLeaderAssignment } from "@prisma/client";
@@ -161,6 +162,41 @@ export async function deleteTeamLeaderAction(formData: FormData) {
   await prisma.teamLeader.delete({ where: { id } });
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Team Leader "${teamLeader.name}" and their assignments.`));
+}
+
+/** Collapses two Team Leader rows that represent the same real person — a
+ *  repeat spelling variant from a CSV import (e.g. "Eve" / "Eve Theuri") —
+ *  into one, via lib/rosterMerge.ts's mergeTeamLeaders. Admin-only, like
+ *  every other entity-level action on this page. A genuine conflict (both
+ *  sides have a real, different fact for the same rep/period/week, or both
+ *  have their own login) is reported back rather than guessed at — the
+ *  merge finishes everything it safely can and leaves the loser row in
+ *  place until the admin resolves the conflict and runs it again. */
+export async function mergeTeamLeadersAction(formData: FormData) {
+  await requireAdmin();
+  const winnerId = str(formData, "winnerTeamLeaderId");
+  const loserId = str(formData, "loserTeamLeaderId");
+  if (!winnerId || !loserId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose both the Team Leader to keep and the one to merge into it."));
+  }
+
+  let result;
+  try {
+    result = await mergeTeamLeaders(winnerId, loserId);
+  } catch (err) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(err instanceof Error ? err.message : "Failed to merge Team Leaders."));
+  }
+  await recomputeRosterDerived();
+
+  const moved = Object.entries(result.reassigned)
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => `${count} ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`)
+    .join(", ");
+  const message = result.loserDeleted
+    ? `Merged "${result.loserName}" into "${result.winnerName}"${moved ? ` (moved ${moved})` : ""}.`
+    : `Moved ${moved || "nothing"} from "${result.loserName}" into "${result.winnerName}", but couldn't finish — ${result.conflicts.length} conflict(s) left "${result.loserName}" in place. Resolve them, then merge again.`;
+  const conflictSuffix = result.conflicts.length > 0 ? ` ${result.conflicts.join(" ")}` : "";
+  redirect(`/admin/team-leaders?${result.conflicts.length > 0 ? "error" : "success"}=${encodeURIComponent(message + conflictSuffix)}`);
 }
 
 /** Sets which Supervisor a Team Leader reports to — TeamLeader.supervisorId, the
@@ -352,6 +388,35 @@ export async function deleteSupervisorAction(formData: FormData) {
   await prisma.supervisor.delete({ where: { id } });
 
   redirect("/admin/team-leaders?success=" + encodeURIComponent(`Removed Supervisor "${supervisor.name}". Their Team Leaders now need a new Supervisor.`));
+}
+
+/** Same merge as mergeTeamLeadersAction, one tier up — see
+ *  lib/rosterMerge.ts's mergeSupervisors. */
+export async function mergeSupervisorsAction(formData: FormData) {
+  await requireAdmin();
+  const winnerId = str(formData, "winnerSupervisorId");
+  const loserId = str(formData, "loserSupervisorId");
+  if (!winnerId || !loserId) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Choose both the Supervisor to keep and the one to merge into it."));
+  }
+
+  let result;
+  try {
+    result = await mergeSupervisors(winnerId, loserId);
+  } catch (err) {
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(err instanceof Error ? err.message : "Failed to merge Supervisors."));
+  }
+  await recomputeRosterDerived();
+
+  const moved = Object.entries(result.reassigned)
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => `${count} ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`)
+    .join(", ");
+  const message = result.loserDeleted
+    ? `Merged "${result.loserName}" into "${result.winnerName}"${moved ? ` (moved ${moved})` : ""}.`
+    : `Moved ${moved || "nothing"} from "${result.loserName}" into "${result.winnerName}", but couldn't finish — ${result.conflicts.length} conflict(s) left "${result.loserName}" in place. Resolve them, then merge again.`;
+  const conflictSuffix = result.conflicts.length > 0 ? ` ${result.conflicts.join(" ")}` : "";
+  redirect(`/admin/team-leaders?${result.conflicts.length > 0 ? "error" : "success"}=${encodeURIComponent(message + conflictSuffix)}`);
 }
 
 // Head of Sales (org-entity) CRUD — one tier above Manager, same pattern as
