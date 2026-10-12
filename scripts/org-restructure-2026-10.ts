@@ -7,6 +7,9 @@
 // resolve safely) aborts an --apply run and leaves the data untouched. Back up the roster tables first (see the PR).
 // Idempotent: a second run finds the work already done and changes nothing.
 //
+// ALREADY APPLIED (12 Oct 2026): do not run it again. Its step 1 (a Sales Supervisor named Alexander Muhoro) was superseded by
+// scripts/eabl-under-hod-2026-10.ts, which puts Erick and Richard directly under the Head of Sales; re-running would recreate it.
+//
 // What it does, in order:
 //   1. EABL gets a real Sales Supervisor (Alexander Muhoro). The stand-in supervisors "Erick" and "Richard" are merged into
 //      him, so Erick and Richard are team leaders under him, as they should be.
