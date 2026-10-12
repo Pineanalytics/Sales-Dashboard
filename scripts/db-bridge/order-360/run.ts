@@ -1,13 +1,15 @@
-// Entry point for the Order 360 sync. FULL mode (no watermark yet, i.e. the very
-// first run) backfills the trailing 3 calendar months to date, pulled as several
+// Entry point for the Order 360 sync. Every run pulls a window of orders as several
 // small concurrent chunks (see query.ts's fetchOrdersChunked - SAP_Orders/payments
-// are missing indexes, so a single multi-month query would time out, same issue
-// the user-supplied Order_360_Extractor.py documents and works around the same way).
-// INCREMENTAL mode (watermark already exists) just re-pulls today's window and
-// tops it up - it never touches or re-deletes anything older, so history already
-// loaded stays exactly as-is. Runs daily at 18:30 Africa/Nairobi as the
-// order-360-sync-worker Compose service (scripts/continuous-sync-worker.ts);
-// scripts/order-360-sync.ps1 remains only for a local manual run.
+// are missing indexes, so a wide single query would time out, same issue the
+// user-supplied Order_360_Extractor.py documents and works around the same way) and
+// replaces that window. Which window is decided by window.ts: FULL (the trailing 3
+// calendar months) when there is no full pass on record or the last one is over ~22h
+// old, otherwise ROLLING (the whole current month, plus the tail of the previous one
+// early in a month). It used to re-read only today, which recorded each order once,
+// before it was picked, dispatched or delivered, and never updated it afterwards.
+// Runs hourly as the order-360-sync-worker Compose service
+// (scripts/continuous-sync-worker.ts); scripts/order-360-sync.ps1 remains only for a
+// local manual run.
 //
 // Run with: npm run order360:sync
 // Local runs rely on .env, while the VPS injects its bridge address through
@@ -17,12 +19,12 @@ if (!process.env.PL_BRIDGE_APP_URL) process.loadEnvFile();
 
 import mysql from "mysql2/promise";
 import { loadCoverageConfigFromEnv } from "../coverage/mysql";
-import { fetchOrders, fetchOrdersChunked } from "./query";
+import { fetchOrdersChunked } from "./query";
 import { buildOrderRecords, type OrderRecordUploadRow } from "./transform";
+import { planOrderSyncWindow } from "./window";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
 const BRIDGE_NAME = "order-360";
-const BACKFILL_MONTHS = 3;
 const BATCH_SIZE = 500;
 
 interface SyncState {
@@ -78,10 +80,6 @@ async function uploadOrdersBatched(appUrl: string, apiKey: string, rows: OrderRe
   return ok;
 }
 
-function backfillStart(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (BACKFILL_MONTHS - 1), 1));
-}
-
 async function main() {
   const config = loadCoverageConfigFromEnv();
   const apiKey = process.env.UPLOAD_API_KEY;
@@ -90,32 +88,18 @@ async function main() {
 
   const now = new Date();
   const syncState = await getSyncState(appUrl, apiKey);
-  // ORDER360_FORCE_FULL=1 re-runs the full 3-month backfill even though a
-  // watermark already exists - the upload route upserts (ON CONFLICT DO
-  // UPDATE), so this is the way to true up already-loaded history after a
-  // business-logic fix in query.ts, without a separate one-off script.
-  const isFullMode = !syncState.lastFullResyncAt || process.env.ORDER360_FORCE_FULL === "1";
+  // ORDER360_FORCE_FULL=1 re-runs the full 3-month pass even though one is on
+  // record - the upload route replaces the window it is sent, so this is the way
+  // to true up already-loaded history after a business-logic fix in query.ts,
+  // without a separate one-off script.
+  const { mode, windowStart } = planOrderSyncWindow(now, syncState.lastFullResyncAt, process.env.ORDER360_FORCE_FULL === "1");
+  const isFullMode = mode === "full";
 
   const makeConnection = () =>
     mysql.createConnection({ host: config.host, port: config.port, user: config.user, password: config.password, database: config.database });
 
-  let orders;
-  let windowStart: Date;
-
-  if (isFullMode) {
-    windowStart = backfillStart(now);
-    console.log(`[order-360] Mode: FULL BACKFILL. Pulling ${windowStart.toISOString()} -> ${now.toISOString()} from ${config.host}/${config.database} in chunks...`);
-    orders = await fetchOrdersChunked(makeConnection, windowStart, now);
-  } else {
-    windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    console.log(`[order-360] Mode: INCREMENTAL (today only). Connecting to ${config.host}/${config.database}...`);
-    const conn = await makeConnection();
-    try {
-      orders = await fetchOrders(conn, windowStart, now);
-    } finally {
-      await conn.end();
-    }
-  }
+  console.log(`[order-360] Mode: ${isFullMode ? "FULL (trailing 3 months)" : "ROLLING (current month, with the tail of the previous one early in a month)"}. Pulling ${windowStart.toISOString()} -> ${now.toISOString()} from ${config.host}/${config.database} in chunks...`);
+  const orders = await fetchOrdersChunked(makeConnection, windowStart, now);
 
   console.log(`[order-360] Fetched ${orders.length} order rows.`);
   const rows = buildOrderRecords(orders);
@@ -132,7 +116,7 @@ async function main() {
     lastIncrementalAt: now.toISOString(),
     lastFullResyncAt: isFullMode ? now.toISOString() : undefined,
   });
-  console.log(`[order-360] Sync watermark updated (${isFullMode ? "full" : "incremental"} mode).`);
+  console.log(`[order-360] Sync watermark updated (${isFullMode ? "full" : "rolling"} mode).`);
 }
 
 main().catch((err) => {
