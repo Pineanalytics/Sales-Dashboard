@@ -38,6 +38,9 @@ export interface OutletUniverseRow {
   /** Distinct days with a purchase in the last 30 days: this principal, then all of the outlet's principals in the source. */
   purchaseDays30: number;
   outletPurchaseDays30: number;
+  /** Earliest purchase on record for the outlet (any principal), and how many of its last three 30-day periods saw a purchase. */
+  firstPurchaseDate: Date | null;
+  periodsBought90: number;
 }
 
 export interface OutletUniverseRebuildResult {
@@ -84,6 +87,8 @@ interface PineSourceRow {
   timesBought: number;
   purchaseDays30?: number;
   outletPurchaseDays30?: number;
+  firstPurchaseDate?: Date | null;
+  periodsBought90?: number;
 }
 
 export function pineRow(row: PineSourceRow): OutletUniverseRow {
@@ -111,6 +116,8 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     transactions: row.timesBought,
     purchaseDays30: row.purchaseDays30 ?? 0,
     outletPurchaseDays30: row.outletPurchaseDays30 ?? 0,
+    firstPurchaseDate: row.firstPurchaseDate ?? null,
+    periodsBought90: row.periodsBought90 ?? 0,
   };
 }
 
@@ -134,6 +141,8 @@ interface LeverageSourceRow {
   longitude: number | null;
   /** Distinct invoice days in the last 30 days. */
   days30?: number | null;
+  firstBuy?: Date | null;
+  periods90?: number | null;
 }
 
 /** Centegy names a sales unit "<van or bike>_<distributor id>"; the id suffix only repeats the branch. */
@@ -173,6 +182,8 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     transactions: row.transactions,
     purchaseDays30: row.days30 ?? 0,
     outletPurchaseDays30: row.days30 ?? 0,
+    firstPurchaseDate: row.firstBuy ?? null,
+    periodsBought90: row.periods90 ?? 0,
   };
 }
 
@@ -193,6 +204,8 @@ interface EablSourceRow {
   segment: string | null;
   /** Distinct days with a productive call in the last 30 days. */
   days30?: number | null;
+  firstBuy?: Date | null;
+  periods90?: number | null;
 }
 
 export function eablRow(row: EablSourceRow): OutletUniverseRow {
@@ -220,6 +233,8 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     transactions: row.transactions ?? 0,
     purchaseDays30: row.days30 ?? 0,
     outletPurchaseDays30: row.days30 ?? 0,
+    firstPurchaseDate: row.firstBuy ?? null,
+    periodsBought90: row.periods90 ?? 0,
   };
 }
 
@@ -233,7 +248,7 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
   `);
   // Purchase days over the last 30 days from the append-only event ledger: one
   // count per principal, one per outlet across all of its principals.
-  const [perPrincipal, perOutlet] = await Promise.all([
+  const [perPrincipal, perOutlet, history] = await Promise.all([
     prisma.$queryRaw<{ principal: string; customerId: string; days: number }[]>(Prisma.sql`
       SELECT principal, "customerId", COUNT(DISTINCT date::date)::int AS days
       FROM "ActiveOutletEvent" WHERE date >= now() - interval '30 days'
@@ -244,10 +259,25 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
       FROM "ActiveOutletEvent" WHERE date >= now() - interval '30 days'
       GROUP BY "customerId"
     `),
+    // First purchase on record and how many of the last three 30-day periods saw a purchase, across all principals.
+    prisma.$queryRaw<{ customerId: string; firstBuy: Date | null; periods90: number }[]>(Prisma.sql`
+      SELECT "customerId", MIN(date)::date AS "firstBuy",
+             COUNT(DISTINCT ((now()::date - date::date) / 30)) FILTER (WHERE now()::date - date::date < 90)::int AS periods90
+      FROM "ActiveOutletEvent" GROUP BY "customerId"
+    `),
   ]);
+  const outletHistory = new Map(history.map((r) => [r.customerId, r]));
   const principalDays = new Map(perPrincipal.map((r) => [`${r.principal}|${r.customerId}`, Number(r.days)]));
   const outletDays = new Map(perOutlet.map((r) => [r.customerId, Number(r.days)]));
-  return rows.map((row) => pineRow({ ...row, purchaseDays30: principalDays.get(`${row.principal}|${row.customerId}`) ?? 0, outletPurchaseDays30: outletDays.get(row.customerId) ?? 0 }));
+  return rows.map((row) =>
+    pineRow({
+      ...row,
+      purchaseDays30: principalDays.get(`${row.principal}|${row.customerId}`) ?? 0,
+      outletPurchaseDays30: outletDays.get(row.customerId) ?? 0,
+      firstPurchaseDate: outletHistory.get(row.customerId)?.firstBuy ?? null,
+      periodsBought90: Number(outletHistory.get(row.customerId)?.periods90 ?? 0),
+    })
+  );
 }
 
 async function loadLeverage(): Promise<OutletUniverseRow[]> {
@@ -265,6 +295,14 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
              COUNT(DISTINCT "invoiceNo") FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)}))::int AS transactions,
              COUNT(DISTINCT "deliveryDate"::date) FILTER (WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)}) AND "deliveryDate" >= now() - interval '30 days')::int AS days30
       FROM docs GROUP BY "customerCode", "storageLocation"
+    ),
+    hist AS (
+      -- First purchase on record and the last three 30-day periods with a purchase, from every invoice (not just this year's).
+      SELECT "customerCode", "storageLocation", MIN("deliveryDate") AS "firstBuy",
+             COUNT(DISTINCT ((now()::date - "deliveryDate"::date) / 30)) FILTER (WHERE now()::date - "deliveryDate"::date < 90)::int AS periods90
+      FROM "SalesReturnLine"
+      WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)})
+      GROUP BY "customerCode", "storageLocation"
     ),
     latest AS (
       SELECT DISTINCT ON ("customerCode", "storageLocation")
@@ -292,8 +330,9 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
     )
     SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions, a.days30,
            l."salesRepCode", l."salesRepName", l.route, p."routeDesc",
-           n."outletName", n.channel, g.latitude, g.longitude
+           n."outletName", n.channel, g.latitude, g.longitude, h."firstBuy", h.periods90
     FROM agg a
+    LEFT JOIN hist h USING ("customerCode", "storageLocation")
     LEFT JOIN latest l USING ("customerCode", "storageLocation")
     LEFT JOIN plan p ON p.distributor = a."storageLocation" AND p.pjp = l.route
     LEFT JOIN gps g ON g.distributor = a."storageLocation" AND g."customerCode" = a."customerCode"
@@ -314,6 +353,13 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
       WHERE "customerCode" IS NOT NULL AND EXTRACT(YEAR FROM "callDate") = EXTRACT(YEAR FROM now())
       GROUP BY "customerCode"
     ),
+    hist AS (
+      SELECT "customerCode", MIN("callDate") AS "firstBuy",
+             COUNT(DISTINCT ((now()::date - "callDate"::date) / 30)) FILTER (WHERE now()::date - "callDate"::date < 90)::int AS periods90
+      FROM "EablCall"
+      WHERE "customerCode" IS NOT NULL AND "isProductive"
+      GROUP BY "customerCode"
+    ),
     latest AS (
       SELECT DISTINCT ON ("customerCode") "customerCode", salesman, segment
       FROM "EablCall"
@@ -321,9 +367,10 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
       ORDER BY "customerCode", "callDate" DESC, "timeIn" DESC NULLS LAST
     )
     SELECT m."customerId", m.principal, m."outletName", m.channel, m."subChannel", m.territory, m.route,
-           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, c.days30, l.salesman, l.segment
+           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, c.days30, l.salesman, l.segment, h."firstBuy", h.periods90
     FROM "EablCustomerMaster" m
     LEFT JOIN calls c ON c."customerCode" = m."customerId"
+    LEFT JOIN hist h ON h."customerCode" = m."customerId"
     LEFT JOIN latest l ON l."customerCode" = m."customerId"
   `);
   return rows.map(eablRow);

@@ -36,6 +36,47 @@ export function dormancyFlag(lastPurchase: Date | string | null, now: Date = new
   return { flag: daysSince >= DORMANT_LOST_AFTER_DAYS ? "Lost" : "Lapsed", daysSince };
 }
 
+// ---- buying tenure, consistency and principal mix (the Active Outlet extract's extra columns) ----
+
+const DAY_MS = 86_400_000;
+const DAYS_PER_MONTH = 30.4375;
+/** Consistency looks at this many consecutive 30-day periods, ending today. */
+export const CONSISTENCY_PERIODS = 3;
+export const CONSISTENCY_PERIOD_DAYS = 30;
+/** The largest principal is "dominant" when it holds at least this share of the outlet's sales across its principals. */
+export const DOMINANT_SHARE = 0.6;
+
+export type TenureBand = "More than 6 months" | "3 to 6 months" | "1 to 3 months" | "Less than 1 month" | "Unknown";
+
+/** How long an outlet has been buying, from its first purchase on record (any principal) to now. Leverage and EABL history
+ *  only goes back to June and May 2026, so their longest band is capped by that; Pine's ledger starts in January 2026. */
+export function buyingTenure(firstPurchase: Date | string | null, now: Date = new Date()): { band: TenureBand; months: number | null } {
+  if (!firstPurchase) return { band: "Unknown", months: null };
+  const days = Math.max(0, Math.floor((now.getTime() - new Date(firstPurchase).getTime()) / DAY_MS));
+  const months = Math.round((days / DAYS_PER_MONTH) * 10) / 10;
+  if (days >= 183) return { band: "More than 6 months", months };
+  if (days >= 91) return { band: "3 to 6 months", months };
+  if (days >= 30) return { band: "1 to 3 months", months };
+  return { band: "Less than 1 month", months };
+}
+
+export type OutletConsistency = "Consistent" | "Non-consistent";
+
+/** Consistent = bought in every one of the last three 30-day periods; anything less (including an outlet too new to have
+ *  three periods behind it, whose "periods bought" column shows why) is Non-consistent. */
+export function purchaseConsistency(periodsBought: number): OutletConsistency {
+  return periodsBought >= CONSISTENCY_PERIODS ? "Consistent" : "Non-consistent";
+}
+
+export type PrincipalMix = "Single principal" | "Dominant principal" | "Shared, no dominant";
+
+/** What the outlet's principal portfolio looks like: one principal, one clearly largest (>= DOMINANT_SHARE of sales), or
+ *  spread across several. `dominantShare` is null when the outlet has no sales to share (treated as shared). */
+export function principalMix(principalCount: number, dominantShare: number | null): PrincipalMix {
+  if (principalCount <= 1) return "Single principal";
+  return dominantShare !== null && dominantShare >= DOMINANT_SHARE ? "Dominant principal" : "Shared, no dominant";
+}
+
 export const UNSPECIFIED = "Unspecified";
 
 export type OutletSalesRole = "Primary Sales" | "Secondary Sales";

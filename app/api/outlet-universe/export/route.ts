@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
-import { OUTLET_SOURCE_LABELS, dormancyFlag, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { OUTLET_SOURCE_LABELS, buyingTenure, dormancyFlag, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Days Since Purchase", "Dormancy Flag", "Sales YTD", "Transactions YTD"];
+const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Days Since Purchase", "Dormancy Flag", "Sales YTD", "Transactions YTD",
+  // Buying history and portfolio: tenure from the first purchase on record, consistency over the last three 30-day periods,
+  // and the principal mix (which principal dominates the outlet's sales, and the others it shares with).
+  "Buying Since", "Months Buying", "Buying Tenure", "Periods Bought (last 3 x 30 days)", "Consistency", "Dominant Principal", "Dominant Share %", "Principal Mix", "Principals Bought", "Shared Principals"];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
 function cell(value: string | number | null): string {
@@ -24,7 +27,10 @@ export async function GET(req: NextRequest) {
     const filters = parseOutletFilters(req.nextUrl.searchParams);
     const rows = await exportOutlets(filters, access.scope);
     const lines = [HEADER.map(cell).join(",")];
+    const now = new Date();
     for (const row of rows) {
+      const tenure = buyingTenure(row.firstPurchaseDate, now);
+      const daysSince = row.lastPurchaseDate ? Math.max(0, Math.floor((now.getTime() - new Date(row.lastPurchaseDate).getTime()) / 86_400_000)) : null;
       lines.push(
         [
           OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source,
@@ -43,10 +49,20 @@ export async function GET(req: NextRequest) {
           row.longitude,
           row.lastPurchaseDate,
           row.active ? "Active" : "Dormant",
-          row.active ? null : (dormancyFlag(row.lastPurchaseDate)?.daysSince ?? null),
+          daysSince,
           row.active ? null : (dormancyFlag(row.lastPurchaseDate)?.flag ?? null),
           Math.round(row.sales * 100) / 100,
           row.transactions,
+          row.firstPurchaseDate,
+          tenure.months,
+          tenure.band,
+          row.periodsBought90,
+          purchaseConsistency(row.periodsBought90),
+          row.dominantPrincipal ?? row.principals,
+          row.dominantShare === null ? null : Math.round(row.dominantShare * 1000) / 10,
+          principalMix(row.principalCount, row.dominantShare),
+          row.principalCount,
+          row.sharedPrincipals,
         ]
           .map(cell)
           .join(",")
