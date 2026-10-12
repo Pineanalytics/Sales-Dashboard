@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSharePcts, computeWeekdayWeights, normalizeRepShares, pickTargetReps, resolveRepSharePct, spreadsAcrossWholeTeam, validateContributionTotals, weekdayDatesForWeek } from "../lib/repContribution";
+import { computeSharePcts, computeWeekdayWeights, normalizeRepShares, resolveRepSharePct, validateContributionTotals, weekdayDatesForWeek } from "../lib/repContribution";
 
 // Primary-only filtering itself (recomputeRepContribution/recomputeDailyTargets's
 // `salesRole: "PRIMARY"` where clause) lives in DB-backed async functions this
@@ -146,32 +146,5 @@ describe("normalizeRepShares", () => {
 
   it("gives a lone rep the whole figure, however small their principal-level share", () => {
     expect(normalizeRepShares([0.23])).toEqual([1]);
-  });
-});
-
-describe("whole-team spread (Mars)", () => {
-  const rep = (salesRole: string, contributionPct: number | null) => ({ salesRole, contributionPct });
-
-  it("applies to Mars only", () => {
-    expect(spreadsAcrossWholeTeam("Mars-Nairobi")).toBe(true);
-    expect(spreadsAcrossWholeTeam("Suntory-Nairobi")).toBe(false);
-  });
-
-  it("spreads a Mars leader's target over the SECONDARY field reps, not the PRIMARY van unit", () => {
-    const van = rep("PRIMARY", 0.2);
-    const a = rep("SECONDARY", 0.1);
-    const b = rep("SECONDARY", 0.05);
-    expect(pickTargetReps("Mars-Nairobi", [van, a, b])).toEqual([a, b]);
-  });
-
-  it("drops field reps with no declared share, and falls back to PRIMARY when none has one", () => {
-    const van = rep("PRIMARY", 0.2);
-    expect(pickTargetReps("Mars-Nairobi", [van, rep("SECONDARY", 0), rep("SECONDARY", null)])).toEqual([van]);
-    expect(pickTargetReps("Mars-Nairobi", [van])).toEqual([van]);
-  });
-
-  it("leaves every other principal on its PRIMARY reps", () => {
-    const p = rep("PRIMARY", 0.5);
-    expect(pickTargetReps("Suntory-Nairobi", [p, rep("SECONDARY", 0.3)])).toEqual([p]);
   });
 });

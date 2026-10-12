@@ -352,24 +352,6 @@ export function normalizeRepShares(shares: number[]): number[] {
   return total > 0 ? clean.map((s) => s / total) : clean.map(() => (clean.length > 0 ? 1 / clean.length : 0));
 }
 
-/** Principals whose weekly target is spread over the whole field team (the SECONDARY reps), not just the PRIMARY
- *  van/route units. Mars keeps two independent cuts of the same business: 8 PRIMARY units and 93 SECONDARY field reps,
- *  each set carrying its own Contribution % that adds up to about 100% of Mars. Both are never added together; the
- *  SECONDARY cut is the real team, so it carries the daily targets. */
-export function spreadsAcrossWholeTeam(principal: string): boolean {
-  return principal.trim().toLowerCase().startsWith("mars");
-}
-
-/** The reps a leader's weekly target is spread over for one principal: for a whole-team principal, the leader's
- *  SECONDARY reps that carry a positive declared Contribution %, falling back to the PRIMARY units when the leader has
- *  none; for every other principal, the PRIMARY reps. */
-export function pickTargetReps<T extends { salesRole: string; contributionPct: number | null }>(principal: string, reps: T[]): T[] {
-  const primary = reps.filter((r) => r.salesRole === "PRIMARY");
-  if (!spreadsAcrossWholeTeam(principal)) return primary;
-  const field = reps.filter((r) => r.salesRole === "SECONDARY" && (r.contributionPct ?? 0) > 0);
-  return field.length > 0 ? field : primary;
-}
-
 /** Rebuilds DailyTarget from scratch for every WeeklyTarget row currently in the
  *  grid: splits each Weekly figure across its assigned reps (their Contribution
  *  % relative to each other, so a leader's daily targets add up to their weekly
@@ -381,17 +363,11 @@ export function pickTargetReps<T extends { salesRole: string; contributionPct: n
 export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   const [weeklyTargets, rawAssignments, contributions] = await Promise.all([
     prisma.weeklyTarget.findMany(),
-    // PRIMARY units, plus the SECONDARY field reps of whole-team principals (pickTargetReps).
-    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
+    // PRIMARY only — see recomputeRepContribution's matching comment.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" } }),
     prisma.repContribution.findMany(),
   ]);
-  const { known: knownAssignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
-  const byLeaderPrincipal = new Map<string, typeof knownAssignments>();
-  for (const a of knownAssignments) {
-    const key = `${a.teamLeaderId}|${a.principal}`;
-    byLeaderPrincipal.set(key, [...(byLeaderPrincipal.get(key) ?? []), a]);
-  }
-  const assignments = [...byLeaderPrincipal.entries()].flatMap(([, rows]) => pickTargetReps(rows[0].principal, rows));
+  const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
   if (skippedUnknownEmployeeCodes > 0) {
     console.warn(`recomputeDailyTargets: skipped ${skippedUnknownEmployeeCodes} active TeamLeaderAssignment row(s) with an employeeCode not in EmployeeMaster.`);
   }
