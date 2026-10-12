@@ -165,6 +165,12 @@ model TeamLeader {
   // Independent of User.teamLeaderId: that's the actual login link, this is
   // just the identifier the two sides are matched by.
   email          String?  @unique
+  // What this roster entry really is (see lib/teamLeaderKind.ts): "TEAM_LEADER" (a real team leader, the default),
+  // "SUPERVISOR_TEAM" (a stand-in for a Sales Supervisor who runs a principal directly, with no team leader below:
+  // every assignment and weekly target must belong to some TeamLeader row, so the supervisor gets one named after
+  // them) or "FORMER" (a leader who has left; kept so history still resolves). Only real team leaders are offered
+  // as Team Leaders in the admin dropdowns.
+  kind           String   @default("TEAM_LEADER")
   supervisorId   String?
   createdAt      DateTime @default(now())
   // Admin-set override of which report pages this Team Leader's logged-in User

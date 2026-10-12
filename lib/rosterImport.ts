@@ -22,6 +22,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
 import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
+import { directTeamNamesFromRows } from "@/lib/teamLeaderKind";
 
 export type RosterFormat = "V21" | "V18";
 
@@ -361,9 +362,11 @@ export async function upsertRosterRows(rows: RosterUploadRow[], format: RosterFo
   const teamLeaderNames = Array.from(new Set(rows.map((r) => r.teamLeaderName.trim())));
   const existingTls = await prisma.teamLeader.findMany({ where: { name: { in: teamLeaderNames } }, select: { id: true, name: true } });
   const teamLeaderByName = new Map(existingTls.map((tl) => [tl.name, tl.id]));
+  // A "team leader" with the same name as its Sales Supervisor on every row is that supervisor running the principal directly.
+  const directTeamNames = directTeamNamesFromRows(rows.map((r) => ({ teamLeader: r.teamLeaderName, supervisor: r.supervisorName })));
   for (const name of teamLeaderNames) {
     if (teamLeaderByName.has(name)) continue;
-    const created = await prisma.teamLeader.create({ data: { name } });
+    const created = await prisma.teamLeader.create({ data: { name, kind: directTeamNames.has(name) ? "SUPERVISOR_TEAM" : "TEAM_LEADER" } });
     teamLeaderByName.set(name, created.id);
   }
 

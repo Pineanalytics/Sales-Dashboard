@@ -12,6 +12,7 @@ import {
 } from "@/lib/weeklyTargets";
 import { saveWeeklyTargetsAction } from "./actions";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { normalizeTeamLeaderKind, teamLeaderDisplayName } from "@/lib/teamLeaderKind";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,9 @@ export default async function WeeklyTargetsPage({
   const monthIndex = CANONICAL_MONTHS.indexOf(month);
 
   const allTeamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
-  const visibleTeamLeaders = scope ? allTeamLeaders.filter((tl) => scope.teamLeaderIds.includes(tl.id)) : allTeamLeaders;
+  // Leavers drop out of the selector; a supervisor's direct team stays, because the supervisor enters its targets here.
+  const activeTeamLeaders = allTeamLeaders.filter((tl) => normalizeTeamLeaderKind(tl.kind) !== "FORMER");
+  const visibleTeamLeaders = scope ? activeTeamLeaders.filter((tl) => scope.teamLeaderIds.includes(tl.id)) : activeTeamLeaders;
 
   if (visibleTeamLeaders.length === 0) {
     return (
@@ -191,7 +194,7 @@ export default async function WeeklyTargetsPage({
                             href={`/weekly-targets?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&teamLeader=${tl.id}`}
                             className="text-primary-blue hover:underline"
                           >
-                            {tl.name}
+                            {teamLeaderDisplayName(tl)}
                           </Link>
                         </td>
                         <td className="px-6 py-3 border-b border-border/60 text-right">{s.total}</td>
@@ -221,12 +224,12 @@ export default async function WeeklyTargetsPage({
                       : "bg-background-elevated text-muted-strong hover:bg-accent-blue-soft"
                   }`}
                 >
-                  {tl.name}
+                  {teamLeaderDisplayName(tl)}
                 </Link>
               ))}
             </div>
           ) : (
-            <span className="text-sm font-medium text-foreground">{selectedTeamLeader.name}</span>
+            <span className="text-sm font-medium text-foreground">{teamLeaderDisplayName(selectedTeamLeader)}</span>
           )}
         </div>
 

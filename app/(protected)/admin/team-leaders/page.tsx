@@ -24,6 +24,7 @@ import {
 import { RosterAssignmentsCascade } from "./RosterAssignmentsCascade";
 import { RosterHierarchyTree } from "./RosterHierarchyTree";
 import { RosterTargetsPanel } from "./RosterTargetsPanel";
+import { TeamLeaderOptions } from "@/components/admin/TeamLeaderOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -329,11 +330,7 @@ export default async function AdminTeamLeadersPage({
                     <option value="" disabled>
                       Select
                     </option>
-                    {teamLeaders.map((tl) => (
-                      <option key={tl.id} value={tl.id}>
-                        {labelForName(tl.name, "Team Leader", ambiguousNames)}
-                      </option>
-                    ))}
+                    <TeamLeaderOptions teamLeaders={teamLeaders} includeFormer labelFor={(tl) => labelForName(tl.name, "Team Leader", ambiguousNames)} />
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -342,11 +339,7 @@ export default async function AdminTeamLeadersPage({
                     <option value="" disabled>
                       Select
                     </option>
-                    {teamLeaders.map((tl) => (
-                      <option key={tl.id} value={tl.id}>
-                        {labelForName(tl.name, "Team Leader", ambiguousNames)}
-                      </option>
-                    ))}
+                    <TeamLeaderOptions teamLeaders={teamLeaders} includeFormer labelFor={(tl) => labelForName(tl.name, "Team Leader", ambiguousNames)} />
                   </select>
                 </div>
                 <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white">
@@ -439,11 +432,7 @@ export default async function AdminTeamLeadersPage({
                 <option value="" disabled>
                   Select
                 </option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
+                <TeamLeaderOptions teamLeaders={teamLeaders} />
               </select>
             </div>
             <div className="flex flex-col gap-2">
@@ -452,11 +441,7 @@ export default async function AdminTeamLeadersPage({
                 <option value="" disabled>
                   Select
                 </option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
+                <TeamLeaderOptions teamLeaders={teamLeaders} />
               </select>
             </div>
             <div className="flex flex-col gap-2">
@@ -541,11 +526,7 @@ export default async function AdminTeamLeadersPage({
                 <option value="" disabled>
                   Select
                 </option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
+                <TeamLeaderOptions teamLeaders={teamLeaders} />
               </select>
             </div>
             <div className="flex flex-col gap-2">
@@ -588,11 +569,7 @@ export default async function AdminTeamLeadersPage({
                 <option value="" disabled>
                   Select
                 </option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
+                <TeamLeaderOptions teamLeaders={teamLeaders} />
               </select>
             </div>
             <div className="flex flex-col gap-2">
