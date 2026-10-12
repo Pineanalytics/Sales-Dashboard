@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSharePcts, computeWeekdayWeights, normalizeRepShares, resolveRepSharePct, validateContributionTotals, weekdayDatesForWeek } from "../lib/repContribution";
+import { supervisorTeamRows, computeSharePcts, computeWeekdayWeights, normalizeRepShares, resolveRepSharePct, validateContributionTotals, weekdayDatesForWeek } from "../lib/repContribution";
 
 // Primary-only filtering itself (recomputeRepContribution/recomputeDailyTargets's
 // `salesRole: "PRIMARY"` where clause) lives in DB-backed async functions this
@@ -146,5 +146,20 @@ describe("normalizeRepShares", () => {
 
   it("gives a lone rep the whole figure, however small their principal-level share", () => {
     expect(normalizeRepShares([0.23])).toEqual([1]);
+  });
+});
+
+describe("supervisorTeamRows", () => {
+  it("groups a supervisor's own row with the leaders under her, and ignores supervisors with no leaders", () => {
+    const teams = supervisorTeamRows([
+  { id: "lucy", kind: "SUPERVISOR_TEAM", supervisorId: "S-lucy" },
+  { id: "benson", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
+  { id: "christine", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
+  { id: "erick", kind: "TEAM_LEADER", supervisorId: "S-erick" },
+  { id: "eve", kind: "SUPERVISOR_TEAM", supervisorId: "S-eve" },
+]);
+    expect(teams.get("lucy")).toEqual(["lucy", "benson", "christine"]);
+    expect(teams.has("eve")).toBe(false);
+    expect(teams.has("erick")).toBe(false);
   });
 });

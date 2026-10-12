@@ -11,16 +11,18 @@
 //
 // Who carries a principal: the team leader rows that hold its active PRIMARY reps (a supervisor's direct team counts,
 // a former leader never does), weighted by those reps' revenue share, using the same precedence as the daily
-// projection (declared Contribution %, else the computed share, else an even split). A principal with no such rows
-// falls back to its own team leader row.
+// projection (declared Contribution %, else the computed share, else an even split). Leaders who work under a Sales
+// Supervisor with her own row (Mars: Lucy) are rolled up onto that row, so the supervisor holds the whole target as the
+// other supervisors do and the leaders share it out by territory in the daily projection. A principal with no such rows
+// falls back to its own team leader row. Safe to re-run: the plan starts from the monthly targets each time.
 import { prisma } from "../lib/db";
 import { recomputeRosterDerived } from "../lib/rosterAssignment";
 import { resolveRepSharePct } from "../lib/repContribution";
 import { normalizeTeamLeaderKind } from "../lib/teamLeaderKind";
-import { planWeeklyRebuild, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
+import { planWeeklyRebuild, rollUpToSupervisorRows, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
 
 const YEAR = 2026;
-const EDITOR = "2026 weekly rebuild";
+const EDITOR = "2026 weekly rebuild (supervisor roll-up)";
 const apply = process.argv.includes("--apply");
 class DryRunRollback extends Error {}
 
@@ -32,7 +34,7 @@ async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0])
   const [weeklyRows, monthlyRows, teamLeaders, assignments, contributions, principals] = await Promise.all([
     tx.weeklyTarget.findMany({ where: { year: String(YEAR) }, select: { id: true, teamLeaderId: true, principal: true, monthLabel: true, weekLabel: true, weekStartDate: true, targetValue: true } }),
     tx.target.findMany({ where: { year: String(YEAR) }, select: { principal: true, month: true, valueTarget: true } }),
-    tx.teamLeader.findMany({ select: { id: true, name: true, kind: true } }),
+    tx.teamLeader.findMany({ select: { id: true, name: true, kind: true, supervisorId: true } }),
     tx.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" }, select: { teamLeaderId: true, principal: true, employeeCode: true, contributionPct: true } }),
     tx.repContribution.findMany({ select: { principal: true, employeeCode: true, sharePct: true } }),
     tx.principal.findMany({ select: { principal: true, teamLeaderId: true } }),
@@ -56,7 +58,8 @@ async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0])
       const own = principals.find((p) => p.principal === principal)?.teamLeaderId;
       if (own && eligible.has(own)) weights.set(own, 1);
     }
-    if (weights.size > 0) recipientsByPrincipal.set(principal, [...weights].map(([teamLeaderId, weight]) => ({ teamLeaderId, weight })));
+    const carriers = rollUpToSupervisorRows(weights, teamLeaders);
+    if (carriers.size > 0) recipientsByPrincipal.set(principal, [...carriers].map(([teamLeaderId, weight]) => ({ teamLeaderId, weight })));
   }
 
   const plan = planWeeklyRebuild({ year: YEAR, weekly, monthly, recipientsByPrincipal });
