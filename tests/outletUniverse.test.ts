@@ -1,3 +1,4 @@
+import { buyingTenure, principalMix, purchaseConsistency } from "../lib/outletUniverse/normalize";
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
@@ -264,5 +265,38 @@ describe("Centegy coordinate discovery", () => {
 
   it("never lets a hostile column name into the SQL", () => {
     expect(pickCoordinateSource(cols("IG_I_JourneyPlan", ["GeoCodeX; DROP TABLE x", "GeoCodeY"]))).toBeNull();
+  });
+});
+
+describe("buying tenure, consistency and principal mix", () => {
+  const now = new Date("2026-10-12T00:00:00Z");
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000);
+
+  it("bands an outlet by how long it has been buying", () => {
+    expect(buyingTenure(daysAgo(300), now).band).toBe("More than 6 months");
+    expect(buyingTenure(daysAgo(183), now).band).toBe("More than 6 months");
+    expect(buyingTenure(daysAgo(120), now).band).toBe("3 to 6 months");
+    expect(buyingTenure(daysAgo(45), now).band).toBe("1 to 3 months");
+    expect(buyingTenure(daysAgo(10), now).band).toBe("Less than 1 month");
+    expect(buyingTenure(daysAgo(0), now).band).toBe("Less than 1 month");
+  });
+
+  it("reports months buying, and Unknown with no purchase on record", () => {
+    expect(buyingTenure(daysAgo(183), now).months).toBe(6);
+    expect(buyingTenure(null, now)).toEqual({ band: "Unknown", months: null });
+  });
+
+  it("is consistent only when it bought in all of the last three 30-day periods", () => {
+    expect(purchaseConsistency(3)).toBe("Consistent");
+    expect(purchaseConsistency(2)).toBe("Non-consistent");
+    expect(purchaseConsistency(0)).toBe("Non-consistent");
+  });
+
+  it("tells a single principal from a dominant one and a shared portfolio", () => {
+    expect(principalMix(1, 1)).toBe("Single principal");
+    expect(principalMix(3, 0.7)).toBe("Dominant principal");
+    expect(principalMix(3, 0.6)).toBe("Dominant principal");
+    expect(principalMix(2, 0.55)).toBe("Shared, no dominant");
+    expect(principalMix(2, null)).toBe("Shared, no dominant");
   });
 });

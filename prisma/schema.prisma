@@ -2433,6 +2433,12 @@ model OutletUniverse {
   // the same source (a day buying two principals is one day).
   purchaseDays30       Int @default(0)
   outletPurchaseDays30 Int @default(0)
+  // Outlet-level history, the same on every principal row of the outlet in a
+  // source: the earliest purchase on record (any principal), and how many of the
+  // last three 30-day periods saw a purchase (0 to 3). They drive the tenure band
+  // and the consistent / non-consistent flag in the Active Outlet extract.
+  firstPurchaseDate DateTime?
+  periodsBought90   Int       @default(0)
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])
