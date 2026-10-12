@@ -1,4 +1,4 @@
-import { buyingTenure, principalMix, purchaseConsistency } from "../lib/outletUniverse/normalize";
+import { boughtWithin, buyingTenure, longPurchaseConsistency, principalMix, purchaseConsistency } from "../lib/outletUniverse/normalize";
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
@@ -298,5 +298,22 @@ describe("buying tenure, consistency and principal mix", () => {
     expect(principalMix(3, 0.6)).toBe("Dominant principal");
     expect(principalMix(2, 0.55)).toBe("Shared, no dominant");
     expect(principalMix(2, null)).toBe("Shared, no dominant");
+  });
+});
+
+describe("six-month windows", () => {
+  const now = new Date("2026-10-12T00:00:00Z");
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000);
+
+  it("is consistent over six months only when all six 30-day periods saw a purchase", () => {
+    expect(longPurchaseConsistency(6)).toBe("Consistent");
+    expect(longPurchaseConsistency(5)).toBe("Non-consistent");
+  });
+
+  it("says whether the last purchase fell within a window", () => {
+    expect(boughtWithin(daysAgo(20), 30, now)).toBe(true);
+    expect(boughtWithin(daysAgo(40), 30, now)).toBe(false);
+    expect(boughtWithin(daysAgo(150), 183, now)).toBe(true);
+    expect(boughtWithin(null, 183, now)).toBe(false);
   });
 });

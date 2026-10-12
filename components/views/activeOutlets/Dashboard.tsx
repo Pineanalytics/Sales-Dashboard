@@ -46,6 +46,57 @@ function BreakdownTable({ title, rows, onPick }: { title: string; rows: Breakdow
   );
 }
 
+function BuyingHistory({ buying, generalView }: { buying: OutletUniverseSummary["buying"]; generalView: boolean }) {
+  const row = (label: string, count: number) => (
+    <tr key={label}>
+      <Td>{label}</Td>
+      <Td align="right">{formatNumber(count)}</Td>
+      <Td align="right">{pct(count, buying.total)}</Td>
+    </tr>
+  );
+  const table = (title: string, rows: [string, number][]) => (
+    <TableWrap>
+      <Thead>
+        <Th>{title}</Th>
+        <Th align="right">Outlets</Th>
+        <Th align="right">Share</Th>
+      </Thead>
+      <tbody>{rows.map(([label, count]) => row(label, count))}</tbody>
+    </TableWrap>
+  );
+  return (
+    <SectionCard title="Buying history">
+      <p className="mb-3 text-xs text-muted">
+        {formatNumber(buying.total)} {generalView ? "outlets" : "outlet–principal pairs"} under the filters above. Tenure counts from an outlet&apos;s first purchase on record (any principal); history starts 2 Jan 2026 for Pine, 2 May for EABL DMS and 2 Jun for Leverage, so
+        &ldquo;More than 6 months&rdquo; is Pine only for now. An outlet is <em>consistent</em> when it bought in every one of the last 3 (or 6) periods of 30 days. The principal mix is over all the principals the outlet buys.
+      </p>
+      <ChartGrid>
+        {table("Buying for", buying.tenure.map((t) => [t.band, t.count]))}
+        {table("Last purchase within", [
+          ["The last 30 days", buying.boughtWithin.last30],
+          ["The last 3 months", buying.boughtWithin.last90],
+          ["The last 6 months", buying.boughtWithin.last180],
+        ])}
+      </ChartGrid>
+      <div className="mt-4">
+        <ChartGrid>
+          {table("Consistency", [
+            ["Consistent – bought in all of the last 3 months", buying.consistency.consistent3],
+            ["Non-consistent – last 3 months", buying.total - buying.consistency.consistent3],
+            ["Consistent – bought in all of the last 6 months", buying.consistency.consistent6],
+            ["Non-consistent – last 6 months", buying.total - buying.consistency.consistent6],
+          ])}
+          {table("Principal mix", [
+            ["Single principal", buying.mix.single],
+            ["Dominant principal (largest holds 60% or more)", buying.mix.dominant],
+            ["Shared, no dominant", buying.mix.shared],
+          ])}
+        </ChartGrid>
+      </div>
+    </SectionCard>
+  );
+}
+
 export function Dashboard({ summary, filters, onFilter }: { summary: OutletUniverseSummary; filters: OutletFilters; onFilter: (patch: Partial<OutletFilters>) => void }) {
   const { totals, distinct } = summary;
   const knownAll = summary.bySource.reduce((sum, row) => sum + row.total, 0);
@@ -80,6 +131,8 @@ export function Dashboard({ summary, filters, onFilter }: { summary: OutletUnive
       <p className="-mt-3 text-xs text-muted">
         An outlet reached through both Primary and Secondary Sales is counted in both, so Primary + Secondary can exceed the distinct total. Pine records a role per sale; Leverage and EABL DMS are direct van / DSR channels and count as Primary.
       </p>
+
+      <BuyingHistory buying={summary.buying} generalView={generalView} />
 
       <SectionCard title="Active Outlets by Principal">
         <p className="mb-3 text-xs text-muted">Click a bar to filter to that principal. An outlet that buys several principals is counted under each of them here, even in the General view.</p>

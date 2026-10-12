@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import {
+  DOMINANT_SHARE,
   DORMANT_LOST_AFTER_DAYS,
   FREQUENT_MIN_PURCHASE_DAYS,
   FREQUENT_WINDOW_DAYS,
@@ -143,7 +144,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
       unit AS (
         SELECT b.source, b."outletKey", b.principal, b.principal AS principals, b."salesRole", b."outletName", b.channel, b.segment, b.location, b.region, b.territory, b.route,
                b."repName", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
-               b."firstPurchaseDate", b."periodsBought90", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals",
+               b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals",
                COALESCE(b."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
                (b."salesRole" = 'Primary Sales') AS "hasPrimary",
                (b."salesRole" = 'Secondary Sales') AS "hasSecondary",
@@ -155,7 +156,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
   return Prisma.sql`WITH ${base}, ${mix},
     head AS (
       SELECT DISTINCT ON (source, "outletKey") source, "outletKey", "outletName", channel, segment, location, region, territory, route,
-             "repName", latitude, longitude, "firstPurchaseDate", "periodsBought90"
+             "repName", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180"
       FROM base
       ORDER BY source, "outletKey", "lastPurchaseDate" DESC NULLS LAST, principal
     ),
@@ -174,7 +175,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
                   WHEN a."hasSecondary" THEN 'Secondary Sales' ELSE 'Primary Sales' END AS "salesRole",
              h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
              h."repName", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
-             h."firstPurchaseDate", h."periodsBought90", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals",
+             h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals",
              COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
              a."hasPrimary", a."hasSecondary", a."activePrimary", a."activeSecondary"
       FROM head h JOIN agg a USING (source, "outletKey") LEFT JOIN mix m ON m.source = h.source AND m."outletKey" = h."outletKey"
@@ -211,8 +212,22 @@ export interface PrincipalBreakdownRow extends BreakdownRow {
   sales: number;
 }
 
+/** How long the shown outlets have been buying, how recently, and how steadily (see lib/outletUniverse/normalize.ts). */
+export interface BuyingHistory {
+  total: number;
+  /** By first purchase on record. */
+  tenure: { band: string; count: number }[];
+  /** Outlets whose last purchase was within the window. */
+  boughtWithin: { last30: number; last90: number; last180: number };
+  /** Bought in every one of the last three / six 30-day periods. */
+  consistency: { consistent3: number; consistent6: number };
+  /** Single principal, one dominant principal (largest holds DOMINANT_SHARE or more), or shared. */
+  mix: { single: number; dominant: number; shared: number };
+}
+
 export interface OutletUniverseSummary {
   builtAt: string | null;
+  buying: BuyingHistory;
   activeWindowDays: number;
   totals: { total: number; active: number; inactive: number; withCoordinates: number; sales: number; transactions: number };
   /** Distinct outlets under the same filters, whichever view is selected (an
@@ -258,7 +273,24 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
   // The principal panel always counts principal-grain rows, even in the general
   // view: it answers "how many active outlets does each principal have".
   const principalFilters: OutletFilters = { ...filters, view: "principal" };
-  const [totals, distinct, builtAt, bySource, byPrincipal, byRegion, byTerritory, byChannel, bySegment, byRep] = await Promise.all([
+  const [buyingRows, totals, distinct, builtAt, bySource, byPrincipal, byRegion, byTerritory, byChannel, bySegment, byRep] = await Promise.all([
+    prisma.$queryRaw<Record<string, number>[]>(Prisma.sql`
+      ${cte(filters, scope, true)}
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE "firstPurchaseDate" IS NULL)::int AS unknown,
+             COUNT(*) FILTER (WHERE now()::date - "firstPurchaseDate"::date >= 183)::int AS over6,
+             COUNT(*) FILTER (WHERE now()::date - "firstPurchaseDate"::date BETWEEN 91 AND 182)::int AS m3to6,
+             COUNT(*) FILTER (WHERE now()::date - "firstPurchaseDate"::date BETWEEN 30 AND 90)::int AS m1to3,
+             COUNT(*) FILTER (WHERE now()::date - "firstPurchaseDate"::date < 30)::int AS under1,
+             COUNT(*) FILTER (WHERE "lastPurchaseDate" >= now() - interval '30 days')::int AS last30,
+             COUNT(*) FILTER (WHERE "lastPurchaseDate" >= now() - interval '91 days')::int AS last90,
+             COUNT(*) FILTER (WHERE "lastPurchaseDate" >= now() - interval '183 days')::int AS last180,
+             COUNT(*) FILTER (WHERE COALESCE("periodsBought90", 0) >= 3)::int AS consistent3,
+             COUNT(*) FILTER (WHERE COALESCE("periodsBought180", 0) >= 6)::int AS consistent6,
+             COUNT(*) FILTER (WHERE COALESCE("principalCount", 1) <= 1)::int AS single,
+             COUNT(*) FILTER (WHERE COALESCE("principalCount", 1) > 1 AND COALESCE("dominantShare", 0) >= ${DOMINANT_SHARE})::int AS dominant
+      FROM unit WHERE ${statusClause(filters.status)}
+    `),
     prisma.$queryRaw<{ total: number; active: number; withCoordinates: number; sales: number; transactions: number }[]>(Prisma.sql`
       ${cte(filters, scope)}
       SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
@@ -287,11 +319,28 @@ export async function getOutletUniverseSummary(filters: OutletFilters, scope: Ou
     breakdown(filters, scope, Prisma.sql`"repName"`, TOP_REPS),
   ]);
 
+  const b = buyingRows[0] ?? {};
+  const buyingTotal = num(b.total);
+  const buying: BuyingHistory = {
+    total: buyingTotal,
+    tenure: [
+      { band: "More than 6 months", count: num(b.over6) },
+      { band: "3 to 6 months", count: num(b.m3to6) },
+      { band: "1 to 3 months", count: num(b.m1to3) },
+      { band: "Less than 1 month", count: num(b.under1) },
+      { band: "Unknown", count: num(b.unknown) },
+    ],
+    boughtWithin: { last30: num(b.last30), last90: num(b.last90), last180: num(b.last180) },
+    consistency: { consistent3: num(b.consistent3), consistent6: num(b.consistent6) },
+    mix: { single: num(b.single), dominant: num(b.dominant), shared: buyingTotal - num(b.single) - num(b.dominant) },
+  };
+
   const t = totals[0];
   const total = num(t?.total);
   const active = num(t?.active);
   return {
     builtAt: builtAt[0]?.builtAt ? builtAt[0].builtAt.toISOString() : null,
+    buying,
     activeWindowDays: OUTLET_ACTIVE_WINDOW_DAYS,
     totals: { total, active, inactive: total - active, withCoordinates: num(t?.withCoordinates), sales: num(t?.sales), transactions: num(t?.transactions) },
     distinct: { total: num(distinct[0]?.total), active: num(distinct[0]?.active), ...roleCounts(distinct[0] ?? {}) },
@@ -328,6 +377,7 @@ export interface OutletListRow {
   /** Earliest purchase on record (any principal) and how many of the last three 30-day periods saw a purchase. */
   firstPurchaseDate: string | null;
   periodsBought90: number;
+  periodsBought180: number;
   /** The outlet's principal portfolio over the viewer's scope: how many principals, which one dominates (and its share of the outlet's sales, 0 to 1), and the rest with their shares. */
   principalCount: number;
   dominantPrincipal: string | null;
@@ -337,7 +387,7 @@ export interface OutletListRow {
 
 const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName",
   latitude, longitude, "lastPurchaseDate", sales::double precision AS sales, transactions::int AS transactions, active,
-  "firstPurchaseDate", COALESCE("periodsBought90", 0)::int AS "periodsBought90", COALESCE("principalCount", 1)::int AS "principalCount",
+  "firstPurchaseDate", COALESCE("periodsBought90", 0)::int AS "periodsBought90", COALESCE("periodsBought180", 0)::int AS "periodsBought180", COALESCE("principalCount", 1)::int AS "principalCount",
   "dominantPrincipal", "dominantShare", "sharedPrincipals"`;
 
 type RawListRow = Omit<OutletListRow, "lastPurchaseDate" | "firstPurchaseDate"> & { lastPurchaseDate: Date | null; firstPurchaseDate: Date | null };
@@ -350,6 +400,7 @@ function toListRow(row: RawListRow): OutletListRow {
     lastPurchaseDate: row.lastPurchaseDate ? row.lastPurchaseDate.toISOString().slice(0, 10) : null,
     firstPurchaseDate: row.firstPurchaseDate ? row.firstPurchaseDate.toISOString().slice(0, 10) : null,
     periodsBought90: num(row.periodsBought90),
+    periodsBought180: num(row.periodsBought180),
     principalCount: num(row.principalCount),
     dominantShare: row.dominantShare === null || row.dominantShare === undefined ? null : Number(row.dominantShare),
   };
