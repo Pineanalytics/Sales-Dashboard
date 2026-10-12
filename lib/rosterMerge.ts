@@ -29,7 +29,12 @@
 // else it safely can and leaves the (now mostly empty) loser row in place;
 // running the same merge again after the admin resolves the conflict
 // deletes it.
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
+
+/** The client inside an open transaction, so a caller (such as a one-off migration that must be able to roll back as a
+ *  whole) can run a merge as one step of its own transaction. */
+export type MergeTx = Prisma.TransactionClient;
 
 export interface MergeResult {
   winnerName: string;
@@ -46,11 +51,16 @@ export interface MergeResult {
  *  the loser TeamLeader row is then deleted, unless a conflict left
  *  something still pointing at it. */
 export async function mergeTeamLeaders(winnerId: string, loserId: string): Promise<MergeResult> {
+  return prisma.$transaction((tx) => mergeTeamLeadersInTx(tx, winnerId, loserId));
+}
+
+/** mergeTeamLeaders, run on the caller's transaction instead of opening its own. */
+export async function mergeTeamLeadersInTx(tx: MergeTx, winnerId: string, loserId: string): Promise<MergeResult> {
   if (winnerId === loserId) throw new Error("Choose two different Team Leaders to merge.");
 
   const [winner, loser] = await Promise.all([
-    prisma.teamLeader.findUnique({ where: { id: winnerId }, select: { name: true } }),
-    prisma.teamLeader.findUnique({ where: { id: loserId }, select: { name: true } }),
+    tx.teamLeader.findUnique({ where: { id: winnerId }, select: { name: true } }),
+    tx.teamLeader.findUnique({ where: { id: loserId }, select: { name: true } }),
   ]);
   if (!winner || !loser) throw new Error("Team Leader not found.");
 
@@ -58,7 +68,7 @@ export async function mergeTeamLeaders(winnerId: string, loserId: string): Promi
   const conflicts: string[] = [];
   let loserDeleted = false;
 
-  await prisma.$transaction(async (tx) => {
+  {
     // TeamLeaderAssignment — unique on (teamLeaderId, employeeCode, principal);
     // a row the winner already has for the same rep/principal can't be
     // blindly overwritten, so it's left on the loser.
@@ -173,7 +183,7 @@ export async function mergeTeamLeaders(winnerId: string, loserId: string): Promi
       await tx.teamLeader.delete({ where: { id: loserId } });
       loserDeleted = true;
     }
-  });
+  }
 
   return { winnerName: winner.name, loserName: loser.name, reassigned, conflicts, loserDeleted };
 }
@@ -186,11 +196,16 @@ export async function mergeTeamLeaders(winnerId: string, loserId: string): Promi
  *  so (unlike the Team Leader merge above) the only possible conflict is the
  *  login-link case. */
 export async function mergeSupervisors(winnerId: string, loserId: string): Promise<MergeResult> {
+  return prisma.$transaction((tx) => mergeSupervisorsInTx(tx, winnerId, loserId));
+}
+
+/** mergeSupervisors, run on the caller's transaction instead of opening its own. */
+export async function mergeSupervisorsInTx(tx: MergeTx, winnerId: string, loserId: string): Promise<MergeResult> {
   if (winnerId === loserId) throw new Error("Choose two different Supervisors to merge.");
 
   const [winner, loser] = await Promise.all([
-    prisma.supervisor.findUnique({ where: { id: winnerId }, select: { name: true } }),
-    prisma.supervisor.findUnique({ where: { id: loserId }, select: { name: true } }),
+    tx.supervisor.findUnique({ where: { id: winnerId }, select: { name: true } }),
+    tx.supervisor.findUnique({ where: { id: loserId }, select: { name: true } }),
   ]);
   if (!winner || !loser) throw new Error("Supervisor not found.");
 
@@ -198,7 +213,7 @@ export async function mergeSupervisors(winnerId: string, loserId: string): Promi
   const conflicts: string[] = [];
   let loserDeleted = false;
 
-  await prisma.$transaction(async (tx) => {
+  {
     reassigned.teamLeaderAssignments = (await tx.teamLeaderAssignment.updateMany({ where: { supervisorId: loserId }, data: { supervisorId: winnerId } })).count;
     reassigned.teamLeaders = (await tx.teamLeader.updateMany({ where: { supervisorId: loserId }, data: { supervisorId: winnerId } })).count;
     reassigned.principals = (await tx.principal.updateMany({ where: { supervisorId: loserId }, data: { supervisorId: winnerId } })).count;
@@ -221,7 +236,7 @@ export async function mergeSupervisors(winnerId: string, loserId: string): Promi
       await tx.supervisor.delete({ where: { id: loserId } });
       loserDeleted = true;
     }
-  });
+  }
 
   return { winnerName: winner.name, loserName: loser.name, reassigned, conflicts, loserDeleted };
 }

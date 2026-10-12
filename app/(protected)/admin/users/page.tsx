@@ -8,6 +8,7 @@ import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { UserAccessToolbar } from "@/components/admin/UserAccessToolbar";
 import { NewUserForm } from "@/components/admin/NewUserForm";
+import { isRealTeamLeader } from "@/lib/teamLeaderKind";
 import {
   deleteUserAction,
   approveUserAction,
@@ -379,11 +380,14 @@ export default async function AdminUsersPage({
                         className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
                       >
                         <option value="">— none —</option>
-                        {teamLeaders.map((tl) => (
-                          <option key={tl.id} value={tl.id}>
-                            {teamLeaderOptionLabel(tl)}
-                          </option>
-                        ))}
+                        {teamLeaders
+                          .filter((tl) => isRealTeamLeader(tl.kind) || tl.id === u.teamLeaderId)
+                          .map((tl) => (
+                            <option key={tl.id} value={tl.id}>
+                              {teamLeaderOptionLabel(tl)}
+                              {isRealTeamLeader(tl.kind) ? "" : " (not a team leader)"}
+                            </option>
+                          ))}
                       </select>
                       {!u.teamLeaderId && teamLeaderByEmail.has(u.email.toLowerCase()) ? (
                         <span className="text-[11px] text-accent-green">Suggested from matching email — Save role to confirm.</span>
