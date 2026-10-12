@@ -19,7 +19,7 @@ export function TeamLeaderOptions<T extends KindedTeamLeader & { id: string; nam
         {labelFor ? labelFor(tl) : tl.name}
       </option>
     ));
-  const nonEmpty = (["teamLeaders", "directTeams", "former"] as const).filter((key) => grouped[key].length > 0);
+  const nonEmpty = (["teamLeaders", "directTeams", "keyAccounts", "former"] as const).filter((key) => grouped[key].length > 0);
   if (nonEmpty.length <= 1) return <>{nonEmpty.map((key) => options(grouped[key]))}</>;
   return (
     <>

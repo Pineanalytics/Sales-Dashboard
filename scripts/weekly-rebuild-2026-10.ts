@@ -11,18 +11,20 @@
 //
 // Who carries a principal: the team leader rows that hold its active PRIMARY reps (a supervisor's direct team counts,
 // a former leader never does), weighted by those reps' revenue share, using the same precedence as the daily
-// projection (declared Contribution %, else the computed share, else an even split). Leaders who work under a Sales
-// Supervisor with her own row (Mars: Lucy) are rolled up onto that row, so the supervisor holds the whole target as the
-// other supervisors do and the leaders share it out by territory in the daily projection. A principal with no such rows
-// falls back to its own team leader row. Safe to re-run: the plan starts from the monthly targets each time.
+// projection (declared Contribution %, else the computed share, else an even split). A principal with no such rows
+// falls back to its own team leader row.
+//
+// A key-accounts rep (KEY_ACCOUNTS_REPS) first gets a roster row of her own, and the plan gives that row a fixed monthly
+// amount (KEY_ACCOUNT_MONTHLY_TARGETS); the leaders share the rest. Safe to re-run: the plan starts from the monthly
+// targets each time.
 import { prisma } from "../lib/db";
 import { recomputeRosterDerived } from "../lib/rosterAssignment";
 import { resolveRepSharePct } from "../lib/repContribution";
 import { normalizeTeamLeaderKind } from "../lib/teamLeaderKind";
-import { planWeeklyRebuild, rollUpToSupervisorRows, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
+import { KEY_ACCOUNT_MONTHLY_TARGETS, planWeeklyRebuild, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
 
 const YEAR = 2026;
-const EDITOR = "2026 weekly rebuild (supervisor roll-up)";
+const EDITOR = "2026 weekly rebuild";
 const apply = process.argv.includes("--apply");
 class DryRunRollback extends Error {}
 
@@ -30,11 +32,38 @@ const log = (message: string) => console.log(message);
 const money = (n: number) => Math.round(n).toLocaleString("en-US");
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
+// Key-accounts reps who sit in a supervisor's team beside the team leaders: each gets a roster row of her own (kind
+// KEY_ACCOUNTS, under the same Sales Supervisor) that holds her assignment and her fixed monthly target, so the
+// supervisor's row carries no target of its own.
+const KEY_ACCOUNTS_REPS = [{ name: "Clarrine Wahome", principal: "Mars-Nairobi" }];
+
+async function placeKeyAccountsReps(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) {
+  for (const rep of KEY_ACCOUNTS_REPS) {
+    const assignments = await tx.teamLeaderAssignment.findMany({ where: { employeeName: rep.name, principal: rep.principal, active: true, salesRole: "PRIMARY" } });
+    if (assignments.length === 0) {
+      log(`Key accounts: no active ${rep.principal} assignment for ${rep.name}; nothing to place.`);
+      continue;
+    }
+    const currentRows = await tx.teamLeader.findMany({ where: { id: { in: assignments.map((a) => a.teamLeaderId) } } });
+    const currentName = (id: string) => currentRows.find((r) => r.id === id)?.name ?? id;
+    const supervisorId = currentRows[0]?.supervisorId ?? null;
+    let row = await tx.teamLeader.findUnique({ where: { name: rep.name } });
+    if (!row) row = await tx.teamLeader.create({ data: { name: rep.name, kind: "KEY_ACCOUNTS", supervisorId } });
+    else if (row.kind !== "KEY_ACCOUNTS" || row.supervisorId !== supervisorId) row = await tx.teamLeader.update({ where: { id: row.id }, data: { kind: "KEY_ACCOUNTS", supervisorId } });
+    for (const a of assignments) {
+      if (a.teamLeaderId === row.id) continue;
+      await tx.teamLeaderAssignment.update({ where: { id: a.id }, data: { teamLeaderId: row.id } });
+      log(`Key accounts: ${rep.name} (${rep.principal}) moved from ${currentName(a.teamLeaderId)}'s row to her own row, under the same supervisor.`);
+    }
+  }
+}
+
 async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) {
+  await placeKeyAccountsReps(tx);
   const [weeklyRows, monthlyRows, teamLeaders, assignments, contributions, principals] = await Promise.all([
     tx.weeklyTarget.findMany({ where: { year: String(YEAR) }, select: { id: true, teamLeaderId: true, principal: true, monthLabel: true, weekLabel: true, weekStartDate: true, targetValue: true } }),
     tx.target.findMany({ where: { year: String(YEAR) }, select: { principal: true, month: true, valueTarget: true } }),
-    tx.teamLeader.findMany({ select: { id: true, name: true, kind: true, supervisorId: true } }),
+    tx.teamLeader.findMany({ select: { id: true, name: true, kind: true } }),
     tx.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" }, select: { teamLeaderId: true, principal: true, employeeCode: true, contributionPct: true } }),
     tx.repContribution.findMany({ select: { principal: true, employeeCode: true, sharePct: true } }),
     tx.principal.findMany({ select: { principal: true, teamLeaderId: true } }),
@@ -43,6 +72,7 @@ async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0])
   const weekly: WeeklyRow[] = weeklyRows.map((r) => ({ id: r.id, teamLeaderId: r.teamLeaderId, principal: r.principal, monthLabel: r.monthLabel, weekLabel: r.weekLabel, start: isoDay(r.weekStartDate), value: r.targetValue }));
   const monthly = monthlyRows.map((r) => ({ principal: r.principal, month: r.month, value: r.valueTarget }));
   const nameById = new Map(teamLeaders.map((t) => [t.id, t.name]));
+  const kindById = new Map(teamLeaders.map((t) => [t.id, t.kind]));
   const eligible = new Set(teamLeaders.filter((t) => normalizeTeamLeaderKind(t.kind) !== "FORMER").map((t) => t.id));
   const computedShare = new Map(contributions.map((c) => [`${c.principal}|${c.employeeCode}`, c.sharePct]));
 
@@ -58,8 +88,16 @@ async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0])
       const own = principals.find((p) => p.principal === principal)?.teamLeaderId;
       if (own && eligible.has(own)) weights.set(own, 1);
     }
-    const carriers = rollUpToSupervisorRows(weights, teamLeaders);
-    if (carriers.size > 0) recipientsByPrincipal.set(principal, [...carriers].map(([teamLeaderId, weight]) => ({ teamLeaderId, weight })));
+    // A key-accounts row carries its fixed monthly amount; the other rows share what is left by weight.
+    const fixedFor = KEY_ACCOUNT_MONTHLY_TARGETS[principal];
+    if (weights.size > 0) {
+      recipientsByPrincipal.set(
+        principal,
+        [...weights].map(([teamLeaderId, weight]) =>
+          fixedFor !== undefined && normalizeTeamLeaderKind(kindById.get(teamLeaderId)) === "KEY_ACCOUNTS" ? { teamLeaderId, weight, fixedMonthly: fixedFor } : { teamLeaderId, weight }
+        )
+      );
+    }
   }
 
   const plan = planWeeklyRebuild({ year: YEAR, weekly, monthly, recipientsByPrincipal });
@@ -73,7 +111,7 @@ async function run(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0])
   log("\nWho carries each principal (share of the monthly target):");
   for (const [principal, recipients] of [...recipientsByPrincipal].sort((a, b) => a[0].localeCompare(b[0]))) {
     const total = recipients.reduce((s, r) => s + r.weight, 0);
-    log(`  ${principal.padEnd(22)} ${recipients.sort((a, b) => b.weight - a.weight).map((r) => `${nameById.get(r.teamLeaderId) ?? r.teamLeaderId} ${total > 0 ? Math.round((r.weight / total) * 100) : 0}%`).join(", ")}`);
+    log(`  ${principal.padEnd(22)} ${recipients.sort((a, b) => b.weight - a.weight).map((r) => (r.fixedMonthly !== undefined ? `${nameById.get(r.teamLeaderId) ?? r.teamLeaderId} fixed ${money(r.fixedMonthly)}/month` : `${nameById.get(r.teamLeaderId) ?? r.teamLeaderId} ${total > 0 ? Math.round((r.weight / total) * 100) : 0}%`)).join(", ")}`);
   }
 
   const byPrincipal = new Map<string, { target: number; planned: number }>();

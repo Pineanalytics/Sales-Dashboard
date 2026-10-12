@@ -13,6 +13,7 @@ import {
 import { saveWeeklyTargetsAction } from "./actions";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
 import { normalizeTeamLeaderKind, teamLeaderDisplayName } from "@/lib/teamLeaderKind";
+import { buildTeamBreakdown, supervisorTeamRows, type TeamBreakdownPrincipal } from "@/lib/supervisorTeam";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,38 @@ export default async function WeeklyTargetsPage({
   const overallPending = overallTotal - overallFilled;
   const overallSum = summaryRows.reduce((s, r) => s + r.targetValue, 0);
 
+  // A Sales Supervisor with leaders below her (Lucy over Mars's six) holds the principal's whole target: her figure is the
+  // sum of her team's rows, drilled down by leader, then rep. Nothing extra is stored.
+  const teamRowsBySupervisorRow = supervisorTeamRows(allTeamLeaders);
+  const teamMemberIds = teamRowsBySupervisorRow.get(selectedTeamLeaderId);
+  let teamBreakdown: TeamBreakdownPrincipal[] = [];
+  if (teamMemberIds) {
+    const monthStart = new Date(Date.UTC(Number(year), monthIndex, 1));
+    const nextMonthStart = new Date(Date.UTC(Number(year), monthIndex + 1, 1));
+    const [teamWeekly, teamReps, teamDaily] = await Promise.all([
+      prisma.weeklyTarget.findMany({ where: { teamLeaderId: { in: teamMemberIds }, weekStartDate: { in: weekStartDates } }, select: { teamLeaderId: true, principal: true, weekStartDate: true, targetValue: true } }),
+      prisma.teamLeaderAssignment.findMany({
+        where: { teamLeaderId: { in: teamMemberIds }, active: true, salesRole: "PRIMARY" },
+        select: { teamLeaderId: true, principal: true, employeeCode: true, employeeName: true, channel: true, contributionPct: true },
+      }),
+      prisma.dailyTarget.groupBy({
+        by: ["teamLeaderId", "principal", "employeeCode"],
+        where: { teamLeaderId: { in: teamMemberIds }, date: { gte: monthStart, lt: nextMonthStart } },
+        _sum: { targetValue: true },
+      }),
+    ]);
+    teamBreakdown = buildTeamBreakdown({
+      memberIds: teamMemberIds,
+      roster: allTeamLeaders.map((tl) => ({ id: tl.id, name: tl.name, kind: normalizeTeamLeaderKind(tl.kind), supervisorId: tl.supervisorId })),
+      supervisorRowId: selectedTeamLeaderId,
+      weekStarts: weekStartDates.map((d) => d.toISOString().slice(0, 10)),
+      weekly: teamWeekly.map((w) => ({ teamLeaderId: w.teamLeaderId, principal: w.principal, weekStart: w.weekStartDate.toISOString().slice(0, 10), targetValue: w.targetValue })),
+      reps: teamReps,
+      daily: teamDaily.map((d) => ({ teamLeaderId: d.teamLeaderId, principal: d.principal, employeeCode: d.employeeCode, total: d._sum.targetValue ?? 0 })),
+    });
+  }
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
   const rollup = await getWeeklyRollupByPrincipalMonth(year);
   const completion = await getWeeklyCompletionByPrincipalMonth(year, month);
   const monthlyTargets = await prisma.target.findMany({ where: { year, month, principal: { in: principals } } });
@@ -188,6 +221,8 @@ export default async function WeeklyTargetsPage({
                   {visibleTeamLeaders.map((tl) => {
                     const s = summaryByLeader.get(tl.id) ?? { total: 0, filled: 0, sum: 0 };
                     const pct = s.total > 0 ? (s.filled / s.total) * 100 : 0;
+                    const teamIds = teamRowsBySupervisorRow.get(tl.id);
+                    const teamSum = teamIds ? teamIds.reduce((sum, id) => sum + (summaryByLeader.get(id)?.sum ?? 0), 0) : null;
                     return (
                       <tr key={tl.id}>
                         <td className="px-6 py-3 border-b border-border/60">
@@ -202,7 +237,10 @@ export default async function WeeklyTargetsPage({
                         <td className="px-6 py-3 border-b border-border/60 text-right">{s.filled}</td>
                         <td className="px-6 py-3 border-b border-border/60 text-right">{s.total - s.filled}</td>
                         <td className="px-6 py-3 border-b border-border/60 text-right">{pct.toFixed(1)}%</td>
-                        <td className="px-6 py-3 border-b border-border/60 text-right">{s.sum.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="px-6 py-3 border-b border-border/60 text-right">
+                          {fmt(teamSum ?? s.sum)}
+                          {teamSum !== null ? <span className="block text-[11px] font-normal text-muted">whole team (own row {fmt(s.sum)})</span> : null}
+                        </td>
                       </tr>
                     );
                   })}
@@ -252,6 +290,83 @@ export default async function WeeklyTargetsPage({
             ))}
           </div>
         </div>
+
+        {teamBreakdown.map((bp) => (
+          <div key={bp.principal} className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <div className="p-6 pb-0">
+              <h2 className="text-lg font-semibold text-primary-blue">
+                {selectedTeamLeader.name}&apos;s team — {bp.principal} — {month} {year}
+              </h2>
+              <p className="mt-1 text-[13px] text-muted">
+                {selectedTeamLeader.name} holds the whole target ({fmt(bp.total)}); the team leaders below share it out by territory, and each leader&apos;s reps carry it
+                down to daily targets. Open a row to see the reps.
+              </p>
+            </div>
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-medium">Team leader / rep</th>
+                    {weeks.map((w) => (
+                      <th key={w.weekLabel} className="px-3 py-3 text-right font-medium whitespace-nowrap">
+                        {w.weekLabel}
+                      </th>
+                    ))}
+                    <th className="px-4 py-3 text-right font-medium">Month</th>
+                    <th className="px-4 py-3 text-right font-medium">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bp.members.map((m) => (
+                    <tr key={m.teamLeaderId} className="align-top">
+                      <td className="px-6 py-3 border-b border-border/60">
+                        <details>
+                          <summary className="cursor-pointer font-medium">
+                            {m.label} <span className="font-normal text-muted">· {m.role}</span>
+                          </summary>
+                          <ul className="mt-2 space-y-1 text-[13px] text-muted-strong">
+                            {m.reps.map((r) => (
+                              <li key={r.employeeCode}>
+                                {r.employeeName}
+                                {r.channel ? ` · ${r.channel}` : ""}
+                                {r.contributionPct != null ? ` · ${(r.contributionPct * 100).toFixed(1)}%` : ""}
+                                {` · daily targets in ${month}: ${fmt(r.monthDailyTotal)}`}
+                              </li>
+                            ))}
+                            {m.role === "Team Leader" ? (
+                              <li>
+                                <Link href={`/weekly-targets?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&teamLeader=${m.teamLeaderId}`} className="text-primary-blue hover:underline">
+                                  Open {m.label}&apos;s weekly grid →
+                                </Link>
+                              </li>
+                            ) : null}
+                          </ul>
+                        </details>
+                      </td>
+                      {m.weekValues.map((v, i) => (
+                        <td key={i} className="px-3 py-3 border-b border-border/60 text-right">
+                          {fmt(v)}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 border-b border-border/60 text-right font-medium">{fmt(m.total)}</td>
+                      <td className="px-4 py-3 border-b border-border/60 text-right">{(m.sharePct * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-background-elevated font-semibold">
+                    <td className="px-6 py-3">{selectedTeamLeader.name} — {bp.principal}</td>
+                    {bp.weekTotals.map((v, i) => (
+                      <td key={i} className="px-3 py-3 text-right">
+                        {fmt(v)}
+                      </td>
+                    ))}
+                    <td className="px-4 py-3 text-right">{fmt(bp.total)}</td>
+                    <td className="px-4 py-3 text-right">100%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
 
         {principals.length === 0 ? (
           <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-sm text-muted">

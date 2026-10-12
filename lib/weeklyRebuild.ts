@@ -37,7 +37,12 @@ export interface Recipient {
   teamLeaderId: string;
   /** Relative weight: the summed revenue share of the reps this leader has on the principal. */
   weight: number;
+  /** A fixed amount per month taken off the top before the rest is shared by weight (the key-accounts target). */
+  fixedMonthly?: number;
 }
+
+/** Monthly target the key-accounts rep carries on a principal, by default every month; the leaders share the rest. */
+export const KEY_ACCOUNT_MONTHLY_TARGETS: Record<string, number> = { "Mars-Nairobi": 40_000_000 };
 
 export interface CalendarWeek {
   start: string;
@@ -154,13 +159,25 @@ export function planWeeklyRebuild(input: { year: number; weekly: WeeklyRow[]; mo
           plan.unplaced.push(`${principal} ${month}`);
           continue;
         }
-        const weightTotal = recipients.reduce((s, r) => s + Math.max(0, r.weight), 0);
-        for (const recipient of recipients) {
-          const share = weightTotal > 0 ? Math.max(0, recipient.weight) / weightTotal : 1 / recipients.length;
-          weeks.forEach((_, i) => {
-            const phase = phasingTotal > 0 ? phasing[i] / phasingTotal : 1 / weeks.length;
-            cells.set(`${recipient.teamLeaderId}|${i}`, r2(target * share * phase));
-          });
+        // Fixed amounts (key accounts) come off the top, capped at the target; the leaders share what is left by weight.
+        const fixed = recipients.filter((r) => r.fixedMonthly !== undefined);
+        const weighted = recipients.filter((r) => r.fixedMonthly === undefined);
+        const fixedAsked = fixed.reduce((s, r) => s + Math.max(0, r.fixedMonthly ?? 0), 0);
+        const fixedTotal = Math.min(target, fixedAsked);
+        const shared = target - fixedTotal;
+        if (shared > 0 && weighted.length === 0) {
+          plan.unplaced.push(`${principal} ${month}`);
+          continue;
+        }
+        const phaseOf = (i: number) => (phasingTotal > 0 ? phasing[i] / phasingTotal : 1 / weeks.length);
+        for (const recipient of fixed) {
+          const amount = fixedAsked > 0 ? (Math.max(0, recipient.fixedMonthly ?? 0) / fixedAsked) * fixedTotal : 0;
+          weeks.forEach((_, i) => cells.set(`${recipient.teamLeaderId}|${i}`, r2(amount * phaseOf(i))));
+        }
+        const weightTotal = weighted.reduce((s, r) => s + Math.max(0, r.weight), 0);
+        for (const recipient of weighted) {
+          const share = weightTotal > 0 ? Math.max(0, recipient.weight) / weightTotal : 1 / weighted.length;
+          weeks.forEach((_, i) => cells.set(`${recipient.teamLeaderId}|${i}`, r2(shared * share * phaseOf(i))));
         }
         // exact total: the rounding residual goes on the largest cell
         const residual = r2(target - [...cells.values()].reduce((a, b) => a + b, 0));
@@ -197,21 +214,4 @@ export function planWeeklyRebuild(input: { year: number; weekly: WeeklyRow[]; mo
     plan.mondayZeroed += 1;
   }
   return plan;
-}
-
-/** A principal run by a Sales Supervisor with team leaders below (Mars: Lucy over six leaders) carries its target on the
- *  supervisor's own row, like every other supervisor-run principal; the leaders share it out at territory level in the
- *  daily projection instead of each holding a slice of the weekly plan. Moves each leader's weight to the supervisor's
- *  SUPERVISOR_TEAM row when there is one; every other row keeps its own weight. */
-export function rollUpToSupervisorRows(weights: Map<string, number>, rows: { id: string; kind: string; supervisorId: string | null }[]): Map<string, number> {
-  const supervisorRowBySupervisor = new Map<string, string>();
-  for (const row of rows) if (row.kind === "SUPERVISOR_TEAM" && row.supervisorId) supervisorRowBySupervisor.set(row.supervisorId, row.id);
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const rolled = new Map<string, number>();
-  for (const [id, weight] of weights) {
-    const row = byId.get(id);
-    const target = row && row.kind === "TEAM_LEADER" && row.supervisorId ? supervisorRowBySupervisor.get(row.supervisorId) ?? id : id;
-    rolled.set(target, (rolled.get(target) ?? 0) + weight);
-  }
-  return rolled;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalWeeks, planWeeklyRebuild, type Recipient, type WeeklyRow, rollUpToSupervisorRows } from "../lib/weeklyRebuild";
+import { canonicalWeeks, planWeeklyRebuild, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
 
 let seq = 0;
 function row(teamLeaderId: string, principal: string, start: string, value: number, over: Partial<WeeklyRow> = {}): WeeklyRow {
@@ -98,24 +98,26 @@ describe("planWeeklyRebuild", () => {
   });
 });
 
-describe("rollUpToSupervisorRows", () => {
-  const rows = [
-  { id: "lucy", kind: "SUPERVISOR_TEAM", supervisorId: "S-lucy" },
-  { id: "benson", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
-  { id: "christine", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
-  { id: "erick", kind: "TEAM_LEADER", supervisorId: "S-erick" },
-  { id: "eve", kind: "SUPERVISOR_TEAM", supervisorId: "S-eve" },
-];
+describe("planWeeklyRebuild with a fixed key-accounts amount", () => {
+  const monthly = (value: number) => [{ principal: "Mars-Nairobi", month: "October", value }];
+  const octoberWeeks = ["2026-10-04", "2026-10-11", "2026-10-18", "2026-10-25"];
+  const carriers = (fixed: number): Map<string, Recipient[]> =>
+    new Map([["Mars-Nairobi", [{ teamLeaderId: "zachary", weight: 3 }, { teamLeaderId: "lewis", weight: 1 }, { teamLeaderId: "clarrine", weight: 0.04, fixedMonthly: fixed }]]]);
+  const monthTotal = (plan: ReturnType<typeof planWeeklyRebuild>, tl: string) =>
+    [...plan.updates, ...plan.inserts].filter((u) => u.teamLeaderId === tl && octoberWeeks.includes(u.start)).reduce((s, u) => s + u.newValue, 0);
 
-  it("moves the leaders' weights onto the supervisor's own row", () => {
-    const rolled = rollUpToSupervisorRows(new Map([["benson", 0.12], ["christine", 0.22], ["lucy", 0.04]]), rows);
-    expect([...rolled.keys()]).toEqual(["lucy"]);
-    expect(rolled.get("lucy")).toBeCloseTo(0.38, 10);
+  it("gives the key-accounts row its fixed amount and shares the rest of the month by weight", () => {
+    const plan = planWeeklyRebuild({ year: 2026, weekly: [], monthly: monthly(1000), recipientsByPrincipal: carriers(400) });
+    expect(monthTotal(plan, "clarrine")).toBeCloseTo(400, 2);
+    expect(monthTotal(plan, "zachary")).toBeCloseTo(450, 2); // 600 left, 3 of 4
+    expect(monthTotal(plan, "lewis")).toBeCloseTo(150, 2);
+    expect(plan.totals).toContainEqual({ principal: "Mars-Nairobi", month: "October", target: 1000, planned: 1000 });
   });
 
-  it("leaves leaders without a supervisor row, and supervisors, where they are", () => {
-    const rolled = rollUpToSupervisorRows(new Map([["erick", 0.5], ["eve", 0.5]]), rows);
-    expect(rolled.get("erick")).toBe(0.5);
-    expect(rolled.get("eve")).toBe(0.5);
+  it("caps the fixed amount at a smaller month's target", () => {
+    const plan = planWeeklyRebuild({ year: 2026, weekly: [], monthly: monthly(300), recipientsByPrincipal: carriers(400) });
+    expect(monthTotal(plan, "clarrine")).toBeCloseTo(300, 2);
+    expect(monthTotal(plan, "zachary")).toBe(0);
+    expect(plan.totals).toContainEqual({ principal: "Mars-Nairobi", month: "October", target: 300, planned: 300 });
   });
 });
