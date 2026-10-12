@@ -100,14 +100,27 @@ export async function createUserAction(formData: FormData) {
   redirect("/admin/users?success=" + encodeURIComponent(`Created ${role.toLowerCase()} account for ${email}.`));
 }
 
+// Shared by approveUserAction and approveRoleConfirmationAction: the same
+// email-match auto-link /admin/users' own dropdowns suggest (see
+// TeamLeader.email/Supervisor.email) so applying a TEAM_LEADER/SUPERVISOR
+// role doesn't leave an already-rostered person unlinked for no reason.
+async function matchRosterLinkByEmail(role: UserRole, email: string): Promise<{ teamLeaderId: string | null; supervisorId: string | null }> {
+  if (role === "TEAM_LEADER") {
+    const match = await prisma.teamLeader.findUnique({ where: { email } });
+    return { teamLeaderId: match?.id ?? null, supervisorId: null };
+  }
+  if (role === "SUPERVISOR") {
+    const match = await prisma.supervisor.findUnique({ where: { email } });
+    return { teamLeaderId: null, supervisorId: match?.id ?? null };
+  }
+  return { teamLeaderId: null, supervisorId: null };
+}
+
 // On approve, the role the person requested on /register becomes their real
 // role (pre-dating role requests means requestedRole is null, so they stay
-// VIEWER — the old default). For TEAM_LEADER/SUPERVISOR, also try the same
-// email-match auto-link /admin/users' own dropdowns suggest (see
-// TeamLeader.email/Supervisor.email) so approval doesn't leave an
-// already-rostered person unlinked for no reason; a match already claimed
-// by another login (P2002) just leaves the link unset rather than blocking
-// the approval — the admin can set it by hand afterward, same as any other
+// VIEWER — the old default). A roster match already claimed by another
+// login (P2002) just leaves the link unset rather than blocking the
+// approval — the admin can set it by hand afterward, same as any other
 // unmatched case.
 export async function approveUserAction(formData: FormData) {
   await requireAdmin();
@@ -119,15 +132,7 @@ export async function approveUserAction(formData: FormData) {
   }
 
   const role = target.requestedRole ?? "VIEWER";
-  let teamLeaderId: string | null = null;
-  let supervisorId: string | null = null;
-  if (role === "TEAM_LEADER") {
-    const match = await prisma.teamLeader.findUnique({ where: { email: target.email } });
-    teamLeaderId = match?.id ?? null;
-  } else if (role === "SUPERVISOR") {
-    const match = await prisma.supervisor.findUnique({ where: { email: target.email } });
-    supervisorId = match?.id ?? null;
-  }
+  const { teamLeaderId, supervisorId } = await matchRosterLinkByEmail(role, target.email);
 
   try {
     await prisma.user.update({
@@ -163,6 +168,51 @@ export async function rejectUserAction(formData: FormData) {
 
   await prisma.user.delete({ where: { id: userId } });
   redirect("/admin/users?success=" + encodeURIComponent(`Rejected the request from ${target!.email}.`));
+}
+
+// Applies a role someone already APPROVED self-confirmed on the blocking
+// /(protected) prompt (User.proposedRole — see that layout and
+// app/(protected)/role-confirmation/actions.ts). Same roster auto-link
+// attempt as approveUserAction, and the same "last admin" guard
+// updateUserRoleAction uses, since this can change role just as that does
+// (though proposedRole itself is never ADMIN by construction).
+export async function approveRoleConfirmationAction(formData: FormData) {
+  const currentUser = await requireAdmin();
+  const userId = String(formData.get("userId") || "");
+
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target || !target.proposedRole) {
+    redirect("/admin/users?error=" + encodeURIComponent("Role confirmation not found."));
+  }
+
+  const role = target.proposedRole;
+  await assertNotLastAdminDemotion(userId, currentUser);
+  const { teamLeaderId, supervisorId } = await matchRosterLinkByEmail(role, target.email);
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { role, teamLeaderId, supervisorId, proposedRole: null },
+    });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    if (code !== "P2002") throw err;
+    await prisma.user.update({ where: { id: userId }, data: { role, proposedRole: null } });
+  }
+
+  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} confirmed as ${role.replace("_", " ").toLowerCase()}.`));
+}
+
+// Keeps the person's role as-is — the confirmation was reviewed but not
+// applied (e.g. they picked the wrong thing, or the admin wants to set a
+// different role manually via "Save role" instead). Never deletes the
+// account; only clears the pending request.
+export async function dismissRoleConfirmationAction(formData: FormData) {
+  await requireAdmin();
+  const userId = String(formData.get("userId") || "");
+
+  const target = await prisma.user.update({ where: { id: userId }, data: { proposedRole: null } });
+  redirect("/admin/users?success=" + encodeURIComponent(`Dismissed the role confirmation from ${target.email}; their role is unchanged.`));
 }
 
 export async function updateUserRoleAction(formData: FormData) {

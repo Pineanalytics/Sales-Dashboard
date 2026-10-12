@@ -72,6 +72,17 @@ model User {
   // never narrows just because this field shipped. Unused for ADMIN/TEAM_LEADER.
   allowedPrincipals String[]   @default([])
   createdAt         DateTime   @default(now())
+  // Self-service role-confirmation workflow for an already-APPROVED login
+  // (requestedRole above is the equivalent one-time choice at registration
+  // instead). roleConfirmedAt null blocks every (protected) page behind a
+  // one-time "confirm your role" form for anyone whose role isn't ADMIN or
+  // DIRECTOR (see app/(protected)/layout.tsx) — existing rows all start
+  // null, so this prompts every current non-exempt login once on rollout.
+  // proposedRole is what they submitted; it sits for the admin to approve
+  // (applied to `role`) or dismiss (left as-is) on /admin/users, same
+  // "never applied automatically" rule as requestedRole.
+  proposedRole      Role?
+  roleConfirmedAt   DateTime?
 }
 
 // Admin-editable content for automated emails (currently just the new-modules
