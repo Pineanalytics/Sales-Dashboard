@@ -15,7 +15,7 @@ export function supervisorTeamRows(rows: RosterRow[]): Map<string, string[]> {
   const result = new Map<string, string[]>();
   for (const row of rows) {
     if (row.kind !== "SUPERVISOR_TEAM" || !row.supervisorId) continue;
-    const leaders = rows.filter((r) => r.kind === "TEAM_LEADER" && r.supervisorId === row.supervisorId).map((r) => r.id);
+    const leaders = rows.filter((r) => (r.kind === "TEAM_LEADER" || r.kind === "KEY_ACCOUNTS") && r.supervisorId === row.supervisorId).map((r) => r.id);
     if (leaders.length > 0) result.set(row.id, [row.id, ...leaders]);
   }
   return result;
@@ -66,8 +66,8 @@ export interface TeamBreakdownPrincipal {
 }
 
 /** Per principal: each member's weekly figures for the viewed month, month total and share of the principal's total, with the
- *  reps that represent them. The supervisor's own row is named after its reps (Clarrine Wahome), as a key-accounts
- *  rep who sells in her own right. Members with no target and no reps on a principal are left out. */
+ *  reps that represent them. The supervisor's own row (when it has reps of its own) is named after them. Members with no
+ *  target and no reps on a principal are left out. */
 export function buildTeamBreakdown(input: {
   memberIds: string[];
   roster: RosterRow[];
@@ -102,7 +102,7 @@ export function buildTeamBreakdown(input: {
       members.push({
         teamLeaderId: id,
         label: isOwn ? reps.map((r) => r.employeeName).join(", ") || rosterById.get(id)?.name || id : rosterById.get(id)?.name ?? id,
-        role: isOwn ? (reps.length > 0 && reps.every((r) => r.channel === "KA") ? "Key accounts" : "Direct team") : "Team Leader",
+        role: isOwn ? "Direct team" : rosterById.get(id)?.kind === "KEY_ACCOUNTS" ? "Key accounts" : "Team Leader",
         weekValues,
         total,
         sharePct: 0,
@@ -111,7 +111,7 @@ export function buildTeamBreakdown(input: {
     }
     const total = members.reduce((s, m) => s + m.total, 0);
     for (const m of members) m.sharePct = total > 0 ? m.total / total : 0;
-    // Leaders by size, then the supervisor's own (key accounts) row.
+    // Leaders by size, then the key-accounts rep and any direct team.
     members.sort((a, b) => Number(a.role !== "Team Leader") - Number(b.role !== "Team Leader") || b.total - a.total);
     if (members.length === 0) continue;
     result.push({ principal, weekTotals: input.weekStarts.map((_, i) => members.reduce((s, m) => s + m.weekValues[i], 0)), total, members });

@@ -97,3 +97,27 @@ describe("planWeeklyRebuild", () => {
     expect(plan.updates.find((u) => u.id === right.id)).toBeUndefined();
   });
 });
+
+describe("planWeeklyRebuild with a fixed key-accounts amount", () => {
+  const monthly = (value: number) => [{ principal: "Mars-Nairobi", month: "October", value }];
+  const octoberWeeks = ["2026-10-04", "2026-10-11", "2026-10-18", "2026-10-25"];
+  const carriers = (fixed: number): Map<string, Recipient[]> =>
+    new Map([["Mars-Nairobi", [{ teamLeaderId: "zachary", weight: 3 }, { teamLeaderId: "lewis", weight: 1 }, { teamLeaderId: "clarrine", weight: 0.04, fixedMonthly: fixed }]]]);
+  const monthTotal = (plan: ReturnType<typeof planWeeklyRebuild>, tl: string) =>
+    [...plan.updates, ...plan.inserts].filter((u) => u.teamLeaderId === tl && octoberWeeks.includes(u.start)).reduce((s, u) => s + u.newValue, 0);
+
+  it("gives the key-accounts row its fixed amount and shares the rest of the month by weight", () => {
+    const plan = planWeeklyRebuild({ year: 2026, weekly: [], monthly: monthly(1000), recipientsByPrincipal: carriers(400) });
+    expect(monthTotal(plan, "clarrine")).toBeCloseTo(400, 2);
+    expect(monthTotal(plan, "zachary")).toBeCloseTo(450, 2); // 600 left, 3 of 4
+    expect(monthTotal(plan, "lewis")).toBeCloseTo(150, 2);
+    expect(plan.totals).toContainEqual({ principal: "Mars-Nairobi", month: "October", target: 1000, planned: 1000 });
+  });
+
+  it("caps the fixed amount at a smaller month's target", () => {
+    const plan = planWeeklyRebuild({ year: 2026, weekly: [], monthly: monthly(300), recipientsByPrincipal: carriers(400) });
+    expect(monthTotal(plan, "clarrine")).toBeCloseTo(300, 2);
+    expect(monthTotal(plan, "zachary")).toBe(0);
+    expect(plan.totals).toContainEqual({ principal: "Mars-Nairobi", month: "October", target: 300, planned: 300 });
+  });
+});
