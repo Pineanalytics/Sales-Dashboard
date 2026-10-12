@@ -12,6 +12,8 @@ import {
   deleteUserAction,
   approveUserAction,
   rejectUserAction,
+  approveRoleConfirmationAction,
+  dismissRoleConfirmationAction,
   updateUserRoleAction,
   updateUserPagesAction,
   updateUserPrincipalsAction,
@@ -37,6 +39,7 @@ export default async function AdminUsersPage({
   const allUsers = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
   const pending = allUsers.filter((u) => u.status === "PENDING");
   const approved = allUsers.filter((u) => u.status === "APPROVED");
+  const roleConfirmations = approved.filter((u) => u.proposedRole !== null);
   const teamLeaders = await prisma.teamLeader.findMany({ orderBy: { name: "asc" } });
   const supervisors = await prisma.supervisor.findMany({ orderBy: { name: "asc" } });
   const knownPrincipals = await getKnownPrincipals();
@@ -157,6 +160,66 @@ export default async function AdminUsersPage({
                               className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
                             >
                               Reject
+                            </button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {roleConfirmations.length > 0 ? (
+          <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <div className="p-6 pb-0">
+              <h2 className="text-lg font-semibold text-primary-blue">Role confirmations ({roleConfirmations.length})</h2>
+              <p className="mt-1 text-sm text-muted-strong">
+                Submitted from the one-time role-confirmation prompt. Approve to apply the role (and auto-link a matching Team
+                Leader/Supervisor by email, if any) — Dismiss leaves their current role unchanged.
+              </p>
+            </div>
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-medium">Name</th>
+                    <th className="px-6 py-3 text-left font-medium">Email</th>
+                    <th className="px-6 py-3 text-left font-medium">Current role</th>
+                    <th className="px-6 py-3 text-left font-medium">Confirmed as</th>
+                    <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roleConfirmations.map((u) => (
+                    <tr key={u.id}>
+                      <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
+                      <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-muted">{u.role.replace("_", " ")}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-muted-strong">
+                        {u.proposedRole!.replace("_", " ")}
+                        {u.proposedRole === u.role ? <span className="ml-1.5 text-xs text-muted">(no change)</span> : null}
+                      </td>
+                      <td className="px-6 py-3 border-b border-border/60 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <form action={approveRoleConfirmationAction} className="inline">
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button
+                              type="submit"
+                              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-3 py-1.5 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                            >
+                              Approve
+                            </button>
+                          </form>
+                          <form action={dismissRoleConfirmationAction} className="inline">
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button
+                              type="submit"
+                              className="rounded-full px-3 py-1.5 text-xs font-medium text-muted-strong hover:bg-background-elevated transition-colors duration-300"
+                            >
+                              Dismiss
                             </button>
                           </form>
                         </div>
