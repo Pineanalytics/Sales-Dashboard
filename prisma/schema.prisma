@@ -54,6 +54,12 @@ model User {
   name              String?
   passwordHash      String
   role              Role       @default(VIEWER)
+  // The role a self-registered user picked for themselves on /register — a
+  // request only, never applied automatically (see registerAction). Null for
+  // an admin-created login, which has no such request to make. Lets
+  // approveUserAction pre-fill `role` with what the person actually said
+  // they are, instead of leaving every approval defaulted to VIEWER.
+  requestedRole     Role?
   status            UserStatus @default(APPROVED) // admin-created users are pre-approved; self-registered rows start PENDING
   allowedPages      String[]   @default([]) // report page keys this user can see; ignored for ADMIN (always full access)
   teamLeaderId      String?    @unique // links a TEAM_LEADER-role login to their TeamLeader row; unused for ADMIN/VIEWER

@@ -6,15 +6,28 @@ import { prisma } from "@/lib/db";
 
 const ALLOWED_EMAIL_DOMAIN = "@pinefrost.co.ke";
 
+// Self-registration deliberately excludes ADMIN — that role is granted by an
+// existing admin via /admin/users, never requested at signup.
+type RequestableRole = "VIEWER" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR";
+const REQUESTABLE_ROLES: RequestableRole[] = ["VIEWER", "TEAM_LEADER", "SUPERVISOR", "HOD", "DIRECTOR"];
+
 export async function registerAction(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const name = String(formData.get("name") || "").trim();
+  const requestedRoleRaw = String(formData.get("requestedRole") || "");
   const password = String(formData.get("password") || "");
   const confirmPassword = String(formData.get("confirmPassword") || "");
 
+  if (!name) {
+    redirect("/register?error=" + encodeURIComponent("Your full name is required."));
+  }
   if (!email.endsWith(ALLOWED_EMAIL_DOMAIN)) {
     redirect("/register?error=" + encodeURIComponent(`Registration is limited to ${ALLOWED_EMAIL_DOMAIN} email addresses.`));
   }
+  if (!REQUESTABLE_ROLES.includes(requestedRoleRaw as RequestableRole)) {
+    redirect("/register?error=" + encodeURIComponent("Select the role that best describes you."));
+  }
+  const requestedRole = requestedRoleRaw as RequestableRole;
   if (!password || password.length < 8) {
     redirect("/register?error=" + encodeURIComponent("Password must be at least 8 characters."));
   }
@@ -26,7 +39,7 @@ export async function registerAction(formData: FormData) {
 
   try {
     await prisma.user.create({
-      data: { email, name: name || null, passwordHash, role: "VIEWER", status: "PENDING", allowedPages: [] },
+      data: { email, name, passwordHash, role: "VIEWER", requestedRole, status: "PENDING", allowedPages: [] },
     });
   } catch (err: unknown) {
     const message =

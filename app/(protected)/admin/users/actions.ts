@@ -100,6 +100,15 @@ export async function createUserAction(formData: FormData) {
   redirect("/admin/users?success=" + encodeURIComponent(`Created ${role.toLowerCase()} account for ${email}.`));
 }
 
+// On approve, the role the person requested on /register becomes their real
+// role (pre-dating role requests means requestedRole is null, so they stay
+// VIEWER — the old default). For TEAM_LEADER/SUPERVISOR, also try the same
+// email-match auto-link /admin/users' own dropdowns suggest (see
+// TeamLeader.email/Supervisor.email) so approval doesn't leave an
+// already-rostered person unlinked for no reason; a match already claimed
+// by another login (P2002) just leaves the link unset rather than blocking
+// the approval — the admin can set it by hand afterward, same as any other
+// unmatched case.
 export async function approveUserAction(formData: FormData) {
   await requireAdmin();
   const userId = String(formData.get("userId") || "");
@@ -109,15 +118,37 @@ export async function approveUserAction(formData: FormData) {
     redirect("/admin/users?error=" + encodeURIComponent("Registration request not found."));
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
-  });
+  const role = target.requestedRole ?? "VIEWER";
+  let teamLeaderId: string | null = null;
+  let supervisorId: string | null = null;
+  if (role === "TEAM_LEADER") {
+    const match = await prisma.teamLeader.findUnique({ where: { email: target.email } });
+    teamLeaderId = match?.id ?? null;
+  } else if (role === "SUPERVISOR") {
+    const match = await prisma.supervisor.findUnique({ where: { email: target.email } });
+    supervisorId = match?.id ?? null;
+  }
 
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS], role, teamLeaderId, supervisorId },
+    });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    if (code !== "P2002") throw err;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS], role, teamLeaderId: null, supervisorId: null },
+    });
+  }
+
+  const roleLabel = role.replace("_", " ").toLowerCase();
+  const linked = teamLeaderId || supervisorId ? ` and linked to their matching roster entry by email` : "";
   const emailResult = await sendApprovalEmail(target.email, target.name);
   const message = emailResult.sent
-    ? `Approved ${target.email} with access to all reports. Notification email sent.`
-    : `Approved ${target.email} with access to all reports. Notification email NOT sent (${emailResult.error}).`;
+    ? `Approved ${target.email} as ${roleLabel}${linked}. Notification email sent.`
+    : `Approved ${target.email} as ${roleLabel}${linked}. Notification email NOT sent (${emailResult.error}).`;
   redirect("/admin/users?success=" + encodeURIComponent(message));
 }
 

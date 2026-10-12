@@ -27,7 +27,7 @@ export default async function RegisterPage({
         {success ? (
           <div className="mt-6 flex flex-col gap-4">
             <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-              Your request has been submitted and is awaiting admin approval. You'll be able to sign in once it's approved.
+              Your request has been submitted and is awaiting admin approval. You&apos;ll be able to sign in once it&apos;s approved.
             </p>
             <Link
               href="/login"
@@ -40,16 +40,18 @@ export default async function RegisterPage({
           <form action={registerAction} className="mt-6 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <label htmlFor="name" className="text-[13px] font-medium text-muted-strong">
-                Name
+                Full name
               </label>
               <input
                 id="name"
                 name="name"
                 type="text"
+                required
                 autoComplete="name"
                 className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none transition-colors focus:border-secondary-blue"
                 placeholder="Jane Doe"
               />
+              <span className="text-[11px] text-muted">Use your real registered name — it&apos;s matched against the roster to set up your access.</span>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -69,6 +71,29 @@ export default async function RegisterPage({
                 placeholder="you@pinefrost.co.ke"
               />
               <span className="text-[11px] text-muted">Must be a @pinefrost.co.ke address.</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="requestedRole" className="text-[13px] font-medium text-muted-strong">
+                Your role
+              </label>
+              <select
+                id="requestedRole"
+                name="requestedRole"
+                required
+                defaultValue=""
+                className="rounded-full border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none transition-colors focus:border-secondary-blue"
+              >
+                <option value="" disabled>
+                  Select the role that best describes you
+                </option>
+                <option value="VIEWER">Viewer — I just need to view reports</option>
+                <option value="TEAM_LEADER">Team Leader</option>
+                <option value="SUPERVISOR">Sales Supervisor</option>
+                <option value="HOD">Head of Sales</option>
+                <option value="DIRECTOR">Director</option>
+              </select>
+              <span className="text-[11px] text-muted">A request only — an administrator confirms your actual role and access before approving.</span>
             </div>
 
             <div className="flex flex-col gap-2">

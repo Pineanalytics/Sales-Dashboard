@@ -125,7 +125,8 @@ export default async function AdminUsersPage({
                   <tr>
                     <th className="px-6 py-3 text-left font-medium">Name</th>
                     <th className="px-6 py-3 text-left font-medium">Email</th>
-                    <th className="px-6 py-3 text-left font-medium">Requested</th>
+                    <th className="px-6 py-3 text-left font-medium">Role requested</th>
+                    <th className="px-6 py-3 text-left font-medium">Requested on</th>
                     <th className="px-6 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -134,6 +135,9 @@ export default async function AdminUsersPage({
                     <tr key={u.id}>
                       <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-muted-strong">
+                        {u.requestedRole ? u.requestedRole.replace("_", " ") : "— (pre-dates role requests)"}
+                      </td>
                       <td className="px-6 py-3 border-b border-border/60 text-muted">{u.createdAt.toLocaleDateString()}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">
                         <div className="inline-flex items-center gap-2">
