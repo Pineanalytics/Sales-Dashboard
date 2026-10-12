@@ -352,22 +352,18 @@ export function normalizeRepShares(shares: number[]): number[] {
   return total > 0 ? clean.map((s) => s / total) : clean.map(() => (clean.length > 0 ? 1 / clean.length : 0));
 }
 
-/** Principals whose weekly target is spread over the whole field team (the SECONDARY reps), not just the PRIMARY
- *  van/route units. Mars keeps two independent cuts of the same business: 8 PRIMARY units and 93 SECONDARY field reps,
- *  each set carrying its own Contribution % that adds up to about 100% of Mars. Both are never added together; the
- *  SECONDARY cut is the real team, so it carries the daily targets. */
-export function spreadsAcrossWholeTeam(principal: string): boolean {
-  return principal.trim().toLowerCase().startsWith("mars");
-}
-
-/** The reps a leader's weekly target is spread over for one principal: for a whole-team principal, the leader's
- *  SECONDARY reps that carry a positive declared Contribution %, falling back to the PRIMARY units when the leader has
- *  none; for every other principal, the PRIMARY reps. */
-export function pickTargetReps<T extends { salesRole: string; contributionPct: number | null }>(principal: string, reps: T[]): T[] {
-  const primary = reps.filter((r) => r.salesRole === "PRIMARY");
-  if (!spreadsAcrossWholeTeam(principal)) return primary;
-  const field = reps.filter((r) => r.salesRole === "SECONDARY" && (r.contributionPct ?? 0) > 0);
-  return field.length > 0 ? field : primary;
+/** For each Sales Supervisor who runs a team of leaders (Lucy over Mars's six), the roster rows that make up her team: her
+ *  own SUPERVISOR_TEAM row plus the TEAM_LEADER rows under her. Her weekly target is spread over all of their reps (each
+ *  territory's share of it follows the reps' Contribution %), while each daily target still belongs to the leader whose
+ *  rep earns it. Any other row (a leader, or a supervisor with no leaders below) is just its own team. */
+export function supervisorTeamRows(rows: { id: string; kind: string; supervisorId: string | null }[]): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.kind !== "SUPERVISOR_TEAM" || !row.supervisorId) continue;
+    const leaders = rows.filter((r) => r.kind === "TEAM_LEADER" && r.supervisorId === row.supervisorId).map((r) => r.id);
+    if (leaders.length > 0) result.set(row.id, [row.id, ...leaders]);
+  }
+  return result;
 }
 
 /** Rebuilds DailyTarget from scratch for every WeeklyTarget row currently in the
@@ -379,24 +375,20 @@ export function pickTargetReps<T extends { salesRole: string; contributionPct: n
  *  team-leader/principal pairs), and correctness matters more than incremental
  *  update complexity here. */
 export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
-  const [weeklyTargets, rawAssignments, contributions] = await Promise.all([
+  const [weeklyTargets, rawAssignments, contributions, rosterRows] = await Promise.all([
     prisma.weeklyTarget.findMany(),
-    // PRIMARY units, plus the SECONDARY field reps of whole-team principals (pickTargetReps).
-    prisma.teamLeaderAssignment.findMany({ where: { active: true } }),
+    // PRIMARY only — see recomputeRepContribution's matching comment.
+    prisma.teamLeaderAssignment.findMany({ where: { active: true, salesRole: "PRIMARY" } }),
     prisma.repContribution.findMany(),
+    prisma.teamLeader.findMany({ select: { id: true, kind: true, supervisorId: true } }),
   ]);
-  const { known: knownAssignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
-  const byLeaderPrincipal = new Map<string, typeof knownAssignments>();
-  for (const a of knownAssignments) {
-    const key = `${a.teamLeaderId}|${a.principal}`;
-    byLeaderPrincipal.set(key, [...(byLeaderPrincipal.get(key) ?? []), a]);
-  }
-  const assignments = [...byLeaderPrincipal.entries()].flatMap(([, rows]) => pickTargetReps(rows[0].principal, rows));
+  const teamRowsBySupervisorRow = supervisorTeamRows(rosterRows);
+  const { known: assignments, skipped: skippedUnknownEmployeeCodes } = await filterToKnownEmployees(rawAssignments);
   if (skippedUnknownEmployeeCodes > 0) {
     console.warn(`recomputeDailyTargets: skipped ${skippedUnknownEmployeeCodes} active TeamLeaderAssignment row(s) with an employeeCode not in EmployeeMaster.`);
   }
 
-  const repsByTeamLeaderPrincipal = new Map<string, { employeeCode: string; employeeName: string }[]>();
+  const repsByTeamLeaderPrincipal = new Map<string, { employeeCode: string; employeeName: string; teamLeaderId: string }[]>();
   // Declared Contribution % (admin-set on the Roster, see TeamLeaderAssignment.contributionPct)
   // wins over the computed RepContribution.sharePct when present — it's a different concept
   // (a manually-declared allocation, not derived from actual trailing revenue), ported from
@@ -406,7 +398,7 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   for (const a of assignments) {
     const key = `${a.teamLeaderId}|${a.principal}`;
     const list = repsByTeamLeaderPrincipal.get(key) ?? [];
-    list.push({ employeeCode: a.employeeCode, employeeName: a.employeeName });
+    list.push({ employeeCode: a.employeeCode, employeeName: a.employeeName, teamLeaderId: a.teamLeaderId });
     repsByTeamLeaderPrincipal.set(key, list);
     if (a.contributionPct != null) declaredPctByPrincipalRep.set(`${a.principal}|${a.employeeCode}`, a.contributionPct);
   }
@@ -426,7 +418,7 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   const toCreate: Prisma.DailyTargetCreateManyInput[] = [];
   let weeklyTargetsWithNoPrimaryReps = 0;
   for (const wt of weeklyTargets) {
-    const reps = repsByTeamLeaderPrincipal.get(`${wt.teamLeaderId}|${wt.principal}`) ?? [];
+    const reps = (teamRowsBySupervisorRow.get(wt.teamLeaderId) ?? [wt.teamLeaderId]).flatMap((id) => repsByTeamLeaderPrincipal.get(`${id}|${wt.principal}`) ?? []);
     if (reps.length === 0) {
       if (wt.targetValue !== 0) weeklyTargetsWithNoPrimaryReps += 1;
       continue;
@@ -456,7 +448,7 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
           employeeCode: rep.employeeCode,
           employeeName: rep.employeeName,
           principal: wt.principal,
-          teamLeaderId: wt.teamLeaderId,
+          teamLeaderId: rep.teamLeaderId,
           date,
           targetValue: repWeeklyTarget * weights[i],
           weeklyTargetId: wt.id,

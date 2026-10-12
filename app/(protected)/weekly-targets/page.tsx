@@ -89,11 +89,12 @@ export default async function WeeklyTargetsPage({
   });
   const rowByPrincipalWeek = new Map(rows.map((r) => [`${r.principal}|${r.weekStartDate.toISOString()}`, r]));
 
-  // Filled/Pending/%Done — replicates the source workbook's Dashboard sheet,
-  // scoped to every visible Team Leader (all of them for Admin, just their own for
-  // a Team Leader login) across the whole grid window, not just the visible month.
+  // Filled/Pending/%Done/Total Target for the month being viewed, scoped to every visible
+  // Team Leader (all of them for Admin, just their own for a Team Leader login). It used to
+  // add up the whole grid window (every week of the year), so a leader's "Total Target"
+  // read as the annual figure beside a monthly plan.
   const summaryRows = await prisma.weeklyTarget.findMany({
-    where: { teamLeaderId: { in: visibleTeamLeaders.map((tl) => tl.id) } },
+    where: { teamLeaderId: { in: visibleTeamLeaders.map((tl) => tl.id) }, weekStartDate: { in: weekStartDates } },
     select: { teamLeaderId: true, targetValue: true },
   });
   const summaryByLeader = new Map<string, { total: number; filled: number; sum: number }>();
@@ -169,7 +170,7 @@ export default async function WeeklyTargetsPage({
         {visibleTeamLeaders.length > 1 ? (
           <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             <div className="p-6 pb-0">
-              <h2 className="text-lg font-semibold text-primary-blue">Team Leader summary</h2>
+              <h2 className="text-lg font-semibold text-primary-blue">Team Leader summary — {month} {year}</h2>
             </div>
             <div className="overflow-x-auto mt-4">
               <table className="w-full text-sm border-collapse">
