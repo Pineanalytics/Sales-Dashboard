@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSharePcts, computeWeekdayWeights, resolveRepSharePct, validateContributionTotals } from "../lib/repContribution";
+import { computeSharePcts, computeWeekdayWeights, normalizeRepShares, resolveRepSharePct, validateContributionTotals, weekdayDatesForWeek } from "../lib/repContribution";
 
 // Primary-only filtering itself (recomputeRepContribution/recomputeDailyTargets's
 // `salesRole: "PRIMARY"` where clause) lives in DB-backed async functions this
@@ -104,5 +104,47 @@ describe("computeWeekdayWeights", () => {
 
   it("falls back to an even split when neither source has any history", () => {
     expect(computeWeekdayWeights([0, 0, 0, 0, 0], [0, 0, 0, 0, 0])).toEqual([0.2, 0.2, 0.2, 0.2, 0.2]);
+  });
+});
+
+describe("weekdayDatesForWeek", () => {
+  const days = (start: string) => weekdayDatesForWeek(new Date(`${start}T00:00:00Z`)).map((d) => d.toISOString().slice(0, 10));
+  const names = (start: string) => weekdayDatesForWeek(new Date(`${start}T00:00:00Z`)).map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]);
+
+  it("spreads a Sunday-start week over Monday to Friday, not Sunday to Thursday", () => {
+    expect(days("2026-10-04")).toEqual(["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]);
+    expect(names("2026-10-04")).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+  });
+
+  it("keeps a Monday-start (legacy) week as it is", () => {
+    expect(names("2026-10-05")).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+    expect(days("2026-10-05")[0]).toBe("2026-10-05");
+  });
+
+  it("crosses a month boundary", () => {
+    expect(days("2026-03-29")).toEqual(["2026-03-30", "2026-03-31", "2026-04-01", "2026-04-02", "2026-04-03"]);
+  });
+});
+
+describe("normalizeRepShares", () => {
+  it("makes a leader's reps' shares add up to one, keeping their proportions", () => {
+    const shares = normalizeRepShares([0.2, 0.1, 0.1]); // shares of the whole principal, only a part of it
+    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+    expect(shares[0]).toBeCloseTo(0.5, 10);
+    expect(shares[1]).toBeCloseTo(0.25, 10);
+  });
+
+  it("leaves shares that already add up to one unchanged", () => {
+    expect(normalizeRepShares([0.5, 0.3, 0.2])).toEqual([0.5, 0.3, 0.2].map((s) => s / 1));
+  });
+
+  it("splits evenly when no rep has a positive share, and ignores bad values", () => {
+    expect(normalizeRepShares([0, 0, 0])).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    expect(normalizeRepShares([Number.NaN, -1])).toEqual([0.5, 0.5]);
+    expect(normalizeRepShares([])).toEqual([]);
+  });
+
+  it("gives a lone rep the whole figure, however small their principal-level share", () => {
+    expect(normalizeRepShares([0.23])).toEqual([1]);
   });
 });

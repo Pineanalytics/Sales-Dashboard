@@ -333,9 +333,30 @@ export function resolveRepSharePct(declaredPct: number | null | undefined, compu
   return declaredPct ?? computedSharePct ?? evenSplit;
 }
 
+/** The five dates (Monday to Friday) a weekly target spreads over. The sales calendar's weeks start on a Sunday (since
+ *  20 Aug 2026), so a Sunday-start week begins its working days the day after; counting five days forward from the
+ *  start, as this used to, put every target on Sunday to Thursday and none on Friday. A Monday start (the legacy
+ *  weeks) is used as it is. */
+export function weekdayDatesForWeek(weekStart: Date): Date[] {
+  const first = weekStart.getTime() + (weekStart.getUTCDay() === 0 ? 86_400_000 : 0);
+  return Array.from({ length: 5 }, (_, i) => new Date(first + i * 86_400_000));
+}
+
+/** Scales a leader's reps' shares so they add up to 1. A declared or computed Contribution % is a share of the whole
+ *  principal, so a leader who runs only part of it (Mars has six) has reps whose shares add up to well under 1, and
+ *  splitting the leader's weekly figure by them directly would drop the rest of it. Relative shares are what matter
+ *  within one team leader's weekly target. Equal when none of them has a positive share. */
+export function normalizeRepShares(shares: number[]): number[] {
+  const clean = shares.map((s) => (Number.isFinite(s) && s > 0 ? s : 0));
+  const total = clean.reduce((a, b) => a + b, 0);
+  return total > 0 ? clean.map((s) => s / total) : clean.map(() => (clean.length > 0 ? 1 / clean.length : 0));
+}
+
 /** Rebuilds DailyTarget from scratch for every WeeklyTarget row currently in the
- *  grid: splits each Weekly figure across its assigned reps (RepContribution
- *  .sharePct) then across that week's Mon-Fri (weekdayWeightsForRep). Full
+ *  grid: splits each Weekly figure across its assigned reps (their Contribution
+ *  % relative to each other, so a leader's daily targets add up to their weekly
+ *  figure: normalizeRepShares) then across that week's Mon-Fri (weekdayDatesForWeek,
+ *  weekdayWeightsForRep). Full
  *  replace — cheap, since the grid window is bounded (~13 weeks x a handful of
  *  team-leader/principal pairs), and correctness matters more than incremental
  *  update complexity here. */
@@ -388,17 +409,25 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
     }
     if (wt.targetValue === 0) continue;
 
-    for (const rep of reps) {
-      const sharePct = resolveRepSharePct(
-        declaredPctByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
-        shareByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
-        1 / reps.length
-      );
+    // Each rep's relative share of THIS leader's weekly figure, so the daily targets add up to it.
+    const shares = normalizeRepShares(
+      reps.map((rep) =>
+        resolveRepSharePct(
+          declaredPctByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
+          shareByPrincipalRep.get(`${wt.principal}|${rep.employeeCode}`),
+          1 / reps.length
+        )
+      )
+    );
+    const dates = weekdayDatesForWeek(wt.weekStartDate);
+
+    for (const [repIndex, rep] of reps.entries()) {
+      const sharePct = shares[repIndex];
       const repWeeklyTarget = wt.targetValue * sharePct;
       const weights = await getWeights(rep.employeeCode);
 
       for (let i = 0; i < WEEKDAY_LABELS.length; i++) {
-        const date = new Date(wt.weekStartDate.getTime() + i * 86400000);
+        const date = dates[i];
         toCreate.push({
           employeeCode: rep.employeeCode,
           employeeName: rep.employeeName,
