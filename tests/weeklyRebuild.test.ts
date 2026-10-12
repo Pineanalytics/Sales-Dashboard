@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalWeeks, planWeeklyRebuild, type Recipient, type WeeklyRow, rollUpToSupervisorRows } from "../lib/weeklyRebuild";
+import { canonicalWeeks, planWeeklyRebuild, type Recipient, type WeeklyRow } from "../lib/weeklyRebuild";
 
 let seq = 0;
 function row(teamLeaderId: string, principal: string, start: string, value: number, over: Partial<WeeklyRow> = {}): WeeklyRow {
@@ -95,27 +95,5 @@ describe("planWeeklyRebuild", () => {
     const relabelled = plan.updates.find((u) => u.id === wrong.id)!;
     expect(relabelled).toMatchObject({ relabel: true, month: "October", label: "Oct Week 3", newValue: 100 });
     expect(plan.updates.find((u) => u.id === right.id)).toBeUndefined();
-  });
-});
-
-describe("rollUpToSupervisorRows", () => {
-  const rows = [
-  { id: "lucy", kind: "SUPERVISOR_TEAM", supervisorId: "S-lucy" },
-  { id: "benson", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
-  { id: "christine", kind: "TEAM_LEADER", supervisorId: "S-lucy" },
-  { id: "erick", kind: "TEAM_LEADER", supervisorId: "S-erick" },
-  { id: "eve", kind: "SUPERVISOR_TEAM", supervisorId: "S-eve" },
-];
-
-  it("moves the leaders' weights onto the supervisor's own row", () => {
-    const rolled = rollUpToSupervisorRows(new Map([["benson", 0.12], ["christine", 0.22], ["lucy", 0.04]]), rows);
-    expect([...rolled.keys()]).toEqual(["lucy"]);
-    expect(rolled.get("lucy")).toBeCloseTo(0.38, 10);
-  });
-
-  it("leaves leaders without a supervisor row, and supervisors, where they are", () => {
-    const rolled = rollUpToSupervisorRows(new Map([["erick", 0.5], ["eve", 0.5]]), rows);
-    expect(rolled.get("erick")).toBe(0.5);
-    expect(rolled.get("eve")).toBe(0.5);
   });
 });

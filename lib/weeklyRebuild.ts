@@ -198,20 +198,3 @@ export function planWeeklyRebuild(input: { year: number; weekly: WeeklyRow[]; mo
   }
   return plan;
 }
-
-/** A principal run by a Sales Supervisor with team leaders below (Mars: Lucy over six leaders) carries its target on the
- *  supervisor's own row, like every other supervisor-run principal; the leaders share it out at territory level in the
- *  daily projection instead of each holding a slice of the weekly plan. Moves each leader's weight to the supervisor's
- *  SUPERVISOR_TEAM row when there is one; every other row keeps its own weight. */
-export function rollUpToSupervisorRows(weights: Map<string, number>, rows: { id: string; kind: string; supervisorId: string | null }[]): Map<string, number> {
-  const supervisorRowBySupervisor = new Map<string, string>();
-  for (const row of rows) if (row.kind === "SUPERVISOR_TEAM" && row.supervisorId) supervisorRowBySupervisor.set(row.supervisorId, row.id);
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const rolled = new Map<string, number>();
-  for (const [id, weight] of weights) {
-    const row = byId.get(id);
-    const target = row && row.kind === "TEAM_LEADER" && row.supervisorId ? supervisorRowBySupervisor.get(row.supervisorId) ?? id : id;
-    rolled.set(target, (rolled.get(target) ?? 0) + weight);
-  }
-  return rolled;
-}
