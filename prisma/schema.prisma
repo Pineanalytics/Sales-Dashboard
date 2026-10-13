@@ -2461,10 +2461,10 @@ model OutletUniverse {
   route            String?
   repCode          String?
   repName          String?
-  // The rep who actually sells this principal at the outlet. For Pine, repName is the outlet's journey-plan rep (the same on every
-  // principal row); sellingRep is the rep who last sold that principal there, so it differs by principal when several reps serve
-  // the outlet. The other sources have one selling rep per row and carry the same value as repName. Null until the next rebuild.
-  sellingRep       String?
+  // repName is the rep who sells this principal at the outlet (Pine: the rep who last sold it). plannedRep is Pine's journey-plan owner
+  // of the outlet, which is the same on every principal row of the outlet and so says nothing about who sells a given principal; it
+  // is kept for reference and for the placeholder-owner exclusion. Null for the sources that have no separate owner.
+  plannedRep       String?
   latitude         Float?
   longitude        Float?
   lastPurchaseDate DateTime?

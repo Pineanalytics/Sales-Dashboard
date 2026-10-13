@@ -20,8 +20,9 @@ const HEADER = [
   "Tier", "Combined Avg Sales (Outlet)",
   // Extra columns after the workbook's: purchase windows, six-month consistency, and the source system's own channel and type.
   "Bought Last 30 Days", "Bought Last 3 Months", "Bought Last 6 Months", "Periods Bought (last 6 x 30 days)", "Consistency (6 months)", "Source Channel", "Source Segment / Type",
-  // Reps: how many different reps serve the outlet across its principals, and who sells which (different reps selling different principals).
-  "Reps Serving", "Multi-Rep Outlet", "Reps by Principal",
+  // Rep (above) is the rep who sells the row's principal. Reps: how many different reps sell the outlet across its principals and who sells which;
+  // Journey Plan Rep is the outlet's planned owner in Pine, the same on every principal.
+  "Reps Serving", "Multi-Rep Outlet", "Reps by Principal", "Journey Plan Rep",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
           row.repCount,
           row.repCount > 1 ? "Yes" : "No",
           row.repsByPrincipal,
+          row.plannedRep,
         ]
           .map(cell)
           .join(",")

@@ -48,7 +48,7 @@ describe("outlet universe normalisation", () => {
 });
 
 describe("outlet universe row builders", () => {
-  it("builds a Pine row with the PJP owner as rep and drops a zero coordinate", () => {
+  it("builds a Pine row with the selling rep as rep (the PJP owner kept apart) and drops a zero coordinate", () => {
     const row = pineRow({
       principal: "Mars-Nairobi",
       customerId: "45786",
@@ -67,7 +67,7 @@ describe("outlet universe row builders", () => {
       sales: 1200,
       timesBought: 4,
     });
-    expect(row).toMatchObject({ source: "PINE", repName: "Jane Doe", region: "Unspecified", channel: "Retail", segment: "Retailers", location: "Nairobi", route: null, latitude: null, longitude: 37.1, salesRole: "Secondary Sales" });
+    expect(row).toMatchObject({ source: "PINE", repName: "Other Rep", plannedRep: "Jane Doe", repCode: null, region: "Unspecified", channel: "Retail", segment: "Retailers", location: "Nairobi", route: null, latitude: null, longitude: 37.1, salesRole: "Secondary Sales" });
   });
 
   it("builds a Leverage row with the branch as region and principal", () => {
@@ -363,14 +363,18 @@ describe("Upfield outlets with the outlet list (customer master)", () => {
 });
 
 describe("selling rep", () => {
-  const base = { principal: "Mars-Nairobi", customerId: "1", outletName: "Shop", channel: "Retail", subChannel: "Retailers", territory: "Ruiru", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRegion: null, salesRole: "Primary Sales", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
+  const base = { principal: "Mars-Nairobi", customerId: "1", outletName: "Shop", channel: "Retail", subChannel: "Retailers", territory: "Ruiru", latitude: null, longitude: null, pjpEmployeeCode: "E7", pjpRegion: null, salesRole: "Primary Sales", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
 
-  it("keeps the journey-plan rep as the rep and the rep who last sold the principal as the selling rep", () => {
-    expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Peter Muli", sellingRep: "Scovian Achieng" });
+  it("gives each principal row the rep who sells it, not the outlet's journey-plan owner", () => {
+    expect(pineRow({ ...base, pjpRepName: "Agnes Chelangat", mostRecentRep: "Kelly Kiprotich", principal: "Suntory-Nairobi" })).toMatchObject({ repName: "Kelly Kiprotich", plannedRep: "Agnes Chelangat", repCode: null });
+  });
+
+  it("keeps the owner's code when the owner is the seller", () => {
+    expect(pineRow({ ...base, pjpRepName: "Agnes Chelangat", mostRecentRep: "Agnes Chelangat" })).toMatchObject({ repName: "Agnes Chelangat", repCode: "E7" });
   });
 
   it("falls back to whichever Pine rep exists", () => {
-    expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: null })).toMatchObject({ sellingRep: "Peter Muli" });
-    expect(pineRow({ ...base, pjpRepName: null, mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Scovian Achieng", sellingRep: "Scovian Achieng" });
+    expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: null })).toMatchObject({ repName: "Peter Muli" });
+    expect(pineRow({ ...base, pjpRepName: null, mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Scovian Achieng", plannedRep: null });
   });
 });
