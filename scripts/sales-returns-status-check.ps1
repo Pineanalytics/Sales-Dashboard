@@ -28,21 +28,22 @@
   ASCII only on purpose: non-ASCII characters break .ps1 parsing on these machines.
 
 .PARAMETER ProjectPath
-  Where the project is installed. Default C:\SalesDashboard (the installer's default). If that
-  folder does not exist the script also tries the development path.
+  Where the project is installed. Default: the folder above the one this script sits in (so
+  D:\SalesDashboard\scripts\sales-returns-status-check.ps1 checks D:\SalesDashboard). Pass it only
+  if the script is run from somewhere else.
 
 .PARAMETER Distributor
   Branch code. Default: SALES_RETURNS_DISTRIBUTOR from the environment or .env, else 18058585 (Nyeri).
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File C:\SalesDashboard\scripts\sales-returns-status-check.ps1
+  powershell -NoProfile -ExecutionPolicy Bypass -File D:\SalesDashboard\scripts\sales-returns-status-check.ps1
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File C:\SalesDashboard\scripts\sales-returns-status-check.ps1 -RunNow -TestSql
+  powershell -NoProfile -ExecutionPolicy Bypass -File D:\SalesDashboard\scripts\sales-returns-status-check.ps1 -RunNow -TestSql
 #>
 
 param(
-  [string]$ProjectPath = "C:\SalesDashboard",
+  [string]$ProjectPath = "",
   [string]$AppUrl = "https://pinefrostdb.com",
   [string]$Distributor = $env:SALES_RETURNS_DISTRIBUTOR,
   [string]$SmartTaskName = "SalesDashboard-SalesReturnsSync-Smart",
@@ -110,9 +111,14 @@ function Get-DotEnvCount {
 }
 
 # ---------------------------------------------------------------- locate the project and start the report file
-if (-not (Test-Path -LiteralPath $ProjectPath)) {
-  $alt = "D:\Reports & Extractions\Sales Dashboard"
-  if (Test-Path -LiteralPath $alt) { $ProjectPath = $alt }
+if (-not $ProjectPath) {
+  # Installed layout: <project>\scripts\sales-returns-status-check.ps1
+  $ProjectPath = Split-Path -Parent $PSScriptRoot
+}
+if (-not (Test-Path -LiteralPath (Join-Path $ProjectPath ".env"))) {
+  foreach ($candidate in @("D:\SalesDashboard", "C:\SalesDashboard", "D:\Reports & Extractions\Sales Dashboard")) {
+    if (Test-Path -LiteralPath (Join-Path $candidate ".env")) { $ProjectPath = $candidate; break }
+  }
 }
 $logDir = Join-Path $ProjectPath "logs"
 $reportPath = $null
