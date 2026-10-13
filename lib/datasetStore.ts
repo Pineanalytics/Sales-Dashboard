@@ -692,6 +692,8 @@ async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): 
     activeStatusPrincipalKeys: dormantPrincipalFlags.activeStatusKeys,
     dormantPrincipalSince: dormantPrincipalFlags.since,
     dormantStockItems: withStock.dormantStockItems,
+    emptiesStockItems: withStock.emptiesStockItems,
+    stockCoverTargets: withStock.stockCoverTargets,
     monthlyPL: withPL.monthlyPL,
     monthlyCoverage: withCoverage.monthlyCoverage,
     monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,
