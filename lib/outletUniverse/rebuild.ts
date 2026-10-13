@@ -30,6 +30,8 @@ export interface OutletUniverseRow {
   route: string | null;
   repCode: string | null;
   repName: string | null;
+  /** The rep who sells this principal at the outlet (Pine: the most recent rep for the principal; elsewhere the same as repName). */
+  sellingRep: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
@@ -112,6 +114,7 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     route: null,
     repCode: nonEmpty(row.pjpEmployeeCode),
     repName: nonEmpty(row.pjpRepName) ?? nonEmpty(row.mostRecentRep),
+    sellingRep: nonEmpty(row.mostRecentRep) ?? nonEmpty(row.pjpRepName),
     latitude: validCoordinate(row.latitude, 90),
     longitude: validCoordinate(row.longitude, 180),
     lastPurchaseDate: row.lastPurchaseDate,
@@ -180,6 +183,7 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     route,
     repCode: nonEmpty(row.salesRepCode),
     repName: cleanLeverageUnit(row.salesRepName),
+    sellingRep: cleanLeverageUnit(row.salesRepName),
     latitude: gps?.latitude ?? null,
     longitude: gps?.longitude ?? null,
     lastPurchaseDate: row.lastBuy,
@@ -233,6 +237,7 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     route: nonEmpty(row.route),
     repCode: null,
     repName: nonEmpty(row.salesman),
+    sellingRep: nonEmpty(row.salesman),
     latitude: validCoordinate(row.latitude, 90),
     longitude: validCoordinate(row.longitude, 180),
     lastPurchaseDate: row.lastBuy,
@@ -298,6 +303,7 @@ export function upfieldRow(row: UpfieldSourceRow): OutletUniverseRow {
     route: upfieldRoute(row.fsr, row.routeDay),
     repCode: null,
     repName: nonEmpty(row.fsr),
+    sellingRep: nonEmpty(row.fsr),
     latitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.latitude ?? null,
     longitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.longitude ?? null,
     lastPurchaseDate: row.lastBuy ?? null,

@@ -361,3 +361,16 @@ describe("Upfield outlets with the outlet list (customer master)", () => {
     expect(upfieldRow({ customerCode: "3", customerName: "C", fsr: null, latitude: 0.32, longitude: 32.61, lastBuy: null })).toMatchObject({ latitude: null, longitude: null });
   });
 });
+
+describe("selling rep", () => {
+  const base = { principal: "Mars-Nairobi", customerId: "1", outletName: "Shop", channel: "Retail", subChannel: "Retailers", territory: "Ruiru", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRegion: null, salesRole: "Primary Sales", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
+
+  it("keeps the journey-plan rep as the rep and the rep who last sold the principal as the selling rep", () => {
+    expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Peter Muli", sellingRep: "Scovian Achieng" });
+  });
+
+  it("falls back to whichever Pine rep exists", () => {
+    expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: null })).toMatchObject({ sellingRep: "Peter Muli" });
+    expect(pineRow({ ...base, pjpRepName: null, mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Scovian Achieng", sellingRep: "Scovian Achieng" });
+  });
+});
