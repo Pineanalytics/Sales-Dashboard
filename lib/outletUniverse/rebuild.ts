@@ -30,6 +30,8 @@ export interface OutletUniverseRow {
   route: string | null;
   repCode: string | null;
   repName: string | null;
+  /** Pine's journey-plan owner of the outlet (the same on every principal row); null for the other sources. repName is the rep who sells this principal. */
+  plannedRep: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
@@ -94,6 +96,11 @@ interface PineSourceRow {
   periodsBought180?: number;
 }
 
+/** The rep of the principal's latest sale at the outlet, falling back to the journey-plan owner when no sale carries a rep. */
+function sellingRep(row: PineSourceRow): string | null {
+  return nonEmpty(row.mostRecentRep) ?? nonEmpty(row.pjpRepName);
+}
+
 export function pineRow(row: PineSourceRow): OutletUniverseRow {
   return {
     source: "PINE",
@@ -110,8 +117,11 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     territory: orUnspecified(row.territory),
     // The Pine outlet sync does not carry a route; territory is its finest grain.
     route: null,
-    repCode: nonEmpty(row.pjpEmployeeCode),
-    repName: nonEmpty(row.pjpRepName) ?? nonEmpty(row.mostRecentRep),
+    // The rep is whoever sells this principal at the outlet (the rep of its latest sale), not the outlet's journey-plan owner, who is the
+    // same on every principal row and was showing a Mars rep against Suntory, Weetabix and the rest. The owner's code only goes with the owner.
+    repCode: sellingRep(row) === nonEmpty(row.pjpRepName) ? nonEmpty(row.pjpEmployeeCode) : null,
+    repName: sellingRep(row),
+    plannedRep: nonEmpty(row.pjpRepName),
     latitude: validCoordinate(row.latitude, 90),
     longitude: validCoordinate(row.longitude, 180),
     lastPurchaseDate: row.lastPurchaseDate,
@@ -180,6 +190,7 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     route,
     repCode: nonEmpty(row.salesRepCode),
     repName: cleanLeverageUnit(row.salesRepName),
+    plannedRep: null,
     latitude: gps?.latitude ?? null,
     longitude: gps?.longitude ?? null,
     lastPurchaseDate: row.lastBuy,
@@ -233,6 +244,7 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     route: nonEmpty(row.route),
     repCode: null,
     repName: nonEmpty(row.salesman),
+    plannedRep: null,
     latitude: validCoordinate(row.latitude, 90),
     longitude: validCoordinate(row.longitude, 180),
     lastPurchaseDate: row.lastBuy,
@@ -298,6 +310,7 @@ export function upfieldRow(row: UpfieldSourceRow): OutletUniverseRow {
     route: upfieldRoute(row.fsr, row.routeDay),
     repCode: null,
     repName: nonEmpty(row.fsr),
+    plannedRep: null,
     latitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.latitude ?? null,
     longitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.longitude ?? null,
     lastPurchaseDate: row.lastBuy ?? null,
@@ -521,7 +534,7 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const excluded: Record<string, number> = {};
   const keep = (rows: OutletUniverseRow[]) =>
     rows.filter((row) => {
-      const reason = exclusionReason(row);
+      const reason = exclusionReason({ territory: row.territory, repName: row.plannedRep ?? row.repName });
       if (reason) excluded[reason] = (excluded[reason] ?? 0) + 1;
       return reason === null;
     });
