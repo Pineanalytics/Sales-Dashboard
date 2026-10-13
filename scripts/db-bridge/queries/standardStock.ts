@@ -16,6 +16,17 @@ export interface StandardStockDemandRow {
   lastSale: Date;
 }
 
+/** Demand over the last 28 and last 91 days per item and warehouse, net of credit-note returns (the same lines and values as
+ *  the year-to-date demand). Feeds the 4-week and 13-week run rates of the standard run rate (lib/standardStock.ts). */
+export interface RecentDemandRow {
+  itemCode: string;
+  warehouseCode: string;
+  qty28: number;
+  value28: number;
+  qty91: number;
+  value91: number;
+}
+
 export interface LastSaleByItemRow {
   itemCode: string;
   lastSaleDate: Date;
@@ -153,4 +164,62 @@ export async function fetchLastSaleByItem(pool: sql.ConnectionPool): Promise<Las
     GROUP BY T1."ItemCode";
   `);
   return result.recordset.map((row) => ({ itemCode: row["Item Code"], lastSaleDate: row["Last Sale"] }));
+}
+
+/** Recent demand for the 4-week and 13-week run rates. `recentStart` is the first day of the 28-day window, `startDate` the
+ *  first day of the 91-day window, both through `endDate`. Same invoice and credit-note lines as fetchStandardStockDemand. */
+export async function fetchRecentDemand(pool: sql.ConnectionPool, startDate: Date, recentStart: Date, endDate: Date): Promise<RecentDemandRow[]> {
+  const result = await pool
+    .request()
+    .input("StartDate", sql.Date, startDate.toISOString().slice(0, 10))
+    .input("RecentStart", sql.Date, recentStart.toISOString().slice(0, 10))
+    .input("EndDate", sql.Date, endDate.toISOString().slice(0, 10))
+    .query<{ "Item Code": string; "Warehouse Code": string; Qty28: number; Val28: number; Qty91: number; Val91: number }>(`
+      WITH Lines AS (
+        SELECT
+          T1."ItemCode" AS ItemCode,
+          T1."WhsCode" AS WhsCode,
+          T0."TaxDate" AS D,
+          CASE WHEN T1."InvQty" <> 0 THEN T1."InvQty" ELSE T1."Quantity" END AS Q,
+          CASE
+            WHEN T0."isIns" = 'N' AND T1."LineTotal" > T1."StockSum" AND T1."StockSum" <> 0
+            THEN T1."StockSum"
+            ELSE T1."LineTotal"
+          END AS Val
+        FROM OINV T0
+        INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+        WHERE T0."CANCELED" = 'N'
+          AND T0."TaxDate" BETWEEN @StartDate AND @EndDate
+
+        UNION ALL
+
+        SELECT
+          T1."ItemCode",
+          T1."WhsCode",
+          T0."TaxDate",
+          -(CASE WHEN T1."InvQty" <> 0 THEN T1."InvQty" ELSE T1."Quantity" END),
+          CASE WHEN T1."StockSum" = 0 THEN -T1."LineTotal" ELSE -T1."StockSum" END
+        FROM ORIN T0
+        INNER JOIN RIN1 T1 ON T0."DocEntry" = T1."DocEntry"
+        WHERE T0."CANCELED" = 'N'
+          AND T0."TaxDate" BETWEEN @StartDate AND @EndDate
+      )
+      SELECT
+        ItemCode AS "Item Code",
+        WhsCode AS "Warehouse Code",
+        SUM(CASE WHEN D >= @RecentStart THEN Q ELSE 0 END) AS Qty28,
+        SUM(CASE WHEN D >= @RecentStart THEN Val ELSE 0 END) AS Val28,
+        SUM(Q) AS Qty91,
+        SUM(Val) AS Val91
+      FROM Lines
+      GROUP BY ItemCode, WhsCode;
+    `);
+  return result.recordset.map((row) => ({
+    itemCode: row["Item Code"],
+    warehouseCode: row["Warehouse Code"],
+    qty28: Number(row.Qty28) || 0,
+    value28: Number(row.Val28) || 0,
+    qty91: Number(row.Qty91) || 0,
+    value91: Number(row.Val91) || 0,
+  }));
 }

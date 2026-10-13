@@ -81,9 +81,10 @@ describe("direct SAP stock transform", () => {
       new Date("2026-10-07T00:00:00Z"),
       [{ itemCode: "SKU-OLD", lastSaleDate: new Date("2026-03-14T08:30:00Z") }, { itemCode: "SKU-GONE", lastSaleDate: new Date("2025-11-02T00:00:00Z") }]
     );
-    // dormancy itself is unchanged: still decided only by pieces on hand and the three-month window
-    expect(result.items).toEqual([expect.objectContaining({ itemCode: "SKU-OLD", lastSaleDate: "2026-03-14" })]);
+    // SKU-OLD still has stock but last sold in March, outside the three-month window: it is dormant (stock with no movement), not operational
+    expect(result.items).toEqual([]);
     expect(result.dormantItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemCode: "SKU-OLD", openingPcs: 5, openingValue: 50, lastSaleDate: new Date("2026-03-14T00:00:00Z") }),
       expect.objectContaining({ itemCode: "SKU-GONE", lastSaleDate: new Date("2025-11-02T00:00:00Z") }),
       expect.objectContaining({ itemCode: "SKU-NEVER", lastSaleDate: null }),
     ]));
@@ -139,5 +140,54 @@ describe("direct SAP stock transform", () => {
       "snapshot-1"
     );
     expect(comparison).toMatchObject({ excelRows: 1, matchedRows: 1, onlySapRows: 0, onlyExcelRows: 0, directStockValue: 100 });
+  });
+});
+
+describe("dormant stock with pieces on hand, and the standard run rate", () => {
+  const products = [
+    { itemNo: "SKU-1", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+    { itemNo: "SKU-NEW", packSize: 1, principal: "Mars", costPrice: null, classification: "", ssuConversion: null },
+  ];
+  const warehouses = [{ warehouseCode: "W1", warehouseName: "Nairobi", location: "Nairobi", locationCode: "NBO" }];
+  const principals = [{ key: "mars-nairobi", principal: "Mars-Nairobi", mainPrincipal: "Mars", location: "Nairobi", locationCode: "NBO", status: "Active", teamLeader: "" }];
+  const asOf = new Date("2026-10-07T00:00:00Z"); // a Wednesday
+
+  it("keeps stock that has never sold operational (it may be new) and moves stock that sold before but not in three months to dormant", () => {
+    const result = buildDirectStock(
+      [
+        { itemCode: "SKU-1", itemName: "Stagnant", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 10, avgPrice: 10, stockValue: 100 },
+        { itemCode: "SKU-NEW", itemName: "New launch", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 10, avgPrice: 10, stockValue: 100 },
+      ],
+      [], [], products, warehouses, principals, asOf,
+      [{ itemCode: "SKU-1", lastSaleDate: new Date("2026-02-01T00:00:00Z") }]
+    );
+    expect(result.dormantItems.map((row) => row.itemCode)).toEqual(["SKU-1"]);
+    expect(result.items.map((row) => row.itemCode)).toEqual(["SKU-NEW"]);
+  });
+
+  it("sets the standard run rate to the median of the 4-week, 13-week and year-to-date rates", () => {
+    const demand = [{ itemCode: "SKU-1", warehouseCode: "W1", itemName: "Widget", quantityUnits: 2700, sumQuantitySquared: 0, salesValue: 27_000, sellingDays: 100, firstSale: new Date("2026-01-01T00:00:00Z"), lastSale: new Date("2026-10-06T00:00:00Z") }];
+    const recent = [{ itemCode: "SKU-1", warehouseCode: "W1", qty28: 0, value28: 0, qty91: 910, value91: 9_100 }];
+    const result = buildDirectStock(
+      [{ itemCode: "SKU-1", itemName: "Widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 100, avgPrice: 10, stockValue: 1000 }],
+      demand,
+      [{ itemCode: "SKU-1", warehouseCode: "W1", lastSaleDate: new Date("2026-10-06T00:00:00Z") }],
+      products, warehouses, principals, asOf, [], recent
+    );
+    const [item] = result.items;
+    // nothing sold in the last 4 weeks: that window is 0, so the median is the lower of the 13-week and year-to-date rates
+    expect(item.rr4wValue).toBe(0);
+    expect(item.rr13wValue).toBeGreaterThan(0);
+    expect(item.stdRrWeekValue).toBeCloseTo(Math.min(item.rr13wValue as number, item.rrWeekValue), 6);
+    expect(item.stdRrWeekValue as number).toBeLessThanOrEqual(item.rrWeekValue);
+  });
+
+  it("leaves the standard fields null when the recent windows were not read", () => {
+    const result = buildDirectStock(
+      [{ itemCode: "SKU-1", itemName: "Widget", itemGroup: null, brand: null, whsCode: "W1", whsName: "Nairobi", onhandQty: 100, avgPrice: 10, stockValue: 1000 }],
+      [], [{ itemCode: "SKU-1", warehouseCode: "W1", lastSaleDate: new Date("2026-10-06T00:00:00Z") }],
+      products, warehouses, principals, asOf
+    );
+    expect(result.items[0]).toMatchObject({ rr4wValue: null, rr13wValue: null, stdRrWeekValue: null, stdRrWeekPcs: null });
   });
 });

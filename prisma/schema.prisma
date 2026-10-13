@@ -876,12 +876,37 @@ model StockActual {
   // scripts/db-bridge/queries/standardStock.ts's fetchLastSaleByItem; used for the Stock Balance extract's
   // inactivity columns. Not the same as the three-month window that decides dormancy.
   lastSaleDate  DateTime?
+  // Weekly run rates over the last 4 weeks and the last 13 weeks (value), the standard run rate (the median of those and
+  // the year-to-date rrWeekValue, in value and in pieces), from lib/standardStock.ts. Null until the sync that reads the
+  // recent windows has run; rrWeekValue stays the year-to-date rate so the Excel comparison is unchanged.
+  rr4wValue      Float?
+  rr13wValue     Float?
+  stdRrWeekValue Float?
+  stdRrWeekPcs   Float?
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
 
   @@unique([principal, item])
   @@index([sourceDate])
   @@index([principal])
+}
+
+// Cover targets for standard stock (lib/standardStock.ts): days of cover to aim for, the Running Out and overstock lines,
+// per principal and optionally per brand. A null value falls back to the principal's, then to the defaults. Edited by an
+// admin on /admin/stock-cover.
+model StockCoverTarget {
+  id            String   @id @default(cuid())
+  scope         String // "PRINCIPAL" | "BRAND"
+  principalKey  String // normalizePrincipalKey, e.g. "mars"
+  brand         String   @default("") // the SKU's brand; empty for a principal row
+  targetDays    Float?
+  reorderDays   Float?
+  overstockDays Float?
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@unique([scope, principalKey, brand])
 }
 
 // Zero-value stock positions with no invoice activity for the trailing three

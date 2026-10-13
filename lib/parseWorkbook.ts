@@ -417,13 +417,14 @@ export function weightedCoverDays(value: number, rrWeekValue: number): number {
   return value > 0 && rrWeekValue > 0 ? round1((value / rrWeekValue) * 7) : 0;
 }
 
-/** Out of Stock: no stock, or less than OUT_OF_STOCK_DAYS (2) days of cover. Running Out: under RUNNING_OUT_DAYS (14).
+/** Out of Stock: no stock, or less than OUT_OF_STOCK_DAYS (2) days of cover. Running Out: under `reorderDays` (default
+ *  RUNNING_OUT_DAYS, 14; a principal or brand can have its own, see lib/standardStock.ts).
  *  A SKU with stock but no run-rate to measure it against is "No Sales Data". */
-export function stockStatus(days: number, value: number, rrWeekValue: number): string {
+export function stockStatus(days: number, value: number, rrWeekValue: number, reorderDays: number = RUNNING_OUT_DAYS): string {
   if (value <= 0) return "\u{1F534} Out of Stock - To Order";
   if (rrWeekValue <= 0) return "\u{26AA} No Sales Data";
   if (days < OUT_OF_STOCK_DAYS) return "\u{1F534} Out of Stock - To Order";
-  if (days < RUNNING_OUT_DAYS) return "\u{1F7E1} Running Out";
+  if (days < reorderDays) return "\u{1F7E1} Running Out";
   return "\u{1F7E2} OK";
 }
 

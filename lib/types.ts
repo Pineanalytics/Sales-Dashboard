@@ -117,6 +117,21 @@ export interface StockItem {
   rrWeekVolume: number;
   daysCover: number;
   action: string;
+  /** Standard stock (lib/standardStock.ts). rrWeekValue / rrWeekVolume above are the STANDARD run rate when rrBasis is
+   *  "standard" (the median of the 4-week, 13-week and year-to-date rates), otherwise the year-to-date rate. */
+  rrBasis?: "standard" | "ytd";
+  /** The year-to-date weekly run rate in value, kept for comparison when rrWeekValue holds the standard one. */
+  rrYtdWeekValue?: number;
+  rr4wValue?: number | null;
+  rr13wValue?: number | null;
+  /** Standard run rate in pieces per week. */
+  stdRrWeekPcs?: number | null;
+  /** Cover thresholds in force for this SKU (its brand's, its principal's or the defaults). */
+  targetDays?: number;
+  reorderDays?: number;
+  overstockDays?: number;
+  /** Stock to hold at the standard run rate for targetDays, in value. */
+  standardValue?: number;
 }
 
 export interface StockTotal {
@@ -171,6 +186,8 @@ export interface Dataset {
   /** Zero-stock SKUs with no invoice in three months (DormantStockActual), which the operational stock list leaves out
    *  but the Stock Balance extract lists, so it can cover every SKU. */
   dormantStockItems?: DormantStockItem[];
+  /** Cover targets per principal / brand (StockCoverTarget), for the stock status tiers and standard stock. */
+  stockCoverTargets?: import("./standardStock").CoverTargetRow[];
   /** Present only when the dashboard's operational stock has been replaced by
    * the latest complete direct SAP snapshot. */
   stockSource?: {

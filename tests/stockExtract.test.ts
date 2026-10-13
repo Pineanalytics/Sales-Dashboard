@@ -226,3 +226,36 @@ describe("the Excel file", () => {
     expect(workbook.SheetNames).toEqual(["Stock Items", "By Principal"]);
   });
 });
+
+describe("standard stock and dormancy reason columns", () => {
+  const standardItem = (): StockItem => ({ ...stock("Mars-Nairobi", "Galaxy", 1000, 700, "2026-10-05"), rrBasis: "standard", rrYtdWeekValue: 900, targetDays: 30, standardValue: 3000 });
+
+  it("lists the YTD run rate, basis, cover target, standard stock and stock against standard for an operational SKU", () => {
+    const extract = buildStockExtract(dataset({ stockItems: [standardItem()], dormantStockItems: [] }));
+    const row = extract.itemRows[0];
+    expect(row[col("YTD Run Rate (Weekly Value)")]).toBe(900);
+    expect(row[col("Run Rate Basis")]).toContain("Standard");
+    expect(row[col("Cover Target (days)")]).toBe(30);
+    expect(row[col("Standard Stock Value")]).toBe(3000);
+    expect(row[col("Stock vs Standard %")]).toBe(33.3);
+    expect(row[col("Dormancy Reason")]).toBe("");
+  });
+
+  it("labels dormant SKUs with the reason: stock on hand with no movement, or no stock", () => {
+    const withStock: DormantStockItem = { ...dormant("Mars-Nairobi", "Stagnant", "2026-03-14"), openingPcs: 12, openingValue: 480 };
+    const extract = buildStockExtract(dataset({ stockItems: [], dormantStockItems: [withStock, dormant("Mars-Nairobi", "Empty", "2026-01-02")] }));
+    const byItem = new Map(extract.itemRows.map((r) => [r[col("Item")], r]));
+    expect(byItem.get("Stagnant")?.[col("Dormancy Reason")]).toBe("Stock on hand, no sale in the last three months");
+    expect(byItem.get("Stagnant")?.[col("Action")]).toBe("Dormant – stock on hand, no movement");
+    expect(byItem.get("Stagnant")?.[col("Opening Value")]).toBe(480);
+    expect(byItem.get("Empty")?.[col("Dormancy Reason")]).toBe("No stock on hand, no sale in the last three months");
+    expect(byItem.get("Stagnant")?.[col("Standard Stock Value")]).toBe("");
+  });
+
+  it("carries the cover target and standard stock on the by-principal sheet", () => {
+    const extract = buildStockExtract(dataset({ stockItems: [standardItem()], dormantStockItems: [] }));
+    const row = extract.principalRows[0];
+    expect(row[pcol("Standard Stock Value")]).toBe(3000);
+    expect(row[pcol("Stock vs Standard %")]).toBe(33.3);
+  });
+});

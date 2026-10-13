@@ -6,7 +6,7 @@ process.loadEnvFile();
 
 import { loadConfigFromEnv, withConnection } from "./sql";
 import { fetchStockBalance } from "./queries/stockBalance";
-import { fetchLastSaleByItem, fetchRecentActiveSales, fetchStandardStockDemand } from "./queries/standardStock";
+import { fetchLastSaleByItem, fetchRecentActiveSales, fetchRecentDemand, fetchStandardStockDemand } from "./queries/standardStock";
 import { loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildDirectStock } from "./transform/buildDirectStock";
 
@@ -30,7 +30,9 @@ async function main() {
   const activeSalesStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth() - 3, asOfDate.getUTCDate()));
 
   console.log(`[stock-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)})...`);
-  const [{ stockRows, demandRows, recentSalesRows, lastSaleRows }, products, warehouses, principals] = await Promise.all([
+  const recentStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), asOfDate.getUTCDate() - 27));
+  const quarterStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), asOfDate.getUTCDate() - 90));
+  const [{ stockRows, demandRows, recentSalesRows, lastSaleRows, recentDemandRows }, products, warehouses, principals] = await Promise.all([
     withConnection(config, async (pool) => {
       const [stockRows, demandRows, recentSalesRows, lastSaleRows] = await Promise.all([
         fetchStockBalance(pool, asOfDate),
@@ -38,14 +40,22 @@ async function main() {
         fetchRecentActiveSales(pool, activeSalesStart, asOfDate),
         fetchLastSaleByItem(pool),
       ]);
-      return { stockRows, demandRows, recentSalesRows, lastSaleRows };
+      // The 4-week and 13-week run rates for the standard run rate. A failure here must not stop the stock refresh: the
+      // snapshot is then built without them and the standard run rate falls back to year to date.
+      let recentDemandRows: Awaited<ReturnType<typeof fetchRecentDemand>> | null = null;
+      try {
+        recentDemandRows = await fetchRecentDemand(pool, quarterStart, recentStart, asOfDate);
+      } catch (error) {
+        console.warn("[stock-sync] Recent demand windows unavailable; standard run rate falls back to year to date:", error);
+      }
+      return { stockRows, demandRows, recentSalesRows, lastSaleRows, recentDemandRows };
     }),
     loadProducts(),
     loadWarehouses(),
     loadPrincipals(),
   ]);
 
-  const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate, lastSaleRows);
+  const result = buildDirectStock(stockRows, demandRows, recentSalesRows, products, warehouses, principals, asOfDate, lastSaleRows, recentDemandRows);
   if (result.items.length === 0) throw new Error("Direct SAP stock build produced zero dashboard rows; preserving the prior snapshot.");
   console.log(`[stock-sync] Built ${result.items.length} operational and ${result.dormantItems.length} dormant out-of-stock rows from ${stockRows.length} balance and ${demandRows.length} demand rows.`);
 
@@ -53,6 +63,7 @@ async function main() {
     !isNonBlankText(row.itemCode) || !isNonBlankText(row.principal) || !isNonBlankText(row.item) || !isNonBlankText(row.action)
     || !isFiniteNumber(row.openingVolume) || !isFiniteNumber(row.openingPcs) || !isFiniteNumber(row.openingValue)
     || !isFiniteNumber(row.rrWeekValue) || !isFiniteNumber(row.rrWeekVolume) || !isFiniteNumber(row.daysCover)
+    || [row.rr4wValue, row.rr13wValue, row.stdRrWeekValue, row.stdRrWeekPcs].some((value) => value !== null && !isFiniteNumber(value))
   );
   const invalidDormantRow = result.dormantItems.find((row) =>
     !isNonBlankText(row.itemCode) || !isNonBlankText(row.principal) || !isNonBlankText(row.item)
@@ -82,6 +93,10 @@ async function main() {
         daysCover: item.daysCover,
         action: item.action,
         lastSaleDate: item.lastSaleDate ?? null,
+        rr4wValue: item.rr4wValue,
+        rr13wValue: item.rr13wValue,
+        stdRrWeekValue: item.stdRrWeekValue,
+        stdRrWeekPcs: item.stdRrWeekPcs,
       })),
       dormantRows: result.dormantItems.map((row) => ({ ...row, lastSaleDate: row.lastSaleDate?.toISOString().slice(0, 10) ?? null })),
       physicalSourceRows: stockRows.length,
