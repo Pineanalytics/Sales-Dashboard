@@ -20,17 +20,18 @@ function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
   return { volume, pcs, value, rrWeekValue, rrWeekVolume, daysStock, itemCount: stockItems.length, outOfStockCount, runningOutCount, okCount, noDataCount, action };
 }
 
-/** Adds the stock held in dormant SKUs (stock on hand with no movement in three months) to a stock total's value, pieces and item
- *  count. The operational Stock Balance leaves those SKUs out, but Finance and Overview show all stock held; the status counts and
- *  cover days stay those of the operational stock. */
-export function withDormantHeldStock(total: StockTotal, dormantStockItems: DormantStockItem[] | undefined): StockTotal {
-  const held = (dormantStockItems ?? []).filter((item) => item.openingPcs > 0);
-  if (held.length === 0) return total;
+/** Adds the stock held outside the operational Stock Balance to a stock total's value, pieces and item count: dormant SKUs (stock on
+ *  hand with no movement in three months) and returnable empties. The operational screens leave those out, but Finance and Overview
+ *  show all stock held; the status counts and cover days stay those of the operational stock. */
+export function withDormantHeldStock(total: StockTotal, dormantStockItems: DormantStockItem[] | undefined, emptiesStockItems?: StockItem[]): StockTotal {
+  const dormantHeld = (dormantStockItems ?? []).filter((item) => item.openingPcs > 0);
+  const empties = emptiesStockItems ?? [];
+  if (dormantHeld.length === 0 && empties.length === 0) return total;
   return {
     ...total,
-    value: total.value + held.reduce((sum, item) => sum + item.openingValue, 0),
-    pcs: total.pcs + held.reduce((sum, item) => sum + item.openingPcs, 0),
-    itemCount: total.itemCount + held.length,
+    value: total.value + dormantHeld.reduce((sum, item) => sum + item.openingValue, 0) + empties.reduce((sum, item) => sum + item.openingValue, 0),
+    pcs: total.pcs + dormantHeld.reduce((sum, item) => sum + item.openingPcs, 0) + empties.reduce((sum, item) => sum + item.openingPcs, 0),
+    itemCount: total.itemCount + dormantHeld.length + empties.length,
   };
 }
 
@@ -42,5 +43,6 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyPL = dataset.monthlyPL.filter((row) => principalKeys.has(row.principalKey));
   const stockItems = dataset.stockItems.filter((item) => principalKeys.has(item.key));
   const dormantStockItems = dataset.dormantStockItems?.filter((item) => principalKeys.has(item.key));
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems) };
+  const emptiesStockItems = dataset.emptiesStockItems?.filter((item) => principalKeys.has(item.key));
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, emptiesStockItems, stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems, emptiesStockItems) };
 }

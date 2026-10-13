@@ -6,6 +6,7 @@ import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { withDormantHeldStock } from "./datasetFilters";
 import { resolveCoverThresholds, standardStockFor, type CoverTargetRow } from "./standardStock";
+import { isEmptiesItem, mapSkuBrand, type BrandRule } from "./brandMapping";
 import { activeStatusBrandKeysFromPrincipals, dormantBrandKeysFromPrincipals, dormantSinceByBrandKey } from "./stock";
 import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup, getUpfieldMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, DormantStockItem, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
@@ -547,11 +548,16 @@ async function overlayPL(dataset: Dataset): Promise<Dataset> {
  * Stock Balance. Dormant zero-piece items deliberately live in
  * DormantStockActual instead, so they cannot inflate the live action list. */
 async function overlayStock(dataset: Dataset): Promise<Dataset> {
-  const [rows, dormantRows, coverRows] = await Promise.all([
+  const [allRows, dormantRows, coverRows, brandRuleRows] = await Promise.all([
     prisma.stockActual.findMany({ orderBy: { sourceDate: "desc" } }),
     prisma.dormantStockActual.findMany({ select: { principal: true, item: true, itemCode: true, openingPcs: true, openingValue: true, lastSaleDate: true } }),
     prisma.stockCoverTarget.findMany(),
+    prisma.stockBrandRule.findMany(),
   ]);
+  const brandRules: BrandRule[] = brandRuleRows.map((row) => ({ principalKey: row.principalKey, keyword: row.keyword, brand: row.brand, mode: row.mode === "CONTAINS" ? "CONTAINS" : "PREFIX" }));
+  // Returnable empties (crates, bottles) are packaging that comes back, not product to cover: they stay out of the operational stock.
+  const emptiesRows = allRows.filter((row) => isEmptiesItem(row.item));
+  const rows = allRows.filter((row) => !isEmptiesItem(row.item));
   const stockCoverTargets: CoverTargetRow[] = coverRows.map((row) => ({
     scope: row.scope === "BRAND" ? "BRAND" : "PRINCIPAL",
     principalKey: row.principalKey,
@@ -560,7 +566,7 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
     reorderDays: row.reorderDays,
     overstockDays: row.overstockDays,
   }));
-  if (rows.length === 0) return dataset;
+  if (allRows.length === 0) return dataset;
 
   // row.brand (SAP's own OMRC "Manufacturer" master, see StockActual's schema
   // comment) is the primary brand source. Product Master's "series" is a
@@ -568,12 +574,12 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
   // admin-maintained grouping this pipeline has, joined in by itemCode/itemNo.
   // Left as null when neither source has anything; the UI groups those under
   // "Unspecified" rather than dropping the item.
-  const products = await prisma.product.findMany({ select: { itemNo: true, series: true } });
-  const seriesByItemCode = new Map(products.map((p) => [p.itemNo, p.series]));
 
   const stockItems: StockItem[] = rows.map((row) => {
     const key = normalizePrincipalKey(row.principal);
-    const brand = row.brand?.trim() || seriesByItemCode.get(row.itemCode) || null;
+    // SAP's brand is the manufacturer or the placeholder "-Select Manufacturer-", so the brand comes from the item name (lib/brandMapping.ts).
+    const mapped = mapSkuBrand(key, row.item, brandRules);
+    const brand = mapped.brand;
     const thresholds = resolveCoverThresholds(stockCoverTargets, key, brand);
     // The standard run rate (the median of the 4-week, 13-week and year-to-date rates) replaces the year-to-date rate where the
     // sync has supplied it, so cover, status and every roll-up agree on one run rate. The volume rate is scaled by the same ratio.
@@ -607,8 +613,24 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
       reorderDays: thresholds.reorderDays,
       overstockDays: thresholds.overstockDays,
       standardValue: standardStockFor(rrWeekValue, thresholds.targetDays),
+      brandSource: mapped.source,
     };
   });
+  const emptiesStockItems: StockItem[] = emptiesRows.map((row) => ({
+    principal: row.principal,
+    key: normalizePrincipalKey(row.principal),
+    item: row.item,
+    itemCode: row.itemCode,
+    lastSaleDate: row.lastSaleDate ? row.lastSaleDate.toISOString().slice(0, 10) : null,
+    brand: "Empties",
+    openingVolume: row.openingVolume,
+    openingPcs: row.openingPcs,
+    openingValue: row.openingValue,
+    rrWeekValue: 0,
+    rrWeekVolume: 0,
+    daysCover: 0,
+    action: "Returnable empties",
+  }));
   const sourceDate = rows.reduce((latest, row) => row.sourceDate > latest ? row.sourceDate : latest, rows[0].sourceDate);
   const dormantStockItems: DormantStockItem[] = dormantRows.map((row) => ({
     principal: row.principal,
@@ -623,9 +645,10 @@ async function overlayStock(dataset: Dataset): Promise<Dataset> {
     ...dataset,
     stockItems,
     dormantStockItems,
+    emptiesStockItems,
     stockCoverTargets,
-    // The total is "all stock held": operational stock plus the stock sitting in dormant SKUs (Finance and Overview show it all).
-    stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems),
+    // The total is "all stock held": operational stock plus dormant SKUs and returnable empties (Finance and Overview show it all).
+    stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems, emptiesStockItems),
     stockSource: { kind: "sap-direct", sourceDate: sourceDate.toISOString(), itemCount: stockItems.length },
   };
 }
@@ -729,9 +752,10 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const stockItems = dataset.stockItems.filter((i) => principalKeys.has(i.key));
   const dormantStockItems = dataset.dormantStockItems?.filter((i) => principalKeys.has(i.key));
 
-  const stockTotal = withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems);
+  const emptiesStockItems = dataset.emptiesStockItems?.filter((i) => principalKeys.has(i.key));
+  const stockTotal = withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems, emptiesStockItems);
 
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal };
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, emptiesStockItems, stockTotal };
 }
 
 async function loadLiveDataset(includeBrandCustomer: boolean): Promise<Dataset | null> {

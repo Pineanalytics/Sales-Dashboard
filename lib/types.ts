@@ -132,6 +132,8 @@ export interface StockItem {
   overstockDays?: number;
   /** Stock to hold at the standard run rate for targetDays, in value. */
   standardValue?: number;
+  /** How the brand was named: a rule, the first word of the item name, or not at all (lib/brandMapping.ts). */
+  brandSource?: "rule" | "auto" | "none";
 }
 
 export interface StockTotal {
@@ -186,6 +188,9 @@ export interface Dataset {
   /** Zero-stock SKUs with no invoice in three months (DormantStockActual), which the operational stock list leaves out
    *  but the Stock Balance extract lists, so it can cover every SKU. */
   dormantStockItems?: DormantStockItem[];
+  /** Returnable empties (crates, bottles): physical stock that is not product to cover. Left out of stockItems and so out of the
+   *  operational Stock Balance, alerts and cover, but counted in the all-stock total and listed, labelled, in the extract. */
+  emptiesStockItems?: StockItem[];
   /** Cover targets per principal / brand (StockCoverTarget), for the stock status tiers and standard stock. */
   stockCoverTargets?: import("./standardStock").CoverTargetRow[];
   /** Present only when the dashboard's operational stock has been replaced by

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
+import { isEmptiesItem, mapSkuBrand, type BrandRule } from "@/lib/brandMapping";
 import { DEFAULT_OVERSTOCK_DAYS, DEFAULT_REORDER_DAYS, DEFAULT_TARGET_DAYS, resolveCoverThresholds, type CoverTargetRow } from "@/lib/standardStock";
 import { saveStockCoverTargetsAction } from "./actions";
 
@@ -21,10 +22,12 @@ export default async function AdminStockCoverPage({ searchParams }: { searchPara
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
   const { error, success } = await searchParams;
 
-  const [stock, targetRows] = await Promise.all([
-    prisma.stockActual.groupBy({ by: ["principal", "brand"], _count: { _all: true }, _sum: { openingValue: true } }),
+  const [stock, targetRows, brandRuleRows] = await Promise.all([
+    prisma.stockActual.findMany({ select: { principal: true, item: true, openingValue: true } }),
     prisma.stockCoverTarget.findMany(),
+    prisma.stockBrandRule.findMany(),
   ]);
+  const brandRules: BrandRule[] = brandRuleRows.map((r) => ({ principalKey: r.principalKey, keyword: r.keyword, brand: r.brand, mode: r.mode === "CONTAINS" ? "CONTAINS" : "PREFIX" }));
   const rows: CoverTargetRow[] = targetRows.map((r) => ({
     scope: r.scope === "BRAND" ? "BRAND" : "PRINCIPAL",
     principalKey: r.principalKey,
@@ -37,14 +40,15 @@ export default async function AdminStockCoverPage({ searchParams }: { searchPara
   // Stock is grouped by brand key (the part of the principal name before its location), like the Stock screens do.
   const principals = new Map<string, { name: string; value: number; brands: Map<string, { items: number; value: number }> }>();
   for (const row of stock) {
+    if (isEmptiesItem(row.item)) continue; // returnable empties are not product to cover
     const key = normalizePrincipalKey(row.principal);
     const entry = principals.get(key) ?? { name: row.principal.split("-")[0].trim(), value: 0, brands: new Map() };
-    const brand = row.brand?.trim() || "Unspecified";
+    const brand = mapSkuBrand(key, row.item, brandRules).brand;
     const brandEntry = entry.brands.get(brand) ?? { items: 0, value: 0 };
-    brandEntry.items += row._count._all;
-    brandEntry.value += row._sum.openingValue ?? 0;
+    brandEntry.items += 1;
+    brandEntry.value += row.openingValue;
     entry.brands.set(brand, brandEntry);
-    entry.value += row._sum.openingValue ?? 0;
+    entry.value += row.openingValue;
     principals.set(key, entry);
   }
   const ordered = Array.from(principals.entries()).sort((a, b) => b[1].value - a[1].value);
@@ -99,8 +103,11 @@ export default async function AdminStockCoverPage({ searchParams }: { searchPara
                 <strong className="text-foreground">Overstock days</strong>: more cover than this is overstocked (default {DEFAULT_OVERSTOCK_DAYS}). Out of Stock stays the flat rule: no stock, or under 2 days of cover.
               </p>
               <p>
-                Leave a box empty to inherit: a brand takes its principal&apos;s value, a principal takes the default ({DEFAULT_TARGET_DAYS} / {DEFAULT_REORDER_DAYS} / {DEFAULT_OVERSTOCK_DAYS}); the grey number in each box is the value in force. Reorder days can not exceed target days, nor
-                target days overstock days. The standard run rate is the median of each SKU&apos;s last-4-weeks, last-13-weeks and year-to-date run rates.
+                Leave a box empty to inherit: a brand takes its principal&apos;s value, a principal takes the default ({DEFAULT_TARGET_DAYS} / {DEFAULT_REORDER_DAYS} / {DEFAULT_OVERSTOCK_DAYS}); the grey number in each box is the value in force. Brands come from the item names (see{" "}
+                <Link href="/admin/stock-brands" className="text-primary-blue hover:underline">
+                  Stock brands
+                </Link>
+                ). Reorder days can not exceed target days, nor target days overstock days. The standard run rate is the median of each SKU&apos;s last-4-weeks, last-13-weeks and year-to-date run rates.
               </p>
             </div>
             <div className="overflow-x-auto">
