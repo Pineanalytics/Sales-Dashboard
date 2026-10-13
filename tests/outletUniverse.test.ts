@@ -2,7 +2,7 @@ import { boughtWithin, buyingTenure, longPurchaseConsistency, principalMix, purc
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
-import { cleanLeverageUnit, eablRow, leverageRow, pineRow, upfieldRow } from "../lib/outletUniverse/rebuild";
+import { cleanLeverageUnit, eablRow, leverageRow, pineRow, upfieldRow, withSecondaryReach } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
 describe("outlet universe normalisation", () => {
@@ -376,5 +376,22 @@ describe("selling rep", () => {
   it("falls back to whichever Pine rep exists", () => {
     expect(pineRow({ ...base, pjpRepName: "Peter Muli", mostRecentRep: null })).toMatchObject({ repName: "Peter Muli" });
     expect(pineRow({ ...base, pjpRepName: null, mostRecentRep: "Scovian Achieng" })).toMatchObject({ repName: "Scovian Achieng", plannedRep: null });
+  });
+});
+
+describe("role follows the rep", () => {
+  const base = { principal: "Mars-Nairobi", customerId: "11163", outletName: "Abdi Wholesalers", channel: "Wholesale", subChannel: "Wholesalers", territory: "Nairobi-Kibera", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRepName: "Lameck Oyombera", pjpRegion: null, salesRole: "Primary Sales", mostRecentRep: "Van Mars Nai South", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
+
+  it("makes an outlet a Secondary outlet when an MBSR or TDR rep sells it, whatever the van DSR sells there, and puts that rep on the row", () => {
+    const row = pineRow(withSecondaryReach(base, { repName: "Lameck Oyombera" }));
+    expect(row).toMatchObject({ salesRole: "Secondary Sales", repName: "Lameck Oyombera" });
+  });
+
+  it("leaves an outlet no Secondary rep sells as it was", () => {
+    expect(pineRow(withSecondaryReach(base, undefined))).toMatchObject({ salesRole: "Primary Sales", repName: "Van Mars Nai South" });
+  });
+
+  it("keeps the latest rep when the Secondary sale carries none", () => {
+    expect(pineRow(withSecondaryReach(base, { repName: null }))).toMatchObject({ salesRole: "Secondary Sales", repName: "Van Mars Nai South" });
   });
 });
