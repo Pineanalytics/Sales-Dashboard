@@ -332,3 +332,32 @@ describe("Upfield DataEdge outlets", () => {
     expect(row.repName).toBeNull();
   });
 });
+
+describe("Upfield outlets with the outlet list (customer master)", () => {
+  it("takes channel, type, area, route and GPS from the list", () => {
+    const row = upfieldRow({
+      customerCode: "301582",
+      customerName: "Mutiso- Near Popular",
+      fsr: "Daniel Ndirangu",
+      outletType: "Kiosk",
+      channel: "retail",
+      location: "56 kariobangi",
+      routeDay: "monday",
+      routeWeek: "1",
+      latitude: -1.2759617,
+      longitude: 36.9170319,
+      lastBuy: null,
+    });
+    expect(row).toMatchObject({ channel: "Retail", segment: "Kiosk", rawChannel: "retail", rawSegment: "Kiosk", territory: "56 Kariobangi", route: "Daniel Ndirangu - Monday", repName: "Daniel Ndirangu", latitude: -1.2759617, longitude: 36.9170319 });
+    expect(row.lastPurchaseDate).toBeNull(); // on the list but has not bought: a known, not an active, outlet
+  });
+
+  it("maps the list's channels onto the module's taxonomy, and a route run on several days to Several days", () => {
+    expect(upfieldRow({ customerCode: "1", customerName: "A", fsr: "Rep One", channel: "LMT", outletType: "Supermarket", routeDay: "monday;tuesday;wednesday", lastBuy: null })).toMatchObject({ channel: "Modern Trade", segment: "Supermarkets", route: "Rep One - Several days" });
+    expect(upfieldRow({ customerCode: "2", customerName: "B", fsr: "Rep One", channel: "wholesale", outletType: "Wholesaler", lastBuy: null })).toMatchObject({ channel: "Wholesale", segment: "Wholesalers", route: "Rep One" });
+  });
+
+  it("drops a GPS point outside Kenya", () => {
+    expect(upfieldRow({ customerCode: "3", customerName: "C", fsr: null, latitude: 0.32, longitude: 32.61, lastBuy: null })).toMatchObject({ latitude: null, longitude: null });
+  });
+});
