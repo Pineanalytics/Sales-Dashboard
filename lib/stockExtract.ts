@@ -7,6 +7,8 @@
 //    zero-stock item dormant in the stock sync), otherwise Dormant, including items never invoiced.
 //  - Principal status: Active / Inactive, from classifyDormantPrincipals (an admin flag, or no sales in three
 //    months), so it agrees with the Stock Balance screen.
+//  - Principal note: a principal on the Active principals list is never marked Inactive; when it has had no sales in
+//    three months (or carries the dormant flag) it stays Active and this column says so.
 //  - Principal dormancy period: for a flagged principal, from the date an admin recorded; for a principal that is
 //    dormant only because it has not sold, from the day after its last sale.
 import { aggregateStockByPrincipal, classifyDormantPrincipals } from "./stock";
@@ -30,6 +32,7 @@ export const STOCK_EXTRACT_ITEM_COLUMNS = [
   "RR Week Value",
   "Days Cover",
   "Action",
+  "Principal Note",
 ];
 
 export const STOCK_EXTRACT_PRINCIPAL_COLUMNS = [
@@ -44,6 +47,7 @@ export const STOCK_EXTRACT_PRINCIPAL_COLUMNS = [
   "Opening Volume",
   "RR Week Value",
   "Days Cover",
+  "Principal Note",
 ];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -144,7 +148,7 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
   // Principal classification covers every brand that appears in either list (a brand with only zero-stock SKUs
   // still needs a status), and uses the dataset's own flags so it matches the Stock Balance screen.
   const brandKeys = Array.from(new Set(skus.map((sku) => sku.key)));
-  const { dormantKeys, flaggedKeys } = classifyDormantPrincipals(dataset, brandKeys);
+  const { dormantKeys, flaggedKeys, noticeKeys } = classifyDormantPrincipals(dataset, brandKeys);
   const lastSaleByBrand = new Map<string, string>();
   for (const sku of skus) {
     if (sku.lastSaleDate && (!lastSaleByBrand.has(sku.key) || sku.lastSaleDate > lastSaleByBrand.get(sku.key)!)) lastSaleByBrand.set(sku.key, sku.lastSaleDate);
@@ -167,6 +171,8 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
   const skuStatus = (sku: ExtractSku): "Active" | "Dormant" | "" => (sku.lastSaleDate === undefined ? "" : sku.lastSaleDate && sku.lastSaleDate >= cutoff ? "Active" : "Dormant");
 
   const principalStatus = (key: string) => (dormantKeys.has(key) ? "Inactive" : "Active");
+  // An active principal with no recent sales stays Active; the note says why its stock is not moving.
+  const principalNote = (key: string) => (noticeKeys.has(key) ? "Active principal with no sales in the last three months" : "");
   const ordered = [...skus].sort((a, b) => {
     const byPrincipalStatus = Number(dormantKeys.has(a.key)) - Number(dormantKeys.has(b.key));
     if (byPrincipalStatus !== 0) return byPrincipalStatus;
@@ -199,6 +205,7 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
       round2(sku.rrWeekValue),
       sku.daysCover === "" ? "" : round2(sku.daysCover),
       sku.action,
+      principalNote(sku.key),
     ];
   });
 
@@ -229,6 +236,7 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         round2(rollup?.volume ?? 0),
         round2(rollup?.rrWeekValue ?? 0),
         round2(rollup?.daysStock ?? 0),
+        principalNote(key),
       ];
     });
 

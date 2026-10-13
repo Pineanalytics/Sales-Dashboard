@@ -148,3 +148,28 @@ describe("Stock Balance extract", () => {
     expect(report.sections[0].rows[0][1]).toBe("Inactive");
   });
 });
+
+describe("principals on the Active principals list stay in the stock balance", () => {
+  const keys = ["mars", "signify", "promasidor", "dkt"];
+
+  it("never marks an active-list principal dormant, flagged or without sales, and reports a notice for it instead", () => {
+    const result = classifyDormantPrincipals(dataset({ dormantPrincipalKeys: ["signify", "promasidor"], activeStatusPrincipalKeys: ["mars", "promasidor", "dkt"] }), keys);
+    expect(result.dormantKeys.has("promasidor")).toBe(false); // flagged, but on the active list
+    expect(result.dormantKeys.has("dkt")).toBe(false); // no sales, but on the active list
+    expect(result.dormantKeys.has("signify")).toBe(true); // not on the active list: still dormant
+    expect([...result.noticeKeys].sort()).toEqual(["dkt", "promasidor"]);
+    expect(result.activeKeys.has("promasidor")).toBe(true);
+  });
+
+  it("gives a notice only to active-list principals that are quiet, not to those selling normally", () => {
+    const result = classifyDormantPrincipals(dataset({ activeStatusPrincipalKeys: ["mars", "dkt"] }), keys);
+    expect(result.noticeKeys.has("mars")).toBe(false);
+    expect(result.noticeKeys.has("dkt")).toBe(true);
+  });
+
+  it("behaves as before when the dataset carries no active list", () => {
+    const result = classifyDormantPrincipals(dataset({ dormantPrincipalKeys: ["promasidor"] }), keys);
+    expect(result.dormantKeys.has("promasidor")).toBe(true);
+    expect(result.noticeKeys.size).toBe(0);
+  });
+});
