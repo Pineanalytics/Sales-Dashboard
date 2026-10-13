@@ -104,6 +104,32 @@ function Get-DotEnvValue {
   return (($line -replace ("^\s*" + [regex]::Escape($Name) + "\s*=\s*"), "") -replace '^"(.*)"$', '$1')
 }
 
+# One GET that does NOT follow redirects, so a 301 shows up as a 301.
+function Get-HttpStatusNoRedirect {
+  param([string]$Url)
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+  try {
+    $req = [System.Net.HttpWebRequest]::Create($Url)
+    $req.AllowAutoRedirect = $false
+    $req.Timeout = 20000
+    $req.Method = "GET"
+    $resp = $req.GetResponse()
+    $result = @{ Code = [int]$resp.StatusCode; Location = $resp.Headers["Location"]; Error = $null }
+    $resp.Close()
+    return $result
+  }
+  catch [System.Net.WebException] {
+    if ($_.Exception.Response) {
+      $resp = $_.Exception.Response
+      $result = @{ Code = [int]$resp.StatusCode; Location = $resp.Headers["Location"]; Error = $null }
+      $resp.Close()
+      return $result
+    }
+    return @{ Code = 0; Location = $null; Error = $_.Exception.Message }
+  }
+  catch { return @{ Code = 0; Location = $null; Error = $_.Exception.Message } }
+}
+
 function Get-DotEnvCount {
   param([string]$Path, [string]$Name)
   if (-not (Test-Path -LiteralPath $Path)) { return 0 }
@@ -314,12 +340,33 @@ if ($Distributor -match '^\d+$') {
 # ---------------------------------------------------------------- 5. the dashboard
 Write-Section "5. Dashboard (VPS)"
 $apiKey = Get-DotEnvValue -Path $envPath -Name "UPLOAD_API_KEY"
+
+# The address the sync really uses: SALES_RETURNS_APP_URL (environment, then .env), else the script default (the apex).
+$configuredUrl = $env:SALES_RETURNS_APP_URL
+if (-not $configuredUrl) { $configuredUrl = Get-DotEnvValue -Path $envPath -Name "SALES_RETURNS_APP_URL" }
+$effectiveUrl = $AppUrl
+if ($configuredUrl) { $effectiveUrl = $configuredUrl.Trim().TrimEnd('/') }
+Add-Check "INFO" "Dashboard address the sync uses" $effectiveUrl
+foreach ($urlName in @("SALES_RETURNS_APP_URL", "PL_BRIDGE_APP_URL", "EABL_CALL_APP_URL")) {
+  $urlValue = $null
+  if (Get-Item -Path ("Env:" + $urlName) -ErrorAction SilentlyContinue) { $urlValue = (Get-Item -Path ("Env:" + $urlName)).Value }
+  if (-not $urlValue) { $urlValue = Get-DotEnvValue -Path $envPath -Name $urlName }
+  if ($urlValue -and $urlValue -match "://www\.") {
+    Add-Check "FAIL" ($urlName + " names the www host") ("value: " + $urlValue) ("Change it to https://pinefrostdb.com (no www) in " + $envPath + " or remove the line. The www address answers with a redirect, and a redirected upload arrives as a GET, so uploads fail.")
+  }
+}
+if ($AppUrl -match "://www\.") { Add-Check "FAIL" "-AppUrl names the www host" $AppUrl "Use https://pinefrostdb.com." }
+$probe = Get-HttpStatusNoRedirect -Url ($effectiveUrl + "/api/health")
+if ($probe.Code -ge 200 -and $probe.Code -lt 300) { Add-Check "PASS" "Dashboard address answers directly (no redirect)" ("HTTP " + $probe.Code) }
+elseif ($probe.Code -ge 300 -and $probe.Code -lt 400) { Add-Check "FAIL" "The dashboard address redirects" ("HTTP " + $probe.Code + " from " + $effectiveUrl + " to " + $probe.Location) "Use the canonical address https://pinefrostdb.com for SALES_RETURNS_APP_URL. Uploads sent to a redirecting address fail." }
+elseif ($probe.Code -gt 0) { Add-Check "WARN" "Dashboard address answered with an error" ("HTTP " + $probe.Code + " from " + $effectiveUrl) }
+else { Add-Check "FAIL" "Cannot connect to the dashboard address" ($effectiveUrl + ": " + $probe.Error) "Check the address, this machine's internet and any proxy or firewall." }
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 }
 catch { }
 try {
-  $web = Invoke-WebRequest -Uri "$AppUrl/api/health" -UseBasicParsing -TimeoutSec 20
+  $web = Invoke-WebRequest -Uri "$effectiveUrl/api/health" -UseBasicParsing -TimeoutSec 20
   $health = $web.Content | ConvertFrom-Json
   $commit = $null
   if ($health.deployment) { $commit = $health.deployment.shortCommit }
@@ -336,7 +383,7 @@ catch { Add-Check "FAIL" "Dashboard not reachable" $_.Exception.Message "Check t
 
 if ($apiKey) {
   try {
-    $control = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/control?distributor=$Distributor" -Method Get -Headers @{ "x-upload-api-key" = $apiKey } -TimeoutSec 20
+    $control = Invoke-RestMethod -Uri "$effectiveUrl/api/sales-returns/control?distributor=$Distributor" -Method Get -Headers @{ "x-upload-api-key" = $apiKey } -TimeoutSec 20
     $detail = "mode {0}; version {1}; status {2}" -f $control.desiredMode, $control.version, $control.status
     if ($control.resultSummary) { $detail = $detail + "; last result: " + $control.resultSummary }
     if ($control.desiredMode -eq "CATCHUP") { Add-Check "FAIL" "Branch control is in CATCHUP (backfill pause)" $detail "An admin must set the branch back to SMART on the dashboard (Admin > Dataset > Sync Health). While it is CATCHUP the dashboard refuses historical windows with HTTP 409 and the machine reports a backfill error." }
@@ -351,7 +398,7 @@ if ($apiKey) {
     else { Add-Check "WARN" "Could not read branch control" $_.Exception.Message }
   }
   try {
-    $pending = Invoke-RestMethod -Uri "$AppUrl/api/sales-returns/trigger/pending?distributor=$Distributor" -Method Get -Headers @{ "x-upload-api-key" = $apiKey } -TimeoutSec 20
+    $pending = Invoke-RestMethod -Uri "$effectiveUrl/api/sales-returns/trigger/pending?distributor=$Distributor" -Method Get -Headers @{ "x-upload-api-key" = $apiKey } -TimeoutSec 20
     if ($pending.pending) { Add-Check "INFO" "A dashboard 'Trigger now' request is waiting for this machine" ("window {0} {1}" -f $pending.window, $pending.date) }
     else { Add-Check "PASS" "No queued trigger requests for this branch" }
   }
@@ -436,6 +483,7 @@ if ($RunNow) {
     else {
       $hint = "Read the lines above: the first error line is the cause."
       if ($text -match "Historical Sales & Returns reconciliation is stopped") { $hint = "The branch control is in CATCHUP on the dashboard: an admin must set it back to SMART." }
+      elseif ($text -match "://www\." -or $text -match "301|302|405|Method Not Allowed") { $hint = "The sync used the www address (or a redirecting one): set SALES_RETURNS_APP_URL=https://pinefrostdb.com in .env, or delete that line." }
       elseif ($text -match "409") { $hint = "HTTP 409 from the dashboard: the branch is in catch-up (backfill pause), or the window is historical." }
       elseif ($text -match "ECONNREFUSED|ETIMEOUT|Failed to connect|ESOCKET") { $hint = "The SQL Server could not be reached: start the SQL service or fix the .env server/port." }
       elseif ($text -match "Login failed") { $hint = "SQL login failed: the credentials in .env are wrong or expired." }
