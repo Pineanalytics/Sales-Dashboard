@@ -166,7 +166,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
     <div className="flex flex-col gap-6">
       {dataset.stockSource?.kind === "sap-direct" && (
         <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
-          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module.</p>
+          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module. Stock with no movement in three months is dormant too. Cover and status use the standard run rate (the median of the 4-week, 13-week and year-to-date run rates), so a one-off spike or slump does not mark sufficient stock as out or running out.</p>
         </SectionCard>
       )}
       {noticeRollups.length > 0 && (!selectedRollup || noticeKeys.has(selectedRollup.key)) && (
@@ -230,7 +230,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
 
       <SectionCard
         title={selectedRollup ? `${selectedRollup.name} — Stock by Brand` : "Stock by Brand (all principals)"}
-        action={<span className="text-xs text-muted">{brandRollups.length} brand{brandRollups.length === 1 ? "" : "s"} · Product Master&apos;s Series field</span>}
+        action={<span className="text-xs text-muted">{brandRollups.length} brand{brandRollups.length === 1 ? "" : "s"} · SAP brand, else Product Master&apos;s Series · targets set on Admin → Stock cover</span>}
       >
         <TableWrap>
           <Thead>
@@ -241,6 +241,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
             <Th align="right">Pcs</Th>
             <Th align="right">Items</Th>
             <Th align="right">Cover Days</Th>
+            <Th align="right">Target Days</Th>
+            <Th align="right">Standard Stock</Th>
+            <Th align="right">vs Standard</Th>
             <Th align="center">Status</Th>
           </Thead>
           <tbody>
@@ -253,11 +256,14 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                 <Td align="right">{formatNumber(b.pcs)}</Td>
                 <Td align="right">{formatNumber(b.itemCount)}</Td>
                 <Td align="right">{b.daysStock.toFixed(1)}</Td>
+                <Td align="right">{b.targetDays}</Td>
+                <Td align="right">{formatCompact(b.standardValue)}</Td>
+                <Td align="right">{b.vsStandardPct === null ? "—" : `${b.vsStandardPct.toFixed(0)}%`}</Td>
                 <Td align="center"><StockStatusPill action={b.action} /></Td>
               </tr>
             ))}
             {brandRollups.length === 0 && (
-              <tr><td colSpan={selectedRollup ? 6 : 7} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
+              <tr><td colSpan={selectedRollup ? 9 : 10} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
             )}
           </tbody>
         </TableWrap>
@@ -357,6 +363,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
               <Th align="right">No Data</Th>
               <Th align="right">Cover Days</Th>
               <Th align="right">RR/Week</Th>
+              <Th align="right">Target Days</Th>
+              <Th align="right">Standard Stock</Th>
+              <Th align="right">vs Standard</Th>
               <Th align="center">Status</Th>
             </Thead>
             <tbody>
@@ -374,6 +383,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                     <Td align="right">{formatNumber(r.noDataCount)}</Td>
                     <Td align="right">{r.daysStock.toFixed(1)}</Td>
                     <Td align="right">{formatCompact(r.rrWeekValue)}</Td>
+                    <Td align="right">{r.targetDays}</Td>
+                    <Td align="right">{formatCompact(r.standardValue)}</Td>
+                    <Td align="right">{r.vsStandardPct === null ? "—" : `${r.vsStandardPct.toFixed(0)}%`}</Td>
                     <Td align="center">
                       <StockStatusPill action={r.action} />
                     </Td>
@@ -390,6 +402,9 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
                 <Td align="right">{formatNumber(principalTotal ? principalTotal.noDataCount : activeStockTotal.noDataCount)}</Td>
                 <Td align="right">{principalTotal ? "—" : activeStockTotal.daysStock.toFixed(1)}</Td>
                 <Td align="right">{principalTotal ? "—" : formatCompact(activeStockTotal.rrWeekValue)}</Td>
+                <Td align="right">—</Td>
+                <Td align="right">{formatCompact(filteredRollups.reduce((sum, r) => sum + r.standardValue, 0))}</Td>
+                <Td align="right">—</Td>
                 <Td align="center">{principalTotal ? "—" : <StockStatusPill action={activeStockTotal.action} />}</Td>
               </TotalRow>
             </tbody>

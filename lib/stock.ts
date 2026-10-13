@@ -1,6 +1,7 @@
 import type { Dataset, StockTotal } from "./types";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
 import { normalizePrincipalKey } from "./normalize";
+import { resolveCoverThresholds, stockVsStandardPct } from "./standardStock";
 
 export interface StockPrincipalRollup {
   key: string;
@@ -17,6 +18,11 @@ export interface StockPrincipalRollup {
   noDataCount: number;
   daysStock: number;
   action: string;
+  /** Cover target in force for the principal (days), the stock to hold at the standard run rate for it, and stock held as a
+   *  percentage of that standard (100 = on standard; null when there is no standard yet). */
+  targetDays: number;
+  standardValue: number;
+  vsStandardPct: number | null;
 }
 
 /** Groups item-level stock rows by normalized brand key, independent of how many
@@ -42,6 +48,9 @@ export function aggregateStockByPrincipal(dataset: Dataset): StockPrincipalRollu
         noDataCount: 0,
         daysStock: 0,
         action: "",
+        targetDays: 0,
+        standardValue: 0,
+        vsStandardPct: null,
       };
       byKey.set(item.key, agg);
     }
@@ -50,6 +59,7 @@ export function aggregateStockByPrincipal(dataset: Dataset): StockPrincipalRollu
     agg.value += item.openingValue;
     agg.rrWeekValue += item.rrWeekValue;
     agg.rrWeekVolume += item.rrWeekVolume;
+    agg.standardValue += item.standardValue ?? 0;
     agg.itemCount += 1;
     if (item.action.includes("\u{1F534}")) agg.outOfStockCount += 1;
     else if (item.action.includes("\u{1F7E1}")) agg.runningOutCount += 1;
@@ -59,8 +69,11 @@ export function aggregateStockByPrincipal(dataset: Dataset): StockPrincipalRollu
 
   const rollups = Array.from(byKey.values());
   for (const agg of rollups) {
+    const thresholds = resolveCoverThresholds(dataset.stockCoverTargets, agg.key);
     agg.daysStock = weightedCoverDays(agg.value, agg.rrWeekValue);
-    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue);
+    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue, thresholds.reorderDays);
+    agg.targetDays = thresholds.targetDays;
+    agg.vsStandardPct = stockVsStandardPct(agg.value, agg.standardValue);
   }
   return rollups;
 }
@@ -107,6 +120,11 @@ export interface StockBrandRollup {
   noDataCount: number;
   daysStock: number;
   action: string;
+  /** Cover target in force for the brand (its own, else its principal's, else the default), the stock to hold at the standard run
+   *  rate for it, and stock held as a percentage of that standard. */
+  targetDays: number;
+  standardValue: number;
+  vsStandardPct: number | null;
 }
 
 /** Groups item-level stock rows by (principal, brand) - brand alone isn't
@@ -137,6 +155,9 @@ export function aggregateStockByBrand(dataset: Dataset, principalKey?: string | 
         noDataCount: 0,
         daysStock: 0,
         action: "",
+        targetDays: 0,
+        standardValue: 0,
+        vsStandardPct: null,
       };
       byKey.set(groupKey, agg);
     }
@@ -144,6 +165,7 @@ export function aggregateStockByBrand(dataset: Dataset, principalKey?: string | 
     agg.pcs += item.openingPcs;
     agg.value += item.openingValue;
     agg.rrWeekValue += item.rrWeekValue;
+    agg.standardValue += item.standardValue ?? 0;
     agg.itemCount += 1;
     if (item.action.includes("\u{1F534}")) agg.outOfStockCount += 1;
     else if (item.action.includes("\u{1F7E1}")) agg.runningOutCount += 1;
@@ -152,8 +174,11 @@ export function aggregateStockByBrand(dataset: Dataset, principalKey?: string | 
 
   const rollups = Array.from(byKey.values());
   for (const agg of rollups) {
+    const thresholds = resolveCoverThresholds(dataset.stockCoverTargets, agg.principalKey, agg.brand);
     agg.daysStock = weightedCoverDays(agg.value, agg.rrWeekValue);
-    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue);
+    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue, thresholds.reorderDays);
+    agg.targetDays = thresholds.targetDays;
+    agg.vsStandardPct = stockVsStandardPct(agg.value, agg.standardValue);
   }
   return rollups;
 }
@@ -173,8 +198,9 @@ export interface OverstockSummary {
   value: number;
 }
 
-export function isOverstocked(item: { rrWeekValue: number; daysCover: number }, thresholdDays: number = OVERSTOCK_DAYS_THRESHOLD): boolean {
-  return item.rrWeekValue > 0 && item.daysCover > thresholdDays;
+export function isOverstocked(item: { rrWeekValue: number; daysCover: number; overstockDays?: number }, thresholdDays: number = OVERSTOCK_DAYS_THRESHOLD): boolean {
+  // A SKU carries the overstock line of its brand / principal (StockItem.overstockDays) when one is set; otherwise the flat default.
+  return item.rrWeekValue > 0 && item.daysCover > (item.overstockDays ?? thresholdDays);
 }
 
 /** Overstock count/value across `dataset.stockItems`, optionally scoped to

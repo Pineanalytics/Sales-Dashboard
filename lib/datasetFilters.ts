@@ -1,5 +1,5 @@
 import { OUT_OF_STOCK_DAYS, RUNNING_OUT_DAYS } from "./stockThresholds";
-import type { Dataset, StockItem, StockTotal } from "./types";
+import type { Dataset, DormantStockItem, StockItem, StockTotal } from "./types";
 
 function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
   let volume = 0, pcs = 0, value = 0, rrWeekValue = 0, rrWeekVolume = 0;
@@ -20,6 +20,20 @@ function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
   return { volume, pcs, value, rrWeekValue, rrWeekVolume, daysStock, itemCount: stockItems.length, outOfStockCount, runningOutCount, okCount, noDataCount, action };
 }
 
+/** Adds the stock held in dormant SKUs (stock on hand with no movement in three months) to a stock total's value, pieces and item
+ *  count. The operational Stock Balance leaves those SKUs out, but Finance and Overview show all stock held; the status counts and
+ *  cover days stay those of the operational stock. */
+export function withDormantHeldStock(total: StockTotal, dormantStockItems: DormantStockItem[] | undefined): StockTotal {
+  const held = (dormantStockItems ?? []).filter((item) => item.openingPcs > 0);
+  if (held.length === 0) return total;
+  return {
+    ...total,
+    value: total.value + held.reduce((sum, item) => sum + item.openingValue, 0),
+    pcs: total.pcs + held.reduce((sum, item) => sum + item.openingPcs, 0),
+    itemCount: total.itemCount + held.length,
+  };
+}
+
 /** Browser-safe dataset scoping shared by the global multi-principal filter. */
 export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<string>): Dataset {
   const monthlySales = dataset.monthlySales.filter((row) => principalKeys.has(row.principalKey));
@@ -28,5 +42,5 @@ export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<s
   const monthlyPL = dataset.monthlyPL.filter((row) => principalKeys.has(row.principalKey));
   const stockItems = dataset.stockItems.filter((item) => principalKeys.has(item.key));
   const dormantStockItems = dataset.dormantStockItems?.filter((item) => principalKeys.has(item.key));
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal: stockTotalFromItems(stockItems) };
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems) };
 }

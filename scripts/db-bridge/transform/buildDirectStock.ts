@@ -2,15 +2,16 @@
 // precise Principal x Item grain consumed by the dashboard's Stock view. Excel
 // remains authoritative until Admin accepts the recorded reconciliation.
 import { stockStatus, weightedCoverDays } from "@/lib/parseWorkbook";
+import { median3 } from "@/lib/standardStock";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { StockItem } from "@/lib/types";
 import type { StockBalanceRow } from "../queries/stockBalance";
-import type { LastSaleByItemRow, RecentActiveSaleRow, StandardStockDemandRow } from "../queries/standardStock";
+import type { LastSaleByItemRow, RecentActiveSaleRow, RecentDemandRow, StandardStockDemandRow } from "../queries/standardStock";
 import type { ProductRow } from "../reference/loadFromDb";
 import type { PrincipalRow, WarehouseRow } from "./buildMonthlySales";
 
 export interface DirectStockBuildResult {
-  items: Array<StockItem & { itemCode: string }>;
+  items: Array<StockItem & { itemCode: string; rr4wValue: number | null; rr13wValue: number | null; stdRrWeekValue: number | null; stdRrWeekPcs: number | null }>;
   dormantItems: Array<{ principal: string; item: string; itemCode: string; openingPcs: number; openingValue: number; lastSaleDate: Date | null }>;
   matchedDemandRows: number;
 }
@@ -55,6 +56,18 @@ function sellingDaysFrom(start: Date, end: Date): number {
 interface Demand {
   rrWeekValue: number;
   rrWeekVolume: number;
+  /** Year-to-date weekly run rate in pieces (before the pack-size division rrWeekVolume carries). */
+  rrWeekPcs: number;
+  firstSale: Date;
+}
+
+/** Selling days (Sundays excluded) in the last `windowDays` calendar days up to `asOf`, counted from the item's first sale when that
+ *  is later, so a new SKU is measured over the days it could have sold. */
+function recentSellingDays(asOf: Date, windowDays: number, firstSale: Date | undefined): number {
+  const windowStart = midnightUtc(asOf);
+  windowStart.setUTCDate(windowStart.getUTCDate() - (windowDays - 1));
+  const start = firstSale && midnightUtc(firstSale) > windowStart ? midnightUtc(firstSale) : windowStart;
+  return sellingDaysFrom(start, asOf);
 }
 
 /** Direct equivalent of the Standard Stock M query's YTD run-rate steps. */
@@ -67,6 +80,8 @@ function buildDemandIndex(rows: StandardStockDemandRow[], startDate: Date, endDa
     index.set(`${row.itemCode}|${row.warehouseCode}`, {
       rrWeekValue: (Math.max(0, row.salesValue) / demandDays) * 7,
       rrWeekVolume: (Math.max(0, row.quantityUnits) / demandDays) * 7,
+      rrWeekPcs: (Math.max(0, row.quantityUnits) / demandDays) * 7,
+      firstSale: row.firstSale,
     });
   }
   return index;
@@ -87,8 +102,11 @@ export function buildDirectStock(
   principals: PrincipalRow[],
   asOfDate: Date,
   /** The all-history last invoice date per item. Optional: without it the extract's inactivity columns are blank. */
-  lastSaleByItem: LastSaleByItemRow[] = []
+  lastSaleByItem: LastSaleByItemRow[] = [],
+  /** Demand over the last 28 / 91 days. Null when it was not read (the standard run rate then falls back to year to date). */
+  recentDemandRows: RecentDemandRow[] | null = null
 ): DirectStockBuildResult {
+  const recentDemandByItemWarehouse = recentDemandRows ? new Map(recentDemandRows.map((row) => [`${row.itemCode}|${row.warehouseCode}`, row])) : null;
   const allTimeLastSale = new Map(lastSaleByItem.map((row) => [row.itemCode, midnightUtc(row.lastSaleDate)]));
   const productByItemCode = new Map(products.map((product) => [product.itemNo, product]));
   const warehouseByCode = new Map(warehouses.map((warehouse) => [warehouse.warehouseCode, warehouse]));
@@ -112,7 +130,26 @@ export function buildDirectStock(
     /** Most recent invoice of any of the item's codes, across all history (not limited to the dormancy window). */
     lastSaleAny: Date | null;
     matchedDemand: boolean;
+    /** Weekly run rates over the last 4 and 13 weeks, and year to date in pieces (summed over the item's warehouses). */
+    rr4wValue: number;
+    rr13wValue: number;
+    rr4wPcs: number;
+    rr13wPcs: number;
+    rrYtdPcs: number;
   }
+
+  /** The 4-week and 13-week weekly run rates of one item in one warehouse, in value and pieces; zero when it did not sell in the window. */
+  const recentRates = (itemCode: string, warehouseCode: string, firstSale: Date | undefined) => {
+    const recent = recentDemandByItemWarehouse?.get(`${itemCode}|${warehouseCode}`);
+    const days28 = recentSellingDays(asOfDate, 28, firstSale);
+    const days91 = recentSellingDays(asOfDate, 91, firstSale);
+    return {
+      rr4wValue: recent && days28 > 0 ? (Math.max(0, recent.value28) / days28) * 7 : 0,
+      rr13wValue: recent && days91 > 0 ? (Math.max(0, recent.value91) / days91) * 7 : 0,
+      rr4wPcs: recent && days28 > 0 ? (Math.max(0, recent.qty28) / days28) * 7 : 0,
+      rr13wPcs: recent && days91 > 0 ? (Math.max(0, recent.qty91) / days91) * 7 : 0,
+    };
+  };
 
   const byPrincipalItem = new Map<string, Aggregate>();
   for (const row of stockRows) {
@@ -144,6 +181,11 @@ export function buildDirectStock(
         lastSaleDate: null,
         lastSaleAny: null,
         matchedDemand: false,
+        rr4wValue: 0,
+        rr13wValue: 0,
+        rr4wPcs: 0,
+        rr13wPcs: 0,
+        rrYtdPcs: 0,
       };
       byPrincipalItem.set(key, aggregate);
     }
@@ -158,6 +200,14 @@ export function buildDirectStock(
       aggregate.rrWeekValue += finite(demand.rrWeekValue);
       aggregate.rrWeekVolume += product.packSize && product.packSize !== 0 ? finite(demand.rrWeekVolume / product.packSize) : 0;
       aggregate.matchedDemand = true;
+      aggregate.rrYtdPcs += finite(demand.rrWeekPcs);
+    }
+    if (row.whsCode && recentDemandByItemWarehouse) {
+      const rates = recentRates(row.itemCode, row.whsCode, demand?.firstSale);
+      aggregate.rr4wValue += rates.rr4wValue;
+      aggregate.rr13wValue += rates.rr13wValue;
+      aggregate.rr4wPcs += rates.rr4wPcs;
+      aggregate.rr13wPcs += rates.rr13wPcs;
     }
   }
 
@@ -192,6 +242,8 @@ export function buildDirectStock(
       lastSaleDate: recentSaleByItemWarehouse.get(`${demandRow.itemCode}|${demandRow.warehouseCode}`) ?? null,
       lastSaleAny: allTimeLastSale.get(demandRow.itemCode) ?? null,
       matchedDemand: true,
+      ...(recentDemandByItemWarehouse ? recentRates(demandRow.itemCode, demandRow.warehouseCode, demand.firstSale) : { rr4wValue: 0, rr13wValue: 0, rr4wPcs: 0, rr13wPcs: 0 }),
+      rrYtdPcs: finite(demand.rrWeekPcs),
     });
   }
 
@@ -200,7 +252,9 @@ export function buildDirectStock(
     // The source workbook's SAP query excludes zero on-hand quantities. Use
     // physical pieces—not accounting valuation—to identify true stock-outs:
     // a free/zero-valued item still on hand must remain operational.
-    .filter((row) => row.openingPcs <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff))
+    // Dormant: no pieces on hand and no sale in three months, or stock on hand that has not moved: it has sold before but its
+    // last invoice (all history) is older than three months and nothing sold in the window.
+    .filter((row) => (row.openingPcs <= 0 && (!row.lastSaleDate || row.lastSaleDate < dormantCutoff)) || (row.openingPcs > 0 && !row.lastSaleDate && row.lastSaleAny !== null && row.lastSaleAny < dormantCutoff))
     .map((row) => ({ principal: row.principal, item: row.item, itemCode: row.itemCode, openingPcs: finite(row.openingPcs), openingValue: finite(row.openingValue), lastSaleDate: row.lastSaleAny ?? row.lastSaleDate }));
   const activeItems = aggregates.filter((row) => !dormantItems.some((dormant) => dormant.principal === row.principal && dormant.item === row.item));
   return {
@@ -213,7 +267,13 @@ export function buildDirectStock(
       const rrWeekValue = finite(row.rrWeekValue);
       const rrWeekVolume = finite(row.rrWeekVolume);
       const daysCover = finite(weightedCoverDays(openingValue, rrWeekValue));
+      // The standard run rate is the median of the 4-week, 13-week and year-to-date rates; null when the recent windows were not read.
+      const standard = recentDemandByItemWarehouse !== null;
       return {
+        rr4wValue: standard ? finite(row.rr4wValue) : null,
+        rr13wValue: standard ? finite(row.rr13wValue) : null,
+        stdRrWeekValue: standard ? finite(median3(row.rr4wValue, row.rr13wValue, rrWeekValue)) : null,
+        stdRrWeekPcs: standard ? finite(median3(row.rr4wPcs, row.rr13wPcs, row.rrYtdPcs)) : null,
         itemCode: row.itemCode,
         principal: row.principal,
         key: normalizePrincipalKey(row.principal),

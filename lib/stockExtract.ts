@@ -12,6 +12,7 @@
 //  - Principal dormancy period: for a flagged principal, from the date an admin recorded; for a principal that is
 //    dormant only because it has not sold, from the day after its last sale.
 import { aggregateStockByPrincipal, classifyDormantPrincipals } from "./stock";
+import { stockVsStandardPct } from "./standardStock";
 import type { Dataset } from "./types";
 
 export type ExtractCell = string | number;
@@ -33,6 +34,12 @@ export const STOCK_EXTRACT_ITEM_COLUMNS = [
   "Days Cover",
   "Action",
   "Principal Note",
+  "YTD Run Rate (Weekly Value)",
+  "Run Rate Basis",
+  "Cover Target (days)",
+  "Standard Stock Value",
+  "Stock vs Standard %",
+  "Dormancy Reason",
 ];
 
 export const STOCK_EXTRACT_PRINCIPAL_COLUMNS = [
@@ -48,6 +55,9 @@ export const STOCK_EXTRACT_PRINCIPAL_COLUMNS = [
   "RR Week Value",
   "Days Cover",
   "Principal Note",
+  "Cover Target (days)",
+  "Standard Stock Value",
+  "Stock vs Standard %",
 ];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -95,6 +105,13 @@ interface ExtractSku {
   action: string;
   /** undefined: the stock source does not carry sale dates (legacy snapshot); null: never invoiced. */
   lastSaleDate: string | null | undefined;
+  /** Standard stock figures for the operational SKUs (lib/standardStock.ts); empty for dormant SKUs. */
+  ytdRunRate: number | "";
+  runRateBasis: string;
+  targetDays: number | "";
+  standardValue: number | "";
+  /** Why a SKU is dormant (empty for operational SKUs). */
+  dormancyReason: string;
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -126,6 +143,11 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         daysCover: item.daysCover,
         action: item.action,
         lastSaleDate: item.lastSaleDate,
+        ytdRunRate: (item.rrYtdWeekValue ?? "") as number | "",
+        runRateBasis: item.rrBasis === "standard" ? "Standard (median of 4-week, 13-week, YTD)" : item.rrBasis === "ytd" ? "Year to date" : "",
+        targetDays: (item.targetDays ?? "") as number | "",
+        standardValue: (item.standardValue ?? "") as number | "",
+        dormancyReason: "",
       })),
     ...(dataset.dormantStockItems ?? [])
       .filter((item) => inBrand(item.key))
@@ -140,8 +162,13 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         daysCover: "" as const,
         // Zero stock is all these rows certify: they were set aside by the warehouse-level three-month rule, while
         // SKU Status uses the item's last sale in any warehouse, so an item can be listed here and still be Active.
-        action: "Out of stock – no pieces on hand",
+        action: item.openingPcs > 0 ? "Dormant – stock on hand, no movement" : "Out of stock – no pieces on hand",
         lastSaleDate: item.lastSaleDate,
+        ytdRunRate: "" as const,
+        runRateBasis: "",
+        targetDays: "" as const,
+        standardValue: "" as const,
+        dormancyReason: item.openingPcs > 0 ? "Stock on hand, no sale in the last three months" : "No stock on hand, no sale in the last three months",
       })),
   ];
 
@@ -206,6 +233,12 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
       sku.daysCover === "" ? "" : round2(sku.daysCover),
       sku.action,
       principalNote(sku.key),
+      sku.ytdRunRate === "" ? "" : round2(sku.ytdRunRate),
+      sku.runRateBasis,
+      sku.targetDays,
+      sku.standardValue === "" ? "" : round2(sku.standardValue),
+      sku.standardValue === "" ? "" : (stockVsStandardPct(sku.value, sku.standardValue) ?? ""),
+      sku.dormancyReason,
     ];
   });
 
@@ -237,6 +270,9 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         round2(rollup?.rrWeekValue ?? 0),
         round2(rollup?.daysStock ?? 0),
         principalNote(key),
+        rollup?.targetDays ?? "",
+        round2(rollup?.standardValue ?? 0),
+        (rollup && stockVsStandardPct(rollup.value, rollup.standardValue)) ?? "",
       ];
     });
 

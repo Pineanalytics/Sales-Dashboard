@@ -101,22 +101,22 @@ export default function DormantStockPage() {
       )}
       {items.length > 0 && (
         <>
-          <SectionCard title="Dormant Out-of-Stock Items">
-            <p className="p-1 text-sm text-muted">Zero-piece SKUs with no invoice activity in the preceding three months. They are excluded from operational Stock Balance while kept here for review. {sourceDate ? `SAP stock as at ${new Date(sourceDate).toLocaleDateString()}.` : ""}</p>
+          <SectionCard title="Dormant SKUs">
+            <p className="p-1 text-sm text-muted">SKUs with no invoice activity in the preceding three months: zero-piece SKUs, and SKUs that still hold stock but have sold before and not moved. They are excluded from operational Stock Balance, alerts and cover while kept here for review; the stock they hold is still counted in the all-stock totals on Finance and Overview. {sourceDate ? `SAP stock as at ${new Date(sourceDate).toLocaleDateString()}.` : ""}</p>
           </SectionCard>
           <KpiGrid>
             <KpiCard accent="quarter" label="Dormant SKUs" value={formatNumber(scopedItems.length)} />
             <KpiCard accent="growth" label="Never sold" value={formatNumber(neverSold)} />
-            <KpiCard accent="revenue" label="Residual stock value" value={formatCompact(totalValue)} />
+            <KpiCard accent="revenue" label="Stock value in dormant SKUs" value={formatCompact(totalValue)} />
           </KpiGrid>
           <SectionCard title="Dormant Exposure by Principal">
-            <TableWrap><Thead><Th>Principal</Th><Th align="right">Dormant SKUs</Th><Th align="right">Never Sold</Th><Th align="right">Residual Value</Th></Thead><tbody>
+            <TableWrap><Thead><Th>Principal</Th><Th align="right">Dormant SKUs</Th><Th align="right">Never Sold</Th><Th align="right">Stock Value</Th></Thead><tbody>
               {byPrincipal.map((row) => <tr key={row.principal}><Td>{row.principal}</Td><Td align="right">{formatNumber(row.items)}</Td><Td align="right">{formatNumber(row.neverSold)}</Td><Td align="right">{formatCompact(row.value)}</Td></tr>)}
             </tbody></TableWrap>
           </SectionCard>
           <SectionCard title={`Dormant SKU Detail (${formatNumber(scopedItems.length)})`}>
-            <TableWrap><Thead><Th>Principal</Th><Th>Item</Th><Th>Item Code</Th><Th align="right">Stock Pcs</Th><Th>Last Invoice</Th></Thead><tbody>
-              {scopedItems.map((item) => <tr key={item.id}><Td>{item.principal}</Td><Td>{item.item}</Td><Td>{item.itemCode}</Td><Td align="right">{formatNumber(item.openingPcs)}</Td><Td>{item.lastSaleDate ? new Date(item.lastSaleDate).toLocaleDateString() : "No invoice history"}</Td></tr>)}
+            <TableWrap><Thead><Th>Principal</Th><Th>Item</Th><Th>Item Code</Th><Th align="right">Stock Pcs</Th><Th align="right">Stock Value</Th><Th>Reason</Th><Th>Last Invoice</Th></Thead><tbody>
+              {scopedItems.map((item) => <tr key={item.id}><Td>{item.principal}</Td><Td>{item.item}</Td><Td>{item.itemCode}</Td><Td align="right">{formatNumber(item.openingPcs)}</Td><Td align="right">{formatCompact(item.openingValue)}</Td><Td>{item.openingPcs > 0 ? "Stock on hand, no movement" : "No stock, no recent sale"}</Td><Td>{item.lastSaleDate ? new Date(item.lastSaleDate).toLocaleDateString() : "No invoice history"}</Td></tr>)}
             </tbody></TableWrap>
           </SectionCard>
         </>

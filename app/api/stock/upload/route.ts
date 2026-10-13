@@ -21,6 +21,11 @@ interface StockUploadRow {
   /** Most recent invoice date of the item across all history, YYYY-MM-DD, or null if never invoiced. Optional so an
    *  older sync script that does not send it keeps working (the stored value is then null). */
   lastSaleDate?: string | null;
+  /** Standard run rate inputs (lib/standardStock.ts): optional so an older sync keeps working. */
+  rr4wValue?: number | null;
+  rr13wValue?: number | null;
+  stdRrWeekValue?: number | null;
+  stdRrWeekPcs?: number | null;
 }
 
 interface DormantStockUploadRow {
@@ -65,7 +70,8 @@ function isValidRow(value: unknown): value is StockUploadRow {
     && nullableOptionalText(row.brand)
     && (row.lastSaleDate === undefined || row.lastSaleDate === null || parseSourceDate(row.lastSaleDate) !== null)
     && finiteNumber(row.openingVolume) && finiteNumber(row.openingPcs) && finiteNumber(row.openingValue)
-    && finiteNumber(row.rrWeekValue) && finiteNumber(row.rrWeekVolume) && finiteNumber(row.daysCover);
+    && finiteNumber(row.rrWeekValue) && finiteNumber(row.rrWeekVolume) && finiteNumber(row.daysCover)
+    && [row.rr4wValue, row.rr13wValue, row.stdRrWeekValue, row.stdRrWeekPcs].every((value) => value === undefined || value === null || finiteNumber(value));
 }
 
 function isValidDormantRow(value: unknown): value is DormantStockUploadRow {
