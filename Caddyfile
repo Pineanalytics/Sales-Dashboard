@@ -23,8 +23,15 @@ import /etc/caddy/conf.d/*.caddy
 # Keep the apex hostname canonical while still serving a valid certificate for
 # users and links that include www. Caddy obtains and renews this hostname's
 # certificate automatically before issuing the permanent redirect.
+#
+# Pages are redirected to the apex, but /api/* is served here directly: the isolated
+# Centegy / download machines upload with POST and an upload key, and a script or .env
+# that names the www host would otherwise get a 301 with no body, which Node's fetch
+# turns into a GET (so every upload fails with "doesn't connect").
 www.pinefrostdb.com {
-	redir https://pinefrostdb.com{uri} permanent
+	@pages not path /api/*
+	redir @pages https://pinefrostdb.com{uri} permanent
+	reverse_proxy pinefrost-app-1:3000
 }
 
 # field-forms app (Latitude / Pinefrost multi-tenant forms), added alongside

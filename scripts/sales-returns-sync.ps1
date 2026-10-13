@@ -51,6 +51,9 @@ function Write-Log { param([string]$Message) Write-Output ("[{0:yyyy-MM-dd HH:mm
 
 Set-Location -Path $ProjectPath
 
+# The canonical host is the apex: a www address would answer with a redirect and a redirected upload POST becomes a GET.
+$AppUrl = ($AppUrl.Trim().TrimEnd('/')) -replace '^(https?://)www\.(pinefrostdb\.com)', '$1$2'
+
 function Get-DotEnvValue {
   param([string]$Name)
   $line = Get-Content -Path ".env" -ErrorAction SilentlyContinue | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -Last 1
