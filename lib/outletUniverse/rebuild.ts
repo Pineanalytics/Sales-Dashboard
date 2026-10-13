@@ -41,6 +41,7 @@ export interface OutletUniverseRow {
   /** Earliest purchase on record for the outlet (any principal), and how many of its last three 30-day periods saw a purchase. */
   firstPurchaseDate: Date | null;
   periodsBought90: number;
+  periodsBought180: number;
 }
 
 export interface OutletUniverseRebuildResult {
@@ -89,6 +90,7 @@ interface PineSourceRow {
   outletPurchaseDays30?: number;
   firstPurchaseDate?: Date | null;
   periodsBought90?: number;
+  periodsBought180?: number;
 }
 
 export function pineRow(row: PineSourceRow): OutletUniverseRow {
@@ -118,6 +120,7 @@ export function pineRow(row: PineSourceRow): OutletUniverseRow {
     outletPurchaseDays30: row.outletPurchaseDays30 ?? 0,
     firstPurchaseDate: row.firstPurchaseDate ?? null,
     periodsBought90: row.periodsBought90 ?? 0,
+    periodsBought180: row.periodsBought180 ?? 0,
   };
 }
 
@@ -143,6 +146,7 @@ interface LeverageSourceRow {
   days30?: number | null;
   firstBuy?: Date | null;
   periods90?: number | null;
+  periods180?: number | null;
 }
 
 /** Centegy names a sales unit "<van or bike>_<distributor id>"; the id suffix only repeats the branch. */
@@ -184,6 +188,7 @@ export function leverageRow(row: LeverageSourceRow): OutletUniverseRow {
     outletPurchaseDays30: row.days30 ?? 0,
     firstPurchaseDate: row.firstBuy ?? null,
     periodsBought90: row.periods90 ?? 0,
+    periodsBought180: row.periods180 ?? 0,
   };
 }
 
@@ -206,6 +211,7 @@ interface EablSourceRow {
   days30?: number | null;
   firstBuy?: Date | null;
   periods90?: number | null;
+  periods180?: number | null;
 }
 
 export function eablRow(row: EablSourceRow): OutletUniverseRow {
@@ -235,6 +241,7 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
     outletPurchaseDays30: row.days30 ?? 0,
     firstPurchaseDate: row.firstBuy ?? null,
     periodsBought90: row.periods90 ?? 0,
+    periodsBought180: row.periods180 ?? 0,
   };
 }
 
@@ -260,9 +267,10 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
       GROUP BY "customerId"
     `),
     // First purchase on record and how many of the last three 30-day periods saw a purchase, across all principals.
-    prisma.$queryRaw<{ customerId: string; firstBuy: Date | null; periods90: number }[]>(Prisma.sql`
+    prisma.$queryRaw<{ customerId: string; firstBuy: Date | null; periods90: number; periods180: number }[]>(Prisma.sql`
       SELECT "customerId", MIN(date)::date AS "firstBuy",
-             COUNT(DISTINCT ((now()::date - date::date) / 30)) FILTER (WHERE now()::date - date::date < 90)::int AS periods90
+             COUNT(DISTINCT ((now()::date - date::date) / 30)) FILTER (WHERE now()::date - date::date < 90)::int AS periods90,
+             COUNT(DISTINCT ((now()::date - date::date) / 30)) FILTER (WHERE now()::date - date::date < 180)::int AS periods180
       FROM "ActiveOutletEvent" GROUP BY "customerId"
     `),
   ]);
@@ -276,6 +284,7 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
       outletPurchaseDays30: outletDays.get(row.customerId) ?? 0,
       firstPurchaseDate: outletHistory.get(row.customerId)?.firstBuy ?? null,
       periodsBought90: Number(outletHistory.get(row.customerId)?.periods90 ?? 0),
+      periodsBought180: Number(outletHistory.get(row.customerId)?.periods180 ?? 0),
     })
   );
 }
@@ -299,7 +308,8 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
     hist AS (
       -- First purchase on record and the last three 30-day periods with a purchase, from every invoice (not just this year's).
       SELECT "customerCode", "storageLocation", MIN("deliveryDate") AS "firstBuy",
-             COUNT(DISTINCT ((now()::date - "deliveryDate"::date) / 30)) FILTER (WHERE now()::date - "deliveryDate"::date < 90)::int AS periods90
+             COUNT(DISTINCT ((now()::date - "deliveryDate"::date) / 30)) FILTER (WHERE now()::date - "deliveryDate"::date < 90)::int AS periods90,
+             COUNT(DISTINCT ((now()::date - "deliveryDate"::date) / 30)) FILTER (WHERE now()::date - "deliveryDate"::date < 180)::int AS periods180
       FROM "SalesReturnLine"
       WHERE "documentType" IN (${Prisma.join(LEVERAGE_INVOICE_TYPES)})
       GROUP BY "customerCode", "storageLocation"
@@ -330,7 +340,7 @@ async function loadLeverage(): Promise<OutletUniverseRow[]> {
     )
     SELECT a."customerCode", a."storageLocation", a."lastBuy", a.sales, a.transactions, a.days30,
            l."salesRepCode", l."salesRepName", l.route, p."routeDesc",
-           n."outletName", n.channel, g.latitude, g.longitude, h."firstBuy", h.periods90
+           n."outletName", n.channel, g.latitude, g.longitude, h."firstBuy", h.periods90, h.periods180
     FROM agg a
     LEFT JOIN hist h USING ("customerCode", "storageLocation")
     LEFT JOIN latest l USING ("customerCode", "storageLocation")
@@ -355,7 +365,8 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
     ),
     hist AS (
       SELECT "customerCode", MIN("callDate") AS "firstBuy",
-             COUNT(DISTINCT ((now()::date - "callDate"::date) / 30)) FILTER (WHERE now()::date - "callDate"::date < 90)::int AS periods90
+             COUNT(DISTINCT ((now()::date - "callDate"::date) / 30)) FILTER (WHERE now()::date - "callDate"::date < 90)::int AS periods90,
+             COUNT(DISTINCT ((now()::date - "callDate"::date) / 30)) FILTER (WHERE now()::date - "callDate"::date < 180)::int AS periods180
       FROM "EablCall"
       WHERE "customerCode" IS NOT NULL AND "isProductive"
       GROUP BY "customerCode"
@@ -367,7 +378,7 @@ async function loadEabl(): Promise<OutletUniverseRow[]> {
       ORDER BY "customerCode", "callDate" DESC, "timeIn" DESC NULLS LAST
     )
     SELECT m."customerId", m.principal, m."outletName", m.channel, m."subChannel", m.territory, m.route,
-           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, c.days30, l.salesman, l.segment, h."firstBuy", h.periods90
+           m.latitude, m.longitude, c."lastBuy", c.sales, c.transactions, c.days30, l.salesman, l.segment, h."firstBuy", h.periods90, h.periods180
     FROM "EablCustomerMaster" m
     LEFT JOIN calls c ON c."customerCode" = m."customerId"
     LEFT JOIN hist h ON h."customerCode" = m."customerId"

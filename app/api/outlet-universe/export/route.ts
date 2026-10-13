@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
-import { OUTLET_SOURCE_LABELS, buyingTenure, dormancyFlag, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { OUTLET_SOURCE_LABELS, boughtWithin, buyingTenure, dormancyFlag, longPurchaseConsistency, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const HEADER = ["Source", "Outlet ID", "Outlet", "Principal(s)", "Sales Role", "Channel", "Segment / Type", "Location", "Region", "Territory", "Route", "Rep", "Latitude", "Longitude", "Last Purchase", "Status", "Days Since Purchase", "Dormancy Flag", "Sales YTD", "Transactions YTD",
   // Buying history and portfolio: tenure from the first purchase on record, consistency over the last three 30-day periods,
   // and the principal mix (which principal dominates the outlet's sales, and the others it shares with).
-  "Buying Since", "Months Buying", "Buying Tenure", "Periods Bought (last 3 x 30 days)", "Consistency", "Dominant Principal", "Dominant Share %", "Principal Mix", "Principals Bought", "Shared Principals"];
+  "Buying Since", "Months Buying", "Buying Tenure", "Bought Last 30 Days", "Bought Last 3 Months", "Bought Last 6 Months", "Periods Bought (last 3 x 30 days)", "Consistency (3 months)", "Periods Bought (last 6 x 30 days)", "Consistency (6 months)", "Dominant Principal", "Dominant Share %", "Principal Mix", "Principals Bought", "Shared Principals"];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
 function cell(value: string | number | null): string {
@@ -56,8 +56,13 @@ export async function GET(req: NextRequest) {
           row.firstPurchaseDate,
           tenure.months,
           tenure.band,
+          boughtWithin(row.lastPurchaseDate, 30, now) ? "Yes" : "No",
+          boughtWithin(row.lastPurchaseDate, 91, now) ? "Yes" : "No",
+          boughtWithin(row.lastPurchaseDate, 183, now) ? "Yes" : "No",
           row.periodsBought90,
           purchaseConsistency(row.periodsBought90),
+          row.periodsBought180,
+          longPurchaseConsistency(row.periodsBought180),
           row.dominantPrincipal ?? row.principals,
           row.dominantShare === null ? null : Math.round(row.dominantShare * 1000) / 10,
           principalMix(row.principalCount, row.dominantShare),

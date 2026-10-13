@@ -43,6 +43,8 @@ const DAYS_PER_MONTH = 30.4375;
 /** Consistency looks at this many consecutive 30-day periods, ending today. */
 export const CONSISTENCY_PERIODS = 3;
 export const CONSISTENCY_PERIOD_DAYS = 30;
+/** The longer view: bought in every one of the last six 30-day periods. */
+export const LONG_CONSISTENCY_PERIODS = 6;
 /** The largest principal is "dominant" when it holds at least this share of the outlet's sales across its principals. */
 export const DOMINANT_SHARE = 0.6;
 
@@ -66,6 +68,16 @@ export type OutletConsistency = "Consistent" | "Non-consistent";
  *  three periods behind it, whose "periods bought" column shows why) is Non-consistent. */
 export function purchaseConsistency(periodsBought: number): OutletConsistency {
   return periodsBought >= CONSISTENCY_PERIODS ? "Consistent" : "Non-consistent";
+}
+
+/** Bought in every one of the last six 30-day periods ("buying for the past 6 months"). */
+export function longPurchaseConsistency(periodsBought: number): OutletConsistency {
+  return periodsBought >= LONG_CONSISTENCY_PERIODS ? "Consistent" : "Non-consistent";
+}
+
+/** Bought within the last `days` days, from the last purchase date. */
+export function boughtWithin(lastPurchase: Date | string | null, days: number, now: Date = new Date()): boolean {
+  return lastPurchase !== null && now.getTime() - new Date(lastPurchase).getTime() <= days * DAY_MS;
 }
 
 export type PrincipalMix = "Single principal" | "Dominant principal" | "Shared, no dominant";
