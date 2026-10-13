@@ -471,3 +471,55 @@ export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], s
 
   return { rankings: sortByAchievement(rankings), unassignedSupervisors: sortByAchievement(unassignedSupervisors) };
 }
+
+export interface HodHierarchyInput {
+  id: string;
+  name: string;
+  managerId: string | null;
+  directHodId: string | null;
+}
+
+/** Rolls Supervisor-level rows up to Head of Sales: Angela Sitati and Alexander Muhoro are the heads, the supervisors
+ *  (and, below them, the team leaders) report to them. A supervisor's Head of Sales is Supervisor.directHodId, or the
+ *  Head of Sales of their Manager (Manager.hodId) when only that is set. The result reuses the Manager-level shape
+ *  (managerId / managerName hold the Head of Sales' id and name) so every consumer keeps working; supervisors with no
+ *  resolvable Head of Sales come back in unassignedSupervisors, never dropped. */
+export function buildHodRanking(
+  supervisorRanking: SupervisorRankingRow[],
+  supervisors: HodHierarchyInput[],
+  managers: { id: string; hodId: string | null }[],
+  hods: HierarchyEntity[]
+): ManagerRankingResult {
+  const hodIdByManager = new Map(managers.map((m) => [m.id, m.hodId]));
+  const hierarchyBySupervisor = new Map(supervisors.map((s) => [s.id, s]));
+  const hodNameById = new Map(hods.map((h) => [h.id, h.name]));
+
+  const byHod = new Map<string, SupervisorRankingRow[]>();
+  const unassignedSupervisors: SupervisorRankingRow[] = [];
+  for (const sup of supervisorRanking) {
+    const own = hierarchyBySupervisor.get(sup.supervisorId);
+    const hodId = own?.directHodId ?? (own?.managerId ? hodIdByManager.get(own.managerId) : null) ?? null;
+    if (!hodId || !hodNameById.has(hodId)) {
+      unassignedSupervisors.push(sup);
+      continue;
+    }
+    const list = byHod.get(hodId) ?? [];
+    list.push(sup);
+    byHod.set(hodId, list);
+  }
+
+  const rankings: ManagerRankingRow[] = Array.from(byHod.entries()).map(([hodId, rows]) => {
+    const mtdTarget = rows.reduce((sum, row) => sum + row.mtdTarget, 0);
+    const mtdRevenue = rows.reduce((sum, row) => sum + row.mtdRevenue, 0);
+    return {
+      managerId: hodId,
+      managerName: hodNameById.get(hodId) ?? "—",
+      mtdTarget,
+      mtdRevenue,
+      achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null,
+      supervisors: sortByAchievement(rows),
+    };
+  });
+
+  return { rankings: sortByAchievement(rankings), unassignedSupervisors: sortByAchievement(unassignedSupervisors) };
+}

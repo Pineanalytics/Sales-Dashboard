@@ -126,3 +126,60 @@ describe("computeMtdTargetByTeamLeader", () => {
     expect(result[0].targetValue).toBeCloseTo(90_000_000 + 87_400_000);
   });
 });
+
+describe("computeMtdTargetByTeamLeader with the weekly split and principal owners", () => {
+  const targets = [
+    { principal: "Mars-Nairobi", valueTarget: 93_000_000 },
+    { principal: "Milly Fruits-Nairobi", valueTarget: 3_000_000 },
+  ];
+  const byLeader = (rows: { teamLeaderId: string; targetValue: number }[]) => Object.fromEntries(rows.map((r) => [r.teamLeaderId, Math.round(r.targetValue)]));
+
+  it("attributes a principal's target by the month's weekly split: a fixed key-accounts amount plus the leaders' shares", () => {
+    const result = computeMtdTargetByTeamLeader({
+      principalTargets: targets,
+      assignments: [{ teamLeaderId: "benson", principal: "Mars-Nairobi", employeeCode: "1", contributionPct: 0.12 }],
+      contributions: [],
+      weeklyTargets: [
+        { teamLeaderId: "clarrine", principal: "Mars-Nairobi", value: 40_000_000 },
+        { teamLeaderId: "benson", principal: "Mars-Nairobi", value: 16_000_000 },
+        { teamLeaderId: "christine", principal: "Mars-Nairobi", value: 37_000_000 },
+      ],
+    });
+    expect(byLeader(result)).toEqual({ clarrine: 40_000_000, benson: 16_000_000, christine: 37_000_000 });
+  });
+
+  it("scales the weekly split to the principal's Target, so the total still ties out", () => {
+    const result = computeMtdTargetByTeamLeader({
+      principalTargets: [{ principal: "Mars-Nairobi", valueTarget: 100 }],
+      assignments: [],
+      contributions: [],
+      weeklyTargets: [
+        { teamLeaderId: "a", principal: "Mars-Nairobi", value: 30 },
+        { teamLeaderId: "b", principal: "Mars-Nairobi", value: 30 },
+      ],
+    });
+    expect(byLeader(result)).toEqual({ a: 50, b: 50 });
+  });
+
+  it("gives a principal with no weekly split and no active Primary rep to its owner, so no target goes missing", () => {
+    const result = computeMtdTargetByTeamLeader({
+      principalTargets: targets,
+      assignments: [],
+      contributions: [],
+      weeklyTargets: [{ teamLeaderId: "benson", principal: "Mars-Nairobi", value: 1 }],
+      principalOwners: [{ principal: "Milly Fruits-Nairobi", teamLeaderId: "eva" }],
+    });
+    expect(byLeader(result)).toEqual({ benson: 93_000_000, eva: 3_000_000 });
+    expect(result.reduce((s, r) => s + r.targetValue, 0)).toBeCloseTo(96_000_000);
+  });
+
+  it("falls back to the rep-share cascade when a principal has no weekly split", () => {
+    const result = computeMtdTargetByTeamLeader({
+      principalTargets: [{ principal: "Mars-Nairobi", valueTarget: 90 }],
+      assignments: [{ teamLeaderId: "benson", principal: "Mars-Nairobi", employeeCode: "1", contributionPct: null }],
+      contributions: [{ principal: "Mars-Nairobi", employeeCode: "1", sharePct: 1 }],
+      weeklyTargets: [{ teamLeaderId: "x", principal: "Mars-Nairobi", value: 0 }],
+    });
+    expect(byLeader(result)).toEqual({ benson: 90 });
+  });
+});

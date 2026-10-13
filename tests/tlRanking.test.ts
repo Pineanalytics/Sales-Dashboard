@@ -3,6 +3,7 @@ import {
   buildTlRanking,
   buildSupervisorRanking,
   buildManagerRanking,
+  buildHodRanking,
   canonicalTeamLeaderIdMap,
   computeTlCompositeScores,
   rollupRepMetricsByTeamLeader,
@@ -385,5 +386,36 @@ describe("sortByCompositeScore", () => {
     );
     const sorted = sortByCompositeScore(rows);
     expect(sorted.map((r) => r.teamLeaderId)).toEqual(["tl-b", "tl-a", "tl-c"]);
+  });
+});
+
+describe("buildHodRanking", () => {
+  const sup = (id: string, name: string, mtdTarget: number, mtdRevenue: number) => ({ supervisorId: id, supervisorName: name, mtdTarget, mtdRevenue, achievedPct: mtdTarget > 0 ? (mtdRevenue / mtdTarget) * 100 : null, principals: [], teamLeaders: [] });
+  const rows = [sup("lucy", "Lucy", 93, 18), sup("emmy", "Emmy", 41, 10), sup("erick", "Erick", 100, 20), sup("eve", "Eve", 30, 7), sup("loose", "Loose", 5, 1)];
+  const hods = [{ id: "h-angela", name: "Angela Sitati" }, { id: "h-alexander", name: "Alexander Muhoro" }];
+  const supervisors = [
+    { id: "lucy", name: "Lucy", managerId: null, directHodId: "h-angela" },
+    { id: "emmy", name: "Emmy", managerId: null, directHodId: "h-angela" },
+    { id: "erick", name: "Erick", managerId: null, directHodId: "h-alexander" },
+    { id: "eve", name: "Eve", managerId: "m-angela", directHodId: null },
+    { id: "loose", name: "Loose", managerId: null, directHodId: null },
+  ];
+  const managers = [{ id: "m-angela", hodId: "h-angela" }];
+
+  it("puts both Heads of Sales at the top with their supervisors under them, and keeps the whole target", () => {
+    const result = buildHodRanking(rows, supervisors, managers, hods);
+    const angela = result.rankings.find((r) => r.managerName === "Angela Sitati")!;
+    const alexander = result.rankings.find((r) => r.managerName === "Alexander Muhoro")!;
+    expect(angela.supervisors.map((s) => s.supervisorName).sort()).toEqual(["Emmy", "Eve", "Lucy"]);
+    expect(alexander.supervisors.map((s) => s.supervisorName)).toEqual(["Erick"]);
+    expect(angela.mtdTarget).toBe(164);
+    const total = result.rankings.reduce((s, r) => s + r.mtdTarget, 0) + result.unassignedSupervisors.reduce((s, r) => s + r.mtdTarget, 0);
+    expect(total).toBe(269);
+  });
+
+  it("falls back to the supervisor's Manager's Head of Sales, and reports a supervisor with neither", () => {
+    const result = buildHodRanking(rows, supervisors, managers, hods);
+    expect(result.rankings.find((r) => r.managerName === "Angela Sitati")!.supervisors.map((s) => s.supervisorName)).toContain("Eve");
+    expect(result.unassignedSupervisors.map((s) => s.supervisorName)).toEqual(["Loose"]);
   });
 });
