@@ -423,9 +423,9 @@ export async function listOutlets(filters: OutletFilters, scope: OutletScope, pa
 }
 
 /** Every matching outlet, for the CSV export. */
-export async function exportOutlets(filters: OutletFilters, scope: OutletScope): Promise<OutletListRow[]> {
+export async function exportOutlets(filters: OutletFilters, scope: OutletScope, options: { withMix?: boolean } = {}): Promise<OutletListRow[]> {
   const rows = await prisma.$queryRaw<RawListRow[]>(Prisma.sql`
-    ${cte(filters, scope, true)}
+    ${cte(filters, scope, options.withMix ?? true)}
     SELECT ${LIST_COLUMNS} FROM unit WHERE ${statusClause(filters.status)}
     ORDER BY source ASC, principals ASC, "outletName" ASC, "outletKey" ASC
   `);
