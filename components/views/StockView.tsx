@@ -166,7 +166,11 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
     <div className="flex flex-col gap-6">
       {dataset.stockSource?.kind === "sap-direct" && (
         <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
-          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module. Stock with no movement in three months is dormant too. Cover and status use the standard run rate (the median of the 4-week, 13-week and year-to-date run rates), so a one-off spike or slump does not mark sufficient stock as out or running out.</p>
+          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module. Stock with no movement in three months is dormant too. Cover and status use the standard run rate (the median of the 4-week, 13-week and year-to-date run rates), so a one-off spike or slump does not mark sufficient stock as out or running out.
+          {(dataset.emptiesStockItems?.length ?? 0) > 0 && (
+            <> Returnable empties ({formatNumber(dataset.emptiesStockItems?.length ?? 0)} SKUs, {formatCompact((dataset.emptiesStockItems ?? []).reduce((sum, item) => sum + item.openingValue, 0))}) are packaging, not product, and are excluded from these figures.</>
+          )}
+        </p>
         </SectionCard>
       )}
       {noticeRollups.length > 0 && (!selectedRollup || noticeKeys.has(selectedRollup.key)) && (

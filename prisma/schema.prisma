@@ -894,6 +894,20 @@ model StockActual {
 // Cover targets for standard stock (lib/standardStock.ts): days of cover to aim for, the Running Out and overstock lines,
 // per principal and optionally per brand. A null value falls back to the principal's, then to the defaults. Edited by an
 // admin on /admin/stock-cover.
+// Rules that name a SKU's brand from its item name (lib/brandMapping.ts), added by an admin on /admin/stock-brands. They are
+// tried before the built-in rules, longest keyword first. A principal's SKUs without a rule are branded by the first word of the name.
+model StockBrandRule {
+  id           String   @id @default(cuid())
+  principalKey String // normalizePrincipalKey, e.g. "eabl"
+  keyword      String // matched against the lower-case item name
+  brand        String
+  mode         String   @default("PREFIX") // "PREFIX" (the name starts with it) | "CONTAINS"
+  createdBy    String?
+  createdAt    DateTime @default(now())
+
+  @@unique([principalKey, keyword, mode])
+}
+
 model StockCoverTarget {
   id            String   @id @default(cuid())
   scope         String // "PRINCIPAL" | "BRAND"

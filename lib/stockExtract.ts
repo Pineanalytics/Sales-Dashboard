@@ -170,6 +170,26 @@ export function buildStockExtract(dataset: Dataset, options: { brandKey?: string
         standardValue: "" as const,
         dormancyReason: item.openingPcs > 0 ? "Stock on hand, no sale in the last three months" : "No stock on hand, no sale in the last three months",
       })),
+    // Returnable empties (crates, bottles) are listed, labelled, but kept out of the operational stock figures.
+    ...(dataset.emptiesStockItems ?? [])
+      .filter((item) => inBrand(item.key))
+      .map((item) => ({
+        principal: item.principal,
+        key: item.key,
+        item: item.item,
+        itemCode: item.itemCode ?? "",
+        pcs: item.openingPcs,
+        value: item.openingValue,
+        rrWeekValue: 0,
+        daysCover: "" as const,
+        action: "Returnable empties",
+        lastSaleDate: item.lastSaleDate,
+        ytdRunRate: "" as const,
+        runRateBasis: "",
+        targetDays: "" as const,
+        standardValue: "" as const,
+        dormancyReason: "Returnable empties (crates, bottles): not product, excluded from stock cover",
+      })),
   ];
 
   // Principal classification covers every brand that appears in either list (a brand with only zero-stock SKUs
