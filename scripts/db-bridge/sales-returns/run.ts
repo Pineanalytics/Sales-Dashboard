@@ -28,6 +28,7 @@ import { fetchOutletSkuDailySales } from "./outletSkuNetSalesQuery";
 import { fetchPjpDsrDailyActivity } from "./pjpDsrDailyActivityQuery";
 import { fetchJourneyPlanAssignments } from "./journeyPlanQuery";
 import { fetchVisitSummary } from "./visitSummaryQuery";
+import { canonicalAppUrl } from "../appUrl";
 import { fetchCurrentJc, priorJc, fetchMisKpiValues } from "./misKpiQuery";
 import {
   selectOldestMismatch,
@@ -40,7 +41,8 @@ import {
   type SalesReturnsExtractionStatus,
 } from "../../../lib/salesReturnsExtraction";
 
-const APP_URL = process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com";
+// A www address in .env is turned into the canonical apex host: a redirected upload POST would arrive as a GET and fail.
+const APP_URL = canonicalAppUrl(process.env.SALES_RETURNS_APP_URL || "https://pinefrostdb.com");
 const CHUNK_SIZE = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000;
