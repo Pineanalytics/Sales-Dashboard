@@ -2,14 +2,15 @@
 // module. Pure functions: every rule here is unit-tested and is the single
 // place to change when a source starts sending a new channel or segment.
 
-export type OutletSource = "PINE" | "LEVERAGE" | "EABL";
+export type OutletSource = "PINE" | "LEVERAGE" | "EABL" | "UPFIELD";
 
-export const OUTLET_SOURCES: OutletSource[] = ["PINE", "LEVERAGE", "EABL"];
+export const OUTLET_SOURCES: OutletSource[] = ["PINE", "LEVERAGE", "EABL", "UPFIELD"];
 
 export const OUTLET_SOURCE_LABELS: Record<OutletSource, string> = {
   PINE: "Pine",
   LEVERAGE: "Leverage",
   EABL: "EABL DMS",
+  UPFIELD: "Upfield DataEdge",
 };
 
 /** An outlet is Active when it bought within this many days, applied to every

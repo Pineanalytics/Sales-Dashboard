@@ -2,7 +2,7 @@ import { boughtWithin, buyingTenure, longPurchaseConsistency, principalMix, purc
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
-import { cleanLeverageUnit, eablRow, leverageRow, pineRow } from "../lib/outletUniverse/rebuild";
+import { cleanLeverageUnit, eablRow, leverageRow, pineRow, upfieldRow } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
 describe("outlet universe normalisation", () => {
@@ -315,5 +315,20 @@ describe("six-month windows", () => {
     expect(boughtWithin(daysAgo(40), 30, now)).toBe(false);
     expect(boughtWithin(daysAgo(150), 183, now)).toBe(true);
     expect(boughtWithin(null, 183, now)).toBe(false);
+  });
+});
+
+describe("Upfield DataEdge outlets", () => {
+  it("maps a DataEdge customer to an Upfield outlet, Primary, keyed by customer code", () => {
+    const row = upfieldRow({ customerCode: "277722", customerName: "Jazaribu Retail Limited", fsr: "Adrian Omondi", lastBuy: new Date("2026-10-13T00:00:00Z"), sales: 3_912_819, transactions: 12, days30: 5, firstBuy: new Date("2026-08-03T00:00:00Z"), periods90: 3, periods180: 3 });
+    expect(row).toMatchObject({ source: "UPFIELD", outletKey: "277722", principal: "Upfield-Nairobi", outletName: "Jazaribu Retail Limited", salesRole: "Primary Sales", repName: "Adrian Omondi", sales: 3_912_819, transactions: 12, purchaseDays30: 5, periodsBought90: 3 });
+  });
+
+  it("falls back to the customer code for a nameless customer, and keeps a returns-only customer with no purchase", () => {
+    const row = upfieldRow({ customerCode: "384549", customerName: " ", fsr: null, lastBuy: null, sales: null, transactions: null });
+    expect(row.outletName).toBe("384549");
+    expect(row.lastPurchaseDate).toBeNull();
+    expect(row.sales).toBe(0);
+    expect(row.repName).toBeNull();
   });
 });
