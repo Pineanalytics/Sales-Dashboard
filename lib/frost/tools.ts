@@ -15,7 +15,7 @@ import {
   type PeriodSelection,
 } from "../timeIntelligence";
 import { getWeeksInMonth } from "../weeklyTargets";
-import { buildTlRanking, buildSupervisorRanking, buildManagerRanking } from "../tlRanking";
+import { buildTlRanking, buildSupervisorRanking, buildHodRanking } from "../tlRanking";
 import { getMtdTargetByTeamLeader } from "../mtdTarget";
 import { resolveKeywordPeriod, PERIOD_KEYWORDS } from "./period";
 import type { PageKey } from "../pageAccess";
@@ -231,15 +231,16 @@ async function loadRankingInputs(principal: string | undefined) {
     .filter((r) => !principal || r.principalKey === principal || r.principal === principal)
     .map((r) => ({ principal: r.principal, revenue: r.revenue }));
 
-  const [principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
+  const [principals, teamLeaders, supervisors, managers, hods, mtdTargets] = await Promise.all([
     prisma.principal.findMany({ where: { status: "Active" }, select: { principal: true, teamLeaderId: true } }),
     prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
-    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true } }),
-    prisma.manager.findMany({ select: { id: true, name: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true, directHodId: true } }),
+    prisma.manager.findMany({ select: { id: true, name: true, hodId: true } }),
+    prisma.hod.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(currentMonth.year, currentMonth.month),
   ]);
   const tlRanking = buildTlRanking(principalRevenue, principals, teamLeaders, mtdTargets);
-  return { teamLeaders, supervisors, managers, tlRanking };
+  return { teamLeaders, supervisors, managers, hods, tlRanking };
 }
 
 function makeSupervisorRankingTool(scope: TeamLeaderScope | null) {
@@ -279,7 +280,7 @@ function makeManagerRankingTool(scope: TeamLeaderScope | null) {
   return betaTool({
     name: "get_manager_ranking",
     description:
-      "MTD Target vs MTD Revenue achievement per Manager, for the current calendar month, ranked from best to poorest — one tier above Sales Supervisor (a Manager can span several Supervisors and even several principals). Reporting dimension only, admin/unrestricted view.",
+      "MTD Target vs MTD Revenue achievement per Head of Sales (Angela Sitati, Alexander Muhoro), for the current calendar month, ranked from best to poorest — the tier above Sales Supervisor (a Head of Sales has several Supervisors and principals). In the result, managerName is the Head of Sales' name. Reporting dimension only, admin/unrestricted view.",
     inputSchema: {
       type: "object",
       properties: {
@@ -294,7 +295,7 @@ function makeManagerRankingTool(scope: TeamLeaderScope | null) {
 
       const supervisorRanking = buildSupervisorRanking(inputs.tlRanking.rankings, inputs.teamLeaders, inputs.supervisors);
       const scopedSupervisors = scope?.supervisorId ? supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId) : supervisorRanking.rankings;
-      return JSON.stringify(buildManagerRanking(scopedSupervisors, inputs.supervisors, inputs.managers));
+      return JSON.stringify(buildHodRanking(scopedSupervisors, inputs.supervisors, inputs.managers, inputs.hods));
     },
   });
 }

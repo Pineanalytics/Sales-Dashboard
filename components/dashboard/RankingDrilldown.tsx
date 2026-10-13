@@ -199,7 +199,7 @@ export function RankingDrilldown({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-primary-blue">SAP Sales Influence Drill</p>
-            <h2 className="text-xl font-bold text-brand-navy">Supervisor & Manager Full Analysis</h2>
+            <h2 className="text-xl font-bold text-brand-navy">Head of Sales & Supervisor Full Analysis</h2>
             <p className="text-xs text-muted-strong">{monthLabel} {year} · customer, rep, product and current stock context</p>
           </div>
           <button onClick={onClose} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-brand-navy hover:bg-background-elevated">
@@ -210,7 +210,7 @@ export function RankingDrilldown({
           <div className="inline-flex rounded-full bg-background-elevated p-0.5">
             {(["supervisor", "manager"] as const).map((option) => (
               <button key={option} onClick={() => setLevel(option)} disabled={option === "manager" && managerRanking.rankings.length === 0} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${level === option ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>
-                By {option === "supervisor" ? "Supervisor" : "Manager"}
+                By {option === "supervisor" ? "Supervisor" : "Head of Sales"}
               </button>
             ))}
           </div>

@@ -54,6 +54,12 @@ export interface MtdTargetInputs {
   /** RepContribution rows - a rep's share of a principal's trailing revenue
    *  among reps currently assigned to it. */
   contributions: { principal: string; employeeCode: string; sharePct: number }[];
+  /** This month's Weekly Target rows (weeks starting in the month). Where a principal has any, they say who carries the
+   *  principal's target, and in what proportion: the weekly rebuild splits each month's target over the leaders and the
+   *  key-accounts rep (Mars: a fixed 40M for Clarrine, the rest by territory), which the rep-share cascade cannot see. */
+  weeklyTargets?: { teamLeaderId: string; principal: string; value: number }[];
+  /** Principal.teamLeaderId: carries a principal's whole target when it has no weekly split and no active Primary rep. */
+  principalOwners?: { principal: string; teamLeaderId: string | null }[];
 }
 
 /** Splits each principal's monthly Target across its currently-active Primary
@@ -83,7 +89,7 @@ export interface MtdTargetInputs {
  *  weight against reps who are only assigned once - no separate handling
  *  needed. */
 export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs): MtdTargetRow[] {
-  const { principalTargets, assignments, contributions } = inputs;
+  const { principalTargets, assignments, contributions, weeklyTargets = [], principalOwners = [] } = inputs;
 
   const targetByPrincipal = new Map(principalTargets.map((t) => [t.principal, t.valueTarget ?? 0]));
   const shareByPrincipalRep = new Map(contributions.map((c) => [`${c.principal}|${c.employeeCode}`, c.sharePct]));
@@ -96,18 +102,41 @@ export function computeMtdTargetByTeamLeader(inputs: MtdTargetInputs): MtdTarget
   }
 
   const targetByTeamLeader = new Map<string, number>();
+  const add = (teamLeaderId: string, value: number) => targetByTeamLeader.set(teamLeaderId, (targetByTeamLeader.get(teamLeaderId) ?? 0) + value);
 
-  for (const [principal, reps] of repsByPrincipal) {
-    const principalTarget = targetByPrincipal.get(principal) ?? 0;
-    if (principalTarget === 0) continue;
+  const weeklyByPrincipal = new Map<string, Map<string, number>>();
+  for (const w of weeklyTargets) {
+    if (!(w.value > 0)) continue;
+    const perLeader = weeklyByPrincipal.get(w.principal) ?? new Map<string, number>();
+    perLeader.set(w.teamLeaderId, (perLeader.get(w.teamLeaderId) ?? 0) + w.value);
+    weeklyByPrincipal.set(w.principal, perLeader);
+  }
+  const ownerByPrincipal = new Map(principalOwners.filter((o) => o.teamLeaderId).map((o) => [o.principal, o.teamLeaderId as string]));
+
+  for (const [principal, principalTarget] of targetByPrincipal) {
+    if (!(principalTarget > 0)) continue;
+    // 1. The weekly split, when the principal has one: exact, and it follows the key-accounts and territory shares.
+    const weekly = weeklyByPrincipal.get(principal);
+    const weeklyTotal = weekly ? [...weekly.values()].reduce((a, b) => a + b, 0) : 0;
+    if (weekly && weeklyTotal > 0) {
+      for (const [teamLeaderId, value] of weekly) add(teamLeaderId, principalTarget * (value / weeklyTotal));
+      continue;
+    }
+    // 3. Neither a weekly split nor an active Primary rep: the principal's own owner carries it, so the total still ties out.
+    const reps = repsByPrincipal.get(principal);
+    if (!reps || reps.length === 0) {
+      const owner = ownerByPrincipal.get(principal);
+      if (owner) add(owner, principalTarget);
+      continue;
+    }
+    // 2. The rep-share cascade (below).
 
     const rawShares = reps.map((rep) => resolveRepSharePct(rep.contributionPct, shareByPrincipalRep.get(`${principal}|${rep.employeeCode}`), 1 / reps.length));
     const rawSum = rawShares.reduce((s, v) => s + v, 0);
 
     reps.forEach((rep, i) => {
       const normalizedShare = rawSum > 0 ? rawShares[i] / rawSum : 1 / reps.length;
-      const sum = targetByTeamLeader.get(rep.teamLeaderId) ?? 0;
-      targetByTeamLeader.set(rep.teamLeaderId, sum + principalTarget * normalizedShare);
+      add(rep.teamLeaderId, principalTarget * normalizedShare);
     });
   }
 
@@ -123,14 +152,22 @@ export async function getMtdTargetByTeamLeader(year: string, monthLabel: string,
   if (monthIndex < 0) return [];
   const principalWhere = principals.length > 0 ? { principal: { in: principals } } : {};
 
-  const [principalTargets, assignments, contributions] = await Promise.all([
+  const [principalTargets, assignments, contributions, weeklyTargets, principalOwners] = await Promise.all([
     prisma.target.findMany({ where: { year, month: monthLabel, ...principalWhere }, select: { principal: true, valueTarget: true } }),
     prisma.teamLeaderAssignment.findMany({
       where: { active: true, salesRole: "PRIMARY", ...principalWhere },
       select: { teamLeaderId: true, principal: true, employeeCode: true, contributionPct: true },
     }),
     prisma.repContribution.findMany({ where: principalWhere, select: { principal: true, employeeCode: true, sharePct: true } }),
+    prisma.weeklyTarget.findMany({ where: { year, monthLabel, ...principalWhere }, select: { teamLeaderId: true, principal: true, targetValue: true } }),
+    prisma.principal.findMany({ where: { status: "Active", ...principalWhere }, select: { principal: true, teamLeaderId: true } }),
   ]);
 
-  return computeMtdTargetByTeamLeader({ principalTargets, assignments, contributions });
+  return computeMtdTargetByTeamLeader({
+    principalTargets,
+    assignments,
+    contributions,
+    weeklyTargets: weeklyTargets.map((w) => ({ teamLeaderId: w.teamLeaderId, principal: w.principal, value: w.targetValue })),
+    principalOwners,
+  });
 }

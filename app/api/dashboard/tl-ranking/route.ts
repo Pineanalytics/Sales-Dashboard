@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import {
   buildTlRanking,
   buildSupervisorRanking,
-  buildManagerRanking,
+  buildHodRanking,
   canonicalTeamLeaderIdMap,
   computeTlCompositeScores,
   sortByCompositeScore,
@@ -118,11 +118,12 @@ export async function POST(req: NextRequest) {
   const effectivePrincipals = requestedPrincipals.length > 0 ? requestedPrincipals : (scope?.principals ?? []);
   const principalWhere = effectivePrincipals.length > 0 ? { principal: { in: effectivePrincipals } } : {};
 
-  const [principals, teamLeaders, supervisors, managers, mtdTargets] = await Promise.all([
+  const [principals, teamLeaders, supervisors, managers, hods, mtdTargets] = await Promise.all([
     prisma.principal.findMany({ where: { status: "Active", ...principalWhere }, select: { principal: true, teamLeaderId: true } }),
     prisma.teamLeader.findMany({ select: { id: true, name: true, supervisorId: true } }),
-    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true } }),
-    prisma.manager.findMany({ select: { id: true, name: true } }),
+    prisma.supervisor.findMany({ select: { id: true, name: true, managerId: true, directHodId: true } }),
+    prisma.manager.findMany({ select: { id: true, name: true, hodId: true } }),
+    prisma.hod.findMany({ select: { id: true, name: true } }),
     getMtdTargetByTeamLeader(year, monthLabel, effectivePrincipals),
   ]);
 
@@ -170,12 +171,13 @@ export async function POST(req: NextRequest) {
   // fields at runtime even though these two builders only know about the base
   // TlRankingRow shape.
   const supervisorRanking = buildSupervisorRanking(compositeRankings, teamLeaders, supervisors);
-  const managerRanking = buildManagerRanking(supervisorRanking.rankings, supervisors, managers);
+  // The top tier is Head of Sales (Angela Sitati, Alexander Muhoro): the response key stays `managerRanking` for its consumers.
+  const managerRanking = buildHodRanking(supervisorRanking.rankings, supervisors, managers, hods);
 
   if (scope?.supervisorId) {
     const rankings = supervisorRanking.rankings.filter((r) => r.supervisorId === scope.supervisorId);
     const narrowedSupervisorRanking: SupervisorRankingResult = { rankings, unassignedTeamLeaders: [] };
-    const narrowedManagerRanking = buildManagerRanking(rankings, supervisors, managers);
+    const narrowedManagerRanking = buildHodRanking(rankings, supervisors, managers, hods);
     return NextResponse.json(
       { mode: "hierarchy", managerRanking: narrowedManagerRanking, supervisorRanking: narrowedSupervisorRanking, unattributedPrincipals: [] } satisfies TlRankingResponse
     );

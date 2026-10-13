@@ -97,10 +97,11 @@ export function TlRankingTable({
 }) {
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [result, setResult] = useState<TlRankingResponse | null>(null);
-  const [level, setLevel] = useState<"supervisor" | "manager">("supervisor");
+  const [level, setLevel] = useState<"supervisor" | "manager">("manager");
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [expandedManagers, setExpandedManagers] = useState<Set<string>>(new Set());
   const [unassignedSupervisorsExpanded, setUnassignedSupervisorsExpanded] = useState(false);
+  const [unassignedHodExpanded, setUnassignedHodExpanded] = useState(false);
   const [drillOpen, setDrillOpen] = useState(false);
 
   useEffect(() => {
@@ -213,7 +214,7 @@ export function TlRankingTable({
                 onClick={() => setLevel(l)}
                 className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all ${level === l ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"}`}
               >
-                {l === "supervisor" ? "By Supervisor" : "By Manager"}
+                {l === "supervisor" ? "By Supervisor" : "By Head of Sales"}
               </button>
               ))}
             </div>
@@ -226,7 +227,7 @@ export function TlRankingTable({
     >
       <TableWrap>
         <Thead>
-          <Th>{isManagerLevel ? "Manager" : "Sales Supervisor"}</Th>
+          <Th>{isManagerLevel ? "Head of Sales" : "Sales Supervisor"}</Th>
           <Th>Principal(s)</Th>
           <Th align="right">Target</Th>
           <Th align="right">Revenue</Th>
@@ -301,6 +302,38 @@ export function TlRankingTable({
                   </Fragment>
                 );
               })}
+          {isManagerLevel && managerRanking.unassignedSupervisors.length > 0 ? (
+            <Fragment>
+              <RankRow
+                row={{
+                  key: "unassigned-hod",
+                  name: "Needs Head of Sales assignment",
+                  mtdTarget: managerRanking.unassignedSupervisors.reduce((sum, row) => sum + row.mtdTarget, 0),
+                  mtdRevenue: managerRanking.unassignedSupervisors.reduce((sum, row) => sum + row.mtdRevenue, 0),
+                  achievedPct: (() => {
+                    const target = managerRanking.unassignedSupervisors.reduce((sum, row) => sum + row.mtdTarget, 0);
+                    const revenue = managerRanking.unassignedSupervisors.reduce((sum, row) => sum + row.mtdRevenue, 0);
+                    return target > 0 ? (revenue / target) * 100 : null;
+                  })(),
+                }}
+                depth={0}
+                expandable
+                expanded={unassignedHodExpanded}
+                onToggle={() => setUnassignedHodExpanded((expanded) => !expanded)}
+              />
+              {unassignedHodExpanded
+                ? managerRanking.unassignedSupervisors.map((sup) => (
+                    <RankRow
+                      key={sup.supervisorId}
+                      row={{ key: sup.supervisorId, name: sup.supervisorName, mtdTarget: sup.mtdTarget, mtdRevenue: sup.mtdRevenue, achievedPct: sup.achievedPct, principals: sup.principals }}
+                      depth={1}
+                      expandable={false}
+                      expanded={false}
+                    />
+                  ))
+                : null}
+            </Fragment>
+          ) : null}
           {!isManagerLevel && supervisorRanking.unassignedTeamLeaders.length > 0
             ? (
                 <Fragment>
