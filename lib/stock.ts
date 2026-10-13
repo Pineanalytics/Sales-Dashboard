@@ -231,6 +231,19 @@ export interface StockDormancyResult {
   activeKeys: Set<string>;
   /** The subset of dormantKeys an admin flagged (Principal.stockDormant), whatever their recent sales. */
   flaggedKeys: Set<string>;
+  /** Principals on the Active principals list that have had no sales in the last three months (or carry the dormant
+   *  flag). They are NOT in dormantKeys: they stay in the operational Stock Balance, with a notice about the inactivity. */
+  noticeKeys: Set<string>;
+}
+
+/** The brand keys of principals on the Active principals list: a brand counts when any of its principal rows is Active. */
+export function activeStatusBrandKeysFromPrincipals(principals: { principal: string; status: string }[]): string[] {
+  const keys = new Set<string>();
+  for (const row of principals) {
+    const key = normalizePrincipalKey(row.principal);
+    if (key && row.status === "Active") keys.add(key);
+  }
+  return Array.from(keys).sort();
 }
 
 /** The brand keys an admin has flagged as dormant for stock. Stock is grouped by brand (the part of the principal
@@ -274,7 +287,11 @@ export function dormantSinceByBrandKey(principals: { principal: string; stockDor
  *  calendar months by wall-clock date, since a dataset can legitimately lag behind "today". The three-month rule
  *  mirrors DormantStockActual's own no-activity convention (see its schema comment), just applied per principal
  *  instead of per SKU, so "dormant" means the same thing in both places. A flag outranks the emerging-principal
- *  exemption and any amount of recent revenue. */
+ *  exemption and any amount of recent revenue.
+ *
+ *  A principal on the Active principals list (dataset.activeStatusPrincipalKeys) is the exception to all of this: it is
+ *  never dormant. It stays in the operational Stock Balance and is reported in noticeKeys when it has had no sales in
+ *  the window (or carries the flag), so the screens can say why its stock is not moving. */
 export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Iterable<string>): StockDormancyResult {
   const periods = Array.from(new Set(dataset.monthlySales.map((r) => `${r.year}|${r.monthIndex}`)))
     .sort()
@@ -288,10 +305,17 @@ export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Itera
   }
 
   const flagged = new Set(dataset.dormantPrincipalKeys ?? []);
+  const listedActive = new Set(dataset.activeStatusPrincipalKeys ?? []);
   const dormantKeys = new Set<string>();
   const activeKeys = new Set<string>();
   const flaggedKeys = new Set<string>();
+  const noticeKeys = new Set<string>();
   for (const key of principalKeys) {
+    if (listedActive.has(key)) {
+      activeKeys.add(key);
+      if (flagged.has(key) || (revenueByKey.get(key) ?? 0) <= 0) noticeKeys.add(key);
+      continue;
+    }
     if (flagged.has(key)) {
       dormantKeys.add(key);
       flaggedKeys.add(key);
@@ -304,7 +328,7 @@ export function classifyDormantPrincipals(dataset: Dataset, principalKeys: Itera
     if ((revenueByKey.get(key) ?? 0) > 0) activeKeys.add(key);
     else dormantKeys.add(key);
   }
-  return { dormantKeys, activeKeys, flaggedKeys };
+  return { dormantKeys, activeKeys, flaggedKeys, noticeKeys };
 }
 
 /** "Active" or "Inactive" per stock item's brand, for extracts that list all stock but must say which principals still

@@ -161,6 +161,10 @@ export interface Dataset {
   /** Normalized brand keys an admin has flagged as dormant for stock (Principal.stockDormant): stopped
    *  principals still holding stock, left out of the operational Stock Balance whatever their recent sales. */
   dormantPrincipalKeys?: string[];
+  /** Normalized brand keys of principals on the Active principals list (Principal.status = "Active"). An active principal
+   *  is never moved out of the operational Stock Balance, even when it has had no recent sales or carries the dormant
+   *  flag: it stays in with a notice instead (see classifyDormantPrincipals' noticeKeys). */
+  activeStatusPrincipalKeys?: string[];
   /** When an admin recorded each flagged principal as dormant (YYYY-MM-DD), by normalized brand key; the earliest
    *  date among the brand's flagged principal rows. Absent for a principal whose start date was not recorded. */
   dormantPrincipalSince?: Record<string, string>;

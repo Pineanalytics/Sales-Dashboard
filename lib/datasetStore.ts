@@ -4,7 +4,7 @@ import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
 import { weightedCoverDays, stockStatus } from "./parseWorkbook";
-import { dormantBrandKeysFromPrincipals, dormantSinceByBrandKey } from "./stock";
+import { activeStatusBrandKeysFromPrincipals, dormantBrandKeysFromPrincipals, dormantSinceByBrandKey } from "./stock";
 import { getMonthlyCoverageRollup, getEablMonthlyCoverageRollup, getUpfieldMonthlyCoverageRollup } from "./jpAdherence";
 import type { Dataset, DatasetSnapshotSummary, DormantStockItem, MonthlyBrandCustomerRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow, MonthlySalesRow, PLLineType, StockItem, StockTotal } from "./types";
 
@@ -624,14 +624,15 @@ async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): 
     includeBrandCustomer ? timed("brandCustomer", () => overlayBrandCustomer(dataset)) : Promise.resolve(dataset),
     timed("stock", () => overlayStock(dataset)),
     timed("dormantPrincipals", async () => {
-      const principals = await prisma.principal.findMany({ select: { principal: true, stockDormant: true, stockDormantSince: true } });
-      return { keys: dormantBrandKeysFromPrincipals(principals), since: dormantSinceByBrandKey(principals) };
+      const principals = await prisma.principal.findMany({ select: { principal: true, status: true, stockDormant: true, stockDormantSince: true } });
+      return { keys: dormantBrandKeysFromPrincipals(principals), since: dormantSinceByBrandKey(principals), activeStatusKeys: activeStatusBrandKeysFromPrincipals(principals) };
     }),
   ]);
   console.log(`[datasetStore] overlayAdminData total: ${Date.now() - overallStart}ms`);
   return {
     ...withTargets,
     dormantPrincipalKeys: dormantPrincipalFlags.keys,
+    activeStatusPrincipalKeys: dormantPrincipalFlags.activeStatusKeys,
     dormantPrincipalSince: dormantPrincipalFlags.since,
     dormantStockItems: withStock.dormantStockItems,
     monthlyPL: withPL.monthlyPL,

@@ -53,9 +53,11 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   // Dormant Stock instead of cluttering operational Stock Balance — except a
   // handful of newly onboarded/"emerging" principals (see
   // classifyDormantPrincipals's own doc comment).
-  const { dormantKeys, flaggedKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
+  const { dormantKeys, flaggedKeys, noticeKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
   const rollups = allRollups.filter((r) => !dormantKeys.has(r.key));
   const dormantRollups = allRollups.filter((r) => dormantKeys.has(r.key));
+  // Principals on the Active principals list stay in the balance even with no recent sales; they carry a notice instead.
+  const noticeRollups = rollups.filter((r) => noticeKeys.has(r.key));
   // The portfolio ("all principals") baseline must exclude dormant stock too —
   // dataset.stockTotal is a raw, unfiltered dataset-wide fact used elsewhere
   // (e.g. Overview) and must keep its own meaning, so this page recomputes
@@ -165,6 +167,15 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
       {dataset.stockSource?.kind === "sap-direct" && (
         <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
           <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module.</p>
+        </SectionCard>
+      )}
+      {noticeRollups.length > 0 && (!selectedRollup || noticeKeys.has(selectedRollup.key)) && (
+        <SectionCard title="Active principals with no recent sales">
+          <p className="p-1 text-sm text-muted">
+            {(selectedRollup ? [selectedRollup] : noticeRollups).map((r) => r.name).sort().join(", ")} {(selectedRollup ? 1 : noticeRollups.length) === 1 ? "is" : "are"} on the Active principals list but{" "}
+            {(selectedRollup ? 1 : noticeRollups.length) === 1 ? "has" : "have"} had no Sales revenue in the last three months, so {(selectedRollup ? 1 : noticeRollups.length) === 1 ? "its" : "their"} stock is not moving. {(selectedRollup ? 1 : noticeRollups.length) === 1 ? "It stays" : "They stay"} in the Stock Balance as active
+            principals, but with no recent sales the cover and status shown for {(selectedRollup ? 1 : noticeRollups.length) === 1 ? "it" : "them"} should be read with that in mind.
+          </p>
         </SectionCard>
       )}
       {!selectedRollup && dormantRollups.length > 0 && (
