@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 
 const NAIROBI_OFFSET = Prisma.sql`INTERVAL '3 hours'`;
 const REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g')`;
+// The same rep name as the outlet list (Upfield's customer master) carries it, so the two can be joined.
+const MASTER_REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(m."fsrName"), '\\s+', ' ', 'g')`;
 
 function monthKey(raw: string | null): string {
   const now = new Date();
@@ -85,9 +87,15 @@ export async function GET(request: NextRequest) {
   type RepDayRow = { date: Date; rep: string; firstTransaction: Date; lastTransaction: Date; hoursInTrade: number; invoices: bigint; outlets: bigint; lines: bigint; netSales: number; units: number; averageInterval: number | null };
   type CoverageRow = { rep: string; activeDays: bigint; outlets: bigint; outletDays: bigint; averageOutletsPerDay: number; invoices: bigint; netSales: number; units: number };
   type CustomerRow = { customerCode: string; customerName: string; activeDays: bigint; reps: bigint; invoices: bigint; netSales: number; units: number; lastTransaction: Date };
+  type UniverseRow = { dim: string; name: string; universe: bigint; bought: bigint };
+  type AssignedRow = { rep: string; assigned: bigint };
+
+  // Outlets that bought in the selected period (a positive sale on a working day), for the outlet-list comparison. The rep filter and the
+  // session's scope narrow the list the same way they narrow the sales.
+  const masterScope = Prisma.sql`${rep ? Prisma.sql`AND ${MASTER_REP_EXPRESSION} = ${rep}` : Prisma.empty} ${scopeNameClause(scope, MASTER_REP_EXPRESSION)}`;
 
   try {
-    const [metrics, daily, hourly, repDays, coverage, customers, filterReps, filterDates, watermark, latestRun] = await Promise.all([
+    const [metrics, daily, hourly, repDays, coverage, customers, filterReps, filterDates, watermark, latestRun, universeRows, assignedRows, masterHead, buyersNotInList] = await Promise.all([
       prisma.$queryRaw<MetricsRow[]>(Prisma.sql`
         WITH documents AS (
           SELECT ${REP_EXPRESSION} AS rep, DATE("txnDate" + ${NAIROBI_OFFSET}) AS date, "invoiceNo", MIN("txnDate" + ${NAIROBI_OFFSET}) AS txn
@@ -159,7 +167,33 @@ export async function GET(request: NextRequest) {
       prisma.$queryRaw<Array<{ date: Date }>>(Prisma.sql`SELECT DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET}) AS date FROM "UpfieldTransaction" WHERE ${monthWhere} ORDER BY 1 DESC`),
       prisma.syncWatermark.findUnique({ where: { bridge: "upfield-timestamps" }, select: { updatedAt: true, lastIncrementalAt: true } }),
       prisma.upfieldSyncRun.findFirst({ where: { status: "COMPLETE" }, orderBy: { completedAt: "desc" }, select: { completedAt: true, windowEnd: true, recordCount: true } }),
+      prisma.$queryRaw<UniverseRow[]>(Prisma.sql`
+        WITH buyers AS (
+          SELECT DISTINCT "custCode" FROM "UpfieldTransaction" WHERE ${where} AND type = 'sale' AND COALESCE("saleIncl", 0) > 0
+        )
+        SELECT 'channel' AS dim, COALESCE(m.channel, 'Unspecified') AS name, COUNT(*) AS universe, COUNT(*) FILTER (WHERE b."custCode" IS NOT NULL) AS bought
+        FROM "UpfieldOutletMaster" m LEFT JOIN buyers b ON b."custCode" = m."outletCode" WHERE true ${masterScope} GROUP BY 2
+        UNION ALL
+        SELECT 'type', COALESCE(m."outletType", 'Unspecified'), COUNT(*), COUNT(*) FILTER (WHERE b."custCode" IS NOT NULL)
+        FROM "UpfieldOutletMaster" m LEFT JOIN buyers b ON b."custCode" = m."outletCode" WHERE true ${masterScope} GROUP BY 2`),
+      prisma.$queryRaw<AssignedRow[]>(Prisma.sql`
+        SELECT ${MASTER_REP_EXPRESSION} AS rep, COUNT(*) AS assigned FROM "UpfieldOutletMaster" m WHERE NULLIF(BTRIM(m."fsrName"), '') IS NOT NULL GROUP BY 1`),
+      prisma.upfieldOutletMaster.findFirst({ orderBy: { uploadedAt: "desc" }, select: { uploadedAt: true, sourceFile: true } }),
+      prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT t."custCode") AS count FROM "UpfieldTransaction" t
+        WHERE ${where} AND t.type = 'sale' AND COALESCE(t."saleIncl", 0) > 0 AND t."custCode" <> '000'
+          AND NOT EXISTS (SELECT 1 FROM "UpfieldOutletMaster" m WHERE m."outletCode" = t."custCode")`),
     ]);
+    const masterCodes = customers.length > 0
+      ? await prisma.upfieldOutletMaster.findMany({ where: { outletCode: { in: customers.map((row) => row.customerCode) } }, select: { outletCode: true, channel: true, outletType: true } })
+      : [];
+    const masterByCode = new Map(masterCodes.map((row) => [row.outletCode, row]));
+    const assignedByRep = new Map(assignedRows.map((row) => [row.rep.toLowerCase(), number(row.assigned)]));
+    const universe = (dim: string) =>
+      universeRows
+        .filter((row) => row.dim === dim)
+        .map((row) => ({ name: row.name, universe: number(row.universe), bought: number(row.bought), coveragePct: number(row.universe) > 0 ? (number(row.bought) / number(row.universe)) * 100 : 0 }))
+        .sort((a, b) => b.universe - a.universe);
 
     const metric = metrics[0];
     return NextResponse.json({
@@ -172,11 +206,24 @@ export async function GET(request: NextRequest) {
       daily: daily.map((row) => ({ date: day(row.date), invoices: number(row.invoices), outlets: number(row.outlets), reps: number(row.reps), netSales: row.netSales, units: row.units })),
       hourly: hourly.map((row) => ({ hour: row.hour, invoices: number(row.invoices), outlets: number(row.outlets), netSales: row.netSales })),
       repDays: repDays.map((row) => ({ ...row, date: day(row.date), firstTransaction: iso(row.firstTransaction), lastTransaction: iso(row.lastTransaction), invoices: number(row.invoices), outlets: number(row.outlets), lines: number(row.lines) })),
-      coverage: coverage.map((row) => ({ ...row, activeDays: number(row.activeDays), outlets: number(row.outlets), outletDays: number(row.outletDays), invoices: number(row.invoices) })),
-      customers: customers.map((row) => ({ ...row, activeDays: number(row.activeDays), reps: number(row.reps), invoices: number(row.invoices), lastTransaction: iso(row.lastTransaction) })),
+      coverage: coverage.map((row) => {
+        const assignedOutlets = assignedByRep.get(row.rep.toLowerCase()) ?? null;
+        return { ...row, activeDays: number(row.activeDays), outlets: number(row.outlets), outletDays: number(row.outletDays), invoices: number(row.invoices), assignedOutlets, coveragePct: assignedOutlets ? (number(row.outlets) / assignedOutlets) * 100 : null };
+      }),
+      customers: customers.map((row) => ({ ...row, activeDays: number(row.activeDays), reps: number(row.reps), invoices: number(row.invoices), lastTransaction: iso(row.lastTransaction), channel: masterByCode.get(row.customerCode)?.channel ?? null, outletType: masterByCode.get(row.customerCode)?.outletType ?? null })),
+      universe: {
+        loaded: masterHead !== null,
+        uploadedAt: iso(masterHead?.uploadedAt),
+        sourceFile: masterHead?.sourceFile ?? null,
+        outlets: universe("channel").reduce((sum, row) => sum + row.universe, 0),
+        bought: universe("channel").reduce((sum, row) => sum + row.bought, 0),
+        buyersNotInList: number(buyersNotInList[0]?.count),
+        byChannel: universe("channel"),
+        byType: universe("type"),
+      },
       filters: { reps: filterReps.map((row) => row.rep), dates: filterDates.map((row) => day(row.date)) },
       freshness: { syncedAt: iso(watermark?.updatedAt), through: iso(watermark?.lastIncrementalAt), latestRunCompletedAt: iso(latestRun?.completedAt), latestRunRows: latestRun?.recordCount ?? null },
-      definitions: { coverage: "Unique customers with at least one positive sale on dashboard working days in the selected period.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark. Saturday, Sunday, and known Kenyan public-holiday activity is retained in source data but excluded from this dashboard." },
+      definitions: { coverage: "Unique customers with at least one positive sale on dashboard working days in the selected period. Against the outlet list (Upfield's customer master, Admin > Upfield outlet list): the outlets that bought in the period over the outlets on the list, per rep (their route), channel and outlet type.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark. Saturday, Sunday, and known Kenyan public-holiday activity is retained in source data but excluded from this dashboard." },
     });
   } catch (error) {
     console.error("Failed to load Upfield Timestamp and Coverage", error);

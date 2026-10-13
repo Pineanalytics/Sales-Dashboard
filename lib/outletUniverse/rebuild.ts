@@ -48,6 +48,7 @@ export interface OutletUniverseRebuildResult {
   pine: number;
   leverage: number;
   eabl: number;
+  upfield: number;
   total: number;
   /** Rows kept out by OUTLET_EXCLUSIONS, by reason. Not included in the counts above. */
   excluded: Record<string, number>;
@@ -245,6 +246,107 @@ export function eablRow(row: EablSourceRow): OutletUniverseRow {
   };
 }
 
+interface UpfieldSourceRow {
+  customerCode: string;
+  customerName: string | null;
+  fsr: string | null;
+  /** From Upfield's outlet list (the customer master), when the outlet is on it. */
+  outletType?: string | null;
+  channel?: string | null;
+  location?: string | null;
+  routeDay?: string | null;
+  routeWeek?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  lastBuy?: Date | null;
+  sales?: number | null;
+  transactions?: number | null;
+  /** Distinct sale days in the last 30 days. */
+  days30?: number | null;
+  firstBuy?: Date | null;
+  periods90?: number | null;
+  periods180?: number | null;
+}
+
+/** An Upfield outlet: one per customer code, bought directly by Upfield's own field sales reps, so it is tagged Primary like Leverage
+ *  and EABL DMS. The sales feed (UpfieldTransaction) has no channel, area or route; Upfield's outlet list (the customer master) supplies the
+ *  channel, outlet type, route (the FSR, day and week), area and GPS point, and every outlet on it is known, whether or not it has bought. */
+/** "Brian Mwaura" + "monday" -> "Brian Mwaura - Monday"; a route run on several days is "Brian Mwaura - Several days". */
+function upfieldRoute(fsr: string | null | undefined, routeDay: string | null | undefined): string | null {
+  const rep = nonEmpty(fsr);
+  const day = nonEmpty(routeDay);
+  if (!rep) return null;
+  if (!day) return rep;
+  return `${rep} - ${day.includes(";") ? "Several days" : day.charAt(0).toUpperCase() + day.slice(1).toLowerCase()}`;
+}
+
+export function upfieldRow(row: UpfieldSourceRow): OutletUniverseRow {
+  return {
+    source: "UPFIELD",
+    outletKey: row.customerCode,
+    principal: "Upfield-Nairobi",
+    outletName: nonEmpty(row.customerName) ?? row.customerCode,
+    salesRole: "Primary Sales",
+    channel: normalizeChannel(row.channel),
+    segment: normalizeSegment(row.outletType),
+    rawChannel: nonEmpty(row.channel),
+    rawSegment: nonEmpty(row.outletType),
+    location: "Nairobi",
+    region: "Nairobi",
+    // The list's Location is the outlet's area (Kayole, Dandora, Tala...), the closest thing to a territory.
+    territory: orUnspecified(row.location ? row.location.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : null),
+    route: upfieldRoute(row.fsr, row.routeDay),
+    repCode: null,
+    repName: nonEmpty(row.fsr),
+    latitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.latitude ?? null,
+    longitude: kenyaCoordinate(row.latitude ?? null, row.longitude ?? null)?.longitude ?? null,
+    lastPurchaseDate: row.lastBuy ?? null,
+    sales: row.sales ?? 0,
+    transactions: row.transactions ?? 0,
+    purchaseDays30: row.days30 ?? 0,
+    outletPurchaseDays30: row.days30 ?? 0,
+    firstPurchaseDate: row.firstBuy ?? null,
+    periodsBought90: row.periods90 ?? 0,
+    periodsBought180: row.periods180 ?? 0,
+  };
+}
+
+async function loadUpfield(): Promise<OutletUniverseRow[]> {
+  // The outlet list (customer master) is the universe: every outlet on it is known. Customers that bought but are not on it are kept too
+  // (without channel or type). The DataEdge connectivity-test customer is not an outlet. With no list uploaded this is the sales feed alone.
+  const rows = await prisma.$queryRaw<UpfieldSourceRow[]>(Prisma.sql`
+    WITH agg AS (
+      SELECT "custCode" AS "customerCode",
+             MAX("txnDate") FILTER (WHERE type = 'sale') AS "lastBuy",
+             MIN("txnDate") FILTER (WHERE type = 'sale') AS "firstBuy",
+             SUM("saleExcl") FILTER (WHERE EXTRACT(YEAR FROM "txnDate") = EXTRACT(YEAR FROM now()))::double precision AS sales,
+             COUNT(DISTINCT "invoiceNo") FILTER (WHERE type = 'sale' AND EXTRACT(YEAR FROM "txnDate") = EXTRACT(YEAR FROM now()))::int AS transactions,
+             COUNT(DISTINCT "txnDate"::date) FILTER (WHERE type = 'sale' AND "txnDate" >= now() - interval '30 days')::int AS days30,
+             COUNT(DISTINCT ((now()::date - "txnDate"::date) / 30)) FILTER (WHERE type = 'sale' AND now()::date - "txnDate"::date < 90)::int AS periods90,
+             COUNT(DISTINCT ((now()::date - "txnDate"::date) / 30)) FILTER (WHERE type = 'sale' AND now()::date - "txnDate"::date < 180)::int AS periods180
+      FROM "UpfieldTransaction"
+      WHERE "custCode" IS NOT NULL AND btrim("custCode") <> '' AND "custCode" <> '000' AND UPPER(COALESCE("custName", '')) NOT LIKE '%CONNECTIVITY TEST%'
+      GROUP BY "custCode"
+    ),
+    latest AS (
+      SELECT DISTINCT ON ("custCode") "custCode" AS "customerCode", "custName" AS "customerName", REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g') AS fsr
+      FROM "UpfieldTransaction"
+      WHERE "custCode" IS NOT NULL AND btrim("custCode") <> '' AND "custCode" <> '000'
+      ORDER BY "custCode", "txnDate" DESC, "sourceRecordId" DESC
+    )
+    SELECT COALESCE(m."outletCode", a."customerCode") AS "customerCode",
+           COALESCE(m."outletName", l."customerName") AS "customerName",
+           COALESCE(m."fsrName", l.fsr) AS fsr,
+           m."outletType", m.channel, m.location, m."routeDay", m."routeWeek", m.latitude, m.longitude,
+           a."lastBuy", a."firstBuy", a.sales, a.transactions, a.days30, a.periods90, a.periods180
+    FROM "UpfieldOutletMaster" m
+    FULL OUTER JOIN agg a ON a."customerCode" = m."outletCode"
+    LEFT JOIN latest l ON l."customerCode" = COALESCE(m."outletCode", a."customerCode")
+    WHERE COALESCE(m."outletCode", a."customerCode") <> '000'
+  `);
+  return rows.map(upfieldRow);
+}
+
 async function loadPine(): Promise<OutletUniverseRow[]> {
   const rows = await prisma.$queryRaw<PineSourceRow[]>(Prisma.sql`
     SELECT principal, "customerId", "outletName", channel, "subChannel", territory, latitude, longitude,
@@ -415,7 +517,7 @@ export async function refreshOutletUniverseIfStale(maxAgeMs: number): Promise<vo
  *  half-built one. Safe to run repeatedly; the table is a derived copy. */
 async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const startedAt = Date.now();
-  const [loadedPine, loadedLeverage, loadedEabl] = await Promise.all([loadPine(), loadLeverage(), loadEabl()]);
+  const [loadedPine, loadedLeverage, loadedEabl, loadedUpfield] = await Promise.all([loadPine(), loadLeverage(), loadEabl(), loadUpfield()]);
   const excluded: Record<string, number> = {};
   const keep = (rows: OutletUniverseRow[]) =>
     rows.filter((row) => {
@@ -426,8 +528,9 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const pine = keep(loadedPine);
   const leverage = keep(loadedLeverage);
   const eabl = keep(loadedEabl);
+  const upfield = keep(loadedUpfield);
   const builtAt = new Date();
-  const all = [...pine, ...leverage, ...eabl];
+  const all = [...pine, ...leverage, ...eabl, ...upfield];
 
   await prisma.$transaction(
     async (tx) => {
@@ -442,5 +545,5 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
     { timeout: 180_000, maxWait: 30_000 }
   );
 
-  return { pine: pine.length, leverage: leverage.length, eabl: eabl.length, total: all.length, excluded, durationMs: Date.now() - startedAt };
+  return { pine: pine.length, leverage: leverage.length, eabl: eabl.length, upfield: upfield.length, total: all.length, excluded, durationMs: Date.now() - startedAt };
 }

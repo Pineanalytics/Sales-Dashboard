@@ -21,6 +21,7 @@ const destinations: AdminDestination[] = [
   { href: "/admin/employee-master", label: "Employee roster", group: "People", keywords: "employee rep pine sap people roster", roles: ["ADMIN", "TEAM_LEADER"] },
   { href: "/admin/targets", label: "Monthly targets", group: "Planning", keywords: "monthly target principal value volume coverage productivity", roles: ["ADMIN"] },
   { href: "/admin/gp-targets", label: "GP margin targets", group: "Planning", keywords: "gross profit margin target principal brand finance", roles: ["ADMIN"] },
+  { href: "/admin/upfield-outlets", label: "Upfield outlet list", group: "Reference", keywords: "upfield outlet customer master channel type route fsr dataedge upload", roles: ["ADMIN"] },
   { href: "/admin/stock-brands", label: "Stock brands", group: "Planning", keywords: "stock brand sku mapping rules item name manufacturer", roles: ["ADMIN"] },
   { href: "/admin/stock-cover", label: "Stock cover targets", group: "Planning", keywords: "stock cover days target standard stock reorder overstock principal brand run rate", roles: ["ADMIN"] },
   { href: "/targets-overview", label: "Target workspace", group: "Planning", keywords: "target management weekly projection roster", roles: ["ADMIN", "TEAM_LEADER"] },

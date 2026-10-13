@@ -2548,3 +2548,33 @@ model PerformanceLine {
   @@index([year, monthIndex])
   @@index([year, principal])
 }
+
+// Upfield's official outlet list (customer master), uploaded from the DataEdge export "OutletsList_KDwise_<date>.xlsx" on
+// /admin/upfield-outlets (or scripts/upfield-outlet-master-import.ts). Every upload replaces the whole list. It is the universe
+// Upfield's coverage is measured against and carries each outlet's type, channel, route (FSR, day, week) and GPS point, which the
+// DataEdge sales feed (UpfieldTransaction, joined on outletCode = custCode) does not. See lib/upfieldOutletMaster.ts.
+model UpfieldOutletMaster {
+  id          String   @id @default(cuid())
+  outletCode  String   @unique
+  outletName  String
+  company     String?
+  contactName String?
+  phone       String?
+  outletType  String? // the export's Type: Shop, Kiosk, Small Duka, Wholesaler, Supermarket...
+  channel     String? // the export's Channel: retail, wholesale, LMT, Croma...
+  territory   String?
+  fsrName     String? // the route's rep, as named in the export
+  fsrLogin    String?
+  location    String?
+  latitude    Float?
+  longitude   Float?
+  routeDay    String?
+  routeWeek   String?
+  sourceFile  String?
+  uploadedBy  String?
+  uploadedAt  DateTime @default(now())
+
+  @@index([fsrName])
+  @@index([channel])
+  @@index([outletType])
+}
