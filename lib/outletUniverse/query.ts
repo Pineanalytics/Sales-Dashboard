@@ -125,9 +125,10 @@ function mixCte(scope: OutletScope): Prisma.Sql {
              CASE WHEN MAX(total) > 0 THEN (MAX(sales) FILTER (WHERE rn = 1) / MAX(total))::double precision END AS "dominantShare",
              STRING_AGG(principal || CASE WHEN total > 0 THEN ' (' || ROUND(sales / total * 100)::int || '%)' ELSE '' END, '; ' ORDER BY rn) FILTER (WHERE rn > 1) AS "sharedPrincipals",
              COUNT(DISTINCT lower(rep)) FILTER (WHERE rep IS NOT NULL)::int AS "repCount",
-             STRING_AGG(principal || ': ' || rep, '; ' ORDER BY rn) FILTER (WHERE rep IS NOT NULL) AS "repsByPrincipal"
+             STRING_AGG(principal || ': ' || rep, '; ' ORDER BY rn) FILTER (WHERE rep IS NOT NULL) AS "repsByPrincipal",
+             STRING_AGG(principal || ': ' || "teamLeader", '; ' ORDER BY rn) FILTER (WHERE "teamLeader" IS NOT NULL AND btrim("teamLeader") <> '') AS "teamLeadersByPrincipal"
       FROM (
-        SELECT source, "outletKey", principal, NULLIF(btrim("repName"), '') AS rep, sales, SUM(sales) OVER (PARTITION BY source, "outletKey") AS total,
+        SELECT source, "outletKey", principal, NULLIF(btrim("repName"), '') AS rep, "teamLeader", sales, SUM(sales) OVER (PARTITION BY source, "outletKey") AS total,
                ROW_NUMBER() OVER (PARTITION BY source, "outletKey" ORDER BY sales DESC, transactions DESC, principal ASC) AS rn
         FROM "OutletUniverse" WHERE ${scopeWhere(scope)}
       ) p
@@ -140,14 +141,14 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
   const cutoff = activeCutoff();
   const mix = withMix
     ? mixCte(scope)
-    : Prisma.sql`mix AS (SELECT NULL::text AS source, NULL::text AS "outletKey", NULL::int AS "principalCount", NULL::text AS "dominantPrincipal", NULL::double precision AS "dominantShare", NULL::text AS "sharedPrincipals", NULL::int AS "repCount", NULL::text AS "repsByPrincipal" WHERE FALSE)`;
+    : Prisma.sql`mix AS (SELECT NULL::text AS source, NULL::text AS "outletKey", NULL::int AS "principalCount", NULL::text AS "dominantPrincipal", NULL::double precision AS "dominantShare", NULL::text AS "sharedPrincipals", NULL::int AS "repCount", NULL::text AS "repsByPrincipal", NULL::text AS "teamLeadersByPrincipal" WHERE FALSE)`;
   const base = Prisma.sql`base AS (SELECT * FROM "OutletUniverse" WHERE ${baseWhere(filters, scope)})`;
   if (filters.view === "principal") {
     return Prisma.sql`WITH ${base}, ${mix},
       unit AS (
         SELECT b.source, b."outletKey", b.principal, b.principal AS principals, b."salesRole", b."outletName", b.channel, b.segment, b.location, b.region, b.territory, b.route,
-               b."repName", b."plannedRep", b."matchId", b."matchConfidence", b."matchedSystems", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
-               b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal",
+               b."repName", b."repCode", b."teamLeader", b."plannedRep", b."matchId", b."matchConfidence", b."matchedSystems", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
+               b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
                COALESCE(b."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
                (b."salesRole" = 'Primary Sales') AS "hasPrimary",
                (b."salesRole" = 'Secondary Sales') AS "hasSecondary",
@@ -159,7 +160,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
   return Prisma.sql`WITH ${base}, ${mix},
     head AS (
       SELECT DISTINCT ON (source, "outletKey") source, "outletKey", "outletName", channel, segment, location, region, territory, route,
-             "repName", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180"
+             "repName", "repCode", "teamLeader", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180"
       FROM base
       ORDER BY source, "outletKey", "lastPurchaseDate" DESC NULLS LAST, principal
     ),
@@ -177,8 +178,8 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
              CASE WHEN a."hasPrimary" AND a."hasSecondary" THEN 'Primary + Secondary'
                   WHEN a."hasSecondary" THEN 'Secondary Sales' ELSE 'Primary Sales' END AS "salesRole",
              h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
-             h."repName", h."plannedRep", h."matchId", h."matchConfidence", h."matchedSystems", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
-             h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal",
+             h."repName", h."repCode", h."teamLeader", h."plannedRep", h."matchId", h."matchConfidence", h."matchedSystems", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
+             h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
              COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
              a."hasPrimary", a."hasSecondary", a."activePrimary", a."activeSecondary"
       FROM head h JOIN agg a USING (source, "outletKey") LEFT JOIN mix m ON m.source = h.source AND m."outletKey" = h."outletKey"
@@ -370,8 +371,12 @@ export interface OutletListRow {
   region: string;
   territory: string;
   route: string | null;
-  /** The rep who sells the row's principal at the outlet. */
+  /** The rep who sells the row's principal at the outlet, their SFA user code or ID as their system supplies it, and their Team Leader from the roster. */
   repName: string | null;
+  repCode: string | null;
+  teamLeader: string | null;
+  /** Each principal's Team Leader at the outlet ("Principal: Team Leader; ..."), in sales order. */
+  teamLeadersByPrincipal: string | null;
   /** Pine's journey-plan owner of the outlet (the same on every principal); null for the other sources. */
   plannedRep: string | null;
   /** The same shop in another system, by name, place and GPS: shared match id, confidence (High or Medium) and the systems it appears in. Null when it matched nothing. */
@@ -398,10 +403,10 @@ export interface OutletListRow {
   repsByPrincipal: string | null;
 }
 
-const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName", "plannedRep", "matchId", "matchConfidence", "matchedSystems",
+const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName", "repCode", "teamLeader", "plannedRep", "matchId", "matchConfidence", "matchedSystems",
   latitude, longitude, "lastPurchaseDate", sales::double precision AS sales, transactions::int AS transactions, active,
   "firstPurchaseDate", COALESCE("periodsBought90", 0)::int AS "periodsBought90", COALESCE("periodsBought180", 0)::int AS "periodsBought180", COALESCE("principalCount", 1)::int AS "principalCount",
-  "dominantPrincipal", "dominantShare", "sharedPrincipals", COALESCE("repCount", 0)::int AS "repCount", "repsByPrincipal"`;
+  "dominantPrincipal", "dominantShare", "sharedPrincipals", COALESCE("repCount", 0)::int AS "repCount", "repsByPrincipal", "teamLeadersByPrincipal"`;
 
 type RawListRow = Omit<OutletListRow, "lastPurchaseDate" | "firstPurchaseDate"> & { lastPurchaseDate: Date | null; firstPurchaseDate: Date | null };
 

@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import { buildRepDirectory, repKey } from "../lib/outletUniverse/repIdentity";
+
+const resolve = buildRepDirectory({
+  employees: [
+    { employeeCode: "1177", pineName: "Agnes Chelangat", sapName: "Agnes Chelangat", absolutePrincipal: "Mars-Nairobi", teamLeader: "Calvince Onditi" },
+    { employeeCode: "1188", pineName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", absolutePrincipal: "Suntory-Nairobi", teamLeader: "Eve Theuri" },
+    { employeeCode: "1300", pineName: "Solo Rep", sapName: "Solo Rep", absolutePrincipal: "Mars-Nairobi", teamLeader: "Home Leader" },
+  ],
+  assignments: [
+    { employeeCode: "1177", employeeName: "Agnes Chelangat", sapName: "Agnes Chelangat", principal: "Mars-Nairobi", teamLeader: "Zachary Mwangi", contributionPct: null },
+    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Suntory-Nairobi", teamLeader: "Eve Theuri", contributionPct: 0.5 },
+    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Suntory-Nairobi", teamLeader: "Second Leader", contributionPct: 0.2 },
+    { employeeCode: "PFL004", employeeName: "Counter Nyeri", sapName: "Eabl warehouse counter", principal: "EABL-Nyeri", teamLeader: "Richard", contributionPct: 0.04 },
+    { employeeCode: "VAN_A2_OB", employeeName: "GILTON KAGEMA", sapName: "NY_VAN_A2_OB_18058585", principal: "Unilever-Nyeri", teamLeader: "Sarah", contributionPct: null },
+  ],
+  upfieldLogins: [{ fsrName: "Adrian Omondi", fsrLogin: "Faith.Pinefrost" }],
+});
+
+describe("rep key", () => {
+  it("ignores case, spacing, punctuation and a Leverage distributor suffix", () => {
+    expect(repKey("  Daniel   Odula ")).toBe("daniel odula");
+    expect(repKey("NY_VAN_A2_OB_18058585")).toBe("ny van a2 ob");
+    expect(repKey("NY_VAN_A2_OB")).toBe("ny van a2 ob");
+    expect(repKey(null)).toBe("");
+  });
+});
+
+describe("rep SFA ID and Team Leader", () => {
+  it("gives a Pine rep their roster code and the Team Leader of their assignment to that principal", () => {
+    expect(resolve("PINE", "Mars-Nairobi", "AGNES  chelangat", null)).toEqual({ repCode: "1177", teamLeader: "Zachary Mwangi" });
+  });
+
+  it("puts every Team Leader of a rep on the principal, the larger share first", () => {
+    expect(resolve("PINE", "Suntory-Nairobi", "Kelly Kiprotich", null)).toEqual({ repCode: "1188", teamLeader: "Eve Theuri / Second Leader" });
+  });
+
+  it("falls back to the employee master's Team Leader when the rep has no assignment to the principal", () => {
+    expect(resolve("PINE", "Bic-Nairobi", "Solo Rep", null)).toEqual({ repCode: "1300", teamLeader: "Home Leader" });
+  });
+
+  it("keeps the code the system supplied when the rep is not on the roster, and leaves the Team Leader blank", () => {
+    expect(resolve("PINE", "Mars-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
+    expect(resolve("PINE", "Mars-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
+  });
+
+  it("keeps Leverage's Centegy rep code and finds the Team Leader of its unit through the SAP name", () => {
+    expect(resolve("LEVERAGE", "Unilever-Nyeri", "NY_VAN_A2_OB", "YA3")).toEqual({ repCode: "YA3", teamLeader: "Sarah" });
+  });
+
+  it("gives an EABL salesman the roster code", () => {
+    expect(resolve("EABL", "EABL-Nyeri", "Counter Nyeri", null)).toEqual({ repCode: "PFL004", teamLeader: "Richard" });
+  });
+
+  it("gives an Upfield FSR the DataEdge login", () => {
+    expect(resolve("UPFIELD", "Upfield-Nairobi", "Adrian Omondi", null).repCode).toBe("Faith.Pinefrost");
+  });
+});

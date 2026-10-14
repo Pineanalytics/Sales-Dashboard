@@ -2467,6 +2467,8 @@ model OutletUniverse {
   plannedRep       String?
   // The same shop in more than one system (they share no outlet id): outlets matched by name, place and GPS point get one matchId, the
   // confidence of the match ("High" | "Medium") and the systems it appears in. Null when the outlet matched nothing. See matching.ts.
+  // The rep's Team Leader from the roster (per principal), where the rep is on it. repCode is the rep's own SFA user code or ID.
+  teamLeader       String?
   matchId          String?
   matchConfidence  String?
   matchedSystems   String?
