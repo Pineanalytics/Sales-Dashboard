@@ -4,6 +4,7 @@
 //    exception DSR codes 1172 and 1032 are); Leverage: Centegy's sales rep code (already on the row); EABL DMS: the roster code (PFL...);
 //    Upfield DataEdge: the FSR's login from the outlet list, else the roster code.
 //  - Team Leader: from the roster's assignments of that rep to that principal (a rep can have a different Team Leader per principal);
+//    all of a principal in PRINCIPAL_TEAM_LEADERS (Suntory Eve, Bic Nickley) are on that Team Leader whatever the roster says;
 //    when the rep has none, the principal's own Team Leader if every rep rostered to that principal has the same one (EABL Nyeri is
 //    Richard, EABL Nyahururu is Erick, Unilever Nyeri is Sarah); then the Team Leader of the rep's employee-master record; otherwise blank.
 // A rep is found by name (the systems give no shared id), ignoring case, spacing and punctuation; a Leverage unit by its unit name without
@@ -48,6 +49,18 @@ export function repKey(name: string | null | undefined): string {
 
 const principalKey = (principal: string) => principal.trim().toLowerCase();
 
+/** Principals whose every rep is on one Team Leader's team, whatever the roster assignments say (set by the business: all Suntory under Eve,
+ *  all Bic under Nickley). Keyed by the principal's brand, the part before the location ( "Suntory-Nairobi" is "suntory" ). The value is the
+ *  Team Leader's roster name. */
+export const PRINCIPAL_TEAM_LEADERS: Record<string, string> = {
+  suntory: "Eve Theuri",
+  bic: "Nickley",
+};
+
+function fixedLeader(principal: string): string | null {
+  return PRINCIPAL_TEAM_LEADERS[principalKey(principal).split("-")[0]] ?? null;
+}
+
 function push<T>(map: Map<string, T[]>, key: string, value: T) {
   if (key === "") return;
   const list = map.get(key);
@@ -77,6 +90,8 @@ export function buildRepDirectory(input: RepIdentityInput): (source: string, pri
     leadersByPrincipal.set(key, set);
   }
   const principalLeader = (principal: string): string | null => {
+    const fixed = fixedLeader(principal);
+    if (fixed) return fixed;
     const set = leadersByPrincipal.get(principalKey(principal));
     return set && set.size === 1 ? [...set][0] : null;
   };
@@ -97,7 +112,8 @@ export function buildRepDirectory(input: RepIdentityInput): (source: string, pri
     else repCode = assigned[0]?.employeeCode ?? employee?.employeeCode ?? suppliedCode;
 
     let teamLeader: string | null = null;
-    if (assigned.length > 0) {
+    if (fixedLeader(principal)) teamLeader = fixedLeader(principal);
+    else if (assigned.length > 0) {
       // Most of the rep's share of the principal first; names joined when the roster really gives the rep two Team Leaders.
       const ordered = [...assigned].sort((a, b) => (b.contributionPct ?? 0) - (a.contributionPct ?? 0) || a.teamLeader.localeCompare(b.teamLeader));
       teamLeader = Array.from(new Set(ordered.map((a) => a.teamLeader))).join(" / ");

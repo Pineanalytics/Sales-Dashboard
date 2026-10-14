@@ -4,13 +4,13 @@ import { buildRepDirectory, repKey } from "../lib/outletUniverse/repIdentity";
 const resolve = buildRepDirectory({
   employees: [
     { employeeCode: "1177", pineName: "Agnes Chelangat", sapName: "Agnes Chelangat", absolutePrincipal: "Mars-Nairobi", teamLeader: "Calvince Onditi" },
-    { employeeCode: "1188", pineName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", absolutePrincipal: "Suntory-Nairobi", teamLeader: "Eve Theuri" },
+    { employeeCode: "1188", pineName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", absolutePrincipal: "Weetabix-Nairobi", teamLeader: "Eve Theuri" },
     { employeeCode: "1300", pineName: "Solo Rep", sapName: "Solo Rep", absolutePrincipal: "Mars-Nairobi", teamLeader: "Home Leader" },
   ],
   assignments: [
     { employeeCode: "1177", employeeName: "Agnes Chelangat", sapName: "Agnes Chelangat", principal: "Mars-Nairobi", teamLeader: "Zachary Mwangi", contributionPct: null },
-    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Suntory-Nairobi", teamLeader: "Eve Theuri", contributionPct: 0.5 },
-    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Suntory-Nairobi", teamLeader: "Second Leader", contributionPct: 0.2 },
+    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Weetabix-Nairobi", teamLeader: "Eve Theuri", contributionPct: 0.5 },
+    { employeeCode: "1188", employeeName: "Kelly Kiprotich", sapName: "Kelly Kiprotich", principal: "Weetabix-Nairobi", teamLeader: "Second Leader", contributionPct: 0.2 },
     { employeeCode: "PFL004", employeeName: "Counter Nyeri", sapName: "Eabl warehouse counter", principal: "EABL-Nyeri", teamLeader: "Richard", contributionPct: 0.04 },
     { employeeCode: "VAN_A2_OB", employeeName: "GILTON KAGEMA", sapName: "NY_VAN_A2_OB_18058585", principal: "Unilever-Nyeri", teamLeader: "Sarah", contributionPct: null },
   ],
@@ -43,16 +43,16 @@ describe("rep SFA ID and Team Leader", () => {
   });
 
   it("puts every Team Leader of a rep on the principal, the larger share first", () => {
-    expect(resolve("PINE", "Suntory-Nairobi", "Kelly Kiprotich", null)).toEqual({ repCode: "1188", teamLeader: "Eve Theuri / Second Leader" });
+    expect(resolve("PINE", "Weetabix-Nairobi", "Kelly Kiprotich", null)).toEqual({ repCode: "1188", teamLeader: "Eve Theuri / Second Leader" });
   });
 
   it("falls back to the employee master's Team Leader when the rep has no assignment to the principal", () => {
-    expect(resolve("PINE", "Bic-Nairobi", "Solo Rep", null)).toEqual({ repCode: "1300", teamLeader: "Home Leader" });
+    expect(resolve("PINE", "Energia-Nairobi", "Solo Rep", null)).toEqual({ repCode: "1300", teamLeader: "Home Leader" });
   });
 
   it("keeps the code the system supplied when the rep is not on the roster, and leaves the Team Leader blank", () => {
-    expect(resolve("PINE", "Bic-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
-    expect(resolve("PINE", "Bic-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
+    expect(resolve("PINE", "Energia-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
+    expect(resolve("PINE", "Energia-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
   });
 
   it("keeps Leverage's Centegy rep code and finds the Team Leader of its unit through the SAP name", () => {
@@ -84,5 +84,24 @@ describe("the principal's own Team Leader", () => {
 
   it("does not guess for a principal with several Team Leaders", () => {
     expect(withHomeLeader("PINE", "Mars-Nairobi", "Unrostered Rep", null).teamLeader).toBeNull();
+  });
+});
+
+describe("principals fixed to one Team Leader", () => {
+  it("puts every Suntory rep under Eve and every Bic rep under Nickley, whatever the roster assigns", () => {
+    const fixed = buildRepDirectory({
+      employees: [],
+      assignments: [
+        { employeeCode: "1", employeeName: "Suntory Rep", sapName: null, principal: "Suntory-Nairobi", teamLeader: "Eva Gachoki", contributionPct: 0.3 },
+        { employeeCode: "2", employeeName: "Bic Rep", sapName: null, principal: "Bic-Nairobi", teamLeader: "Eve Theuri", contributionPct: 0.3 },
+        { employeeCode: "3", employeeName: "Bic Other", sapName: null, principal: "Bic-Nairobi", teamLeader: "Lydiah John", contributionPct: 0.3 },
+      ],
+      upfieldLogins: [],
+    });
+    expect(fixed("PINE", "Suntory-Nairobi", "Suntory Rep", null).teamLeader).toBe("Eve Theuri");
+    expect(fixed("PINE", "Suntory-Nairobi", "Not On Roster", null).teamLeader).toBe("Eve Theuri");
+    expect(fixed("PINE", "Suntory-Nairobi", null, null).teamLeader).toBe("Eve Theuri");
+    expect(fixed("PINE", "Bic-Nairobi", "Bic Rep", null).teamLeader).toBe("Nickley");
+    expect(fixed("PINE", "Bic-Nairobi", "Bic Other", null).teamLeader).toBe("Nickley");
   });
 });
