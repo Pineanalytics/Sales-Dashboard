@@ -17,6 +17,17 @@ const resolve = buildRepDirectory({
   upfieldLogins: [{ fsrName: "Adrian Omondi", fsrLogin: "Faith.Pinefrost" }],
 });
 
+const withHomeLeader = buildRepDirectory({
+  employees: [{ employeeCode: "PFL099", pineName: "Nyeri Rep Based In Nyahururu", sapName: null, absolutePrincipal: "EABL-Nyeri", teamLeader: "Richard" }],
+  assignments: [
+    { employeeCode: "PFL004", employeeName: "Counter Nyeri", sapName: null, principal: "EABL-Nyeri", teamLeader: "Richard", contributionPct: 0.04 },
+    { employeeCode: "PFL050", employeeName: "Nyahururu Van", sapName: null, principal: "EABL-Nyahururu", teamLeader: "Erick", contributionPct: 0.2 },
+    { employeeCode: "M1", employeeName: "Mars One", sapName: null, principal: "Mars-Nairobi", teamLeader: "Lead A", contributionPct: null },
+    { employeeCode: "M2", employeeName: "Mars Two", sapName: null, principal: "Mars-Nairobi", teamLeader: "Lead B", contributionPct: null },
+  ],
+  upfieldLogins: [],
+});
+
 describe("rep key", () => {
   it("ignores case, spacing, punctuation and a Leverage distributor suffix", () => {
     expect(repKey("  Daniel   Odula ")).toBe("daniel odula");
@@ -40,8 +51,8 @@ describe("rep SFA ID and Team Leader", () => {
   });
 
   it("keeps the code the system supplied when the rep is not on the roster, and leaves the Team Leader blank", () => {
-    expect(resolve("PINE", "Mars-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
-    expect(resolve("PINE", "Mars-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
+    expect(resolve("PINE", "Bic-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
+    expect(resolve("PINE", "Bic-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
   });
 
   it("keeps Leverage's Centegy rep code and finds the Team Leader of its unit through the SAP name", () => {
@@ -54,5 +65,24 @@ describe("rep SFA ID and Team Leader", () => {
 
   it("gives an Upfield FSR the DataEdge login", () => {
     expect(resolve("UPFIELD", "Upfield-Nairobi", "Adrian Omondi", null).repCode).toBe("Faith.Pinefrost");
+  });
+});
+
+describe("the principal's own Team Leader", () => {
+  it("gives a rep who is not on the roster the Team Leader of the principal when the whole principal has one", () => {
+    expect(withHomeLeader("EABL", "EABL-Nyahururu", "Ambrose Mwenda", null).teamLeader).toBe("Erick");
+    expect(withHomeLeader("EABL", "EABL-Nyeri", "Vivian Muchiri", null).teamLeader).toBe("Richard");
+  });
+
+  it("puts a rep who sells a principal in another region under that principal's Team Leader, not their home one", () => {
+    expect(withHomeLeader("EABL", "EABL-Nyahururu", "Nyeri Rep Based In Nyahururu", null).teamLeader).toBe("Erick");
+  });
+
+  it("gives an outlet with no rep named the principal's Team Leader", () => {
+    expect(withHomeLeader("EABL", "EABL-Nyeri", null, null).teamLeader).toBe("Richard");
+  });
+
+  it("does not guess for a principal with several Team Leaders", () => {
+    expect(withHomeLeader("PINE", "Mars-Nairobi", "Unrostered Rep", null).teamLeader).toBeNull();
   });
 });
