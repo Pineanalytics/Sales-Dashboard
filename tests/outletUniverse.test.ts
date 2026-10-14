@@ -2,7 +2,7 @@ import { boughtWithin, buyingTenure, longPurchaseConsistency, principalMix, purc
 import { describe, expect, it } from "vitest";
 import { cleanTerritory, dormancyFlag, exclusionReason, locationFromPrincipal, normalizeChannel, normalizeSalesRole, normalizeSegment, stripCodePrefix } from "../lib/outletUniverse/normalize";
 import { pickCoordinateSource } from "../scripts/db-bridge/sales-returns/journeyPlanQuery";
-import { cleanLeverageUnit, eablRow, leverageRow, pineRow, upfieldRow, withSecondaryReach } from "../lib/outletUniverse/rebuild";
+import { cleanLeverageUnit, eablRow, leverageRow, pineRow, upfieldRow, withMarsPrimaryRule } from "../lib/outletUniverse/rebuild";
 import { parseOutletFilters } from "../lib/outletUniverse/query";
 
 describe("outlet universe normalisation", () => {
@@ -379,19 +379,25 @@ describe("selling rep", () => {
   });
 });
 
-describe("role follows the rep", () => {
-  const base = { principal: "Mars-Nairobi", customerId: "11163", outletName: "Abdi Wholesalers", channel: "Wholesale", subChannel: "Wholesalers", territory: "Nairobi-Kibera", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRepName: "Lameck Oyombera", pjpRegion: null, salesRole: "Primary Sales", mostRecentRep: "Van Mars Nai South", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
+describe("Mars: a Primary sale makes the outlet Primary", () => {
+  const base = { principal: "Mars-Nairobi", customerId: "11163", outletName: "Abdi Wholesalers", channel: "Wholesale", subChannel: "Wholesalers", territory: "Nairobi-Kibera", latitude: null, longitude: null, pjpEmployeeCode: null, pjpRepName: "Joyce Mutave", pjpRegion: null, salesRole: "Secondary Sales", mostRecentRep: "Lameck Oyombera", lastPurchaseDate: new Date("2026-10-01"), sales: 1, timesBought: 1 };
 
-  it("makes an outlet a Secondary outlet when an MBSR or TDR rep sells it, whatever the van DSR sells there, and puts that rep on the row", () => {
-    const row = pineRow(withSecondaryReach(base, { repName: "Lameck Oyombera" }));
-    expect(row).toMatchObject({ salesRole: "Secondary Sales", repName: "Lameck Oyombera" });
+  it("makes an outlet a DSR, KAMS or ADMIN rep sold to Primary even when MBSR or TDR reps also sold to it, with the Primary rep on the row", () => {
+    const row = pineRow(withMarsPrimaryRule(base, { hasPrimary: true, primaryRep: "Van Mars Nai South", secondaryRep: "Lameck Oyombera" }));
+    expect(row).toMatchObject({ salesRole: "Primary Sales", repName: "Van Mars Nai South" });
   });
 
-  it("leaves an outlet no Secondary rep sells as it was", () => {
-    expect(pineRow(withSecondaryReach(base, undefined))).toMatchObject({ salesRole: "Primary Sales", repName: "Van Mars Nai South" });
+  it("keeps an outlet only MBSR or TDR reps sold to Secondary, with the latest Secondary rep", () => {
+    expect(pineRow(withMarsPrimaryRule({ ...base, salesRole: "Primary Sales", mostRecentRep: "Someone" }, { hasPrimary: false, primaryRep: null, secondaryRep: "Lameck Oyombera" }))).toMatchObject({ salesRole: "Secondary Sales", repName: "Lameck Oyombera" });
   });
 
-  it("keeps the latest rep when the Secondary sale carries none", () => {
-    expect(pineRow(withSecondaryReach(base, { repName: null }))).toMatchObject({ salesRole: "Secondary Sales", repName: "Van Mars Nai South" });
+  it("keeps the latest rep when the deciding sale carries no rep", () => {
+    expect(pineRow(withMarsPrimaryRule(base, { hasPrimary: true, primaryRep: null, secondaryRep: null }))).toMatchObject({ salesRole: "Primary Sales", repName: "Lameck Oyombera" });
+  });
+
+  it("leaves other principals and outlets without sale records as stored", () => {
+    const weetabix = { ...base, principal: "Weetabix-Nairobi", salesRole: "Primary Sales" };
+    expect(pineRow(withMarsPrimaryRule(weetabix, { hasPrimary: false, primaryRep: null, secondaryRep: "Lameck Oyombera" }))).toMatchObject({ salesRole: "Primary Sales", repName: "Lameck Oyombera" });
+    expect(pineRow(withMarsPrimaryRule(base, undefined))).toMatchObject({ salesRole: "Secondary Sales" });
   });
 });

@@ -96,18 +96,24 @@ interface PineSourceRow {
   periodsBought180?: number;
 }
 
-/** The latest Secondary-group sale (MBSR, a Mars TDR, the two Secondary DSR codes) at an outlet for a principal: who made it. */
-export interface SecondaryReach {
-  repName: string | null;
+/** Who has sold a principal at an outlet this year, by the role of each sale: whether any Primary sale exists, and the rep of the latest
+ *  Primary and of the latest Secondary sale. Each sale's role comes from its rep's user group (DSR, KAMS, TDR and ADMIN Primary; MBSR
+ *  Secondary; a TDR selling Mars and the two exception DSR codes Secondary). */
+export interface SaleRoles {
+  hasPrimary: boolean;
+  primaryRep: string | null;
+  secondaryRep: string | null;
 }
 
-/** An outlet that any Secondary rep sells a principal at is a Secondary outlet for that principal, and that rep is its rep.
- *  Pine stores one role per outlet and principal, the one with more sale events, so a wholesaler served by a van DSR (Primary) and
- *  visited by an MBSR or TDR rep (Secondary) came out Primary with the MBSR or TDR rep beside it. The role follows the rep: MBSR and
- *  Mars TDR reps are Secondary, the other groups Primary (the rule that tags each sale). */
-export function withSecondaryReach(row: PineSourceRow, reach: SecondaryReach | undefined): PineSourceRow {
-  if (!reach) return row;
-  return { ...row, salesRole: "Secondary Sales", mostRecentRep: reach.repName ?? row.mostRecentRep };
+const MARS_PRINCIPAL = /^mars/i;
+
+/** Mars: an outlet any Primary rep (DSR, KAMS, ADMIN) sold to is a Primary outlet, even when MBSR or TDR reps also sold to it, with the
+ *  Primary rep as its rep; only an outlet with no Primary sale is Secondary. Pine stores the role with more sale events, so a wholesaler
+ *  a van DSR serves and an MBSR or TDR rep visits more often came out Secondary. Other principals keep the stored role. */
+export function withMarsPrimaryRule(row: PineSourceRow, sales: SaleRoles | undefined): PineSourceRow {
+  if (!sales || !MARS_PRINCIPAL.test(row.principal)) return row;
+  if (sales.hasPrimary) return { ...row, salesRole: "Primary Sales", mostRecentRep: sales.primaryRep ?? row.mostRecentRep };
+  return { ...row, salesRole: "Secondary Sales", mostRecentRep: sales.secondaryRep ?? row.mostRecentRep };
 }
 
 /** The rep of the principal's latest sale at the outlet, falling back to the journey-plan owner when no sale carries a rep. */
@@ -384,7 +390,7 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
   `);
   // Purchase days over the last 30 days from the append-only event ledger: one
   // count per principal, one per outlet across all of its principals.
-  const [perPrincipal, perOutlet, history, secondary] = await Promise.all([
+  const [perPrincipal, perOutlet, history, marsSales] = await Promise.all([
     prisma.$queryRaw<{ principal: string; customerId: string; days: number }[]>(Prisma.sql`
       SELECT principal, "customerId", COUNT(DISTINCT date::date)::int AS days
       FROM "ActiveOutletEvent" WHERE date >= now() - interval '30 days'
@@ -402,21 +408,26 @@ async function loadPine(): Promise<OutletUniverseRow[]> {
              COUNT(DISTINCT ((now()::date - date::date) / 30)) FILTER (WHERE now()::date - date::date < 180)::int AS periods180
       FROM "ActiveOutletEvent" GROUP BY "customerId"
     `),
-    // Outlets any Secondary rep sold a principal at this year, with the rep of the latest such sale (one row per outlet and principal).
-    prisma.$queryRaw<{ principal: string; customerId: string; repName: string | null }[]>(Prisma.sql`
-      SELECT DISTINCT ON (principal, "customerId") principal, "customerId", "repName"
+    // Mars sales this year by role, per outlet: any Primary sale, and the rep of the latest Primary and Secondary sale.
+    prisma.$queryRaw<{ principal: string; customerId: string; hasPrimary: boolean; primaryRep: string | null; secondaryRep: string | null }[]>(Prisma.sql`
+      SELECT principal, "customerId",
+             BOOL_OR("salesRole" = 'Primary Sales') AS "hasPrimary",
+             (ARRAY_AGG("repName" ORDER BY date DESC, "createdAt" DESC) FILTER (WHERE "salesRole" = 'Primary Sales' AND "repName" IS NOT NULL))[1] AS "primaryRep",
+             (ARRAY_AGG("repName" ORDER BY date DESC, "createdAt" DESC) FILTER (WHERE "salesRole" = 'Secondary Sales' AND "repName" IS NOT NULL))[1] AS "secondaryRep"
       FROM "ActiveOutletEvent"
-      WHERE year = (SELECT MAX(year) FROM "ActiveOutlet") AND "salesRole" = 'Secondary Sales'
-      ORDER BY principal, "customerId", date DESC, "createdAt" DESC
+      WHERE year = (SELECT MAX(year) FROM "ActiveOutlet") AND principal ~* '^mars'
+      GROUP BY principal, "customerId"
     `),
   ]);
-  const secondaryReach = new Map(secondary.map((r) => [`${r.principal}|${r.customerId}`, { repName: r.repName?.trim() || null }]));
+  const saleRoles = new Map(
+    marsSales.map((r) => [`${r.principal}|${r.customerId}`, { hasPrimary: r.hasPrimary, primaryRep: r.primaryRep?.trim() || null, secondaryRep: r.secondaryRep?.trim() || null }])
+  );
   const outletHistory = new Map(history.map((r) => [r.customerId, r]));
   const principalDays = new Map(perPrincipal.map((r) => [`${r.principal}|${r.customerId}`, Number(r.days)]));
   const outletDays = new Map(perOutlet.map((r) => [r.customerId, Number(r.days)]));
   return rows.map((row) =>
     pineRow({
-      ...withSecondaryReach(row, secondaryReach.get(`${row.principal}|${row.customerId}`)),
+      ...withMarsPrimaryRule(row, saleRoles.get(`${row.principal}|${row.customerId}`)),
       purchaseDays30: principalDays.get(`${row.principal}|${row.customerId}`) ?? 0,
       outletPurchaseDays30: outletDays.get(row.customerId) ?? 0,
       firstPurchaseDate: outletHistory.get(row.customerId)?.firstBuy ?? null,
