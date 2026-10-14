@@ -2465,6 +2465,11 @@ model OutletUniverse {
   // of the outlet, which is the same on every principal row of the outlet and so says nothing about who sells a given principal; it
   // is kept for reference and for the placeholder-owner exclusion. Null for the sources that have no separate owner.
   plannedRep       String?
+  // The same shop in more than one system (they share no outlet id): outlets matched by name, place and GPS point get one matchId, the
+  // confidence of the match ("High" | "Medium") and the systems it appears in. Null when the outlet matched nothing. See matching.ts.
+  matchId          String?
+  matchConfidence  String?
+  matchedSystems   String?
   latitude         Float?
   longitude        Float?
   lastPurchaseDate DateTime?

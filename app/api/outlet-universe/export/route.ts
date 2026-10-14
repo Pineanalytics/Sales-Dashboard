@@ -23,6 +23,8 @@ const HEADER = [
   // Rep (above) is the rep who sells the row's principal. Reps: how many different reps sell the outlet across its principals and who sells which;
   // Journey Plan Rep is the outlet's planned owner in Pine, the same on every principal.
   "Reps Serving", "Multi-Rep Outlet", "Reps by Principal", "Journey Plan Rep",
+  // The same shop in another system (no shared id): matched by name, place and GPS point. Flagged, not merged.
+  "In Other System", "Match ID", "Matched Systems", "Match Confidence",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -100,6 +102,10 @@ export async function GET(req: NextRequest) {
           row.repCount > 1 ? "Yes" : "No",
           row.repsByPrincipal,
           row.plannedRep,
+          row.matchId ? "Yes" : "No",
+          row.matchId,
+          row.matchedSystems,
+          row.matchConfidence,
         ]
           .map(cell)
           .join(",")
