@@ -26,8 +26,9 @@ const HEADER = [
   // The same shop in another system (no shared id): matched by name, place and GPS point. Flagged, not merged.
   "In Other System", "Match ID", "Matched Systems", "Match Confidence",
   // Who the rep is in the roster: their SFA user code or ID as their own system supplies it (Pine and EABL: the roster code, Leverage: the Centegy
-  // sales rep code, Upfield: the DataEdge login) and their Team Leader (per principal; blank where the rep is not on the roster).
-  "Rep SFA ID", "Team Leader", "Team Leaders by Principal",
+  // sales rep code, Upfield: the DataEdge login) and their Team Leader (per principal; blank where the rep is not on the roster), then whether
+  // the rep is an Active or Inactive worker and the region and sub-region they are placed in.
+  "Rep SFA ID", "Team Leader", "Team Leaders by Principal", "Rep Status", "Rep Region", "Rep Sub-Region",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -112,6 +113,9 @@ export async function GET(req: NextRequest) {
           row.repCode,
           row.teamLeader,
           row.teamLeadersByPrincipal,
+          row.repStatus,
+          row.repRegion,
+          row.repSubRegion,
         ]
           .map(cell)
           .join(",")

@@ -147,7 +147,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
     return Prisma.sql`WITH ${base}, ${mix},
       unit AS (
         SELECT b.source, b."outletKey", b.principal, b.principal AS principals, b."salesRole", b."outletName", b.channel, b.segment, b.location, b.region, b.territory, b.route,
-               b."repName", b."repCode", b."teamLeader", b."plannedRep", b."matchId", b."matchConfidence", b."matchedSystems", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
+               b."repName", b."repCode", b."teamLeader", b."repStatus", b."repRegion", b."repSubRegion", b."plannedRep", b."matchId", b."matchConfidence", b."matchedSystems", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
                b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
                COALESCE(b."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
                (b."salesRole" = 'Primary Sales') AS "hasPrimary",
@@ -160,7 +160,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
   return Prisma.sql`WITH ${base}, ${mix},
     head AS (
       SELECT DISTINCT ON (source, "outletKey") source, "outletKey", "outletName", channel, segment, location, region, territory, route,
-             "repName", "repCode", "teamLeader", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180"
+             "repName", "repCode", "teamLeader", "repStatus", "repRegion", "repSubRegion", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180"
       FROM base
       ORDER BY source, "outletKey", "lastPurchaseDate" DESC NULLS LAST, principal
     ),
@@ -178,7 +178,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
              CASE WHEN a."hasPrimary" AND a."hasSecondary" THEN 'Primary + Secondary'
                   WHEN a."hasSecondary" THEN 'Secondary Sales' ELSE 'Primary Sales' END AS "salesRole",
              h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
-             h."repName", h."repCode", h."teamLeader", h."plannedRep", h."matchId", h."matchConfidence", h."matchedSystems", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
+             h."repName", h."repCode", h."teamLeader", h."repStatus", h."repRegion", h."repSubRegion", h."plannedRep", h."matchId", h."matchConfidence", h."matchedSystems", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
              h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
              COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
              a."hasPrimary", a."hasSecondary", a."activePrimary", a."activeSecondary"
@@ -375,6 +375,10 @@ export interface OutletListRow {
   repName: string | null;
   repCode: string | null;
   teamLeader: string | null;
+  /** Active or Inactive worker on the roster, and the region and sub-region the rep is placed in. */
+  repStatus: string | null;
+  repRegion: string | null;
+  repSubRegion: string | null;
   /** Each principal's Team Leader at the outlet ("Principal: Team Leader; ..."), in sales order. */
   teamLeadersByPrincipal: string | null;
   /** Pine's journey-plan owner of the outlet (the same on every principal); null for the other sources. */
@@ -403,7 +407,7 @@ export interface OutletListRow {
   repsByPrincipal: string | null;
 }
 
-const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName", "repCode", "teamLeader", "plannedRep", "matchId", "matchConfidence", "matchedSystems",
+const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName", "repCode", "teamLeader", "repStatus", "repRegion", "repSubRegion", "plannedRep", "matchId", "matchConfidence", "matchedSystems",
   latitude, longitude, "lastPurchaseDate", sales::double precision AS sales, transactions::int AS transactions, active,
   "firstPurchaseDate", COALESCE("periodsBought90", 0)::int AS "periodsBought90", COALESCE("periodsBought180", 0)::int AS "periodsBought180", COALESCE("principalCount", 1)::int AS "principalCount",
   "dominantPrincipal", "dominantShare", "sharedPrincipals", COALESCE("repCount", 0)::int AS "repCount", "repsByPrincipal", "teamLeadersByPrincipal"`;
