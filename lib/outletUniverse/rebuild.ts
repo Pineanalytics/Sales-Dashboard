@@ -38,6 +38,9 @@ export interface OutletUniverseRow {
   /** Set for an outlet matched with the same shop in another system: shared match id, confidence and the systems it appears in. */
   /** The rep's Team Leader from the roster, where the rep is on it. */
   teamLeader?: string | null;
+  repStatus?: string | null;
+  repRegion?: string | null;
+  repSubRegion?: string | null;
   matchId?: string | null;
   matchConfidence?: string | null;
   matchedSystems?: string | null;
@@ -569,16 +572,18 @@ export async function refreshOutletUniverseIfStale(maxAgeMs: number): Promise<vo
 
 /** The roster the reps are looked up in: assignments to principals and Team Leaders, the employee master, and Upfield FSR logins. */
 async function loadRepDirectory() {
-  const [assignments, employees, leaders, upfield] = await Promise.all([
-    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true, sapName: true, principal: true, contributionPct: true, teamLeaderId: true } }),
-    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, absolutePrincipal: true, teamLeader: true, teamLeaderId: true } }),
+  const [assignments, employees, leaders, upfield, marsRoster] = await Promise.all([
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true, sapName: true, principal: true, contributionPct: true, teamLeaderId: true, region: true, subRegion: true } }),
+    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, absolutePrincipal: true, teamLeader: true, teamLeaderId: true, active: true, region: true, subRegion: true } }),
     prisma.teamLeader.findMany({ select: { id: true, name: true } }),
     prisma.upfieldOutletMaster.findMany({ where: { fsrName: { not: null }, fsrLogin: { not: null } }, select: { fsrName: true, fsrLogin: true }, distinct: ["fsrName"] }),
+    prisma.principalKpiRoster.findMany({ where: { principal: { startsWith: "Mars" } }, select: { employeeCode: true, employeeName: true, teamLeader: true, location: true, active: true } }),
   ]);
   const leaderName = new Map(leaders.map((leader) => [leader.id, leader.name]));
   return buildRepDirectory({
-    assignments: assignments.map((a) => ({ employeeCode: a.employeeCode, employeeName: a.employeeName, sapName: a.sapName, principal: a.principal, contributionPct: a.contributionPct, teamLeader: leaderName.get(a.teamLeaderId) ?? "" })).filter((a) => a.teamLeader !== ""),
-    employees: employees.map((e) => ({ employeeCode: e.employeeCode, pineName: e.pineName, sapName: e.sapName, absolutePrincipal: e.absolutePrincipal, teamLeader: (e.teamLeaderId ? leaderName.get(e.teamLeaderId) : null) ?? e.teamLeader })),
+    assignments: assignments.map((a) => ({ employeeCode: a.employeeCode, employeeName: a.employeeName, sapName: a.sapName, principal: a.principal, contributionPct: a.contributionPct, region: a.region, subRegion: a.subRegion, teamLeader: leaderName.get(a.teamLeaderId) ?? "" })).filter((a) => a.teamLeader !== ""),
+    employees: employees.map((e) => ({ employeeCode: e.employeeCode, pineName: e.pineName, sapName: e.sapName, absolutePrincipal: e.absolutePrincipal, teamLeader: (e.teamLeaderId ? leaderName.get(e.teamLeaderId) : null) ?? e.teamLeader, active: e.active, region: e.region, subRegion: e.subRegion })),
+    marsRoster: marsRoster.map((r) => ({ employeeCode: r.employeeCode, name: r.employeeName, teamLeader: r.teamLeader, location: r.location, active: r.active })),
     upfieldLogins: upfield.map((u) => ({ fsrName: u.fsrName ?? "", fsrLogin: u.fsrLogin ?? "" })),
   });
 }
@@ -587,7 +592,7 @@ async function loadRepDirectory() {
 export function withRepIdentity(rows: OutletUniverseRow[], resolve: ReturnType<typeof buildRepDirectory>): OutletUniverseRow[] {
   return rows.map((row) => {
     const identity = resolve(row.source, row.principal, row.repName, row.repCode);
-    return { ...row, repCode: identity.repCode, teamLeader: identity.teamLeader };
+    return { ...row, repCode: identity.repCode, teamLeader: identity.teamLeader, repStatus: identity.repStatus, repRegion: identity.repRegion, repSubRegion: identity.repSubRegion };
   });
 }
 

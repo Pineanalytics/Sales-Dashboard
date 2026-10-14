@@ -39,28 +39,28 @@ describe("rep key", () => {
 
 describe("rep SFA ID and Team Leader", () => {
   it("gives a Pine rep their roster code and the Team Leader of their assignment to that principal", () => {
-    expect(resolve("PINE", "Mars-Nairobi", "AGNES  chelangat", null)).toEqual({ repCode: "1177", teamLeader: "Zachary Mwangi" });
+    expect(resolve("PINE", "Mars-Nairobi", "AGNES  chelangat", null)).toMatchObject({ repCode: "1177", teamLeader: "Zachary Mwangi" });
   });
 
   it("puts every Team Leader of a rep on the principal, the larger share first", () => {
-    expect(resolve("PINE", "Weetabix-Nairobi", "Kelly Kiprotich", null)).toEqual({ repCode: "1188", teamLeader: "Eve Theuri / Second Leader" });
+    expect(resolve("PINE", "Weetabix-Nairobi", "Kelly Kiprotich", null)).toMatchObject({ repCode: "1188", teamLeader: "Eve Theuri / Second Leader" });
   });
 
   it("falls back to the employee master's Team Leader when the rep has no assignment to the principal", () => {
-    expect(resolve("PINE", "Energia-Nairobi", "Solo Rep", null)).toEqual({ repCode: "1300", teamLeader: "Home Leader" });
+    expect(resolve("PINE", "Energia-Nairobi", "Solo Rep", null)).toMatchObject({ repCode: "1300", teamLeader: "Home Leader" });
   });
 
   it("keeps the code the system supplied when the rep is not on the roster, and leaves the Team Leader blank", () => {
-    expect(resolve("PINE", "Energia-Nairobi", "Unknown Van", "E9")).toEqual({ repCode: "E9", teamLeader: null });
-    expect(resolve("PINE", "Energia-Nairobi", null, null)).toEqual({ repCode: null, teamLeader: null });
+    expect(resolve("PINE", "Energia-Nairobi", "Unknown Van", "E9")).toMatchObject({ repCode: "E9", teamLeader: null });
+    expect(resolve("PINE", "Energia-Nairobi", null, null)).toMatchObject({ repCode: null, teamLeader: null });
   });
 
   it("keeps Leverage's Centegy rep code and finds the Team Leader of its unit through the SAP name", () => {
-    expect(resolve("LEVERAGE", "Unilever-Nyeri", "NY_VAN_A2_OB", "YA3")).toEqual({ repCode: "YA3", teamLeader: "Sarah" });
+    expect(resolve("LEVERAGE", "Unilever-Nyeri", "NY_VAN_A2_OB", "YA3")).toMatchObject({ repCode: "YA3", teamLeader: "Sarah" });
   });
 
   it("gives an EABL salesman the roster code", () => {
-    expect(resolve("EABL", "EABL-Nyeri", "Counter Nyeri", null)).toEqual({ repCode: "PFL004", teamLeader: "Richard" });
+    expect(resolve("EABL", "EABL-Nyeri", "Counter Nyeri", null)).toMatchObject({ repCode: "PFL004", teamLeader: "Richard" });
   });
 
   it("gives an Upfield FSR the DataEdge login", () => {
@@ -103,5 +103,41 @@ describe("principals fixed to one Team Leader", () => {
     expect(fixed("PINE", "Suntory-Nairobi", null, null).teamLeader).toBe("Eve Theuri");
     expect(fixed("PINE", "Bic-Nairobi", "Bic Rep", null).teamLeader).toBe("Nickley");
     expect(fixed("PINE", "Bic-Nairobi", "Bic Other", null).teamLeader).toBe("Nickley");
+  });
+});
+
+describe("Active or Inactive worker, region and sub-region", () => {
+  const directory = buildRepDirectory({
+    employees: [{ employeeCode: "1", pineName: "Cross Rep", sapName: null, absolutePrincipal: "Mars-Nairobi", teamLeader: "Lewis Muthomi", active: false, region: "Nairobi", subRegion: "Nairobi Metro" }],
+    assignments: [
+      { employeeCode: "1177", employeeName: "Agnes Chelangat", sapName: null, principal: "Mars-Nairobi", teamLeader: "Zachary Mwangi", contributionPct: null, region: "Nairobi", subRegion: "Nairobi Lower" },
+      { employeeCode: "1200", employeeName: "Other Mars", sapName: null, principal: "Mars-Nairobi", teamLeader: "Lydiah John", contributionPct: null, region: "Central", subRegion: "Central" },
+    ],
+    upfieldLogins: [],
+    marsRoster: [
+      { employeeCode: "987", name: "Erick  Kirema", teamLeader: "Zachary Mwangi", location: "Nairobi Lower", active: false },
+      { employeeCode: "1232", name: "Brenda Bosibori", teamLeader: "Lewis Muthomi", location: "Nairobi Metro", active: true },
+    ],
+  });
+
+  it("marks a rep with a live assignment Active, in their region and sub-region", () => {
+    expect(directory("PINE", "Mars-Nairobi", "Agnes Chelangat", null)).toMatchObject({ repStatus: "Active", repRegion: "Nairobi", repSubRegion: "Nairobi Lower" });
+  });
+
+  it("finds a rep who has stopped selling in the Mars roster: code, Team Leader, Inactive status and sub-region", () => {
+    expect(directory("PINE", "Mars-Nairobi", "Erick Kirema", null)).toEqual({ repCode: "987", teamLeader: "Zachary Mwangi", repStatus: "Inactive", repRegion: "Nairobi", repSubRegion: "Nairobi Lower" });
+  });
+
+  it("finds a new active Mars rep from the roster", () => {
+    expect(directory("PINE", "Mars-Nairobi", "Brenda Bosibori", null)).toMatchObject({ repCode: "1232", teamLeader: "Lewis Muthomi", repStatus: "Active", repSubRegion: "Nairobi Metro" });
+  });
+
+  it("takes the status of a rep on another principal from the employee master", () => {
+    expect(directory("PINE", "Weetabix-Nairobi", "Cross Rep", null)).toMatchObject({ repStatus: "Inactive", repRegion: "Nairobi", repSubRegion: "Nairobi Metro" });
+  });
+
+  it("leaves status and placement blank for a rep who is not on the roster", () => {
+    expect(directory("PINE", "Mars-Nairobi", "Stranger", null)).toMatchObject({ repStatus: null, repRegion: null, repSubRegion: null });
+    expect(directory("PINE", "Mars-Nairobi", null, null)).toMatchObject({ repStatus: null });
   });
 });
