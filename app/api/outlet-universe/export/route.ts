@@ -25,6 +25,9 @@ const HEADER = [
   "Reps Serving", "Multi-Rep Outlet", "Reps by Principal", "Journey Plan Rep",
   // The same shop in another system (no shared id): matched by name, place and GPS point. Flagged, not merged.
   "In Other System", "Match ID", "Matched Systems", "Match Confidence",
+  // Who the rep is in the roster: their SFA user code or ID as their own system supplies it (Pine and EABL: the roster code, Leverage: the Centegy
+  // sales rep code, Upfield: the DataEdge login) and their Team Leader (per principal; blank where the rep is not on the roster).
+  "Rep SFA ID", "Team Leader", "Team Leaders by Principal",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -106,6 +109,9 @@ export async function GET(req: NextRequest) {
           row.matchId,
           row.matchedSystems,
           row.matchConfidence,
+          row.repCode,
+          row.teamLeader,
+          row.teamLeadersByPrincipal,
         ]
           .map(cell)
           .join(",")

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 import { matchOutlets, type MatchInput } from "./matching";
+import { buildRepDirectory } from "./repIdentity";
 import {
   cleanTerritory,
   exclusionReason,
@@ -35,6 +36,8 @@ export interface OutletUniverseRow {
   /** Pine's journey-plan owner of the outlet (the same on every principal row); null for the other sources. repName is the rep who sells this principal. */
   plannedRep: string | null;
   /** Set for an outlet matched with the same shop in another system: shared match id, confidence and the systems it appears in. */
+  /** The rep's Team Leader from the roster, where the rep is on it. */
+  teamLeader?: string | null;
   matchId?: string | null;
   matchConfidence?: string | null;
   matchedSystems?: string | null;
@@ -564,6 +567,30 @@ export async function refreshOutletUniverseIfStale(maxAgeMs: number): Promise<vo
   rebuildOutletUniverse().catch((error) => console.error("Background Active Outlet universe rebuild failed", error));
 }
 
+/** The roster the reps are looked up in: assignments to principals and Team Leaders, the employee master, and Upfield FSR logins. */
+async function loadRepDirectory() {
+  const [assignments, employees, leaders, upfield] = await Promise.all([
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true, sapName: true, principal: true, contributionPct: true, teamLeaderId: true } }),
+    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, absolutePrincipal: true, teamLeader: true, teamLeaderId: true } }),
+    prisma.teamLeader.findMany({ select: { id: true, name: true } }),
+    prisma.upfieldOutletMaster.findMany({ where: { fsrName: { not: null }, fsrLogin: { not: null } }, select: { fsrName: true, fsrLogin: true }, distinct: ["fsrName"] }),
+  ]);
+  const leaderName = new Map(leaders.map((leader) => [leader.id, leader.name]));
+  return buildRepDirectory({
+    assignments: assignments.map((a) => ({ employeeCode: a.employeeCode, employeeName: a.employeeName, sapName: a.sapName, principal: a.principal, contributionPct: a.contributionPct, teamLeader: leaderName.get(a.teamLeaderId) ?? "" })).filter((a) => a.teamLeader !== ""),
+    employees: employees.map((e) => ({ employeeCode: e.employeeCode, pineName: e.pineName, sapName: e.sapName, absolutePrincipal: e.absolutePrincipal, teamLeader: (e.teamLeaderId ? leaderName.get(e.teamLeaderId) : null) ?? e.teamLeader })),
+    upfieldLogins: upfield.map((u) => ({ fsrName: u.fsrName ?? "", fsrLogin: u.fsrLogin ?? "" })),
+  });
+}
+
+/** Puts each row's rep SFA ID and Team Leader on it. */
+export function withRepIdentity(rows: OutletUniverseRow[], resolve: ReturnType<typeof buildRepDirectory>): OutletUniverseRow[] {
+  return rows.map((row) => {
+    const identity = resolve(row.source, row.principal, row.repName, row.repCode);
+    return { ...row, repCode: identity.repCode, teamLeader: identity.teamLeader };
+  });
+}
+
 /** Flags the outlets that are the same shop in more than one system: one match id, confidence and systems list per group, on every row of
  *  every outlet in it (an outlet has one row per principal). Nothing is merged or removed. */
 export function flagCrossSystemMatches(rows: OutletUniverseRow[]): OutletUniverseRow[] {
@@ -612,7 +639,8 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const eabl = keep(loadedEabl);
   const upfield = keep(loadedUpfield);
   const builtAt = new Date();
-  const all = flagCrossSystemMatches([...pine, ...leverage, ...eabl, ...upfield]);
+  const directory = await loadRepDirectory();
+  const all = flagCrossSystemMatches(withRepIdentity([...pine, ...leverage, ...eabl, ...upfield], directory));
 
   await prisma.$transaction(
     async (tx) => {
