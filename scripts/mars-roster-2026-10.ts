@@ -20,7 +20,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { recomputeRosterDerived } from "../lib/rosterAssignment";
 import { DEFAULT_SUB_REGION, MARS_PRINCIPAL, defaultSubRegion } from "../lib/marsStructure";
-import { classifyReps, cleanName, nameKey, parseMarsRosterCsv, planAssignments, type ExistingAssignment, type RepActivity, type RosterCsvRow } from "../lib/marsRoster";
+import { CODE_ALIASES, RETIRED_REPS, classifyReps, cleanName, nameKey, parseMarsRosterCsv, planAssignments, withExtraReps, type ExistingAssignment, type RepActivity, type RosterCsvRow } from "../lib/marsRoster";
 import { MARS_LOCATION_OWNER } from "../lib/orgRestructure";
 
 const args = process.argv.slice(2);
@@ -44,8 +44,10 @@ async function run(tx: Prisma.TransactionClient) {
   log("\n1. Roster file");
   const parsed = parseMarsRosterCsv(readFileSync(file, "utf8"));
   for (const p of parsed.problems) problem(p);
-  const rows = parsed.rows;
-  log(`  ${rows.length} reps read.`);
+  const extra = withExtraReps(parsed.rows);
+  const rows = extra.rows;
+  log(`  ${parsed.rows.length} reps read.`);
+  for (const r of extra.added) log(`  + ${r.employeeName} (${r.employeeCode}) is not in the file; placed by the business in ${r.location} under ${r.teamLeader}.`);
 
   const teamLeaders = new Map((await tx.teamLeader.findMany({ select: { id: true, name: true } })).map((t) => [t.name, t.id]));
   for (const name of new Set(rows.map((r) => r.teamLeader))) if (!teamLeaders.has(name)) problem(`Team Leader "${name}" is not in the roster's Team Leader list.`);
@@ -80,7 +82,7 @@ async function run(tx: Prisma.TransactionClient) {
   const liveCodes = new Set(existing.filter((a) => a.active).map((a) => a.employeeCode));
   const classes = classifyReps(rows, activity, liveCodes, new Date(), inactiveAfterDays);
   const activeCount = [...classes.values()].filter((c) => c.status === "Active").length;
-  log(`  Active (a Mars sale in the last ${inactiveAfterDays} days): ${activeCount}. Inactive: ${rows.length - activeCount}.`);
+  log(`  Active (a Mars sale in the last ${inactiveAfterDays} days): ${activeCount}. Inactive: ${rows.length - activeCount}, of whom ${[...classes.values()].filter((c) => c.retired).length} retired.`);
   const inactiveByReason = new Map<string, number>();
   for (const c of classes.values()) if (c.status === "Inactive") inactiveByReason.set(c.reason.replace(/\d{4}-\d{2}-\d{2}.*$/, "").trim() || c.reason, (inactiveByReason.get(c.reason.replace(/\d{4}-\d{2}-\d{2}.*$/, "").trim() || c.reason) ?? 0) + 1);
   for (const [reason, n] of inactiveByReason) log(`    inactive: ${String(n).padStart(3)}  ${reason}`);
@@ -164,6 +166,28 @@ async function run(tx: Prisma.TransactionClient) {
     filled += 1;
   }
   log(`  ${filled} of ${others.length} assignment(s) with no sub-region filled in.`);
+
+  log("\n7. Codes of one person");
+  for (const [alias, canonical] of Object.entries(CODE_ALIASES)) {
+    const lines = await tx.principalKpiSaleLine.updateMany({ where: { employeeCode: alias }, data: { employeeCode: canonical } });
+    const aliasTargets = await tx.principalKpiTarget.findMany({ where: { employeeCode: alias }, select: { id: true, principal: true, fiscalYear: true, periodKey: true, volumeTarget: true, valueTarget: true } });
+    let movedTargets = 0;
+    let droppedTargets = 0;
+    for (const t of aliasTargets) {
+      const twin = await tx.principalKpiTarget.findFirst({ where: { principal: t.principal, fiscalYear: t.fiscalYear, periodKey: t.periodKey, employeeCode: canonical }, select: { id: true, volumeTarget: true, valueTarget: true } });
+      if (twin) {
+        // both codes carry a target for the period: the current code's row stays (adding them would double the person's target)
+        log(`  target ${t.fiscalYear} ${t.periodKey}: ${alias} had volume ${t.volumeTarget ?? 0} / value ${t.valueTarget ?? 0}, ${canonical} keeps volume ${twin.volumeTarget ?? 0} / value ${twin.valueTarget ?? 0}; the ${alias} row is dropped.`);
+        await tx.principalKpiTarget.delete({ where: { id: t.id } });
+        droppedTargets += 1;
+      } else {
+        await tx.principalKpiTarget.update({ where: { id: t.id }, data: { employeeCode: canonical } });
+        movedTargets += 1;
+      }
+    }
+    log(`  ${alias} combined into ${canonical}: ${lines.count} sale line(s) moved, ${movedTargets} target(s) moved, ${droppedTargets} duplicate target(s) dropped.`);
+  }
+  log(`  Retired (kept Inactive, shown as Retired): ${RETIRED_REPS.map((r) => `${r.name} ${r.code}`).join(", ")}.`);
 
   log("\nResult: active Mars reps per Team Leader and sub-region");
   const final = await tx.teamLeaderAssignment.groupBy({ by: ["teamLeaderId", "subRegion"], where: { principal: MARS_PRINCIPAL, active: true }, _count: { _all: true } });

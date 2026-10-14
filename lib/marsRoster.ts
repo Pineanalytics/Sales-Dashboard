@@ -11,6 +11,39 @@ import { MARS_PRINCIPAL, isValidMarsPlacement } from "./marsStructure";
 
 export const INACTIVE_AFTER_DAYS = 90;
 
+/** The two employee codes whose Mars sales are Secondary even though their user group would make them Primary (the role rule's exceptions,
+ *  see scripts/db-bridge/shared/salesRole.ts). The roster file may say Primary for one of them: the exception wins. */
+export const SECONDARY_EXCEPTION_CODES: ReadonlySet<string> = new Set(["1172", "1032"]);
+
+/** One person who has had two codes: the old code is an alias of the current one. James Ndambuki sold as MBSR 1028 until 12 January 2026,
+ *  then as 1032. Their sales, sale lines and targets are combined under the current code. */
+export const CODE_ALIASES: Readonly<Record<string, string>> = { "1028": "1032" };
+
+/** Reps who have retired (as told by the business, 15 October 2026): Inactive, and shown as Retired rather than just not selling. */
+export const RETIRED_REPS: readonly { code: string; name: string }[] = [
+  { code: "622", name: "Anthony Kirimi" },
+  { code: "1158", name: "Erastus Mwangi" },
+  { code: "1166", name: "Faith Akinyi" },
+  { code: "1107", name: "Judy Atieno" },
+  { code: "986", name: "Paul Musyimi" },
+  { code: "1122", name: "Francis Kyalo" },
+];
+export const RETIRED_REP_CODES: ReadonlySet<string> = new Set(RETIRED_REPS.map((r) => r.code));
+
+/** Reps who are selling Mars but are not in the roster file, placed by the business from their region and outlets. Ruth Wambui sells in
+ *  Thika Road outlets journey-planned to an Eastern rep and shared with Shekila's team, where she is already rostered. They are added only
+ *  when the file does not have the code, and are still Active or Inactive by their sales like everyone else. */
+export const EXTRA_ROSTER_ROWS: readonly RosterCsvRow[] = [
+  { employeeName: "Ruth Wambui", employeeCode: "1224", employeeGroup: "TDR", region: "Eastern", location: "Upper Eastern", teamLeader: "Shekila Hassan", sellerType: "Secondary Sales" },
+];
+
+/** The file's rows plus the extra reps it lacks. */
+export function withExtraReps(rows: RosterCsvRow[]): { rows: RosterCsvRow[]; added: RosterCsvRow[] } {
+  const have = new Set(rows.map((r) => r.employeeCode));
+  const added = EXTRA_ROSTER_ROWS.filter((r) => !have.has(r.employeeCode));
+  return { rows: [...rows, ...added], added: [...added] };
+}
+
 export interface RosterCsvRow {
   employeeName: string;
   employeeCode: string;
@@ -82,6 +115,7 @@ export function parseMarsRosterCsv(text: string): ParsedRoster {
       teamLeader: get("Team Leader"),
       sellerType: get("Seller Type"),
     };
+    if (SECONDARY_EXCEPTION_CODES.has(row.employeeCode) && !/secondary/i.test(row.sellerType)) row.sellerType = "Secondary Sales";
     const where = `line ${index + 2} (${row.employeeName || "no name"})`;
     if (row.employeeCode === "") return void problems.push(`${where}: no employee code.`);
     if (seen.has(row.employeeCode)) return void problems.push(`${where}: employee code ${row.employeeCode} appears twice.`);
@@ -106,6 +140,7 @@ export type RepStatus = "Active" | "Inactive";
 
 export interface RepClassification {
   status: RepStatus;
+  retired?: boolean;
   reason: string;
   lastSale: Date | null;
   activeDays: number;
@@ -139,6 +174,14 @@ export function classifyReps(rows: RosterCsvRow[], activity: Map<string, RepActi
     const base = { lastSale: seen?.lastSale ?? null, activeDays: seen?.activeDays90 ?? 0 };
     if (isTestAccount(row)) {
       result.set(row.employeeCode, { status: "Inactive", reason: "Test account", ...base });
+      continue;
+    }
+    if (CODE_ALIASES[row.employeeCode]) {
+      result.set(row.employeeCode, { status: "Inactive", reason: `Same person as code ${CODE_ALIASES[row.employeeCode]} (re-coded), combined under it`, lastSale: null, activeDays: 0 });
+      continue;
+    }
+    if (RETIRED_REP_CODES.has(row.employeeCode)) {
+      result.set(row.employeeCode, { status: "Inactive", retired: true, reason: seen?.lastSale ? `Retired (last Mars sale ${isoDate(seen.lastSale)})` : "Retired", ...base });
       continue;
     }
     const holder = carrier.get(key);
