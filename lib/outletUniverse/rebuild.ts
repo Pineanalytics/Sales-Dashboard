@@ -1,11 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
+import { matchOutlets, type MatchInput } from "./matching";
 import {
   cleanTerritory,
   exclusionReason,
   kenyaCoordinate,
   locationFromPrincipal,
+  OUTLET_SOURCE_LABELS,
   normalizeChannel,
   normalizeSalesRole,
   normalizeSegment,
@@ -32,6 +34,10 @@ export interface OutletUniverseRow {
   repName: string | null;
   /** Pine's journey-plan owner of the outlet (the same on every principal row); null for the other sources. repName is the rep who sells this principal. */
   plannedRep: string | null;
+  /** Set for an outlet matched with the same shop in another system: shared match id, confidence and the systems it appears in. */
+  matchId?: string | null;
+  matchConfidence?: string | null;
+  matchedSystems?: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
@@ -558,6 +564,36 @@ export async function refreshOutletUniverseIfStale(maxAgeMs: number): Promise<vo
   rebuildOutletUniverse().catch((error) => console.error("Background Active Outlet universe rebuild failed", error));
 }
 
+/** Flags the outlets that are the same shop in more than one system: one match id, confidence and systems list per group, on every row of
+ *  every outlet in it (an outlet has one row per principal). Nothing is merged or removed. */
+export function flagCrossSystemMatches(rows: OutletUniverseRow[]): OutletUniverseRow[] {
+  const outlets = new Map<string, MatchInput>();
+  for (const row of rows) {
+    const id = `${row.source}|${row.outletKey}`;
+    const known = outlets.get(id);
+    if (known) {
+      if (known.latitude === null && row.latitude !== null) {
+        known.latitude = row.latitude;
+        known.longitude = row.longitude;
+      }
+      continue;
+    }
+    outlets.set(id, { id, source: row.source, name: row.outletName, location: row.location, region: row.region, territory: row.territory, route: row.route, latitude: row.latitude, longitude: row.longitude });
+  }
+  const groups = matchOutlets([...outlets.values()]);
+  if (groups.size === 0) return rows;
+  return rows.map((row) => {
+    const group = groups.get(`${row.source}|${row.outletKey}`);
+    if (!group) return row;
+    return {
+      ...row,
+      matchId: group.matchId,
+      matchConfidence: group.confidence,
+      matchedSystems: group.sources.map((source) => OUTLET_SOURCE_LABELS[source as OutletSource] ?? source).join("; "),
+    };
+  });
+}
+
 /** Replaces the whole OutletUniverse table from the three source tables inside
  *  one transaction, so readers see either the old or the new universe, never a
  *  half-built one. Safe to run repeatedly; the table is a derived copy. */
@@ -576,7 +612,7 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const eabl = keep(loadedEabl);
   const upfield = keep(loadedUpfield);
   const builtAt = new Date();
-  const all = [...pine, ...leverage, ...eabl, ...upfield];
+  const all = flagCrossSystemMatches([...pine, ...leverage, ...eabl, ...upfield]);
 
   await prisma.$transaction(
     async (tx) => {
