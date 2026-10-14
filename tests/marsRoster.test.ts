@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SUB_REGION, defaultSubRegion, isValidMarsPlacement, marsRegionOf, marsSubRegionsOf } from "../lib/marsStructure";
-import { classifyReps, parseMarsRosterCsv, planAssignments, type ExistingAssignment, type RepActivity, type RosterCsvRow } from "../lib/marsRoster";
+import { CODE_ALIASES, RETIRED_REP_CODES, classifyReps, parseMarsRosterCsv, planAssignments, withExtraReps, type ExistingAssignment, type RepActivity, type RosterCsvRow } from "../lib/marsRoster";
 
 const HEADER = "Employee Name,Employee Code,Employee Group,Region,Location,Team Leader,Seller Type";
 const row = (over: Partial<RosterCsvRow> = {}): RosterCsvRow => ({ employeeName: "Agnes Chelangat", employeeCode: "1177", employeeGroup: "TDR", region: "Nairobi", location: "Nairobi Lower", teamLeader: "Zachary Mwangi", sellerType: "Secondary Sales", ...over });
@@ -112,5 +112,37 @@ describe("planning the assignments", () => {
     const plan = planAssignments([], new Map(), [existing({ employeeCode: "1181" })]);
     expect(plan.notInFile).toHaveLength(1);
     expect(plan.actions).toHaveLength(0);
+  });
+});
+
+describe("the business's rulings on the roster", () => {
+  it("treats the two exception codes as Secondary whatever the file says", () => {
+    const parsed = parseMarsRosterCsv(`${HEADER}\nJames Ndambuki,1032,MBSR,Nairobi,Nairobi South,Benson Mbivi,Primary Sales\nHilda Mieni,1172,TDR,Nairobi,Nairobi Lower,Zachary Mwangi,Primary Sales\nVan Mars Central,571,DSR,Central,Central,Lydiah John,Primary Sales\n`);
+    expect(parsed.rows.map((r) => r.sellerType)).toEqual(["Secondary Sales", "Secondary Sales", "Primary Sales"]);
+  });
+
+  it("combines James Ndambuki's old code 1028 under 1032: the old code is Inactive and points at the current one", () => {
+    expect(CODE_ALIASES["1028"]).toBe("1032");
+    const rows = [row({ employeeName: "James Ndambuki", employeeCode: "1028" }), row({ employeeName: "James Ndambuki", employeeCode: "1032" })];
+    const classes = classifyReps(rows, new Map([seen("James Ndambuki", 0)]), new Set(["1032"]), asOf);
+    expect(classes.get("1032")?.status).toBe("Active");
+    expect(classes.get("1028")).toMatchObject({ status: "Inactive", reason: "Same person as code 1032 (re-coded), combined under it" });
+  });
+
+  it("marks the six retired reps Inactive and Retired, with their last sale", () => {
+    expect([...RETIRED_REP_CODES].sort()).toEqual(["1107", "1122", "1158", "1166", "622", "986"].sort());
+    const rows = [row({ employeeName: "Judy Atieno", employeeCode: "1107" })];
+    const classes = classifyReps(rows, new Map([seen("Judy Atieno", 95)]), new Set(["1107"]), asOf);
+    expect(classes.get("1107")).toMatchObject({ status: "Inactive", retired: true, reason: "Retired (last Mars sale 2026-07-11)" });
+    // even a rep who sold yesterday stays retired if the business says so
+    expect(classifyReps(rows, new Map([seen("Judy Atieno", 1)]), new Set(), asOf).get("1107")?.status).toBe("Inactive");
+  });
+
+  it("adds Ruth Wambui to Upper Eastern under Shekila only when the file does not have her", () => {
+    const base = [row({ employeeName: "Someone", employeeCode: "5" })];
+    const added = withExtraReps(base);
+    expect(added.added.map((r) => r.employeeCode)).toEqual(["1224"]);
+    expect(added.rows.find((r) => r.employeeCode === "1224")).toMatchObject({ employeeName: "Ruth Wambui", region: "Eastern", location: "Upper Eastern", teamLeader: "Shekila Hassan", sellerType: "Secondary Sales" });
+    expect(withExtraReps(added.rows).added).toEqual([]);
   });
 });

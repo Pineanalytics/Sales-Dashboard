@@ -11,6 +11,7 @@
 // the distributor suffix ("NY_VAN_A2_OB_18058585" is "NY_VAN_A2_OB").
 
 import { isMarsPrincipal, marsRegionOf } from "../marsStructure";
+import { RETIRED_REP_CODES } from "../marsRoster";
 
 export interface RosterAssignment {
   employeeCode: string;
@@ -55,8 +56,8 @@ export interface RepIdentityInput {
 export interface RepIdentity {
   repCode: string | null;
   teamLeader: string | null;
-  /** Active or Inactive worker on the roster; null when the rep is not on it. */
-  repStatus: "Active" | "Inactive" | null;
+  /** Active or Inactive worker on the roster (Retired for a rep who has retired); null when the rep is not on it. */
+  repStatus: "Active" | "Inactive" | "Retired" | null;
   repRegion: string | null;
   repSubRegion: string | null;
 }
@@ -150,7 +151,7 @@ export function buildRepDirectory(input: RepIdentityInput): (source: string, pri
     let placement: Pick<RepIdentity, "repStatus" | "repRegion" | "repSubRegion"> = unplaced;
     const placed = assigned.find((a) => (a.subRegion ?? "") !== "") ?? assigned[0];
     if (placed) placement = { repStatus: "Active", repRegion: placed.region?.trim() || null, repSubRegion: placed.subRegion?.trim() || null };
-    else if (mars) placement = { repStatus: mars.active ? "Active" : "Inactive", repRegion: marsRegionOf(mars.location), repSubRegion: mars.location?.trim() || null };
+    else if (mars) placement = { repStatus: mars.active ? "Active" : RETIRED_REP_CODES.has(mars.employeeCode) ? "Retired" : "Inactive", repRegion: marsRegionOf(mars.location), repSubRegion: mars.location?.trim() || null };
     else if (employee && employee.active !== undefined) placement = { repStatus: employee.active ? "Active" : "Inactive", repRegion: employee.region?.trim() || null, repSubRegion: employee.subRegion?.trim() || null };
     return { repCode: repCode?.trim() || null, teamLeader, ...placement };
   };

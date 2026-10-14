@@ -117,6 +117,7 @@ describe("Active or Inactive worker, region and sub-region", () => {
     marsRoster: [
       { employeeCode: "987", name: "Erick  Kirema", teamLeader: "Zachary Mwangi", location: "Nairobi Lower", active: false },
       { employeeCode: "1232", name: "Brenda Bosibori", teamLeader: "Lewis Muthomi", location: "Nairobi Metro", active: true },
+      { employeeCode: "1107", name: "Judy Atieno", teamLeader: "Lewis Muthomi", location: "Nairobi Metro", active: false },
     ],
   });
 
@@ -126,6 +127,10 @@ describe("Active or Inactive worker, region and sub-region", () => {
 
   it("finds a rep who has stopped selling in the Mars roster: code, Team Leader, Inactive status and sub-region", () => {
     expect(directory("PINE", "Mars-Nairobi", "Erick Kirema", null)).toEqual({ repCode: "987", teamLeader: "Zachary Mwangi", repStatus: "Inactive", repRegion: "Nairobi", repSubRegion: "Nairobi Lower" });
+  });
+
+  it("shows a rep who has retired as Retired", () => {
+    expect(directory("PINE", "Mars-Nairobi", "Judy Atieno", null)).toMatchObject({ repCode: "1107", repStatus: "Retired", repSubRegion: "Nairobi Metro" });
   });
 
   it("finds a new active Mars rep from the roster", () => {
