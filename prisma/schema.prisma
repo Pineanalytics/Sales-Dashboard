@@ -989,6 +989,11 @@ model CustomerCreditProfile {
   masterBalance Float       @default(0)
   termGroupNum  Int?
   creditTerm    CreditTerm? @relation(fields: [termGroupNum], references: [groupNum])
+  // The customer's "Property" for the Global Ageing report (see lib/globalAgeing.ts) —
+  // resolved in SAP from OCRD's QryGroup1-64 flags joined to OCQG, the same mechanism
+  // the business's own ageing query uses. Null when a customer matches none of the 64
+  // flags; the report buckets those under "Unclassified" rather than dropping them.
+  principal     String?
   updatedAt     DateTime    @updatedAt
 
   @@index([termGroupNum])
@@ -998,17 +1003,39 @@ model CustomerCreditProfile {
 // Full replacement mirror of SAP's open customer ledger (JDT1). Negative
 // open balances are legitimate credits and remain visible for reconciliation.
 model ReceivableOpenItem {
-  id              String   @id
+  id              String    @id
   customerCode    String
   documentRef     String?
   transactionType Int
-  postingDate     DateTime @db.Date
-  dueDate         DateTime @db.Date
+  postingDate     DateTime  @db.Date
+  dueDate         DateTime  @db.Date
+  // JDT1.TaxDate — the date the Global Ageing report's Future/Current-month/
+  // N-months-ago buckets are computed from (see lib/globalAgeing.ts), distinct
+  // from postingDate/dueDate above which the older days-past-due ageing
+  // (lib/receivables.ts, lib/receivablesAgeing.ts) uses instead. Nullable
+  // since existing rows predate this field; computeGlobalAgeingBuckets falls
+  // back to postingDate for any row missing it.
+  taxDate         DateTime? @db.Date
   openBalance     Float
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime  @updatedAt
 
   @@index([customerCode])
   @@index([dueDate])
+}
+
+// A manually-maintained offset against a customer's Global Ageing balance for
+// post-dated cheques already received but not yet banked/cleared — not
+// present anywhere in SAP's open-item ledger (JDT1) or anywhere else this
+// dashboard already syncs (confirmed by search), so there is no automated
+// source for it today. Deliberately its own table rather than a field on
+// CustomerCreditProfile: that table is wiped and fully reloaded from SAP on
+// every ~30-minute receivables sync, which would silently erase a manually
+// entered value here.
+model ReceivablesPdqCheque {
+  customerCode   String   @id
+  amount         Float
+  updatedAt      DateTime @updatedAt
+  updatedByEmail String?
 }
 
 // Immutable audit summary of every complete receivables refresh.

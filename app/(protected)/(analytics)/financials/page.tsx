@@ -19,6 +19,7 @@ const TABS: FinancialsTab[] = [
   "sales-performance",
   "total-outstanding",
   "ageing-trend",
+  "global-ageing",
 ];
 
 export default async function FinancialsPage({
