@@ -26,7 +26,12 @@ async function main() {
       sourceDate: sourceDate.toISOString(),
       terms: data.terms,
       customers: data.customers,
-      openItems: data.openItems.map((row) => ({ ...row, postingDate: row.postingDate.toISOString(), dueDate: row.dueDate.toISOString() })),
+      openItems: data.openItems.map((row) => ({
+        ...row,
+        postingDate: row.postingDate.toISOString(),
+        dueDate: row.dueDate.toISOString(),
+        taxDate: row.taxDate ? row.taxDate.toISOString() : null,
+      })),
       masterBalance,
       ledgerBalance,
     }),

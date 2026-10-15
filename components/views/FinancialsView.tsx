@@ -19,6 +19,7 @@ import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { SalesPerformanceTab } from "@/components/financials/SalesPerformanceTab";
 import { TotalOutstandingTab } from "@/components/financials/TotalOutstandingTab";
 import { AgeingTrendTab } from "@/components/financials/AgeingTrendTab";
+import { GlobalAgeingTab } from "@/components/financials/GlobalAgeingTab";
 
 export type FinancialsTab =
   | "receivables-summary"
@@ -27,7 +28,8 @@ export type FinancialsTab =
   | "profitability"
   | "sales-performance"
   | "total-outstanding"
-  | "ageing-trend";
+  | "ageing-trend"
+  | "global-ageing";
 
 type Props = {
   canViewReceivables: boolean;
@@ -54,6 +56,7 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "sales-performance", label: "Sales Performance", profitability: true },
   { id: "total-outstanding", label: "Debtors & Total Outstanding", receivables: true },
   { id: "ageing-trend", label: "Ageing Trend", receivables: true },
+  { id: "global-ageing", label: "Global Ageing", receivables: true },
 ];
 
 export function FinancialsView({
@@ -188,6 +191,7 @@ export function FinancialsView({
         )}
         {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} debtAttribution={debtAttribution} />}
         {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
+        {activeTab === "global-ageing" && <GlobalAgeingTab isAdmin={user?.role === "ADMIN"} />}
       </div>
     </div>
   );

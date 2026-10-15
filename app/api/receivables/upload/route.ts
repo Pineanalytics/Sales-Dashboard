@@ -6,8 +6,8 @@ import { upsertAgeingSnapshot } from "@/lib/receivablesAgeing";
 export const runtime = "nodejs";
 
 type CreditTermRow = { groupNum: number; name: string; extraDays: number; extraMonths: number };
-type CustomerRow = { customerCode: string; customerName: string; active: boolean; creditLimit: number; masterBalance: number; termGroupNum: number | null };
-type OpenItemRow = { id: string; customerCode: string; documentRef: string | null; transactionType: number; postingDate: string; dueDate: string; openBalance: number };
+type CustomerRow = { customerCode: string; customerName: string; active: boolean; creditLimit: number; masterBalance: number; termGroupNum: number | null; principal: string | null };
+type OpenItemRow = { id: string; customerCode: string; documentRef: string | null; transactionType: number; postingDate: string; dueDate: string; taxDate: string | null; openBalance: number };
 
 function validApiKey(req: NextRequest) {
   const expected = process.env.UPLOAD_API_KEY;
@@ -28,12 +28,12 @@ function validTerm(row: unknown): row is CreditTermRow {
 
 function validCustomer(row: unknown): row is CustomerRow {
   const r = row as Record<string, unknown>;
-  return !!r && typeof r.customerCode === "string" && typeof r.customerName === "string" && typeof r.active === "boolean" && isFiniteNumber(r.creditLimit) && isFiniteNumber(r.masterBalance) && (r.termGroupNum === null || isFiniteNumber(r.termGroupNum));
+  return !!r && typeof r.customerCode === "string" && typeof r.customerName === "string" && typeof r.active === "boolean" && isFiniteNumber(r.creditLimit) && isFiniteNumber(r.masterBalance) && (r.termGroupNum === null || isFiniteNumber(r.termGroupNum)) && (r.principal === null || typeof r.principal === "string");
 }
 
 function validOpenItem(row: unknown): row is OpenItemRow {
   const r = row as Record<string, unknown>;
-  return !!r && typeof r.id === "string" && typeof r.customerCode === "string" && (r.documentRef === null || typeof r.documentRef === "string") && isFiniteNumber(r.transactionType) && isDate(r.postingDate) && isDate(r.dueDate) && isFiniteNumber(r.openBalance);
+  return !!r && typeof r.id === "string" && typeof r.customerCode === "string" && (r.documentRef === null || typeof r.documentRef === "string") && isFiniteNumber(r.transactionType) && isDate(r.postingDate) && isDate(r.dueDate) && (r.taxDate === null || isDate(r.taxDate)) && isFiniteNumber(r.openBalance);
 }
 
 export async function POST(req: NextRequest) {
@@ -65,7 +65,12 @@ export async function POST(req: NextRequest) {
       await tx.receivableOpenItem.deleteMany();
       await tx.customerCreditProfile.deleteMany();
       await tx.customerCreditProfile.createMany({ data: customers });
-      const convertedOpenItems = openItems.map((row) => ({ ...row, postingDate: new Date(row.postingDate), dueDate: new Date(row.dueDate) }));
+      const convertedOpenItems = openItems.map((row) => ({
+        ...row,
+        postingDate: new Date(row.postingDate),
+        dueDate: new Date(row.dueDate),
+        taxDate: row.taxDate ? new Date(row.taxDate) : null,
+      }));
       for (let start = 0; start < convertedOpenItems.length; start += 1_000) {
         await tx.receivableOpenItem.createMany({ data: convertedOpenItems.slice(start, start + 1_000) });
       }
