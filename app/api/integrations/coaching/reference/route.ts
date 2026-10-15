@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { loadCoachingPerformance } from "@/lib/coachingPerformanceQuery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,10 +25,12 @@ function boundedPageSize(value: string | null) {
 /**
  * Private server-to-server reference feed for the Coaching application.
  *
- * This intentionally shares only operational master data. Credentials, sales
- * values and dashboard-user authorization data never leave Pinefrost Analytics.
- * The two applications retain independent authentication until an explicit SSO
- * project is approved.
+ * This shares operational master data (roster, outlets, customers) and, since
+ * 2026-10-15, per-rep coaching performance (resource=performance). Performance
+ * is ratios and counts only: attainment %, cases, calls, strike rate, days
+ * worked. Currency amounts, target values, credentials and dashboard-user
+ * authorization data never leave Pinefrost Analytics. The two applications
+ * retain independent authentication until an explicit SSO project is approved.
  */
 export async function GET(request: NextRequest) {
   if (!hasValidBridgeKey(request)) {
@@ -86,6 +89,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { syncedAt: new Date().toISOString(), principals, employees, assignments, teamLeaders, supervisors },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  if (resource === "performance") {
+    // The current month and the one before, so a coach can see the trend. See
+    // lib/coachingPerformanceFeed.ts for what is (and is not) shared.
+    const { periods, rows } = await loadCoachingPerformance();
+    return NextResponse.json(
+      { syncedAt: new Date().toISOString(), periods, performance: rows },
       { headers: { "Cache-Control": "no-store" } }
     );
   }
