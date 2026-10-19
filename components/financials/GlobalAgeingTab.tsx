@@ -1,87 +1,96 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
-import type { GlobalAgeingReport } from "@/lib/globalAgeing";
-import { updatePdqChequeAction } from "@/app/(protected)/(analytics)/financials/actions";
+import type { GlobalAgeingSummary } from "@/lib/globalAgeing";
 
-const DETAIL_ROW_CAP = 200;
+type PeriodMode = "all" | "month" | "range";
 
 function kes(value: number): string {
   return `KES ${formatNumber(value)}`;
 }
 
-/** Matches your own SAP ageing query's bucket set (Future / Current month /
- *  1-12 months ago / Over 12), unlike the days-past-due buckets the other
- *  Financials tabs use — see lib/globalAgeing.ts for why these are kept
- *  separate rather than merged. Always "as of" the latest receivables sync:
- *  there is no per-customer history to query a past date from. */
-export function GlobalAgeingTab({ isAdmin }: { isAdmin: boolean }) {
-  const [report, setReport] = useState<GlobalAgeingReport | null>(null);
+const controlClass = "rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue";
+
+/** Global Ageing: one module with the filters, the summary strip and the per-Principal pivot. Matches your own SAP ageing query's
+ *  bucket set (Future / Current month / 1-12 months ago / Over 12), unlike the days-past-due buckets the other Financials tabs use -
+ *  see lib/globalAgeing.ts. Always "as of" the latest receivables sync. The customer detail and the post-dated cheque list are in the
+ *  Excel report, filtered the same way. */
+export function GlobalAgeingTab() {
+  const [summary, setSummary] = useState<GlobalAgeingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [savingCode, setSavingCode] = useState<string | null>(null);
-  const [pdqDrafts, setPdqDrafts] = useState<Record<string, string>>({});
-  const [reloadTick, setReloadTick] = useState(0);
+  const [updating, setUpdating] = useState(false);
+
+  const [principals, setPrincipals] = useState<string[]>([]);
+  const [mode, setMode] = useState<PeriodMode>("all");
+  const [month, setMonth] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const principalMenu = useRef<HTMLDetailsElement>(null);
+
+  // The filters as a query string: the screen and the Excel report read the same one.
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
+    for (const name of principals) params.append("principal", name);
+    if (mode === "month" && month) params.set("month", month);
+    if (mode === "range") {
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+    }
+    return params.toString();
+  }, [principals, mode, month, from, to]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const timer = setTimeout(async () => {
+      setUpdating(true);
       try {
-        const res = await fetch("/api/receivables/global-ageing", { cache: "no-store" });
+        const res = await fetch(`/api/receivables/global-ageing${query ? `?${query}` : ""}`, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || "Failed to load the Global Ageing report.");
         if (!cancelled) {
-          setReport(body as GlobalAgeingReport);
+          setSummary(body as GlobalAgeingSummary);
           setError(null);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load the Global Ageing report.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setUpdating(false);
+        }
       }
-    })();
+    }, 250);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [reloadTick]);
+  }, [query]);
 
-  const normalizedSearch = search.trim().toLowerCase();
-  const visibleCustomers = useMemo(() => {
-    if (!report) return [];
-    const matches = normalizedSearch
-      ? report.byCustomer.filter(
-          (c) => c.customerName.toLowerCase().includes(normalizedSearch) || c.customerCode.toLowerCase().includes(normalizedSearch) || c.principal.toLowerCase().includes(normalizedSearch)
-        )
-      : report.byCustomer;
-    const sorted = [...matches].sort((a, b) => Math.abs(b.totalDebts) - Math.abs(a.totalDebts));
-    return normalizedSearch ? sorted : sorted.slice(0, DETAIL_ROW_CAP);
-  }, [report, normalizedSearch]);
-
-  async function savePdq(customerCode: string) {
-    const raw = pdqDrafts[customerCode];
-    const amount = Number(raw);
-    if (!Number.isFinite(amount)) return;
-    setSavingCode(customerCode);
-    try {
-      const result = await updatePdqChequeAction(customerCode, amount);
-      if (!result.ok) {
-        setError(result.error ?? "Failed to save PDQ cheques.");
-        return;
-      }
-      setReloadTick((tick) => tick + 1);
-      setPdqDrafts((prev) => {
-        const next = { ...prev };
-        delete next[customerCode];
-        return next;
-      });
-    } finally {
-      setSavingCode(null);
+  // Close the principal list when the user clicks elsewhere.
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      const menu = principalMenu.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
     }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
+
+  function togglePrincipal(name: string) {
+    setPrincipals((current) => (current.includes(name) ? current.filter((p) => p !== name) : [...current, name]));
+  }
+
+  function clearFilters() {
+    setPrincipals([]);
+    setMode("all");
+    setMonth("");
+    setFrom("");
+    setTo("");
   }
 
   if (loading) {
@@ -92,7 +101,7 @@ export function GlobalAgeingTab({ isAdmin }: { isAdmin: boolean }) {
     );
   }
 
-  if (error && !report) {
+  if (error && !summary) {
     return (
       <SectionCard title="Global Ageing" accent="red">
         <p className="text-sm text-accent-red">{error}</p>
@@ -100,139 +109,129 @@ export function GlobalAgeingTab({ isAdmin }: { isAdmin: boolean }) {
     );
   }
 
-  if (!report) return null;
+  if (!summary) return null;
 
-  const monthCols = [report.currentMonthLabel, ...report.monthLabels];
+  const monthCols = [summary.currentMonthLabel, ...summary.monthLabels];
+  const filtered = principals.length > 0 || mode !== "all";
+  const principalLabel = principals.length === 0 ? "All principals" : principals.length === 1 ? principals[0] : `${principals.length} principals`;
 
   return (
-    <div className="flex flex-col gap-4">
-      <SectionCard
-        title="Global Ageing"
-        accent="navy"
-        action={
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted">As of {new Date(report.asOf).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</span>
-            <a
-              href="/api/receivables/global-ageing/export"
-              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
-            >
-              Export to Excel
-            </a>
-          </div>
-        }
-      >
-        {error ? <p className="mb-3 text-xs text-accent-red">{error}</p> : null}
-        <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
-          <KpiCard accent="mission" label="Total debts" value={kes(report.grandTotal.totalDebts)} sublabel={`${report.byCustomer.length} customer(s) with a balance`} />
-          <KpiCard accent="quarter" label="PDQ cheques held" value={kes(report.grandTotal.pdqCheques)} sublabel="Manually tracked — not in SAP's open ledger" />
-          <KpiCard accent="growth" label="Balance due" value={kes(report.grandTotal.balanceDue)} sublabel="From SAP's open receivables ledger" />
+    <SectionCard
+      title="Global Ageing"
+      accent="navy"
+      action={
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs text-muted">As of {new Date(summary.asOf).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</span>
+          <a
+            href={`/api/receivables/global-ageing/export${query ? `?${query}` : ""}`}
+            className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+            title="Excel report: summary, ageing by principal, customer detail and post-dated cheques, for the filters below"
+          >
+            Export to Excel
+          </a>
         </div>
-      </SectionCard>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {/* Filters: they narrow the summary below and the Excel report. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <details ref={principalMenu} className="relative">
+            <summary className={`${controlClass} cursor-pointer list-none select-none`}>{principalLabel} ▾</summary>
+            <div className="absolute left-0 z-20 mt-1 max-h-72 w-60 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-lg">
+              <button type="button" onClick={() => setPrincipals([])} className="mb-1 w-full rounded-lg px-2 py-1 text-left text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+                All principals
+              </button>
+              {summary.availablePrincipals.map((name) => (
+                <label key={name} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-accent-blue-soft">
+                  <input type="checkbox" checked={principals.includes(name)} onChange={() => togglePrincipal(name)} />
+                  <span className="truncate">{name}</span>
+                </label>
+              ))}
+            </div>
+          </details>
 
-      <SectionCard title="Ageing by Principal" accent="amber" action={<span className="text-xs text-muted">{report.byPrincipal.length} principal(s)</span>}>
-        <TableWrap>
-          <Thead>
-            <Th>Principal</Th>
-            <Th align="right">Total Debts</Th>
-            <Th align="right">PDQ Cheques</Th>
-            <Th align="right">Balance Due</Th>
-            <Th align="right">Future</Th>
-            {monthCols.map((label) => <Th key={label} align="right">{label}</Th>)}
-            <Th align="right">Over 12 Mth Ago</Th>
-          </Thead>
-          <tbody>
-            {report.byPrincipal.map((row) => (
-              <tr key={row.principal}>
-                <Td><span className="font-medium">{row.principal}</span></Td>
-                <Td align="right">{kes(row.totalDebts)}</Td>
-                <Td align="right">{kes(row.pdqCheques)}</Td>
-                <Td align="right">{kes(row.balanceDue)}</Td>
-                <Td align="right">{kes(row.buckets.future)}</Td>
-                <Td align="right">{kes(row.buckets.currentMonth)}</Td>
-                {row.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
-                <Td align="right">{kes(row.buckets.over12)}</Td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <TotalRow>
-              <Td><span className="font-semibold">Grand Total</span></Td>
-              <Td align="right">{kes(report.grandTotal.totalDebts)}</Td>
-              <Td align="right">{kes(report.grandTotal.pdqCheques)}</Td>
-              <Td align="right">{kes(report.grandTotal.balanceDue)}</Td>
-              <Td align="right">{kes(report.grandTotal.buckets.future)}</Td>
-              <Td align="right">{kes(report.grandTotal.buckets.currentMonth)}</Td>
-              {report.grandTotal.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
-              <Td align="right">{kes(report.grandTotal.buckets.over12)}</Td>
-            </TotalRow>
-          </tfoot>
-        </TableWrap>
-      </SectionCard>
+          <select value={mode} onChange={(e) => setMode(e.target.value as PeriodMode)} className={controlClass} aria-label="Period">
+            <option value="all">All dates</option>
+            <option value="month">Month</option>
+            <option value="range">From - to date</option>
+          </select>
+          {mode === "month" ? <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className={controlClass} aria-label="Month" /> : null}
+          {mode === "range" ? (
+            <>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={controlClass} aria-label="From date" />
+              <span className="text-xs text-muted">to</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={controlClass} aria-label="To date" />
+            </>
+          ) : null}
+          {filtered ? (
+            <button type="button" onClick={clearFilters} className="rounded-full bg-background px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+              Clear filters
+            </button>
+          ) : null}
+          {updating ? <span className="text-xs text-muted">Updating…</span> : null}
+        </div>
+        {mode !== "all" ? (
+          <p className="-mt-2 text-[11px] text-muted">The period filters invoices and credits by their document date and post-dated cheques by their due date; the month columns stay relative to the as-of date.</p>
+        ) : null}
+        {error ? <p className="text-xs text-accent-red">{error}</p> : null}
 
-      <SectionCard
-        title="Customer Detail"
-        accent="navy"
-        action={
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, BP code or principal…"
-            className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
-          />
-        }
-      >
-        <p className="mb-2 text-xs text-muted">
-          {normalizedSearch
-            ? `${visibleCustomers.length} matching customer(s) of ${report.byCustomer.length}.`
-            : `Showing the top ${Math.min(DETAIL_ROW_CAP, report.byCustomer.length)} of ${report.byCustomer.length} customer(s) by balance — search to find a specific one, or export for the full list.`}
-        </p>
-        <TableWrap>
-          <Thead>
-            <Th>BP Code</Th>
-            <Th>Principal</Th>
-            <Th>BP Name</Th>
-            <Th align="right">Total Debts</Th>
-            <Th align="right">PDQ Cheques</Th>
-            <Th align="right">Balance Due</Th>
-          </Thead>
-          <tbody>
-            {visibleCustomers.map((row) => (
-              <tr key={row.customerCode}>
-                <Td className="text-muted">{row.customerCode}</Td>
-                <Td>{row.principal}</Td>
-                <Td><span className="font-medium">{row.customerName}</span></Td>
-                <Td align="right">{kes(row.totalDebts)}</Td>
-                <Td align="right">
-                  {isAdmin ? (
-                    <div className="inline-flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        value={pdqDrafts[row.customerCode] ?? String(row.pdqCheques)}
-                        onChange={(e) => setPdqDrafts((prev) => ({ ...prev, [row.customerCode]: e.target.value }))}
-                        className="w-28 rounded-full border border-border bg-surface px-2 py-1 text-right text-xs outline-none focus:border-secondary-blue"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => savePdq(row.customerCode)}
-                        disabled={savingCode === row.customerCode}
-                        className="rounded-full bg-background px-2.5 py-1 text-[11px] font-medium text-primary-blue hover:bg-accent-blue-soft disabled:opacity-50"
-                      >
-                        {savingCode === row.customerCode ? "Saving…" : "Save"}
-                      </button>
-                    </div>
-                  ) : (
-                    kes(row.pdqCheques)
-                  )}
-                </Td>
-                <Td align="right">{kes(row.balanceDue)}</Td>
-              </tr>
-            ))}
-            {visibleCustomers.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-muted">No customers match this search.</td></tr>
+        {/* Summary strip: one horizontal row. */}
+        <div className="grid grid-cols-3 gap-3">
+          <KpiCard accent="mission" label="Total debts" value={kes(summary.grandTotal.totalDebts)} sublabel={`${formatNumber(summary.customerCount)} customer(s) with a balance`} />
+          <KpiCard accent="quarter" label="PDQ cheques held" value={kes(summary.grandTotal.pdqCheques)} sublabel={`${formatNumber(summary.chequeCount)} post-dated cheque(s), from SAP`} />
+          <KpiCard accent="growth" label="Balance due" value={kes(summary.grandTotal.balanceDue)} sublabel="SAP open receivables ledger" />
+        </div>
+
+        {/* Ageing by principal, in the same module. */}
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground">Ageing by Principal</h3>
+            <span className="text-xs text-muted">{summary.byPrincipal.length} principal(s) · customer detail is in the Excel report</span>
+          </div>
+          <TableWrap>
+            <Thead>
+              <Th>Principal</Th>
+              <Th align="right">Total Debts</Th>
+              <Th align="right">PDQ Cheques</Th>
+              <Th align="right">Balance Due</Th>
+              <Th align="right">Future</Th>
+              {monthCols.map((label) => <Th key={label} align="right">{label}</Th>)}
+              <Th align="right">Over 12 Mth Ago</Th>
+            </Thead>
+            <tbody>
+              {summary.byPrincipal.map((row) => (
+                <tr key={row.principal}>
+                  <Td><span className="font-medium">{row.principal}</span></Td>
+                  <Td align="right">{kes(row.totalDebts)}</Td>
+                  <Td align="right">{kes(row.pdqCheques)}</Td>
+                  <Td align="right">{kes(row.balanceDue)}</Td>
+                  <Td align="right">{kes(row.buckets.future)}</Td>
+                  <Td align="right">{kes(row.buckets.currentMonth)}</Td>
+                  {row.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
+                  <Td align="right">{kes(row.buckets.over12)}</Td>
+                </tr>
+              ))}
+              {summary.byPrincipal.length === 0 ? (
+                <tr><td colSpan={monthCols.length + 5} className="px-3 py-6 text-center text-muted">No balances or post-dated cheques for this selection.</td></tr>
+              ) : null}
+            </tbody>
+            {summary.byPrincipal.length > 0 ? (
+              <tfoot>
+                <TotalRow>
+                  <Td><span className="font-semibold">Grand Total</span></Td>
+                  <Td align="right">{kes(summary.grandTotal.totalDebts)}</Td>
+                  <Td align="right">{kes(summary.grandTotal.pdqCheques)}</Td>
+                  <Td align="right">{kes(summary.grandTotal.balanceDue)}</Td>
+                  <Td align="right">{kes(summary.grandTotal.buckets.future)}</Td>
+                  <Td align="right">{kes(summary.grandTotal.buckets.currentMonth)}</Td>
+                  {summary.grandTotal.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
+                  <Td align="right">{kes(summary.grandTotal.buckets.over12)}</Td>
+                </TotalRow>
+              </tfoot>
             ) : null}
-          </tbody>
-        </TableWrap>
-      </SectionCard>
-    </div>
+          </TableWrap>
+        </div>
+      </div>
+    </SectionCard>
   );
 }
