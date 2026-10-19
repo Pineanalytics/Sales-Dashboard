@@ -31,6 +31,15 @@ export interface SapReceivableOpenItemRow {
   openBalance: number;
 }
 
+export interface SapPostDatedChequeRow {
+  customerCode: string;
+  paymentNo: number;
+  chequeNumber: number | null;
+  bankCode: string | null;
+  dueDate: Date;
+  amount: number;
+}
+
 /**
  * SAP is queried with the provisioned read-only login. JDT1.BalDueDeb and
  * BalDueCred are SAP's residual/unreconciled values, so this reports open
@@ -60,8 +69,9 @@ export async function fetchReceivables(pool: sql.ConnectionPool): Promise<{
   terms: SapCreditTermRow[];
   customers: SapCustomerCreditRow[];
   openItems: SapReceivableOpenItemRow[];
+  postDatedCheques: SapPostDatedChequeRow[];
 }> {
-  const [termResult, customerResult, propertyResult, openItemResult] = await Promise.all([
+  const [termResult, customerResult, propertyResult, openItemResult, chequeResult] = await Promise.all([
     pool.request().query(`
       SELECT GroupNum, PymntGroup, ExtraDays, ExtraMonth
       FROM OCTG
@@ -86,6 +96,16 @@ export async function fetchReceivables(pool: sql.ConnectionPool): Promise<{
       INNER JOIN OCRD C ON C.CardCode = J.ShortName AND C.CardType = 'C'
       WHERE ABS(J.BalDueDeb - J.BalDueCred) > 0.005
     `),
+    // Post-dated cheques held: incoming-payment cheque lines (RCT1 on ORCT) not cancelled, due after today and not yet
+    // in a deposit (DPS1 points at RCT1.CheckAbs). Confirmed against SAP on 18 Oct 2026: 159 cheques, none deposited.
+    pool.request().query(`
+      SELECT P.CardCode, P.DocNum AS PaymentNo, C.CheckNum, C.BankCode, C.DueDate, C.CheckSum
+      FROM RCT1 C
+      INNER JOIN ORCT P ON P.DocEntry = C.DocNum
+      INNER JOIN OCRD O ON O.CardCode = P.CardCode AND O.CardType = 'C'
+      LEFT JOIN (SELECT DISTINCT CheckKey FROM DPS1 WHERE DepCancel = 'N') D ON D.CheckKey = C.CheckAbs
+      WHERE P.Canceled = 'N' AND C.DueDate > CAST(GETDATE() AS date) AND D.CheckKey IS NULL AND ABS(C.CheckSum) > 0.005
+    `),
   ]);
 
   const principalByCustomer = new Map<string, string>();
@@ -94,6 +114,14 @@ export async function fetchReceivables(pool: sql.ConnectionPool): Promise<{
   }
 
   return {
+    postDatedCheques: chequeResult.recordset.map((row) => ({
+      customerCode: String(row.CardCode).trim(),
+      paymentNo: Number(row.PaymentNo),
+      chequeNumber: row.CheckNum === null || row.CheckNum === undefined ? null : Number(row.CheckNum),
+      bankCode: row.BankCode ? String(row.BankCode).trim() : null,
+      dueDate: new Date(row.DueDate),
+      amount: Number(row.CheckSum),
+    })),
     terms: termResult.recordset.map((row) => ({
       groupNum: Number(row.GroupNum),
       name: String(row.PymntGroup || "(Not assigned)").trim() || "(Not assigned)",

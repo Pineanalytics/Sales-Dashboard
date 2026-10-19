@@ -1023,19 +1023,36 @@ model ReceivableOpenItem {
   @@index([dueDate])
 }
 
-// A manually-maintained offset against a customer's Global Ageing balance for
-// post-dated cheques already received but not yet banked/cleared — not
-// present anywhere in SAP's open-item ledger (JDT1) or anywhere else this
-// dashboard already syncs (confirmed by search), so there is no automated
-// source for it today. Deliberately its own table rather than a field on
-// CustomerCreditProfile: that table is wiped and fully reloaded from SAP on
-// every ~30-minute receivables sync, which would silently erase a manually
-// entered value here.
+// SUPERSEDED (18 Oct 2026): this was a manually maintained per-customer PDQ cheque
+// total, built on the belief that SAP had no source for post-dated cheques. It does:
+// ReceivablesPostDatedCheque below is filled by the receivables sync from SAP's own
+// incoming-payment cheque lines. This table is no longer read or written (it held no rows);
+// it stays only so the schema push remains additive.
 model ReceivablesPdqCheque {
   customerCode   String   @id
   amount         Float
   updatedAt      DateTime @updatedAt
   updatedByEmail String?
+}
+
+// Post-dated cheques held, one row per cheque: incoming-payment cheque lines
+// (SAP RCT1 on ORCT, payment not cancelled) whose due date is after the sync date and that
+// are not yet in a deposit (DPS1). The receivables sync replaces the whole table every run;
+// nothing here is hand-edited. Global Ageing shows them as "PDQ Cheques": the customer's
+// invoices these cheques already settle have left the open ledger, so Total Debts is the
+// open balance plus these cheques.
+model ReceivablesPostDatedCheque {
+  id            String   @id @default(cuid())
+  customerCode  String
+  paymentNo     Int // the incoming payment's document number
+  chequeNumber  Int?
+  bankCode      String?
+  dueDate       DateTime @db.Date
+  amount        Float
+  createdAt     DateTime @default(now())
+
+  @@index([customerCode])
+  @@index([dueDate])
 }
 
 // Immutable audit summary of every complete receivables refresh.

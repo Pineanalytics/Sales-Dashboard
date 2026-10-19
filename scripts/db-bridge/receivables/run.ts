@@ -18,7 +18,9 @@ async function main() {
   const ledgerBalance = data.openItems.reduce((sum, row) => sum + row.openBalance, 0);
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
+  const chequeTotal = data.postDatedCheques.reduce((sum, row) => sum + row.amount, 0);
   console.log(`[receivables-sync] Read ${data.customers.length} customers, ${data.terms.length} terms and ${data.openItems.length} open items from SAP.`);
+  console.log(`[receivables-sync] Read ${data.postDatedCheques.length} post-dated cheques held, KES ${Math.round(chequeTotal)}.`);
   const response = await fetch(`${appUrl}/api/receivables/upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
@@ -32,13 +34,14 @@ async function main() {
         dueDate: row.dueDate.toISOString(),
         taxDate: row.taxDate ? row.taxDate.toISOString() : null,
       })),
+      postDatedCheques: data.postDatedCheques.map((row) => ({ ...row, dueDate: row.dueDate.toISOString() })),
       masterBalance,
       ledgerBalance,
     }),
   });
   const body = await response.json();
   if (!response.ok) throw new Error(`Receivables upload rejected (HTTP ${response.status}): ${JSON.stringify(body)}`);
-  console.log(`[receivables-sync] Upload succeeded: ${body.customerCount} customers, ${body.openItemCount} open items, variance ${body.variance}.`);
+  console.log(`[receivables-sync] Upload succeeded: ${body.customerCount} customers, ${body.openItemCount} open items, ${body.postDatedChequeCount ?? 0} post-dated cheques, variance ${body.variance}.`);
 
   // Keeps every elapsed week/month-boundary snapshot real (never
   // "Approximate") without a separate scheduled job — cheap once caught up,

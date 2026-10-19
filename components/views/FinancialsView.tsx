@@ -191,7 +191,7 @@ export function FinancialsView({
         )}
         {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} debtAttribution={debtAttribution} />}
         {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
-        {activeTab === "global-ageing" && <GlobalAgeingTab isAdmin={user?.role === "ADMIN"} />}
+        {activeTab === "global-ageing" && <GlobalAgeingTab />}
       </div>
     </div>
   );
