@@ -3,6 +3,7 @@
 import { OUTLET_SOURCE_LABELS, buyingTenure, boughtWithin, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters, type OutletScope } from "@/lib/outletUniverse/query";
 import { buildNameProfiles, classification2, cleanPlaces, tierRow } from "@/lib/outletUniverse/tiering";
+import { cleanLocation, getUnifiedLocations } from "@/lib/locationUnify/source";
 import { LOW_STRIKE_WINDOW_MONTHS, PRIMARY } from "./config";
 import { monthCounts, principalMonthStrike, windowCounts, type MonthlyStrike } from "./monthlyStrike";
 import { recordKey } from "./pipeline";
@@ -30,6 +31,7 @@ export async function loadExtractRows(scope: OutletScope, strike: MonthlyStrike,
     exportOutlets({ ...base, status: "all" }, scope, { withMix: false }),
   ]);
   const profiles = buildNameProfiles(universe);
+  const unifiedLocations = await getUnifiedLocations();
   const now = new Date();
   const hasMonth = (source: OutletSource) => strike.monthsWithData.get(source)?.has(monthIndex) ?? false;
   const sourcesWithoutCalls = (Object.keys(OUTLET_SOURCE_LABELS) as OutletSource[]).filter((s) => s !== "LEVERAGE" && !hasMonth(s)).map((s) => OUTLET_SOURCE_LABELS[s]);
@@ -58,7 +60,7 @@ export async function loadExtractRows(scope: OutletScope, strike: MonthlyStrike,
       channel: tiered.channel,
       segment: tiered.segment,
       region: places.region,
-      territory: places.territory,
+      territory: cleanLocation(unifiedLocations, places.territory).canonical,
       route: row.route,
       rep: row.repName,
       lat: row.latitude,

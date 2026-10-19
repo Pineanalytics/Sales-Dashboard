@@ -33,7 +33,8 @@ Each outlet row:
 | `outlet`, `principal` | Outlet name and the principal this row is about (e.g. `Mars-Nairobi`). |
 | `salesRole` | `Primary Sales` (direct: sold by Pinefrost reps) or `Secondary Sales` (through distributor reps). |
 | `channel`, `segment`, `sourceChannel`, `sourceSegment` | Normalised channel (Retail / Wholesale) and segment, and the source system's own. |
-| `location`, `region`, `territory`, `route`, `latitude`, `longitude` | Place and GPS. `route` is blank for Pine. |
+| `location`, `region`, `territory`, `route`, `latitude`, `longitude` | Place and GPS. `route` is blank for Pine. `territory` is the name as the source system spells it. |
+| `territoryClean`, `territoryGroupId`, `territoryMatch` | The unified place name several spellings share ("THIKA", "Thika - MBSR", "Nairobi-Thika" all become "Thika"; "AA Imara Daima", "Imara" and "Imara Daima" become "Imara Daima"), a stable id for that place, and how it was unified (`same name`, `name + coordinates`, `spelling + coordinates`, `address -> nearest area`; null when the name stands alone). **Group and filter by `territoryClean`.** |
 | `rep`, `repSfaId`, `teamLeader`, `repStatus`, `repRegion`, `repSubRegion` | **The rep who sells this principal at the outlet**, their SFA code, their Team Leader, whether they are an Active or Inactive worker, and where they are placed. Blank where the rep is not on the roster. |
 | `plannedRep` | Pine's journey-plan owner of the outlet (the same on every principal). |
 | `repsServing`, `repsByPrincipal`, `teamLeadersByPrincipal` | How many distinct reps serve the outlet across its principals, and who sells which ("Mars-Nairobi: Ann; Suntory-Nairobi: Bob"). |
@@ -61,6 +62,21 @@ Filters: `source=...`, `principal=...`. Response: `{ syncedAt, universeBuiltAt, 
 - **Leverage** records completed documents only, so `calls` counts the customer-months with a document and `productive` is `null`: there is no strike rate for it.
 - A month with calls but no purchase shows `calls: 1, productive: 0`: the outlet was visited and did not buy.
 
+### `resource=locations`: the unified location map
+
+Every raw territory name with the name it was unified to, the unified places, and the relations found between places. About 1,440 raw names became about 710 places. One response, no paging.
+
+Response: `{ syncedAt, builtAt, totals, places: [...], mapping: [...], relations: [...] }`.
+
+- **`mapping`:** one row per raw name: `raw`, `canonical`, `groupId`, `kind` (`place`, `address` for a street or Google plus-code address, `unspecified`), `rows`, `lat`/`lon`, `sources`, `method` and `confidence` (`High` for the same name after cleaning, `Medium` where coordinates were needed).
+- **`places`:** one row per unified place: `canonical`, `groupId`, every `rawNames` member, `rows`, the centre (`lat`/`lon`) and `radiusKm` (how spread the place is).
+- **`relations`:** pairs the algorithm did **not** merge but that are related, with `distanceKm` and `overlap` (share of outlets in the same part of the map):
+  - `possible variant`: one name continues another ("Dandora" and "Dandora Kwa Mbao") but the places are too far apart, or have no GPS, to merge safely.
+  - `sub-area`: a distinguishing word ("Thika East", "Thika Road", a number) or a place sitting inside a larger one.
+  - `shares coordinates`: differently named places whose outlets sit in the same part of the map ("Kware", "Kingdom Pipeline" and "Transami").
+
+How names are unified: (1) the name, after dropping case, the "- MBSR" tag, "county", a leading city ("Nairobi-") and an "AA" sort prefix; (2) a name that continues another ("Imara" in "Imara Daima") is merged only when the two places are close on the map, allowing for how spread the larger place is; a direction, road, phase or number ("Thika East", "Githurai 44" vs "45") always keeps places apart; (3) address-style names are placed by the place named in them and by the outlets around their GPS point. Nothing is changed in the source data: the raw name is always kept.
+
 ## Example pull
 
 ```bash
@@ -70,6 +86,8 @@ curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=acti
 curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=active&pageSize=1000&cursor=1000"
 # the monthly history for one principal
 curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe-history&principal=Mars-Nairobi&pageSize=1000"
+# the unified location map (one response)
+curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=locations"
 ```
 
 About 67,000 universe rows is about 68 pages of 1,000 (walked in about 15 seconds on production); the pull is meant for the nightly schedule (the outlet universe itself compiles when read after 30 minutes).

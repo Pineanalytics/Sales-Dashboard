@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadCoachingPerformance } from "@/lib/coachingPerformanceQuery";
+import { getUnifiedLocations } from "@/lib/locationUnify/source";
 import { historySnapshot, paginate, universeSnapshot } from "@/lib/universeFeed";
 
 export const runtime = "nodejs";
@@ -157,6 +158,16 @@ export async function GET(request: NextRequest) {
     const customers = hasMore ? rows.slice(0, pageSize) : rows;
     return NextResponse.json(
       { syncedAt: new Date().toISOString(), customers, nextCursor: hasMore ? customers.at(-1)?.id ?? null : null },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  if (resource === "locations") {
+    // The unified location map: every raw territory name with its canonical name and how it was unified, the unified places with their centre and spread,
+    // and the relations found by name and by coordinates (possible variants, sub-areas, names that share the same part of the map).
+    const unified = await getUnifiedLocations();
+    return NextResponse.json(
+      { syncedAt: new Date().toISOString(), builtAt: unified.builtAt, totals: { rawNames: unified.map.mapping.length, places: unified.map.groups.length, relations: unified.map.relations.length }, places: unified.map.groups, mapping: unified.map.mapping, relations: unified.map.relations },
       { headers: { "Cache-Control": "no-store" } }
     );
   }
