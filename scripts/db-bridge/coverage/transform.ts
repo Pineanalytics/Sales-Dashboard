@@ -74,6 +74,7 @@ const NAIROBI_FIXUPS: [string, string][] = [
   ["Premier-Machakos", "Premier-Nairobi"],
   ["Suntory-Machakos", "Suntory-Nairobi"],
   ["Suntory-Nyahururu", "Suntory-Nairobi"],
+  ["Suntory-Nyeri", "Suntory-Nairobi"],
 ];
 
 function applyFixups(key: string): string {
