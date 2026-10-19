@@ -40,7 +40,7 @@ function Body({ data }: { data: OverviewData }) {
         <Tile label="Direct reach" value={ratioPct(u.directReach)} sub={`${count(u.directOutlets)} outlets served by Pinefrost reps`} />
         <Tile label="Distributor-only outlets" value={count(u.distributorOnly)} sub="buy only via distributor reps" />
         <Tile label="YTD sales" value={kes(total.sales)} sub={`${ratioPct(directShare, 0)} direct`} />
-        <Tile label={`Strike rate · ${meta.month.label}`} value={ratioPct(total.strikeRate)} sub="productive ÷ calls with outcome, this month" />
+        <Tile label={`Strike rate · ${meta.month.label}`} value={ratioPct(total.strikeRate)} sub="active outlets, productive ÷ calls this month" />
         <Tile label="Unproductive calls" value={count(total.unproductiveCalls)} sub={`calls in ${meta.month.label} with no order`} />
         <Tile label="Value of unproductive calls" value={kes(total.unproductiveValue)} sub="at each outlet's usual invoice" />
         <Tile label="Direct pairs lapsing" value={count(o.lapsing.pool)} sub="no purchase for 30–89 days" />

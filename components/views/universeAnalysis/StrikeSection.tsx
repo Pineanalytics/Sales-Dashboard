@@ -64,7 +64,7 @@ function Body({ data, query }: { data: StrikeData; query: string }) {
   return (
     <div className="flex flex-col gap-6">
       <TileGrid>
-        <Tile label={`Strike rate · ${month}`} value={ratioPct(data.total.strikeRate)} sub="productive ÷ calls with a recorded outcome" />
+        <Tile label={`Strike rate · ${month}`} value={ratioPct(data.total.strikeRate)} sub="active outlets only (bought in the last 90 days)" />
         <Tile label="Calls with outcome" value={count(data.total.callsWithOutcome)} sub="customer-months called this month" />
         <Tile label="Productive calls" value={count(data.total.productiveCalls)} />
         <Tile label="Unproductive calls" value={count(data.total.unproductiveCalls)} sub={`worth KES ${millions(data.total.unproductiveValue)}M`} />
@@ -90,7 +90,7 @@ function Body({ data, query }: { data: StrikeData; query: string }) {
           </ResponsiveContainer>
         </div>
         <div className="mt-2">
-          <Note>Month by month across Pine, EABL DMS and Upfield DataEdge (the principal filter applies; the other filters do not). A year-to-date strike would flatten these swings.</Note>
+          <Note>Month by month across Pine, EABL DMS and Upfield DataEdge (the principal filter applies; the other filters do not). The chart counts every customer called in the month, the same basis as the Coverage page, so it reads lower than the tables, which leave out customers that did not buy in the last 90 days (the active outlets). A year-to-date strike would flatten these swings.</Note>
         </div>
       </SectionCard>
 
