@@ -52,7 +52,7 @@ export function GlobalFilterBar() {
             InlineReportExport instead of this generic bar. JP Adherence (now
             Coverage's "jp-adherence" tab) keeps using this shared bar, same
             as it did on its old standalone route. */}
-        {pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "time-in-trade") ? null : (
+        {pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "universe-analysis" || coverageActiveTab === "time-in-trade") ? null : (
           <InlineReportExport
             reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}
