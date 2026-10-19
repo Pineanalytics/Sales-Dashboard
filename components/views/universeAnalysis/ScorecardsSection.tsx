@@ -30,7 +30,7 @@ function Body({ data }: { data: ScorecardData }) {
     <div className="flex flex-col gap-6">
       <SectionCard title="Principal scorecard">
         <div className="mb-3">
-          <Note>Strike is for {data.meta.month.label}. SFA strike is the principal-wide figure over all its customers, including those that did not buy; the gap to the active-outlet strike shows calls spent on outlets that never buy.</Note>
+          <Note>Strike is for {data.meta.month.label}. "Active" counts only outlets that bought in the last 90 days; "SFA-wide" counts every customer called, the same basis as the Coverage page and the chart. The gap between them is calls spent on outlets that did not buy.</Note>
         </div>
         <TableWrap>
           <Thead>
