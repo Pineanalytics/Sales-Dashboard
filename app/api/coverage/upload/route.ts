@@ -75,9 +75,15 @@ export async function POST(req: NextRequest) {
   const payload = body as Record<string, unknown>;
   const year = payload.year;
   const monthIndex = payload.monthIndex;
-  const rows = payload.rows;
+  // customersOnly: refresh only the month's customer-level rows and leave the stored coverage (CoverageActual) exactly as it is, so a closed
+  // month's Coverage page figures are not restated by a backfill of the customer table.
+  const customersOnly = payload.customersOnly === true;
+  const rows = customersOnly ? [] : payload.rows;
   if (!text(year) || !Number.isInteger(monthIndex) || Number(monthIndex) < 0 || Number(monthIndex) > 11 || !Array.isArray(rows) || !rows.every(validRow)) {
     return NextResponse.json({ error: "Coverage payload is incomplete or invalid." }, { status: 400 });
+  }
+  if (customersOnly && !Array.isArray(payload.customers)) {
+    return NextResponse.json({ error: "A customers-only upload needs a customers array." }, { status: 400 });
   }
   // Keep narrowed primitives outside the transaction callback; TypeScript does
   // not retain narrowing for values captured from an untyped request body.
@@ -111,9 +117,11 @@ export async function POST(req: NextRequest) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.coverageActual.deleteMany({ where: { year: partitionYear, monthIndex: partitionMonthIndex } });
-      if (coverageRows.length > 0) {
-        await tx.coverageActual.createMany({ data: coverageRows });
+      if (!customersOnly) {
+        await tx.coverageActual.deleteMany({ where: { year: partitionYear, monthIndex: partitionMonthIndex } });
+        if (coverageRows.length > 0) {
+          await tx.coverageActual.createMany({ data: coverageRows });
+        }
       }
       if (customerRows) {
         await tx.coverageCustomerActual.deleteMany({ where: { year: partitionYear, monthIndex: partitionMonthIndex } });
@@ -123,7 +131,7 @@ export async function POST(req: NextRequest) {
       }
     }, { timeout: 120_000, maxWait: 30_000 });
     invalidateDatasetCache();
-    return NextResponse.json({ count: coverageRows.length, customerCount: customerRows?.length ?? null, year: partitionYear, monthIndex: partitionMonthIndex }, { status: 200 });
+    return NextResponse.json({ count: coverageRows.length, customersOnly, customerCount: customerRows?.length ?? null, year: partitionYear, monthIndex: partitionMonthIndex }, { status: 200 });
   } catch (error) {
     console.error("Failed to replace direct coverage month", error);
     return NextResponse.json({ error: "Failed to save direct coverage data." }, { status: 500 });

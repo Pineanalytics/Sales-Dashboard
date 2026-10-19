@@ -9,6 +9,9 @@ import { buildCoverage } from "./transform";
 import { loadPrincipals } from "../reference/loadFromDb";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
+// COVERAGE_SYNC_CUSTOMERS_ONLY=1 refreshes only the customer-level table for the chosen months (the Active Outlets extract's Pine strike rate) and
+// leaves the stored per-rep coverage of those months untouched. Use it to backfill closed months.
+const CUSTOMERS_ONLY = process.env.COVERAGE_SYNC_CUSTOMERS_ONLY === "1";
 
 interface MonthRange {
   year: string;
@@ -61,7 +64,7 @@ async function main() {
     const response = await fetch(`${appUrl}/api/coverage/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
-      body: JSON.stringify({
+      body: JSON.stringify(CUSTOMERS_ONLY ? { year: range.year, monthIndex: range.monthIndex, customersOnly: true, customers: monthCustomers } : {
         year: range.year,
         monthIndex: range.monthIndex,
         // buildCoverage also carries presentation-only principalKey and
