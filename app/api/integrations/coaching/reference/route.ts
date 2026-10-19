@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadCoachingPerformance } from "@/lib/coachingPerformanceQuery";
+import { historySnapshot, paginate, universeSnapshot } from "@/lib/universeFeed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,8 +29,12 @@ function boundedPageSize(value: string | null) {
  * This shares operational master data (roster, outlets, customers) and, since
  * 2026-10-15, per-rep coaching performance (resource=performance). Performance
  * is ratios and counts only: attainment %, cases, calls, strike rate, days
- * worked. Currency amounts, target values, credentials and dashboard-user
- * authorization data never leave Pinefrost Analytics. The two applications
+ * worked. Since 2026-10-20 it also shares the whole active outlet universe
+ * (resource=universe) and its monthly buying and call history per outlet and
+ * principal (resource=universe-history); by the business's decision those two
+ * DO carry sales values and tiers, so the Coaching app can read buying trends
+ * and rep association by principal. Target values, credentials and
+ * dashboard-user authorization data never leave Pinefrost Analytics. The two applications
  * retain independent authentication until an explicit SSO project is approved.
  */
 export async function GET(request: NextRequest) {
@@ -154,6 +159,24 @@ export async function GET(request: NextRequest) {
       { syncedAt: new Date().toISOString(), customers, nextCursor: hasMore ? customers.at(-1)?.id ?? null : null },
       { headers: { "Cache-Control": "no-store" } }
     );
+  }
+
+  if (resource === "universe" || resource === "universe-history") {
+    const cursor = url.searchParams.get("cursor");
+    const pageSize = boundedPageSize(url.searchParams.get("pageSize"));
+    const source = (url.searchParams.get("source") ?? "").toUpperCase();
+    const principal = url.searchParams.get("principal");
+    if (resource === "universe") {
+      const status = url.searchParams.get("status") ?? "active";
+      const snap = await universeSnapshot();
+      const rows = snap.rows.filter((r) => (status === "all" || r.status.toLowerCase() === (status === "dormant" ? "dormant" : "active")) && (!source || r.sourceCode === source) && (!principal || r.principal === principal));
+      const page = paginate(rows, cursor, pageSize);
+      return NextResponse.json({ syncedAt: new Date().toISOString(), universeBuiltAt: snap.builtAt, snapshot: snap.builtFor, status, total: page.total, outlets: page.rows, nextCursor: page.nextCursor }, { headers: { "Cache-Control": "no-store" } });
+    }
+    const snap = await historySnapshot();
+    const rows = snap.rows.filter((r) => (!source || r.sourceCode === source) && (!principal || r.principal === principal));
+    const page = paginate(rows, cursor, pageSize);
+    return NextResponse.json({ syncedAt: new Date().toISOString(), universeBuiltAt: snap.builtAt, snapshot: snap.builtFor, total: page.total, history: page.rows, nextCursor: page.nextCursor }, { headers: { "Cache-Control": "no-store" } });
   }
 
   return NextResponse.json({ error: "Unknown coaching reference resource." }, { status: 400 });
