@@ -1,4 +1,5 @@
 import { teamLeaderSupervisesName } from "./teamLeaderScope";
+import { principalNameKey } from "./principalNames";
 
 // Team Leader Ranking — MTD Target vs MTD Revenue per Team Leader, for the
 // redesigned Executive Overview (/dashboard). Revenue is attributed by which
@@ -86,11 +87,12 @@ export function buildTlRanking(
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
   const teamLeaderIdByPrincipal = new Map(principalOwnership.map((p) => [p.principal, p.teamLeaderId]));
 
+  // Listed once per principal even if the table ever holds two spellings of the same name.
   const principalsByTeamLeader = new Map<string, string[]>();
   for (const p of principalOwnership) {
     if (!p.teamLeaderId) continue;
     const list = principalsByTeamLeader.get(p.teamLeaderId) ?? [];
-    list.push(p.principal);
+    if (!list.some((name) => principalNameKey(name) === principalNameKey(p.principal))) list.push(p.principal);
     principalsByTeamLeader.set(p.teamLeaderId, list);
   }
 

@@ -45,6 +45,7 @@
 import * as XLSX from "xlsx";
 import { prisma } from "./db";
 import { assignPrincipalRepsToTeamLeader, recomputeRosterDerived, type AssignPrincipalResult } from "./rosterAssignment";
+import { buildPrincipalCanonicalizer } from "./principalNames";
 
 export interface SalesLeadershipRow {
   principal: string;
@@ -133,7 +134,12 @@ export interface SalesLeadershipImportResult {
   emailConflicts: string[];
 }
 
-export async function upsertSalesLeadership(rows: SalesLeadershipRow[], userEmail: string): Promise<SalesLeadershipImportResult> {
+export async function upsertSalesLeadership(fileRows: SalesLeadershipRow[], userEmail: string): Promise<SalesLeadershipImportResult> {
+  // A file spelling "Eabl-Nyeri" must land on the existing "EABL-Nyeri", not create a second principal.
+  const knownPrincipals = await prisma.principal.findMany({ select: { principal: true }, orderBy: { createdAt: "asc" } });
+  const canonicalPrincipal = buildPrincipalCanonicalizer(knownPrincipals.map((p) => p.principal));
+  const rows = fileRows.map((row) => ({ ...row, principal: canonicalPrincipal(row.principal) }));
+
   const hodNames = Array.from(new Set(rows.map((r) => r.hodName.trim())));
   const existingHods = await prisma.hod.findMany({ where: { name: { in: hodNames } }, select: { id: true, name: true } });
   const hodByName = new Map(existingHods.map((h) => [h.name, h.id]));

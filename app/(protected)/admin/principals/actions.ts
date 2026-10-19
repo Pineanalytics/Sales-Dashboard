@@ -62,6 +62,12 @@ export async function createPrincipalAction(formData: FormData) {
     redirect("/admin/principals?error=" + encodeURIComponent("Principal is required."));
   }
 
+  // The name column is case-sensitive, so "Eabl-Nyeri" would otherwise be accepted next to "EABL-Nyeri".
+  const sameSpellingIgnoringCase = await prisma.principal.findFirst({ where: { principal: { equals: principal, mode: "insensitive" } }, select: { principal: true } });
+  if (sameSpellingIgnoringCase) {
+    redirect("/admin/principals?error=" + encodeURIComponent(`A principal called ${sameSpellingIgnoringCase.principal} already exists.`));
+  }
+
   try {
     await prisma.principal.create({
       data: {
