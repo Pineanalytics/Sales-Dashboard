@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
 import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
+import { buildPrincipalCanonicalizer } from "@/lib/principalNames";
 
 export const runtime = "nodejs";
 
@@ -108,8 +109,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "One or more Employee Roaster rows are invalid." }, { status: 400 });
   }
 
-  const validEmployees = employees as EmployeeUploadRow[];
-  const validContributions = contributions as ContributionUploadRow[];
+  // The workbook's spelling of a principal ("Eabl-Nyeri") is mapped to the one already in the Principal table
+  // ("EABL-Nyeri") so the roster never carries a second copy of the same principal.
+  const knownPrincipals = await prisma.principal.findMany({ select: { principal: true }, orderBy: { createdAt: "asc" } });
+  const canonicalPrincipal = buildPrincipalCanonicalizer(knownPrincipals.map((p) => p.principal));
+  const validEmployees = (employees as EmployeeUploadRow[]).map((row) => ({ ...row, absolutePrincipal: canonicalPrincipal(row.absolutePrincipal) }));
+  const validContributions = (contributions as ContributionUploadRow[]).map((row) => ({ ...row, principal: canonicalPrincipal(row.principal) }));
   const employeeCodes = new Set(validEmployees.map((row) => row.employeeCode));
   if (employeeCodes.size !== validEmployees.length) {
     return NextResponse.json({ error: "Employee Roaster contains duplicate UserID values." }, { status: 400 });
