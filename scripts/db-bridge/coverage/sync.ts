@@ -55,8 +55,9 @@ async function main() {
   for (const range of ranges) {
     console.log(`[coverage-sync] Reading ${range.year}-${String(range.monthIndex + 1).padStart(2, "0")} from ${config.host}/${config.database}...`);
     const rawRows = await withCoverageConnection(config, (conn) => fetchPrincipalCostCentreFact(conn, range.start, range.end));
-    const { rows, unmatchedCostCentres } = buildCoverage(rawRows, principals);
+    const { rows, customerRows, unmatchedCostCentres } = buildCoverage(rawRows, principals);
     const monthRows = rows.filter((row) => row.year === range.year && row.monthIndex === range.monthIndex);
+    const monthCustomers = customerRows.filter((row) => row.year === range.year && row.monthIndex === range.monthIndex);
     const response = await fetch(`${appUrl}/api/coverage/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-upload-api-key": apiKey },
@@ -67,11 +68,13 @@ async function main() {
         // productivityPct fields; the persisted table stores its raw inputs
         // and the dashboard recomputes the percentage from those inputs.
         rows: monthRows.map(({ principalKey: _principalKey, productivityPct: _productivityPct, ...row }) => row),
+        // Customer-level calls behind those rows (Active Outlets extract strike rate); the app replaces the month's customer rows with these.
+        customers: monthCustomers,
       }),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(`Coverage upload rejected for ${range.year}-${range.monthIndex + 1} (HTTP ${response.status}): ${JSON.stringify(body)}`);
-    console.log(`[coverage-sync] Saved ${body.count} rows for ${range.year}-${String(range.monthIndex + 1).padStart(2, "0")}; source rows ${rawRows.length}; unmatched cost centres ${unmatchedCostCentres.length}.`);
+    console.log(`[coverage-sync] Saved ${body.count} rows (${body.customerCount ?? 0} customer rows) for ${range.year}-${String(range.monthIndex + 1).padStart(2, "0")}; source rows ${rawRows.length}; unmatched cost centres ${unmatchedCostCentres.length}.`);
   }
 }
 
