@@ -16,6 +16,27 @@ interface CoverageUploadRow {
   productiveCalls: number;
 }
 
+interface CustomerUploadRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  salesRole: string;
+  principal: string;
+  customerId: string;
+  coverage: number;
+  productiveCalls: number;
+}
+
+const CUSTOMER_INSERT_BATCH = 5000;
+
+function validCustomerRow(value: unknown): value is CustomerUploadRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return text(row.year) && text(row.month) && Number.isInteger(row.monthIndex) && Number(row.monthIndex) >= 0 && Number(row.monthIndex) <= 11
+    && text(row.salesRole) && text(row.principal) && text(row.customerId)
+    && wholeNumber(row.coverage) && wholeNumber(row.productiveCalls) && Number(row.productiveCalls) <= Number(row.coverage);
+}
+
 function hasValidApiKey(req: NextRequest): boolean {
   const expected = process.env.UPLOAD_API_KEY;
   const provided = req.headers.get("x-upload-api-key");
@@ -67,6 +88,22 @@ export async function POST(req: NextRequest) {
   if (coverageRows.some((row) => row.year !== partitionYear || row.monthIndex !== partitionMonthIndex)) {
     return NextResponse.json({ error: "Coverage rows must all belong to the declared year and month." }, { status: 400 });
   }
+  // Optional: customer-level calls for the same month. Absent (an older worker) leaves the stored customer rows alone.
+  const customersPayload = payload.customers;
+  let customerRows: CustomerUploadRow[] | null = null;
+  if (customersPayload !== undefined) {
+    if (!Array.isArray(customersPayload) || !customersPayload.every(validCustomerRow)) {
+      return NextResponse.json({ error: "Coverage customer rows are incomplete or invalid." }, { status: 400 });
+    }
+    customerRows = customersPayload as CustomerUploadRow[];
+    if (customerRows.some((row) => row.year !== partitionYear || row.monthIndex !== partitionMonthIndex)) {
+      return NextResponse.json({ error: "Coverage customer rows must all belong to the declared year and month." }, { status: 400 });
+    }
+    const uniqueCustomers = new Set(customerRows.map((row) => `${row.salesRole}\u0000${row.principal}\u0000${row.customerId}`));
+    if (uniqueCustomers.size !== customerRows.length) {
+      return NextResponse.json({ error: "Coverage customer rows contain duplicate role, principal, and customer rows." }, { status: 400 });
+    }
+  }
   const uniqueRows = new Set(coverageRows.map((row) => `${row.salesRole}\u0000${row.employeeName}\u0000${row.principal}`));
   if (uniqueRows.size !== coverageRows.length) {
     return NextResponse.json({ error: "Coverage payload contains duplicate role, employee, and principal rows." }, { status: 400 });
@@ -78,9 +115,15 @@ export async function POST(req: NextRequest) {
       if (coverageRows.length > 0) {
         await tx.coverageActual.createMany({ data: coverageRows });
       }
-    });
+      if (customerRows) {
+        await tx.coverageCustomerActual.deleteMany({ where: { year: partitionYear, monthIndex: partitionMonthIndex } });
+        for (let i = 0; i < customerRows.length; i += CUSTOMER_INSERT_BATCH) {
+          await tx.coverageCustomerActual.createMany({ data: customerRows.slice(i, i + CUSTOMER_INSERT_BATCH) });
+        }
+      }
+    }, { timeout: 120_000, maxWait: 30_000 });
     invalidateDatasetCache();
-    return NextResponse.json({ count: coverageRows.length, year: partitionYear, monthIndex: partitionMonthIndex }, { status: 200 });
+    return NextResponse.json({ count: coverageRows.length, customerCount: customerRows?.length ?? null, year: partitionYear, monthIndex: partitionMonthIndex }, { status: 200 });
   } catch (error) {
     console.error("Failed to replace direct coverage month", error);
     return NextResponse.json({ error: "Failed to save direct coverage data." }, { status: 500 });

@@ -92,8 +92,21 @@ function monthStart(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** One customer's month for one principal and sales role: how many reps called it, and how many of them had a sale or order there. */
+export interface CustomerCoverageRow {
+  year: string;
+  month: string;
+  monthIndex: number;
+  salesRole: string;
+  principal: string;
+  customerId: string;
+  coverage: number;
+  productiveCalls: number;
+}
+
 export interface TransformResult {
   rows: MonthlyCoverageRow[];
+  customerRows: CustomerCoverageRow[];
   unmatchedCostCentres: string[];
 }
 
@@ -194,6 +207,29 @@ export function buildCoverage(rawRows: PineFactRow[], principals: PrincipalRow[]
     productiveCustomers: Set<string>;
   }
   const byKey = new Map<string, Agg>();
+  // Customer grain, from the same rows and rules: the reps that called each customer, and the reps with a productive call there. Summed over
+  // customers these equal the per-rep distinct-customer counts above, so a principal's totals reconcile either way.
+  interface CustomerAgg {
+    year: string;
+    month: string;
+    monthIndex: number;
+    salesRole: string;
+    principal: string;
+    customerId: string;
+    reps: Set<string>;
+    productiveReps: Set<string>;
+  }
+  const byCustomer = new Map<string, CustomerAgg>();
+  for (const r of enriched) {
+    const customerKey = `${r.year}|${r.month}|${r.salesRole}|${r.principal}|${r.customerId}`;
+    let customer = byCustomer.get(customerKey);
+    if (!customer) {
+      customer = { year: r.year, month: r.month, monthIndex: r.monthIndex, salesRole: r.salesRole, principal: r.principal, customerId: r.customerId, reps: new Set(), productiveReps: new Set() };
+      byCustomer.set(customerKey, customer);
+    }
+    customer.reps.add(r.employeeName);
+    if (r.productive) customer.productiveReps.add(r.employeeName);
+  }
   for (const r of enriched) {
     const key = `${r.year}|${r.month}|${r.salesRole}|${r.employeeName}|${r.principal}`;
     let agg = byKey.get(key);
@@ -227,5 +263,16 @@ export function buildCoverage(rawRows: PineFactRow[], principals: PrincipalRow[]
     productivityPct: agg.customers.size > 0 ? round1((agg.productiveCustomers.size / agg.customers.size) * 100) : 0,
   }));
 
-  return { rows, unmatchedCostCentres: Array.from(unmatched) };
+  const customerRows: CustomerCoverageRow[] = Array.from(byCustomer.values()).map((c) => ({
+    year: c.year,
+    month: c.month,
+    monthIndex: c.monthIndex,
+    salesRole: c.salesRole,
+    principal: c.principal,
+    customerId: c.customerId,
+    coverage: c.reps.size,
+    productiveCalls: c.productiveReps.size,
+  }));
+
+  return { rows, customerRows, unmatchedCostCentres: Array.from(unmatched) };
 }

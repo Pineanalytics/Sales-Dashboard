@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
 import { OUTLET_SOURCE_LABELS, boughtWithin, buyingTenure, dormancyFlag, longPurchaseConsistency, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
+import { loadStrikeData, outletStrike } from "@/lib/outletUniverse/strikeRate";
 import { buildNameProfiles, classification2, cleanPlaces, tierRow } from "@/lib/outletUniverse/tiering";
 
 export const runtime = "nodejs";
@@ -29,6 +30,11 @@ const HEADER = [
   // sales rep code, Upfield: the DataEdge login) and their Team Leader (per principal; blank where the rep is not on the roster), then whether
   // the rep is an Active or Inactive worker and the region and sub-region they are placed in.
   "Rep SFA ID", "Team Leader", "Team Leaders by Principal", "Rep Status", "Rep Region", "Rep Sub-Region",
+  // Strike rate, added up from customer level: Pine, EABL DMS and Upfield DataEdge, each by the rules of its own Coverage & Productivity figure
+  // (lib/outletUniverse/strikeRate.ts), summed over the year's months. Calls are the outlet's called months for the row's principal(s) and productive
+  // calls those with a sale. Leverage shows calls only (its feed records no call without a sale). Principal Strike Rate is the same figure added up
+  // over every customer of the principal.
+  "Calls YTD", "Productive Calls YTD", "Strike Rate % YTD", "Strike Rate by Principal", "Principal Strike Rate % YTD",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -52,6 +58,7 @@ export async function GET(req: NextRequest) {
     // are, so an outlet keeps the same tier when the export is narrowed to one principal.
     const universe = await exportOutlets({ ...parseOutletFilters(new URLSearchParams({ view: filters.view })), status: "all" }, access.scope, { withMix: false });
     const profiles = buildNameProfiles(universe);
+    const strikeData = await loadStrikeData();
     const lines = [HEADER.map(cell).join(",")];
     const now = new Date();
     for (const row of rows) {
@@ -59,6 +66,7 @@ export async function GET(req: NextRequest) {
       const daysSince = row.lastPurchaseDate ? Math.max(0, Math.floor((now.getTime() - new Date(row.lastPurchaseDate).getTime()) / 86_400_000)) : null;
       const tiered = tierRow(row, profiles);
       const places = cleanPlaces(row);
+      const strike = outletStrike(row, strikeData);
       lines.push(
         [
           OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source,
@@ -116,6 +124,11 @@ export async function GET(req: NextRequest) {
           row.repStatus,
           row.repRegion,
           row.repSubRegion,
+          strike.calls,
+          strike.productive,
+          strike.pct,
+          strike.byPrincipal,
+          strike.principalPct,
         ]
           .map(cell)
           .join(",")

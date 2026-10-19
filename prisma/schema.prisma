@@ -1362,6 +1362,26 @@ model PLEntry {
 // status is set during the nightly full-recompute pass only (see
 // SyncWatermark) — an outlet whose lastPurchaseDate has gone stale (60+
 // days) flips to "Inactive"; incremental runs never touch this field.
+// Customer-level coverage behind CoverageActual: for one month, principal and Pine customer, how many reps called the customer and how many
+// of those had a sale or order there (the same call and productive-call rules as CoverageActual). Summed over customers a principal's figures
+// equal CoverageActual's summed over reps, so the Active Outlets extract's strike rate per customer adds up to the principal's.
+model CoverageCustomerActual {
+  id              String   @id @default(cuid())
+  year            String
+  month           String
+  monthIndex      Int
+  salesRole       String
+  principal       String
+  customerId      String
+  coverage        Int
+  productiveCalls Int
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([year, monthIndex, salesRole, principal, customerId])
+  @@index([year, principal, customerId])
+}
+
 model ActiveOutlet {
   id                 String   @id @default(cuid())
   year               String
