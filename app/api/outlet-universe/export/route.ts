@@ -30,9 +30,10 @@ const HEADER = [
   // sales rep code, Upfield: the DataEdge login) and their Team Leader (per principal; blank where the rep is not on the roster), then whether
   // the rep is an Active or Inactive worker and the region and sub-region they are placed in.
   "Rep SFA ID", "Team Leader", "Team Leaders by Principal", "Rep Status", "Rep Region", "Rep Sub-Region",
-  // Strike rate, added up from customer level (Pine outlets only; the same call rules as the Coverage page, summed over the year's months):
-  // calls are the reps' visits to the outlet for the row's principal(s), productive calls those with a sale or order. Principal Strike Rate is the
-  // same figure added up over every customer of the principal.
+  // Strike rate, added up from customer level: Pine, EABL DMS and Upfield DataEdge, each by the rules of its own Coverage & Productivity figure
+  // (lib/outletUniverse/strikeRate.ts), summed over the year's months. Calls are the outlet's called months for the row's principal(s) and productive
+  // calls those with a sale. Leverage shows calls only (its feed records no call without a sale). Principal Strike Rate is the same figure added up
+  // over every customer of the principal.
   "Calls YTD", "Productive Calls YTD", "Strike Rate % YTD", "Strike Rate by Principal", "Principal Strike Rate % YTD",
 ];
 

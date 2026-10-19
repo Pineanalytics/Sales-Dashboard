@@ -45,14 +45,20 @@ describe("coverage transform, customer level", () => {
 
 describe("outlet strike rate", () => {
   const data = buildStrikeData("2026", [
-    { principal: "Mars-Nairobi", customerId: "C1", calls: 4, productive: 3 },
-    { principal: "Mars-Nairobi", customerId: "C2", calls: 4, productive: 1 },
-    { principal: "EFL-Nairobi", customerId: "C1", calls: 2, productive: 2 },
+    { source: "PINE", principal: "Mars-Nairobi", customerId: "C1", calls: 4, productive: 3 },
+    { source: "PINE", principal: "Mars-Nairobi", customerId: "C2", calls: 4, productive: 1 },
+    { source: "PINE", principal: "EFL-Nairobi", customerId: "C1", calls: 2, productive: 2 },
+    { source: "EABL", principal: "EABL-Nyeri", customerId: "E1", calls: 6, productive: 3 },
+    { source: "EABL", principal: "EABL-Nyeri", customerId: "E2", calls: 2, productive: 2 },
+    { source: "UPFIELD", principal: "Upfield-Nairobi", customerId: "U1", calls: 5, productive: 4 },
+    { source: "UPFIELD", principal: "Upfield-Nairobi", customerId: "U2", calls: 3, productive: 0 }, // returns only: covered, never productive
+    { source: "LEVERAGE", principal: "Unilever-Nairobi", customerId: "L1", calls: 7, productive: null },
   ]);
 
-  it("rounds to one decimal and is null without calls", () => {
+  it("rounds to one decimal and is null without calls or without a productive measure", () => {
     expect(strikeRatePct({ calls: 3, productive: 2 })).toBe(66.7);
     expect(strikeRatePct({ calls: 0, productive: 0 })).toBeNull();
+    expect(strikeRatePct({ calls: 7, productive: null })).toBeNull();
     expect(strikeRatePct(undefined)).toBeNull();
   });
 
@@ -69,8 +75,19 @@ describe("outlet strike rate", () => {
     expect(row.principalPct).toBe("EFL-Nairobi: 100.0%; Mars-Nairobi: 50.0%");
   });
 
-  it("is blank for other sources, and zero calls for a Pine outlet never called", () => {
-    expect(outletStrike({ source: "LEVERAGE", outletKey: "C1", principals: "Mars-Nairobi" }, data).calls).toBeNull();
+  it("does the same for EABL DMS and Upfield DataEdge, each against its own principal total", () => {
+    expect(outletStrike({ source: "EABL", outletKey: "E1", principals: "EABL-Nyeri" }, data)).toMatchObject({ calls: 6, productive: 3, pct: 50, principalPct: 62.5 }); // (3+2)/(6+2)
+    expect(outletStrike({ source: "UPFIELD", outletKey: "U2", principals: "Upfield-Nairobi" }, data)).toMatchObject({ calls: 3, productive: 0, pct: 0, principalPct: 50 }); // 4/(5+3)
+  });
+
+  it("gives Leverage calls but no strike rate, because its feed has no call without a sale", () => {
+    const row = outletStrike({ source: "LEVERAGE", outletKey: "L1", principals: "Unilever-Nairobi" }, data);
+    expect(row).toMatchObject({ calls: 7, productive: null, pct: null, principalPct: null });
+    expect(row.byPrincipal).toBe("Unilever-Nairobi: 7 calls");
+  });
+
+  it("is blank when the source has no call data, and zero calls for an outlet never called", () => {
+    expect(outletStrike({ source: "LEVERAGE", outletKey: "L1", principals: "Mars-Nairobi" }, data).calls).toBeNull();
     expect(outletStrike({ source: "PINE", outletKey: "C9", principals: "Mars-Nairobi" }, data)).toMatchObject({ calls: 0, productive: 0, pct: null });
   });
 });
