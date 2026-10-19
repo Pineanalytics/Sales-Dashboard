@@ -13,7 +13,8 @@
 //   - Weekly targets: moved; where the canonical week already exists the duplicate is removed, after checking its value is zero or equal
 //     (a non-zero, different value is reported and aborts an --apply run, never silently dropped).
 //   - Employee contribution and the employee master's absolute principal: moved to the canonical name (duplicates removed).
-//   - The duplicate Principal row is deleted once nothing but audit history refers to it. Audit-log rows keep the spelling they were written with.
+//   - Contribution-by-rep rows are derived: the recompute that follows an --apply run rebuilds them under the canonical name.
+//   - The duplicate Principal row is deleted once nothing but audit history and derived rows refer to it. Audit-log rows keep the spelling they were written with.
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { recomputeRosterDerived } from "../lib/rosterAssignment";
@@ -32,6 +33,8 @@ const problem = (message: string) => {
 // Tables this script moves itself, plus history tables that keep the spelling they were written with.
 const HANDLED = new Set(["Principal.principal", "TeamLeaderAssignment.principal", "TeamLeaderAssignment.absolutePrincipal", "WeeklyTarget.principal", "EmployeePrincipalContribution.principal", "EmployeeMaster.absolutePrincipal"]);
 const HISTORY = new Set(["TeamLeaderAssignmentAuditLog.principal", "WeeklyTargetAuditLog.principal", "TargetAuditLog.principal"]);
+// Derived tables that recomputeRosterDerived() wipes and rebuilds from the roster after an --apply run, so the old spelling disappears by itself.
+const DERIVED = new Set(["RepContribution.principal"]);
 
 async function run(tx: Prisma.TransactionClient) {
   const principals = await tx.principal.findMany({ select: { id: true, principal: true, createdAt: true, teamLeaderId: true, supervisorId: true, status: true } });
@@ -58,6 +61,7 @@ async function run(tx: Prisma.TransactionClient) {
         const [{ n }] = await tx.$queryRawUnsafe<{ n: number }[]>(`SELECT COUNT(*)::int AS n FROM "${table_name}" WHERE "${column_name}" = $1`, variant);
         if (n === 0) continue;
         if (HISTORY.has(key)) log(`  history kept as written: ${key} (${n})`);
+        else if (DERIVED.has(key)) log(`  rebuilt by the recompute afterwards: ${key} (${n})`);
         else if (!HANDLED.has(key)) problem(`${key} holds ${n} row(s) spelled "${variant}" and this script does not know how to move them.`);
       }
 
