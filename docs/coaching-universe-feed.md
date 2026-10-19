@@ -10,7 +10,7 @@ for the roster, outlets and performance, with two added resources. Read-only: no
 | URL | `GET https://pinefrostdb.com/api/integrations/coaching/reference?resource=<name>&...` |
 | Authentication | Header `x-coaching-reference-key: <secret>`. The secret is the environment variable `COACHING_REFERENCE_SYNC_KEY`, the same name and value on both applications (rotate both together). Missing or wrong key: HTTP 401. Never put it in a URL. |
 | Caching | Responses are `Cache-Control: no-store`. The server keeps the built universe for 10 minutes, so paging through it is cheap; the first call after that takes a few seconds (10-20 s). |
-| Paging | `pageSize` (default 500, maximum 2,000 for these two resources) and `cursor`. Start without a cursor; keep sending the `nextCursor` of the previous response until it is `null`. |
+| Paging | `pageSize` (default 500, maximum 1,000, the same limit as the other resources) and `cursor`. Start without a cursor; keep sending the `nextCursor` of the previous response until it is `null`. |
 | Consistency | Each response carries `universeBuiltAt` (when the outlet universe was last compiled) and `snapshot` (when this server built the feed). If either changes between two pages of one pull, start the pull again from the first page. |
 
 ## Resources
@@ -66,13 +66,13 @@ Filters: `source=...`, `principal=...`. Response: `{ syncedAt, universeBuiltAt, 
 ```bash
 BASE='https://pinefrostdb.com/api/integrations/coaching/reference'
 # page 1, then follow nextCursor until it is null
-curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=active&pageSize=2000"
-curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=active&pageSize=2000&cursor=2000"
+curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=active&pageSize=1000"
+curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe&status=active&pageSize=1000&cursor=1000"
 # the monthly history for one principal
-curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe-history&principal=Mars-Nairobi&pageSize=2000"
+curl -s -H "x-coaching-reference-key: $KEY" "$BASE?resource=universe-history&principal=Mars-Nairobi&pageSize=1000"
 ```
 
-About 67,000 universe rows is about 34 pages of 2,000; the pull is meant for the nightly schedule (the outlet universe itself compiles when read after 30 minutes).
+About 67,000 universe rows is about 68 pages of 1,000 (walked in about 15 seconds on production); the pull is meant for the nightly schedule (the outlet universe itself compiles when read after 30 minutes).
 
 ## What this feed carries, by decision
 
