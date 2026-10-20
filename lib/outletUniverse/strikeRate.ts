@@ -8,8 +8,11 @@
 //     (getUpfieldMonthlyCoverageRollup); a customer with only returns is covered but not productive.
 //   - Leverage: the Centegy feed holds completed invoices and returns only, never a call without a sale, so a strike rate cannot be measured
 //     (see getLeverageMonthlyCoverageRollup). Calls are the customer-months with a document; productive and strike rate are left blank.
-// A customer's calls are its called months of the year to date, a principal's calls are the sum over its customers, and strike rate = productive
-// divided by calls.
+// Deliberately scoped to each source's own most recent month only, not year-to-date: an outlet bought from once early in the year otherwise
+// stays "called" (and often "productive") for every month since, which inflates the YTD rate for outlets nobody has actually been visiting
+// lately. "Most recent month" is each source's own latest month of data (MAX of its date column), not the wall-clock calendar month, so a
+// source that's a few days behind on sync doesn't read as having zero calls. A customer's calls are that one month's count for it, a
+// principal's calls are the sum over its customers, and strike rate = productive divided by calls.
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
@@ -21,8 +24,10 @@ export interface StrikeCounts {
 }
 
 export interface StrikeData {
+  /** Non-null once loadStrikeData has run — a presence flag only, not a meaningful calendar year
+   *  (each source below is independently scoped to its own latest month, not this value). */
   year: string | null;
-  /** Counts per source, principal and customer id, summed over the year's months. */
+  /** Counts per source, principal and customer id, for each source's most recent month only. */
   byCustomer: Map<string, StrikeCounts>;
   /** The same, summed over every customer of the source's principal. */
   byPrincipal: Map<string, StrikeCounts>;
@@ -63,21 +68,23 @@ export function buildStrikeData(year: string | null, rows: StrikeSourceRow[]): S
   return { year, byCustomer, byPrincipal };
 }
 
-/** The extract's year-to-date customer calls from the four sources. A source with no data yet simply contributes nothing. */
+/** The extract's customer calls from the four sources, each scoped to its own most recent month of
+ *  data (not year-to-date — see this file's header comment). A source with no data yet simply
+ *  contributes nothing. */
 export async function loadStrikeData(): Promise<StrikeData> {
   const [pine, eabl, upfield, leverage] = await Promise.all([
-    prisma.$queryRaw<{ year: string; principal: string; customerId: string; calls: number; productive: number }[]>(Prisma.sql`
-      SELECT year, principal, "customerId", SUM(coverage)::int AS calls, SUM("productiveCalls")::int AS productive
+    prisma.$queryRaw<{ principal: string; customerId: string; calls: number; productive: number }[]>(Prisma.sql`
+      SELECT principal, "customerId", SUM(coverage)::int AS calls, SUM("productiveCalls")::int AS productive
       FROM "CoverageCustomerActual"
-      WHERE year = (SELECT MAX(year) FROM "CoverageCustomerActual")
-      GROUP BY year, principal, "customerId"
+      WHERE (year, "monthIndex") = (SELECT year, "monthIndex" FROM "CoverageCustomerActual" ORDER BY year DESC, "monthIndex" DESC LIMIT 1)
+      GROUP BY principal, "customerId"
     `),
     prisma.$queryRaw<{ principal: string; customerId: string; calls: number; productive: number }[]>(Prisma.sql`
       SELECT principal, "customerId", COUNT(*)::int AS calls, COUNT(*) FILTER (WHERE productive)::int AS productive
       FROM (
         SELECT ecm.principal, ec."customerCode" AS "customerId", date_trunc('month', ec."callDate") AS m, BOOL_OR(ec."isProductive") AS productive
         FROM "EablCall" ec INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
-        WHERE ec."customerCode" IS NOT NULL AND EXTRACT(YEAR FROM ec."callDate") = EXTRACT(YEAR FROM now())
+        WHERE ec."customerCode" IS NOT NULL AND date_trunc('month', ec."callDate") = (SELECT date_trunc('month', MAX("callDate")) FROM "EablCall")
         GROUP BY ecm.principal, ec."customerCode", m
       ) months
       GROUP BY principal, "customerId"
@@ -88,7 +95,7 @@ export async function loadStrikeData(): Promise<StrikeData> {
         SELECT "custCode", date_trunc('month', "txnDate") AS m, BOOL_OR(type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS productive
         FROM "UpfieldTransaction"
         WHERE NULLIF(BTRIM("custCode"), '') IS NOT NULL AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'
-          AND EXTRACT(YEAR FROM "txnDate") = EXTRACT(YEAR FROM now())
+          AND date_trunc('month', "txnDate") = (SELECT date_trunc('month', MAX("txnDate")) FROM "UpfieldTransaction")
         GROUP BY "custCode", m
       ) months
       GROUP BY "custCode"
@@ -97,7 +104,7 @@ export async function loadStrikeData(): Promise<StrikeData> {
       SELECT "storageLocation", "customerCode" AS "customerId", COUNT(*)::int AS calls
       FROM (
         SELECT DISTINCT "customerCode", "storageLocation", date_trunc('month', "deliveryDate") AS m
-        FROM "SalesReturnLine" WHERE EXTRACT(YEAR FROM "deliveryDate") = EXTRACT(YEAR FROM now())
+        FROM "SalesReturnLine" WHERE date_trunc('month', "deliveryDate") = (SELECT date_trunc('month', MAX("deliveryDate")) FROM "SalesReturnLine")
       ) months
       GROUP BY "storageLocation", "customerCode"
     `),

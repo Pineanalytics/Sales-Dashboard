@@ -32,10 +32,11 @@ const HEADER = [
   // the rep is an Active or Inactive worker and the region and sub-region they are placed in.
   "Rep SFA ID", "Team Leader", "Team Leaders by Principal", "Rep Status", "Rep Region", "Rep Sub-Region",
   // Strike rate, added up from customer level: Pine, EABL DMS and Upfield DataEdge, each by the rules of its own Coverage & Productivity figure
-  // (lib/outletUniverse/strikeRate.ts), summed over the year's months. Calls are the outlet's called months for the row's principal(s) and productive
-  // calls those with a sale. Leverage shows calls only (its feed records no call without a sale). Principal Strike Rate is the same figure added up
-  // over every customer of the principal.
-  "Calls YTD", "Productive Calls YTD", "Strike Rate % YTD", "Strike Rate by Principal", "Principal Strike Rate % YTD",
+  // (lib/outletUniverse/strikeRate.ts), scoped to each source's own most recent month only — not year-to-date, which otherwise keeps an outlet
+  // reading as "called" (and often "productive") for every month since a single early-year purchase. Calls are the outlet's calls for the row's
+  // principal(s) in that latest month and productive calls those with a sale. Leverage shows calls only (its feed records no call without a sale).
+  // Principal Strike Rate is the same figure added up over every customer of the principal.
+  "Calls (Last Month)", "Productive Calls (Last Month)", "Strike Rate % (Last Month)", "Strike Rate by Principal", "Principal Strike Rate % (Last Month)",
   // The territory with its spellings unified ("THIKA", "Thika - MBSR", "Nairobi-Thika" -> "Thika"), by name and by where the outlets sit, and how it was unified.
   "Territory (Clean)", "Territory Match",
 ];
