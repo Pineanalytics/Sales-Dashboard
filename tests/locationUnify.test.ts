@@ -99,6 +99,13 @@ describe("unifying location names", () => {
     expect(row.method).toBe("address -> nearest area");
   });
 
+  it("leaves a name that stands alone exactly as it is spelled", () => {
+    const alone = buildLocationMap([place("Upper Mountain (SA)", -0.4, 37.0, 30, 0.1), place("kenol", -0.95, 37.0, 30, 0.1)]);
+    expect(find(alone, "Upper Mountain (SA)").canonical).toBe("Upper Mountain (SA)");
+    expect(find(alone, "kenol").canonical).toBe("kenol");
+    expect(find(alone, "kenol").method).toBe("unchanged");
+  });
+
   it("leaves an unspecified name as it is", () => {
     expect(find(map, "Unspecified").canonical).toBe("Unspecified");
   });

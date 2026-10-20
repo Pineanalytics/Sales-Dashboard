@@ -335,7 +335,8 @@ export function buildLocationMap(stats: LocationStat[], options: ClusterOptions 
 
   // 4. Final canonical names.
   const canonicalOfCluster = new Map<number, string>();
-  for (const [root, c] of clusters) canonicalOfCluster.set(root, displayName(c.key));
+  // A name that stands alone keeps its own spelling ("Upper Mountain (SA)"); only unified places get a cleaned display name.
+  for (const [root, c] of clusters) canonicalOfCluster.set(root, c.names.length === 1 ? c.names[0].name : displayName(c.key));
   const mapping: LocationMapRow[] = [];
   const groupOfName = new Map<string, Group>();
   for (const g of groups) for (const s of g.names) groupOfName.set(s.name, g);
@@ -351,7 +352,7 @@ export function buildLocationMap(stats: LocationStat[], options: ClusterOptions 
       const method: LocationMapRow["method"] = !joined ? "unchanged" : info ? info.method : "same name";
       const confidence: MergeConfidence | null = !joined ? null : info ? info.confidence : "High";
       const centre = s.gps > 0 ? { lat: s.lat, lon: s.lon } : centreOf(cluster);
-      mapping.push({ raw: s.name, canonical: s.name === canonical && !joined ? s.name : canonical, groupId: `L${String(root + 1).padStart(4, "0")}`, kind: "place", rows: s.rows, gps: s.gps, lat: centre?.lat ?? null, lon: centre?.lon ?? null, sources: s.sources, method, confidence });
+      mapping.push({ raw: s.name, canonical, groupId: `L${String(root + 1).padStart(4, "0")}`, kind: "place", rows: s.rows, gps: s.gps, lat: centre?.lat ?? null, lon: centre?.lon ?? null, sources: s.sources, method, confidence });
     } else if (n.kind === "address") {
       const best = resolveAddress(s, n.raw);
       mapping.push({
