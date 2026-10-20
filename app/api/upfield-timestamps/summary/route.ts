@@ -68,18 +68,22 @@ export async function GET(request: NextRequest) {
   const activeRange = localWindow(month, selectedDate);
   const calendarRange = calendarMonthWindow(month);
   const localTransactionDate = Prisma.sql`DATE("txnDate" + ${NAIROBI_OFFSET})`;
-  const activeWorkingDayClause = kenyaWorkingDayClause(localTransactionDate, calendarRange);
-  const monthWorkingDayClause = kenyaWorkingDayClause(localTransactionDate, calendarRange);
+  // Weekends/Kenyan holidays are visualised like any other day below (daily,
+  // hourly, repDays, customers, universe, filters) and count toward every
+  // plain sum/count (metrics, coverage's own totals) the same as a weekday.
+  // The one figure that's a genuine day-divided average — coverage's
+  // averageOutletsPerDay — is computed from workingDayClause separately,
+  // below, so it isn't diluted by non-working-day rows.
+  const workingDayClause = kenyaWorkingDayClause(localTransactionDate, calendarRange);
   const baseConditions = [
     Prisma.sql`"txnDate" >= ${activeRange.start}`,
     Prisma.sql`"txnDate" < ${activeRange.end}`,
     Prisma.sql`NULLIF(BTRIM(fsr), '') IS NOT NULL`,
     Prisma.sql`UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST'`,
-    activeWorkingDayClause,
   ];
   if (rep) baseConditions.push(Prisma.sql`${REP_EXPRESSION} = ${rep}`);
   const where = Prisma.sql`${Prisma.join(baseConditions, " AND ")} ${scopeNameClause(scope, REP_EXPRESSION)}`;
-  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND ${monthWorkingDayClause} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST' ${scopeNameClause(scope, REP_EXPRESSION)}`;
+  const monthWhere = Prisma.sql`"txnDate" >= ${monthRange.start} AND "txnDate" < ${monthRange.end} AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST' ${scopeNameClause(scope, REP_EXPRESSION)}`;
 
   type MetricsRow = { lines: bigint; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number; returnsValue: number; lastDataAt: Date | null; averageInterval: number | null };
   type DailyRow = { date: Date; invoices: bigint; outlets: bigint; reps: bigint; netSales: number; units: number };
@@ -148,14 +152,22 @@ export async function GET(request: NextRequest) {
         FROM base b LEFT JOIN intervals i ON i.rep = b.rep AND i.date = b.date
         GROUP BY b.date, b.rep ORDER BY b.date DESC, "firstTransaction" DESC`),
       prisma.$queryRaw<CoverageRow[]>(Prisma.sql`
+        WITH working_days AS (
+          SELECT ${REP_EXPRESSION} AS rep,
+            COUNT(DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET})) AS "workingActiveDays",
+            COUNT(DISTINCT (DATE("txnDate" + ${NAIROBI_OFFSET}), "custCode")) FILTER (WHERE type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS "workingOutletDays"
+          FROM "UpfieldTransaction" WHERE ${where} AND ${workingDayClause}
+          GROUP BY 1
+        )
         SELECT ${REP_EXPRESSION} AS rep, COUNT(DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET})) AS "activeDays",
           COUNT(DISTINCT "custCode") FILTER (WHERE type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS outlets,
           COUNT(DISTINCT (DATE("txnDate" + ${NAIROBI_OFFSET}), "custCode")) FILTER (WHERE type = 'sale' AND COALESCE("saleIncl", 0) > 0) AS "outletDays",
-          (COUNT(DISTINCT (DATE("txnDate" + ${NAIROBI_OFFSET}), "custCode")) FILTER (WHERE type = 'sale' AND COALESCE("saleIncl", 0) > 0) /
-            NULLIF(COUNT(DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET})), 0)::double precision) AS "averageOutletsPerDay",
+          COALESCE(MAX(wd."workingOutletDays") / NULLIF(MAX(wd."workingActiveDays"), 0)::double precision, 0) AS "averageOutletsPerDay",
           COUNT(DISTINCT "invoiceNo") FILTER (WHERE type = 'sale') AS invoices,
           COALESCE(SUM("saleIncl"), 0)::double precision AS "netSales", COALESCE(SUM(qty), 0)::double precision AS units
-        FROM "UpfieldTransaction" WHERE ${where} GROUP BY 1 ORDER BY "outletDays" DESC, "netSales" DESC`),
+        FROM "UpfieldTransaction"
+        LEFT JOIN working_days wd ON wd.rep = ${REP_EXPRESSION}
+        WHERE ${where} GROUP BY 1 ORDER BY "outletDays" DESC, "netSales" DESC`),
       prisma.$queryRaw<CustomerRow[]>(Prisma.sql`
         SELECT COALESCE(NULLIF(BTRIM("custCode"), ''), 'Uncoded') AS "customerCode", COALESCE(NULLIF(BTRIM("custName"), ''), 'Unnamed outlet') AS "customerName",
           COUNT(DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET})) AS "activeDays", COUNT(DISTINCT ${REP_EXPRESSION}) AS reps,
@@ -223,7 +235,7 @@ export async function GET(request: NextRequest) {
       },
       filters: { reps: filterReps.map((row) => row.rep), dates: filterDates.map((row) => day(row.date)) },
       freshness: { syncedAt: iso(watermark?.updatedAt), through: iso(watermark?.lastIncrementalAt), latestRunCompletedAt: iso(latestRun?.completedAt), latestRunRows: latestRun?.recordCount ?? null },
-      definitions: { coverage: "Unique customers with at least one positive sale on dashboard working days in the selected period. Against the outlet list (Upfield's customer master, Admin > Upfield outlet list): the outlets that bought in the period over the outlets on the list, per rep (their route), channel and outlet type.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark. Saturday, Sunday, and known Kenyan public-holiday activity is retained in source data but excluded from this dashboard." },
+      definitions: { coverage: "Unique customers with at least one positive sale in the selected period, Saturday/Sunday/holiday activity included. Against the outlet list (Upfield's customer master, Admin > Upfield outlet list): the outlets that bought in the period over the outlets on the list, per rep (their route), channel and outlet type. Average Outlets/Day is the one figure kept to Mon–Fri excluding Kenyan public holidays, so a weekend or holiday doesn't dilute it.", time: "First and last DataEdge sales/return transaction, converted from the stored UTC instant to Nairobi wall-clock time; this is not GPS check-in/check-out time. Upfield start status uses an 8:00 AM benchmark. Saturday, Sunday, and known Kenyan public-holiday activity is shown here like any other day." },
     });
   } catch (error) {
     console.error("Failed to load Upfield Timestamp and Coverage", error);
