@@ -155,9 +155,14 @@ function nextUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
 }
 
-/** Dashboard-only eligibility. RepCall rows are deliberately retained in
- * Postgres and remain available to the raw export endpoint; this clause only
- * keeps non-working activity out of timestamp visuals and averages. */
+/** Dashboard-only eligibility, now used only for the standing unmapped-
+ * employee worklist below (getTimestampSummary's unmappedRows) and by
+ * Upfield's own queries (app/api/upfield-timestamps/*) for the one
+ * genuinely day-divided figure they compute (coverage.averageOutletsPerDay).
+ * Every other Timestamps query shows non-working-day activity like any
+ * other day — see sourceQuery's own comment above. RepCall rows are
+ * deliberately retained in Postgres either way and remain available to the
+ * raw export endpoint regardless of this clause. */
 export function kenyaWorkingDayClause(dateExpression: Prisma.Sql, range: { start: Date; end: Date }): Prisma.Sql {
   const holidays = kenyaPublicHolidaysInRange(range.start, range.end);
   if (holidays.length === 0) {
@@ -235,6 +240,16 @@ export function scopeClause(scope: TeamLeaderScope | null): Prisma.Sql {
  * selected — the common case, since Timestamps shares the same global
  * principal selector used everywhere else in the app — which is exactly
  * what made an unmapped rep's whole day disappear. */
+// Non-working days used to be filtered out of this query's own baseWhere,
+// which removed them from both the visuals (charts/tables) and every KPI
+// total built on top. They're visualised again now — a weekend/holiday with
+// real activity shows in the chart and day-by-day table, and counts toward
+// plain sums/counts (totalCalls, sales, qty, ...) like any other day. Only a
+// genuine day-divided average should stay working-days-only; the one place
+// that computes one from this data is client-side
+// (components/views/timestamps/TimestampsPineView.tsx's
+// buildRepMonthlyAverages, for hoursInDay/first-last-call/avgIntervalMins),
+// which filters by lib/kenyaBusinessCalendar.ts's isKenyaWorkingDay itself.
 function sourceQuery(
   monthRange: { start: Date; end: Date },
   scope: TeamLeaderScope | null,
@@ -242,14 +257,13 @@ function sourceQuery(
 ): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
   const { start, end } = monthRange;
   const teamClause = scopeClause(scope);
-  const workingDayClause = kenyaWorkingDayClause(Prisma.sql`r.date::date`, monthRange);
   const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode" ${principalKey ? inferredPrincipalJoin() : EMPTY_SQL}`;
   const salesRole = Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`;
 
   if (!principalKey) {
     return {
       from,
-      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND ${workingDayClause} AND COALESCE(em.active, true) ${teamClause}`,
+      baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) ${teamClause}`,
       salesRole,
     };
   }
@@ -265,7 +279,7 @@ function sourceQuery(
   const inferredPrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`);
   return {
     from,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND ${workingDayClause} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
     salesRole,
   };
 }

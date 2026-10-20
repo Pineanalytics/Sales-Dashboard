@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
+import { isKenyaWorkingDay } from "@/lib/kenyaBusinessCalendar";
 import { useCurrentUser } from "@/components/dashboard/UserContext";
 import { InlineReportExport } from "@/components/reports/InlineReportExport";
 import { PrincipalSelector } from "@/components/dashboard/PrincipalSelector";
@@ -313,8 +314,14 @@ function buildRepProductivitySummary(summaries: RepDaySummary[]): RepProductivit
  *  Call averaged (mean of each day's Nairobi clock time, not whichever day
  *  happens to sort first) — used whenever no single date is selected, so a
  *  full-month view shows each rep's typical start/finish instead of a long
- *  day-by-day list. Calls/Productive/Outlets/Sales are summed; Strike Rate is
- *  recomputed from the summed totals (not an average of daily percentages).
+ *  day-by-day list. Calls/Productive/Outlets/Sales are summed over every
+ *  visualised day, weekends and holidays included — real activity on a
+ *  non-working day is still real activity. Strike Rate is recomputed from
+ *  those summed totals (not an average of daily percentages). The
+ *  genuinely day-divided figures — hoursInDay, the averaged first/last-call
+ *  clock time, and avgIntervalMins (itself an average of each day's own
+ *  average) — stay working-days-only (isKenyaWorkingDay), so a weekend or
+ *  holiday shown in the day-by-day table and chart doesn't dilute them.
  *  The result is shaped exactly like a day-grain RepDaySummary (with a
  *  synthetic firstCall/lastCall ISO carrying only the averaged clock time) so
  *  every existing status/sort/badge function keeps working unmodified. */
@@ -359,23 +366,28 @@ function buildRepMonthlyAverages(summaries: RepDaySummary[]): RepMonthlyAverageR
       casesKnown: true,
       days: 0,
     };
-    const firstMinutes = nairobiMinutesAfterMidnight(row.firstCall);
-    const lastMinutes = nairobiMinutesAfterMidnight(row.lastCall);
-    if (firstMinutes !== null) acc.firstCallMinutes.push(firstMinutes);
-    if (lastMinutes !== null) acc.lastCallMinutes.push(lastMinutes);
-    acc.hoursInDaySum += row.hoursInDay;
+    // Sums cover every visualised day, including weekends/holidays.
     acc.callsMade += row.callsMade;
     acc.productiveCalls += row.productiveCalls;
     acc.outletsCovered += row.outletsCovered;
-    if (row.avgIntervalMins !== null) {
-      acc.intervalSum += row.avgIntervalMins;
-      acc.intervalCount += 1;
-    }
     acc.sales += row.sales;
     acc.qty += row.qty;
     if (row.cases === null) acc.casesKnown = false;
     else acc.cases += row.cases;
-    acc.days += 1;
+
+    // The day-divided averages stay working-days-only.
+    if (isKenyaWorkingDay(row.date)) {
+      const firstMinutes = nairobiMinutesAfterMidnight(row.firstCall);
+      const lastMinutes = nairobiMinutesAfterMidnight(row.lastCall);
+      if (firstMinutes !== null) acc.firstCallMinutes.push(firstMinutes);
+      if (lastMinutes !== null) acc.lastCallMinutes.push(lastMinutes);
+      acc.hoursInDaySum += row.hoursInDay;
+      if (row.avgIntervalMins !== null) {
+        acc.intervalSum += row.avgIntervalMins;
+        acc.intervalCount += 1;
+      }
+      acc.days += 1;
+    }
     byRep.set(row.employeeCode, acc);
   }
 
@@ -671,7 +683,7 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
         title="SalesEdge timestamps"
         action={
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · Mon–Fri, excluding Kenyan holidays</span>
+            <span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · weekends/holidays shown; monthly averages stay Mon–Fri, excluding Kenyan holidays</span>
             <InlineReportExport reportKey="timestamps" repFilter={selectedRep} allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
           </div>
         }
