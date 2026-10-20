@@ -104,19 +104,15 @@ interface DebtBalances {
  *  never drift apart. Both slides follow the global reporting period: sales and
  *  gross profit for the selected months, debtors as at the period's last month,
  *  and the weekly ageing for that month and the one before it. */
-export function FinancePresentationView({
-  receivables,
-  payables,
-  payablesByPrincipal,
-  debtAttribution,
-  gpMarginTargets,
-}: {
+export type FinancePresentationProps = {
   receivables: ReceivablesSummary | null;
   payables: PayablesDashboard | null;
   payablesByPrincipal: PayablesByPrincipalRow[];
   debtAttribution: Omit<DebtAttribution, "customers">;
   gpMarginTargets: GpMarginTargets;
-}) {
+};
+
+export function FinancePresentationView({ receivables, payables, payablesByPrincipal, debtAttribution, gpMarginTargets }: FinancePresentationProps) {
   const dataset = useDashboardStore((s) => s.dataset);
   const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
   const presentationMode = useDashboardStore((s) => s.presentationMode);

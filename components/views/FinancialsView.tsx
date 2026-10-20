@@ -20,6 +20,7 @@ import { SalesPerformanceTab } from "@/components/financials/SalesPerformanceTab
 import { TotalOutstandingTab } from "@/components/financials/TotalOutstandingTab";
 import { AgeingTrendTab } from "@/components/financials/AgeingTrendTab";
 import { GlobalAgeingTab } from "@/components/financials/GlobalAgeingTab";
+import { FinancePresentationView, type FinancePresentationProps } from "./FinancePresentationView";
 
 export type FinancialsTab =
   | "receivables-summary"
@@ -29,7 +30,8 @@ export type FinancialsTab =
   | "sales-performance"
   | "total-outstanding"
   | "ageing-trend"
-  | "global-ageing";
+  | "global-ageing"
+  | "finance-presentation";
 
 type Props = {
   canViewReceivables: boolean;
@@ -46,6 +48,8 @@ type Props = {
   ageingTrend: AgeingTrendForMonth;
   ageingYear: number;
   ageingMonth: string;
+  /** Totals-only data for the Finance Presentation slides (no customer or vendor lists). */
+  presentation: Omit<FinancePresentationProps, "debtAttribution">;
 };
 
 const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitability?: boolean }[] = [
@@ -57,6 +61,7 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "total-outstanding", label: "Debtors & Total Outstanding", receivables: true },
   { id: "ageing-trend", label: "Ageing Trend", receivables: true },
   { id: "global-ageing", label: "Global Ageing", receivables: true },
+  { id: "finance-presentation", label: "Finance Presentation", profitability: true },
 ];
 
 export function FinancialsView({
@@ -71,8 +76,10 @@ export function FinancialsView({
   ageingTrend,
   ageingYear,
   ageingMonth,
+  presentation,
 }: Props) {
   const dataset = useDashboardStore((state) => state.dataset);
+  const presentationMode = useDashboardStore((state) => state.presentationMode);
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
   const period = useDashboardStore((state) => state.selectedPeriod);
   const availableTabs = TABS.filter((tab) =>
@@ -90,11 +97,13 @@ export function FinancialsView({
   // views over the same profitability/receivables data, not new report
   // definitions of their own.
   const activeReportKey: "profitability" | "receivables" =
-    activeTab === "profitability" || activeTab === "sales-performance" ? "profitability" : "receivables";
+    activeTab === "profitability" || activeTab === "sales-performance" || activeTab === "finance-presentation" ? "profitability" : "receivables";
+  // Presentation mode hides the app chrome; the slides then fill the screen on their own.
+  const showChrome = !(activeTab === "finance-presentation" && presentationMode);
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="rounded-xl border border-[#d8e4d7] bg-white px-5 py-4 shadow-sm">
+      {showChrome && <header className="rounded-xl border border-[#d8e4d7] bg-white px-5 py-4 shadow-sm">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#28795a]">Financials</p>
         <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -110,9 +119,9 @@ export function FinancialsView({
             <InlineReportExport reportKey={activeReportKey} allowedPages={user?.allowedPages ?? []} isAdmin={user?.role === "ADMIN"} />
           </div>
         </div>
-      </header>
+      </header>}
 
-      <div className="rounded-xl border border-[#d8e4d7] bg-[#eef4ee] p-1.5 shadow-sm" role="tablist" aria-label="Financials sections">
+      {showChrome && <div className="rounded-xl border border-[#d8e4d7] bg-[#eef4ee] p-1.5 shadow-sm" role="tablist" aria-label="Financials sections">
         <div className="flex flex-wrap gap-1">
           {availableTabs.map((tab) => {
             const selected = activeTab === tab.id;
@@ -133,7 +142,7 @@ export function FinancialsView({
             );
           })}
         </div>
-      </div>
+      </div>}
 
       <div role="tabpanel">
         {activeTab === "receivables-summary" && receivables && <ReceivablesSummary data={receivables} />}
@@ -192,6 +201,7 @@ export function FinancialsView({
         {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} debtAttribution={debtAttribution} />}
         {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
         {activeTab === "global-ageing" && <GlobalAgeingTab />}
+        {activeTab === "finance-presentation" && <FinancePresentationView {...presentation} debtAttribution={debtAttribution} />}
       </div>
     </div>
   );
