@@ -33,12 +33,38 @@ async function assertNotLastAdminDemotion(userId: string, currentUser: { id: str
   }
 }
 
-type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR";
+type UserRole =
+  | "ADMIN"
+  | "VIEWER"
+  | "TEAM_LEADER"
+  | "SUPERVISOR"
+  | "HOD"
+  | "DIRECTOR"
+  | "SALES_ADMIN"
+  | "FINANCE_MANAGER"
+  | "ACCOUNTANT"
+  | "LOGISTICS_MANAGER";
+
+const ASSIGNABLE_ROLES = ["ADMIN", "TEAM_LEADER", "SUPERVISOR", "HOD", "DIRECTOR", "SALES_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "LOGISTICS_MANAGER"] as const;
 
 function readRole(formData: FormData): UserRole {
   const raw = formData.get("role");
-  if (raw === "ADMIN" || raw === "TEAM_LEADER" || raw === "SUPERVISOR" || raw === "HOD" || raw === "DIRECTOR") return raw;
+  if (typeof raw === "string" && (ASSIGNABLE_ROLES as readonly string[]).includes(raw)) return raw as UserRole;
   return "VIEWER";
+}
+
+// Optional, role-independent link to EmployeeMaster.employeeCode (the business
+// code, not EmployeeMaster.id) — unlocks the personal "My Sales" module. Blank
+// clears the link; a non-blank code must resolve to a real roster entry, same
+// "pick something real" rule as readTeamLeaderId/readSupervisorId below.
+async function readEmployeeCode(formData: FormData): Promise<string | null> {
+  const code = String(formData.get("employeeCode") || "").trim();
+  if (!code) return null;
+  const match = await prisma.employeeMaster.findUnique({ where: { employeeCode: code }, select: { employeeCode: true } });
+  if (!match) {
+    redirect("/admin/users?error=" + encodeURIComponent(`No roster entry found for Employee Code "${code}".`));
+  }
+  return code;
 }
 
 // TEAM_LEADER logins need a linked TeamLeader row (User.teamLeaderId, unique) so
@@ -73,6 +99,7 @@ export async function createUserAction(formData: FormData) {
   const role = readRole(formData);
   const teamLeaderId = readTeamLeaderId(formData, role);
   const supervisorId = readSupervisorId(formData, role);
+  const employeeCode = await readEmployeeCode(formData);
 
   if (!email || !password || password.length < 8) {
     redirect("/admin/users?error=" + encodeURIComponent("Email is required and password must be at least 8 characters."));
@@ -82,7 +109,7 @@ export async function createUserAction(formData: FormData) {
 
   try {
     await prisma.user.create({
-      data: { email, name: name || null, passwordHash, role, teamLeaderId, supervisorId, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
+      data: { email, name: name || null, passwordHash, role, teamLeaderId, supervisorId, employeeCode, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
     });
   } catch (err: unknown) {
     const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
@@ -92,7 +119,9 @@ export async function createUserAction(formData: FormData) {
           ? "That Team Leader is already linked to another login."
           : supervisorId
             ? "That Sales Supervisor is already linked to another login."
-            : "A user with that email already exists."
+            : employeeCode
+              ? "That Employee Code is already linked to another login."
+              : "A user with that email already exists."
         : "Failed to create the user.";
     redirect("/admin/users?error=" + encodeURIComponent(message));
   }
@@ -243,8 +272,32 @@ export async function updateUserRoleAction(formData: FormData) {
     role === "SUPERVISOR" ? "a sales supervisor" :
     role === "HOD" ? "a Head of Sales" :
     role === "DIRECTOR" ? "a director" :
+    role === "SALES_ADMIN" ? "a Sales Admin" :
+    role === "FINANCE_MANAGER" ? "a Finance Manager" :
+    role === "ACCOUNTANT" ? "an Accountant" :
+    role === "LOGISTICS_MANAGER" ? "a Logistics Manager" :
     "a viewer";
   redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${roleLabel}.`));
+}
+
+// Role-independent — see User.employeeCode. Separate from updateUserRoleAction
+// since the link has nothing to do with which role a login holds.
+export async function updateUserEmployeeCodeAction(formData: FormData) {
+  await requireAdmin();
+  const userId = String(formData.get("userId") || "");
+  const employeeCode = await readEmployeeCode(formData);
+
+  try {
+    await prisma.user.update({ where: { id: userId }, data: { employeeCode } });
+  } catch (err: unknown) {
+    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+    redirect("/admin/users?error=" + encodeURIComponent(code === "P2002" ? "That Employee Code is already linked to another login." : "Failed to update the Employee Code link."));
+  }
+
+  redirect(
+    "/admin/users?success=" +
+      encodeURIComponent(employeeCode ? `Linked to Employee Code ${employeeCode} — their "My Sales" module is now unlocked.` : "Cleared the Employee Code link.")
+  );
 }
 
 export async function updateUserPagesAction(formData: FormData) {

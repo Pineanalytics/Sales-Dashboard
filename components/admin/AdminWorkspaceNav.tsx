@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 
-type Role = "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "VIEWER";
+type Role = "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "VIEWER" | "SALES_ADMIN" | "FINANCE_MANAGER" | "ACCOUNTANT" | "LOGISTICS_MANAGER";
 
 type AdminDestination = {
   href: string;

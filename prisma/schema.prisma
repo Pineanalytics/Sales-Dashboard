@@ -41,6 +41,19 @@ enum Role {
   // fills KPI values themselves) — the MD/Director tier the HOD tracker was
   // built to be presented to. Also company-wide/unscoped, same reasoning as HOD.
   DIRECTOR
+  // Back-office roles below: no scoping logic of their own (resolveScopeForSession
+  // treats them like VIEWER — unrestricted unless User.allowedPrincipals narrows
+  // them, see lib/teamLeaderScope.ts). What they actually see is still governed
+  // entirely by User.allowedPages, same "default all, narrow explicitly"
+  // convention as everyone else — adding the value here just gives an admin a
+  // correctly-labelled role to assign, not a different permission mechanism.
+  // Sales Admin — administrative support for the sales function; may also be
+  // linked to an EmployeeMaster record via User.employeeCode for the personal
+  // "My Sales" module, independently of this role (any role can carry that link).
+  SALES_ADMIN
+  FINANCE_MANAGER
+  ACCOUNTANT
+  LOGISTICS_MANAGER
 }
 
 enum UserStatus {
@@ -83,6 +96,15 @@ model User {
   // "never applied automatically" rule as requestedRole.
   proposedRole      Role?
   roleConfirmedAt   DateTime?
+  // Optional link to EmployeeMaster.employeeCode (the business code, e.g.
+  // "1181" — not EmployeeMaster.id), independent of `role`. Unlocks a personal
+  // "My Sales" module (app/(protected)/(analytics)/my-sales) showing just this
+  // login's own SalesRepActual rows — for someone who, alongside whatever
+  // reports their role already grants, is also themselves a rep. Deliberately
+  // not a formal @relation to EmployeeMaster: that table is routinely
+  // replaced wholesale by the roster import, and a hard FK would break the
+  // import whenever a linked code is briefly absent mid-replace.
+  employeeCode      String?    @unique
 }
 
 // Admin-editable content for automated emails (currently just the new-modules

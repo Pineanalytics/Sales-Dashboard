@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createUserAction } from "@/app/(protected)/admin/users/actions";
 
-type Role = "VIEWER" | "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR";
+type Role = "VIEWER" | "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "SALES_ADMIN" | "FINANCE_MANAGER" | "ACCOUNTANT" | "LOGISTICS_MANAGER";
 
 export interface LinkOption {
   id: string;
@@ -96,7 +96,20 @@ export function NewUserForm({ teamLeaders, supervisors }: { teamLeaders: LinkOpt
           <option value="SUPERVISOR">Sales Supervisor — manages their whole Team Leader group&apos;s roster/targets</option>
           <option value="HOD">Head of Sales — fills the company-wide HOD Performance Tracker</option>
           <option value="DIRECTOR">Director — reviews the HOD Performance Tracker</option>
+          <option value="SALES_ADMIN">Sales Admin — administrative support for the sales function</option>
+          <option value="FINANCE_MANAGER">Finance Manager — Financials &amp; Receivables</option>
+          <option value="ACCOUNTANT">Accountant — Financials &amp; Receivables</option>
+          <option value="LOGISTICS_MANAGER">Logistics Manager — Stock &amp; Operations</option>
         </select>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label htmlFor="employeeCode" className="text-[13px] font-medium text-muted-strong">
+          Employee Code link (optional, any role)
+        </label>
+        <input id="employeeCode" name="employeeCode" type="text" placeholder="e.g. 1181" className={inputClass} />
+        <span className="text-[11px] text-muted">
+          If this person is also themselves a rep, link their roster Employee Code to unlock a personal &quot;My Sales&quot; module showing just their own sales.
+        </span>
       </div>
       <div className="flex flex-col gap-2">
         <label htmlFor="teamLeaderId" className="text-[13px] font-medium text-muted-strong">
