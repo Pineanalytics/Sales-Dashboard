@@ -8,6 +8,7 @@ import { boughtWithin, buyingTenure, dormancyFlag, longPurchaseConsistency, OUTL
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 import { buildNameProfiles, classification2, cleanPlaces, tierRow } from "@/lib/outletUniverse/tiering";
 import { buildMonthlyStrike, loadMonthlyStrike, type MonthlyStrike } from "@/lib/universeAnalysis/monthlyStrike";
+import { cleanLocation, getUnifiedLocations } from "@/lib/locationUnify/source";
 import { recordKey, runPipeline } from "@/lib/universeAnalysis/pipeline";
 import { loadExtractRows } from "@/lib/universeAnalysis/source";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
@@ -33,7 +34,12 @@ export interface UniverseFeedRow {
   sourceSegment: string;
   location: string;
   region: string;
+  /** The territory as the source system spells it, and the unified name several spellings share ("THIKA", "Thika - MBSR", "Nairobi-Thika" -> "Thika"). */
   territory: string;
+  territoryClean: string;
+  /** Stable id of the unified place, and how the name was unified ("same name", "name + coordinates", "spelling + coordinates", "address -> nearest area"; null when it stands alone). */
+  territoryGroupId: string | null;
+  territoryMatch: string | null;
   route: string | null;
   /** The rep who sells THIS principal at the outlet, their SFA code, and their Team Leader. */
   rep: string | null;
@@ -121,6 +127,7 @@ export async function buildUniverseFeed(): Promise<UniverseFeedRow[]> {
   const extract = await loadExtractRows(null, buildMonthlyStrike(new Date().getFullYear(), []), new Date().getMonth());
   const { records } = runPipeline(extract.rows);
   const masterByKey = new Map(records.map((r) => [r.recKey, { masterId: r.masterId, size: r.clusterSize }]));
+  const unified = await getUnifiedLocations();
   const now = new Date();
   return rows.map((row) => {
     const tenure = buyingTenure(row.firstPurchaseDate, now);
@@ -146,6 +153,9 @@ export async function buildUniverseFeed(): Promise<UniverseFeedRow[]> {
       location: places.location,
       region: places.region,
       territory: places.territory,
+      territoryClean: cleanLocation(unified, places.territory).canonical,
+      territoryGroupId: cleanLocation(unified, places.territory).groupId,
+      territoryMatch: cleanLocation(unified, places.territory).match,
       route: row.route,
       rep: row.repName,
       repSfaId: row.repCode,

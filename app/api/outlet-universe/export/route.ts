@@ -3,6 +3,7 @@ import { resolveOutletAccess } from "@/lib/outletUniverse/access";
 import { OUTLET_SOURCE_LABELS, boughtWithin, buyingTenure, dormancyFlag, longPurchaseConsistency, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 import { loadStrikeData, outletStrike } from "@/lib/outletUniverse/strikeRate";
+import { cleanLocation, getUnifiedLocations } from "@/lib/locationUnify/source";
 import { buildNameProfiles, classification2, cleanPlaces, tierRow } from "@/lib/outletUniverse/tiering";
 
 export const runtime = "nodejs";
@@ -35,6 +36,8 @@ const HEADER = [
   // calls those with a sale. Leverage shows calls only (its feed records no call without a sale). Principal Strike Rate is the same figure added up
   // over every customer of the principal.
   "Calls YTD", "Productive Calls YTD", "Strike Rate % YTD", "Strike Rate by Principal", "Principal Strike Rate % YTD",
+  // The territory with its spellings unified ("THIKA", "Thika - MBSR", "Nairobi-Thika" -> "Thika"), by name and by where the outlets sit, and how it was unified.
+  "Territory (Clean)", "Territory Match",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -59,6 +62,7 @@ export async function GET(req: NextRequest) {
     const universe = await exportOutlets({ ...parseOutletFilters(new URLSearchParams({ view: filters.view })), status: "all" }, access.scope, { withMix: false });
     const profiles = buildNameProfiles(universe);
     const strikeData = await loadStrikeData();
+    const unifiedLocations = await getUnifiedLocations();
     const lines = [HEADER.map(cell).join(",")];
     const now = new Date();
     for (const row of rows) {
@@ -67,6 +71,7 @@ export async function GET(req: NextRequest) {
       const tiered = tierRow(row, profiles);
       const places = cleanPlaces(row);
       const strike = outletStrike(row, strikeData);
+      const location = cleanLocation(unifiedLocations, places.territory);
       lines.push(
         [
           OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source,
@@ -129,6 +134,8 @@ export async function GET(req: NextRequest) {
           strike.pct,
           strike.byPrincipal,
           strike.principalPct,
+          location.canonical,
+          location.match,
         ]
           .map(cell)
           .join(",")
