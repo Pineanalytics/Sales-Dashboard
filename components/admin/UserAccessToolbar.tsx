@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type UserRole = "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "VIEWER";
+type UserRole =
+  | "ADMIN"
+  | "TEAM_LEADER"
+  | "SUPERVISOR"
+  | "HOD"
+  | "DIRECTOR"
+  | "VIEWER"
+  | "SALES_ADMIN"
+  | "FINANCE_MANAGER"
+  | "ACCOUNTANT"
+  | "LOGISTICS_MANAGER";
 
 type UserSummary = {
   id: string;
@@ -18,6 +28,10 @@ const ROLE_LABELS: Record<UserRole, string> = {
   HOD: "Head of Sales",
   DIRECTOR: "Director",
   VIEWER: "Viewer",
+  SALES_ADMIN: "Sales Admin",
+  FINANCE_MANAGER: "Finance Manager",
+  ACCOUNTANT: "Accountant",
+  LOGISTICS_MANAGER: "Logistics Manager",
 };
 
 export function UserAccessToolbar({ users }: { users: UserSummary[] }) {

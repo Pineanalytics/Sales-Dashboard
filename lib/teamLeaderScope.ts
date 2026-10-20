@@ -215,6 +215,11 @@ export function scopeNameClause(scope: TeamLeaderScope | null, nameExpression: P
   return Prisma.sql`AND LOWER(${nameExpression}) IN (${Prisma.join(Array.from(scope.normalizedNames))})`;
 }
 
+// Back-office roles with no identity of their own (no team/group, unlike
+// TEAM_LEADER/SUPERVISOR) that still get the same optional allowedPrincipals
+// restriction a VIEWER does — see the Role enum's own comment in schema.prisma.
+const PRINCIPAL_SCOPED_ROLES = new Set(["VIEWER", "SALES_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "LOGISTICS_MANAGER"]);
+
 export async function resolveScopeForSession(
   role: string,
   teamLeaderId: string | null,
@@ -223,6 +228,6 @@ export async function resolveScopeForSession(
 ): Promise<TeamLeaderScope | null> {
   if (role === "SUPERVISOR" && supervisorId) return loadSupervisorScope(supervisorId);
   if (role === "TEAM_LEADER" && teamLeaderId) return loadTeamLeaderScope(teamLeaderId);
-  if (role === "VIEWER" && allowedPrincipals && allowedPrincipals.length > 0) return loadViewerPrincipalScope(allowedPrincipals);
+  if (PRINCIPAL_SCOPED_ROLES.has(role) && allowedPrincipals && allowedPrincipals.length > 0) return loadViewerPrincipalScope(allowedPrincipals);
   return null;
 }

@@ -1,6 +1,16 @@
 import type { DefaultSession } from "next-auth";
 
-export type UserRole = "ADMIN" | "VIEWER" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR";
+export type UserRole =
+  | "ADMIN"
+  | "VIEWER"
+  | "TEAM_LEADER"
+  | "SUPERVISOR"
+  | "HOD"
+  | "DIRECTOR"
+  | "SALES_ADMIN"
+  | "FINANCE_MANAGER"
+  | "ACCOUNTANT"
+  | "LOGISTICS_MANAGER";
 
 declare module "next-auth" {
   interface Session {
@@ -11,9 +21,13 @@ declare module "next-auth" {
       teamLeaderId: string | null;
       /** SUPERVISOR-only — links to their Supervisor row, mirrors teamLeaderId. */
       supervisorId: string | null;
-      /** VIEWER-only principal restriction — see User.allowedPrincipals. Empty for
-       *  ADMIN/TEAM_LEADER/SUPERVISOR and for an unrestricted VIEWER. */
+      /** VIEWER-and-the-4-back-office-roles principal restriction — see
+       *  User.allowedPrincipals. Empty for ADMIN/TEAM_LEADER/SUPERVISOR and for
+       *  an unrestricted VIEWER/SALES_ADMIN/FINANCE_MANAGER/ACCOUNTANT/LOGISTICS_MANAGER. */
       allowedPrincipals: string[];
+      /** Optional link to EmployeeMaster.employeeCode — see User.employeeCode.
+       *  Independent of role; null unless an admin set it. */
+      employeeCode: string | null;
     } & DefaultSession["user"];
   }
 
@@ -23,6 +37,7 @@ declare module "next-auth" {
     teamLeaderId: string | null;
     supervisorId: string | null;
     allowedPrincipals: string[];
+    employeeCode: string | null;
   }
 }
 
@@ -34,6 +49,7 @@ declare module "next-auth/jwt" {
     teamLeaderId: string | null;
     supervisorId: string | null;
     allowedPrincipals: string[];
+    employeeCode: string | null;
     /** Unix ms timestamp of the last DB re-check — see auth.ts's jwt() callback.
      *  Without this, role/allowedPages/status changes an admin makes never reach
      *  an already-signed-in user until they log out and back in. */

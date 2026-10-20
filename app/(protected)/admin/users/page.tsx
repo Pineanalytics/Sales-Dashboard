@@ -18,6 +18,7 @@ import {
   updateUserRoleAction,
   updateUserPagesAction,
   updateUserPrincipalsAction,
+  updateUserEmployeeCodeAction,
   resetPasswordAction,
   saveAnnouncementTemplateAction,
   resetAnnouncementTemplateAction,
@@ -91,6 +92,13 @@ export default async function AdminUsersPage({
   }
   const teamLeaderByEmail = new Map(teamLeaders.filter((tl) => tl.email).map((tl) => [tl.email!.toLowerCase(), tl.id]));
   const supervisorByEmail = new Map(supervisors.filter((s) => s.email).map((s) => [s.email!.toLowerCase(), s.id]));
+
+  // For the per-user "Employee Code link" editor below — lets the admin see
+  // whose roster entry a code resolves to before/after saving it.
+  const employeeByCode = new Map(
+    (await prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true } })).map((e) => [e.employeeCode, e])
+  );
+  const PRINCIPAL_SCOPED_ROLES = new Set(["VIEWER", "SALES_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "LOGISTICS_MANAGER"]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -370,6 +378,10 @@ export default async function AdminUsersPage({
                         <option value="SUPERVISOR">Sales Supervisor</option>
                         <option value="HOD">Head of Sales</option>
                         <option value="DIRECTOR">Director</option>
+                        <option value="SALES_ADMIN">Sales Admin</option>
+                        <option value="FINANCE_MANAGER">Finance Manager</option>
+                        <option value="ACCOUNTANT">Accountant</option>
+                        <option value="LOGISTICS_MANAGER">Logistics Manager</option>
                       </select>
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -440,6 +452,37 @@ export default async function AdminUsersPage({
                   </form>
                 </div>
 
+                <form action={updateUserEmployeeCodeAction} className="flex flex-col gap-1.5">
+                  <input type="hidden" name="userId" value={u.id} />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Employee Code link (optional, any role)</span>
+                  <div className="flex items-end gap-2">
+                    <input
+                      type="text"
+                      name="employeeCode"
+                      defaultValue={u.employeeCode ?? ""}
+                      placeholder="e.g. 1181"
+                      className="rounded-full border border-border bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                    >
+                      Save link
+                    </button>
+                  </div>
+                  {u.employeeCode ? (
+                    employeeByCode.get(u.employeeCode) ? (
+                      <span className="text-[11px] text-accent-green">
+                        Linked to {employeeByCode.get(u.employeeCode)!.pineName} (SAP: {employeeByCode.get(u.employeeCode)!.sapName}) — their &quot;My Sales&quot; module is unlocked.
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-accent-red">No roster entry found for this code anymore — check it&apos;s still correct.</span>
+                    )
+                  ) : (
+                    <span className="text-[11px] text-muted">Unlocks a personal &quot;My Sales&quot; module showing just their own rep-level sales.</span>
+                  )}
+                </form>
+
                 {u.role === "ADMIN" ? (
                   <span className="text-xs text-muted">Administrators always see every report.</span>
                 ) : (
@@ -469,7 +512,7 @@ export default async function AdminUsersPage({
                   </form>
                 )}
 
-                {u.role === "VIEWER" ? (
+                {PRINCIPAL_SCOPED_ROLES.has(u.role) ? (
                   <form action={updateUserPrincipalsAction} className="flex flex-col gap-2">
                     <input type="hidden" name="userId" value={u.id} />
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
