@@ -63,8 +63,8 @@ export async function GET(request: NextRequest) {
 
   const customerSheet: ExtractSheet = {
     name: "Customer Detail",
-    columns: ["BP Code", "Principal", "BP Name", ...baseColumns],
-    rows: report.byCustomer.map((row) => [row.customerCode, row.principal, row.customerName, row.totalDebts, row.pdqCheques, row.balanceDue, ...bucketCells(row.buckets)]),
+    columns: ["BP Code", "Principal", "Principal Source", "BP Name", ...baseColumns],
+    rows: report.byCustomer.map((row) => [row.customerCode, row.principal, row.principalSource, row.customerName, row.totalDebts, row.pdqCheques, row.balanceDue, ...bucketCells(row.buckets)]),
   };
 
   const chequeSheet: ExtractSheet = {
