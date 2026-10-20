@@ -6,6 +6,8 @@ import { getReceivablesDashboard } from "@/lib/receivables";
 import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
 import { getGpMarginTargets, withGpMarginTargets } from "@/lib/gpMarginTargets";
 import { getDebtByPrincipal } from "@/lib/financeDebtAttribution";
+import { getReceivablesSummary } from "@/lib/receivables";
+import { getPayablesFinanceData } from "@/lib/payables";
 import { getAgeingSnapshotForMonth } from "@/lib/receivablesAgeing";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 
@@ -20,6 +22,7 @@ const TABS: FinancialsTab[] = [
   "total-outstanding",
   "ageing-trend",
   "global-ageing",
+  "finance-presentation",
 ];
 
 export default async function FinancialsPage({
@@ -53,11 +56,14 @@ export default async function FinancialsPage({
 
   // The monthly Target table holds a flat 10% GP margin for every principal; the margin targets an admin
   // maintains on /admin/gp-targets are the ones in force, so both Finance views agree.
-  const [gpTargetRows, gpMarginTargets, debtAttribution, ageingTrend] = await Promise.all([
+  const [gpTargetRows, gpMarginTargets, debtAttribution, ageingTrend, presentationReceivables, presentationPayables] = await Promise.all([
     canViewProfitability ? getGpTargetsForPeriod(currentYear, currentMonth) : Promise.resolve([]),
     getGpMarginTargets(),
     canViewProfitability || canViewReceivables ? getDebtByPrincipal() : Promise.resolve({ windowLabel: "Trailing 12 months", totalDebt: 0, unattributedDebt: 0, byPrincipal: [], customers: [] }),
     canViewReceivables ? getAgeingSnapshotForMonth(ageingYear, ageingMonthIndex) : Promise.resolve({ lastMonth: { label: "Last Month Ageing", asOfDate: now.toISOString(), snapshotDate: null, buckets: null, isApproximate: false }, weeks: [] }),
+    // Finance Presentation slides: totals only, and only for those who can see profitability.
+    canViewProfitability && canViewReceivables ? getReceivablesSummary() : Promise.resolve(null),
+    canViewProfitability && canViewReceivables ? getPayablesFinanceData() : Promise.resolve({ dashboard: null, byPrincipal: [] }),
   ]);
 
   const gpTargets = withGpMarginTargets(gpTargetRows, gpMarginTargets);
@@ -75,6 +81,12 @@ export default async function FinancialsPage({
       ageingTrend={ageingTrend}
       ageingYear={ageingYear}
       ageingMonth={ageingMonth}
+      presentation={{
+        receivables: presentationReceivables,
+        payables: presentationPayables.dashboard,
+        payablesByPrincipal: presentationPayables.byPrincipal,
+        gpMarginTargets,
+      }}
     />
   );
 }
