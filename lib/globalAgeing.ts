@@ -20,6 +20,7 @@
 // their tax (document) date and the cheques by their due date; the month buckets stay
 // relative to the sync date.
 import { prisma } from "@/lib/db";
+import { inferPrincipals, type CustomerSales, type PrincipalSource } from "@/lib/ageingPrincipalFallback";
 
 export interface GlobalAgeingBuckets {
   future: number;
@@ -40,6 +41,8 @@ export interface GlobalAgeingCustomerRow extends GlobalAgeingRow {
   customerCode: string;
   customerName: string;
   principal: string;
+  /** Where the principal came from: SAP's Property flag, inferred from what the customer buys, or still unclassified. */
+  principalSource: PrincipalSource;
 }
 
 export interface GlobalAgeingPrincipalRow extends GlobalAgeingRow {
@@ -92,6 +95,8 @@ export interface GlobalAgeingSummary {
   filters: GlobalAgeingReport["filters"];
   customerCount: number;
   chequeCount: number;
+  /** Customers with a balance whose principal was inferred from their sales, or is still unclassified, and their total debts. */
+  principalNotes: { inferredCustomers: number; inferredDebts: number; unclassifiedCustomers: number; unclassifiedDebts: number };
 }
 
 export const UNCLASSIFIED_PRINCIPAL = "Unclassified";
@@ -150,6 +155,8 @@ export interface GlobalAgeingCustomerInput {
   customerCode: string;
   customerName: string;
   principal: string | null;
+  /** Set when the principal was inferred from sales rather than read from SAP's Property flags. */
+  principalSource?: PrincipalSource;
 }
 export interface GlobalAgeingChequeInput {
   customerCode: string;
@@ -232,6 +239,7 @@ export function buildGlobalAgeingReport(
       customerCode: code,
       customerName: customer?.customerName ?? code,
       principal: principalOf(code),
+      principalSource: customer?.principalSource ?? (customer?.principal?.trim() ? "SAP Property" : "Unclassified"),
       totalDebts: balanceDue + pdqCheques,
       pdqCheques,
       balanceDue,
@@ -287,6 +295,12 @@ export function toSummary(report: GlobalAgeingReport): GlobalAgeingSummary {
     filters: report.filters,
     customerCount: report.byCustomer.length,
     chequeCount: report.cheques.length,
+    principalNotes: {
+      inferredCustomers: report.byCustomer.filter((c) => c.principalSource === "Inferred from sales").length,
+      inferredDebts: report.byCustomer.filter((c) => c.principalSource === "Inferred from sales").reduce((sum, c) => sum + c.totalDebts, 0),
+      unclassifiedCustomers: report.byCustomer.filter((c) => c.principalSource === "Unclassified").length,
+      unclassifiedDebts: report.byCustomer.filter((c) => c.principalSource === "Unclassified").reduce((sum, c) => sum + c.totalDebts, 0),
+    },
   };
 }
 
@@ -345,11 +359,20 @@ export async function getGlobalAgeingReport(filters: GlobalAgeingFilters = NO_FI
   const latestRun = await prisma.receivablesSyncRun.findFirst({ orderBy: { completedAt: "desc" } });
   if (!latestRun) return null;
 
-  const [openItems, customers, cheques] = await Promise.all([
+  const salesSince = new Date(latestRun.sourceDate.getTime() - 548 * 86_400_000);
+  const [openItems, profiles, cheques, salesRows] = await Promise.all([
     prisma.receivableOpenItem.findMany({ select: { customerCode: true, taxDate: true, postingDate: true, openBalance: true } }),
     prisma.customerCreditProfile.findMany({ select: { customerCode: true, customerName: true, principal: true } }),
     prisma.receivablesPostDatedCheque.findMany({ select: { customerCode: true, paymentNo: true, chequeNumber: true, bankCode: true, dueDate: true, amount: true } }),
+    // What each customer buys, to place the ones SAP has no Property for (see lib/ageingPrincipalFallback.ts).
+    prisma.salesDocument.groupBy({ by: ["cardCode", "principal"], where: { docDate: { gte: salesSince } }, _sum: { netSales: true } }),
   ]);
+  const sales: CustomerSales[] = salesRows.map((r) => ({ cardCode: r.cardCode, principal: r.principal, netSales: r._sum.netSales ?? 0 }));
+  const inferred = inferPrincipals(profiles.map((p) => ({ customerCode: p.customerCode, principal: p.principal })), sales);
+  const customers: GlobalAgeingCustomerInput[] = profiles.map((p) => {
+    const guess = inferred.get(p.customerCode);
+    return guess ? { ...p, principal: guess.principal, principalSource: guess.source } : p;
+  });
 
   return buildGlobalAgeingReport(latestRun.sourceDate, openItems, customers, cheques, filters);
 }

@@ -188,6 +188,17 @@ export function GlobalAgeingTab() {
             <h3 className="text-sm font-semibold text-foreground">Ageing by Principal</h3>
             <span className="text-xs text-muted">{summary.byPrincipal.length} principal(s) · customer detail is in the Excel report</span>
           </div>
+          {summary.principalNotes.inferredCustomers + summary.principalNotes.unclassifiedCustomers > 0 ? (
+            <p className="mb-2 text-[11px] text-muted">
+              {summary.principalNotes.inferredCustomers > 0
+                ? `${formatNumber(summary.principalNotes.inferredCustomers)} customer(s) (${kes(summary.principalNotes.inferredDebts)}) have no Property in SAP and are placed under the principal they buy most. `
+                : ""}
+              {summary.principalNotes.unclassifiedCustomers > 0
+                ? `${formatNumber(summary.principalNotes.unclassifiedCustomers)} customer(s) (${kes(summary.principalNotes.unclassifiedDebts)}) have no Property and no sales yet, so they stay Unclassified. `
+                : ""}
+              The Excel report&apos;s Customer Detail shows the source of each; set the Property in SAP to settle them.
+            </p>
+          ) : null}
           <TableWrap>
             <Thead>
               <Th>Principal</Th>
