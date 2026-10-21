@@ -10,9 +10,12 @@
 //     roster fields and contributions are copied onto it — never overwriting a field 1221 already
 //     has its own value for — and 1114's row is deleted once nothing still points at it.
 // Either way, every TeamLeaderAssignment row still under 1114 (not just the two known ones, in case
-// she carries other history) is re-keyed to 1221, each logged to TeamLeaderAssignmentAuditLog. A
-// principal where 1221 already holds a row of its own is left alone and reported, same as
-// lib/rosterMerge.ts's own conflict handling, rather than silently overwritten.
+// she carries other history) is re-keyed to 1221. A principal where 1221 already holds a row of its
+// own (the same duplicate-identity situation, not a genuine second assignment) is folded the same way
+// scripts/org-restructure-2026-10.ts's clearMergeConflicts folds a Team Leader merge's duplicates: any
+// reference field 1221's row is missing is filled from 1114's, 1114's row is then removed, and only a
+// real conflict — both sides declaring a different non-zero contributionPct — is left alone and
+// reported for a person to resolve, same as lib/rosterMerge.ts's own conflict handling.
 //
 //   node --import tsx scripts/florence-ouma-recode-2026-10.ts            DRY RUN: does everything, prints it, rolls it all back
 //   node --import tsx scripts/florence-ouma-recode-2026-10.ts --apply    the same, committed (then recomputes rep contribution and daily targets)
@@ -47,6 +50,27 @@ const ROSTER_FIELDS = [
   "route",
   "location",
   "company",
+] as const;
+
+// TeamLeaderAssignment reference fields safe to fill from the loser side of a duplicate without
+// risking a real figure — contributionPct is handled separately below because, unlike these, it is
+// a real admin-declared figure (see the model's own doc comment) and a genuine mismatch must be
+// reported, not silently picked.
+const ASSIGNMENT_FILL_FIELDS = [
+  "channel",
+  "sourceContributionPct",
+  "region",
+  "subRegion",
+  "workGroup",
+  "company",
+  "costCenterCount",
+  "salesPoint",
+  "route",
+  "location",
+  "absolutePrincipal",
+  "supervisorId",
+  "managerId",
+  "stockPoint",
 ] as const;
 
 async function run(tx: Prisma.TransactionClient) {
@@ -105,12 +129,38 @@ async function run(tx: Prisma.TransactionClient) {
     if (!found && oldAssignments.length > 0) log(`  !! expected ${OLD_CODE} to have an assignment for ${principal} under ${TEAM_LEADER}; none found.`);
   }
   let assignmentsMoved = 0;
+  let duplicatesFolded = 0;
   for (const a of oldAssignments) {
-    const conflict = await tx.teamLeaderAssignment.findUnique({
+    const dup = await tx.teamLeaderAssignment.findUnique({
       where: { teamLeaderId_employeeCode_principal: { teamLeaderId: a.teamLeaderId, employeeCode: NEW_CODE, principal: a.principal } },
     });
-    if (conflict) {
-      log(`  !! ${a.principal}: ${NEW_CODE} already has a row under this Team Leader — left on ${OLD_CODE}, resolve by hand.`);
+    if (dup) {
+      if (a.contributionPct !== null && dup.contributionPct !== null && a.contributionPct !== dup.contributionPct) {
+        log(`  !! ${a.principal}: ${OLD_CODE} and ${NEW_CODE} both declare a contribution % that differs (${a.contributionPct} v ${dup.contributionPct}) — left on ${OLD_CODE}, resolve by hand.`);
+        continue;
+      }
+      const fill: Record<string, unknown> = {};
+      if (dup.contributionPct === null && a.contributionPct !== null) fill.contributionPct = a.contributionPct;
+      for (const field of ASSIGNMENT_FILL_FIELDS) {
+        const current = (dup as Record<string, unknown>)[field];
+        const incoming = (a as Record<string, unknown>)[field];
+        if ((current === null || current === undefined) && incoming !== null && incoming !== undefined) fill[field] = incoming;
+      }
+      if (Object.keys(fill).length > 0) await tx.teamLeaderAssignment.update({ where: { id: dup.id }, data: fill });
+      await tx.teamLeaderAssignment.delete({ where: { id: a.id } });
+      await tx.teamLeaderAssignmentAuditLog.create({
+        data: {
+          userEmail: AUDIT_USER,
+          action: "DELETE",
+          teamLeaderId: a.teamLeaderId,
+          supervisorId: dup.supervisorId,
+          principal: a.principal,
+          employeeCode: OLD_CODE,
+          changes: { removed: { old: `duplicate of ${NEW_CODE}'s own row for this principal${Object.keys(fill).length > 0 ? ` (filled: ${Object.keys(fill).join(", ")})` : ""}`, new: null } },
+        },
+      });
+      duplicatesFolded++;
+      log(`  ${a.principal}: ${NEW_CODE} already had its own row — folded${Object.keys(fill).length > 0 ? ` (${Object.keys(fill).join(", ")} from ${OLD_CODE})` : ""} and removed ${OLD_CODE}'s duplicate.`);
       continue;
     }
     await tx.teamLeaderAssignment.update({ where: { id: a.id }, data: { employeeCode: NEW_CODE } });
@@ -128,7 +178,7 @@ async function run(tx: Prisma.TransactionClient) {
     assignmentsMoved++;
     log(`  ${a.principal}: ${a.employeeName} re-keyed from ${OLD_CODE} to ${NEW_CODE}.`);
   }
-  log(`  ${assignmentsMoved} assignment(s) re-keyed.`);
+  log(`  ${assignmentsMoved} assignment(s) re-keyed, ${duplicatesFolded} duplicate(s) folded.`);
 
   log("\n4. Retire the old row");
   const stillReferenced = (await tx.teamLeaderAssignment.count({ where: { employeeCode: OLD_CODE } })) > 0;
