@@ -39,6 +39,7 @@ export default async function AdminTeamLeadersPage({
     error?: string;
     success?: string;
     rename?: string;
+    expand?: string;
     renameSupervisor?: string;
     renameHod?: string;
     renameDirector?: string;
@@ -61,6 +62,7 @@ export default async function AdminTeamLeadersPage({
     error,
     success,
     rename,
+    expand,
     renameSupervisor,
     renameHod,
     renameDirector,
@@ -409,6 +411,7 @@ export default async function AdminTeamLeadersPage({
             hods={hods.map((h) => ({ id: h.id, name: h.name, directorId: h.directorId }))}
             directors={directors.map((d) => ({ id: d.id, name: d.name }))}
             renamingTeamLeaderId={rename}
+            expandTeamLeaderId={expand}
             renamingSupervisorId={renameSupervisor}
             renamingHodId={renameHod}
             renamingDirectorId={renameDirector}
