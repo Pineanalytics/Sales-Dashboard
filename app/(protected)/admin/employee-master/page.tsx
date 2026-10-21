@@ -153,7 +153,17 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
               <p className="font-semibold text-brand-navy">{rep.pineName}</p>
               <p className="text-xs text-muted">{rep.employeeCode}</p>
               {rep.candidates.length === 0 ? (
-                <p className="mt-3 text-xs text-muted">No active Team Leader assignment yet — nothing to resolve until this rep is assigned on Team Leaders.</p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <p className="text-xs text-muted">No active Team Leader assignment yet — nothing to resolve until this rep is assigned on Team Leaders.</p>
+                  {isAdmin ? (
+                    <Link
+                      href={`/admin/team-leaders?filterEmployee=${encodeURIComponent(rep.employeeCode)}#assignments`}
+                      className="inline-flex self-start rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover"
+                    >
+                      Assign a Team Leader →
+                    </Link>
+                  ) : null}
+                </div>
               ) : (
                 <form action={resolveEmployeeIdentityAction} className="mt-3 flex items-center gap-2">
                   <input type="hidden" name="employeeCode" value={rep.employeeCode} />
