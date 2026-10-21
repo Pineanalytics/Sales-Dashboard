@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown20Regular } from "@fluentui/react-icons";
 
 type Role = "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "VIEWER" | "SALES_ADMIN" | "FINANCE_MANAGER" | "ACCOUNTANT" | "LOGISTICS_MANAGER";
 
@@ -38,11 +39,24 @@ const primaryGroups = ["People", "Planning", "Reference", "Operations"] as const
 export function AdminWorkspaceNav({ role }: { role: Role }) {
   const pathname = usePathname();
   const [query, setQuery] = useState("");
+  const [openGroup, setOpenGroup] = useState<(typeof primaryGroups)[number] | null>(null);
+  const groupsRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => destinations.filter((item) => item.roles.includes(role)), [role]);
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
     return term ? visible.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(term)).slice(0, 6) : [];
   }, [query, visible]);
+
+  // This nav persists across client-side navigation (it's shared layout chrome, not
+  // remounted per page), so a dropdown must be closed explicitly on an outside click
+  // or a selection — it won't reset itself the way an unmounted <details> would.
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (openGroup && event.target instanceof Node && !groupsRef.current?.contains(event.target)) setOpenGroup(null);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [openGroup]);
 
   return (
     <nav aria-label="Admin workspace" className="sticky top-0 z-30 border-b border-border/70 bg-surface/95 shadow-sm backdrop-blur">
@@ -74,24 +88,50 @@ export function AdminWorkspaceNav({ role }: { role: Role }) {
           <Link href="/dashboard" className="text-xs font-medium text-muted-strong hover:text-primary-blue">Dashboard</Link>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto pb-0.5">
+        <div ref={groupsRef} className="flex flex-wrap gap-2">
           {primaryGroups.map((group) => {
             const items = visible.filter((item) => item.group === group);
             if (items.length === 0) return null;
-            return items.map((item) => {
-              const active = item.href === "/admin" ? pathname === "/admin" : pathname === item.href || pathname?.startsWith(`${item.href}/`);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    active ? "bg-primary-blue text-white" : "bg-background-elevated text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+            const isItemActive = (item: AdminDestination) => (item.href === "/admin" ? pathname === "/admin" : pathname === item.href || pathname?.startsWith(`${item.href}/`));
+            const activeItem = items.find(isItemActive);
+            const isOpen = openGroup === group;
+            return (
+              <div key={group} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenGroup(isOpen ? null : group)}
+                  aria-expanded={isOpen}
+                  aria-haspopup="menu"
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    activeItem || isOpen ? "bg-primary-blue text-white" : "bg-background-elevated text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
                   }`}
                 >
-                  {item.label}
-                </Link>
-              );
-            });
+                  {group}
+                  {activeItem ? <span className="max-w-[9rem] truncate font-normal opacity-90">· {activeItem.label}</span> : null}
+                  <ChevronDown20Regular className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isOpen ? (
+                  <div role="menu" className="absolute left-0 top-[calc(100%+0.35rem)] z-10 min-w-[14rem] overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+                    {items.map((item) => {
+                      const active = isItemActive(item);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          role="menuitem"
+                          onClick={() => setOpenGroup(null)}
+                          className={`block px-4 py-2.5 text-sm transition-colors ${
+                            active ? "bg-accent-blue-soft font-semibold text-primary-blue" : "text-foreground hover:bg-background-elevated"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
           })}
         </div>
       </div>
