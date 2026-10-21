@@ -72,6 +72,7 @@ export function RosterHierarchyTree({
   hods,
   directors,
   renamingTeamLeaderId,
+  expandTeamLeaderId,
   renamingSupervisorId,
   renamingHodId,
   renamingDirectorId,
@@ -84,6 +85,7 @@ export function RosterHierarchyTree({
   hods: HierarchyHod[];
   directors: HierarchyDirector[];
   renamingTeamLeaderId?: string;
+  expandTeamLeaderId?: string;
   renamingSupervisorId?: string;
   renamingHodId?: string;
   renamingDirectorId?: string;
@@ -179,6 +181,7 @@ export function RosterHierarchyTree({
             supervisorOptions={supervisorOptions}
             allTeamLeaders={allTeamLeaderOptions}
             renamingTeamLeaderId={renamingTeamLeaderId}
+            expandTeamLeaderId={expandTeamLeaderId}
             renamingHodId={renamingHodId}
             renamingDirectorId={renamingDirectorId}
             renamingSupervisorId={renamingSupervisorId}
@@ -200,6 +203,7 @@ export function RosterHierarchyTree({
                   supervisorOptions={supervisorOptions}
                   allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
+                  expandTeamLeaderId={expandTeamLeaderId}
                   renamingHodId={renamingHodId}
                   renamingSupervisorId={renamingSupervisorId}
                   inputClass={inputClass}
@@ -222,6 +226,7 @@ export function RosterHierarchyTree({
                   supervisorOptions={supervisorOptions}
                   allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
+                  expandTeamLeaderId={expandTeamLeaderId}
                   renamingSupervisorId={renamingSupervisorId}
                   inputClass={inputClass}
                 />
@@ -244,6 +249,7 @@ export function RosterHierarchyTree({
                   supervisorOptions={supervisorOptions}
                   allTeamLeaders={allTeamLeaderOptions}
                   renamingTeamLeaderId={renamingTeamLeaderId}
+                  expandTeamLeaderId={expandTeamLeaderId}
                   renamingSupervisorId={renamingSupervisorId}
                   inputClass={inputClass}
                 />
@@ -260,6 +266,7 @@ export function RosterHierarchyTree({
               allTeamLeaders={allTeamLeaderOptions}
               supervisors={supervisorOptions}
               renamingId={renamingTeamLeaderId}
+              forceOpenId={expandTeamLeaderId}
               inputClass={inputClass}
             />
           </div>
@@ -278,6 +285,7 @@ function DirectorNodeView({
   supervisorOptions,
   allTeamLeaders,
   renamingTeamLeaderId,
+  expandTeamLeaderId,
   renamingHodId,
   renamingDirectorId,
   renamingSupervisorId,
@@ -290,6 +298,7 @@ function DirectorNodeView({
   supervisorOptions: SupervisorOption[];
   allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
+  expandTeamLeaderId?: string;
   renamingHodId?: string;
   renamingDirectorId?: string;
   renamingSupervisorId?: string;
@@ -340,6 +349,7 @@ function DirectorNodeView({
             supervisorOptions={supervisorOptions}
             allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
+            expandTeamLeaderId={expandTeamLeaderId}
             renamingHodId={renamingHodId}
             renamingSupervisorId={renamingSupervisorId}
             inputClass={inputClass}
@@ -359,6 +369,7 @@ function HodNodeView({
   supervisorOptions,
   allTeamLeaders,
   renamingTeamLeaderId,
+  expandTeamLeaderId,
   renamingHodId,
   renamingSupervisorId,
   inputClass,
@@ -370,6 +381,7 @@ function HodNodeView({
   supervisorOptions: SupervisorOption[];
   allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
+  expandTeamLeaderId?: string;
   renamingHodId?: string;
   renamingSupervisorId?: string;
   inputClass: string;
@@ -435,6 +447,7 @@ function HodNodeView({
             supervisorOptions={supervisorOptions}
             allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
+            expandTeamLeaderId={expandTeamLeaderId}
             renamingSupervisorId={renamingSupervisorId}
             inputClass={inputClass}
           />
@@ -455,6 +468,7 @@ function HodNodeView({
                 supervisorOptions={supervisorOptions}
                 allTeamLeaders={allTeamLeaders}
                 renamingTeamLeaderId={renamingTeamLeaderId}
+                expandTeamLeaderId={expandTeamLeaderId}
                 renamingSupervisorId={renamingSupervisorId}
                 inputClass={inputClass}
               />
@@ -473,6 +487,7 @@ function ManagerNodeView({
   supervisorOptions,
   allTeamLeaders,
   renamingTeamLeaderId,
+  expandTeamLeaderId,
   renamingSupervisorId,
   inputClass,
 }: {
@@ -482,6 +497,7 @@ function ManagerNodeView({
   supervisorOptions: SupervisorOption[];
   allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
+  expandTeamLeaderId?: string;
   renamingSupervisorId?: string;
   inputClass: string;
 }) {
@@ -523,6 +539,7 @@ function ManagerNodeView({
             supervisorOptions={supervisorOptions}
             allTeamLeaders={allTeamLeaders}
             renamingTeamLeaderId={renamingTeamLeaderId}
+            expandTeamLeaderId={expandTeamLeaderId}
             renamingSupervisorId={renamingSupervisorId}
             inputClass={inputClass}
           />
@@ -541,6 +558,7 @@ function SupervisorNodeView({
   supervisorOptions,
   allTeamLeaders,
   renamingTeamLeaderId,
+  expandTeamLeaderId,
   renamingSupervisorId,
   inputClass,
 }: {
@@ -551,6 +569,7 @@ function SupervisorNodeView({
   supervisorOptions: SupervisorOption[];
   allTeamLeaders: SupervisorOption[];
   renamingTeamLeaderId?: string;
+  expandTeamLeaderId?: string;
   renamingSupervisorId?: string;
   inputClass: string;
 }) {
@@ -701,6 +720,7 @@ function SupervisorNodeView({
           allTeamLeaders={allTeamLeaders}
           supervisors={supervisorOptions}
           renamingId={renamingTeamLeaderId}
+          forceOpenId={expandTeamLeaderId}
           inputClass={inputClass}
         />
       </div>

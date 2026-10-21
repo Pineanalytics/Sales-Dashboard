@@ -50,6 +50,15 @@ function pct(formData: FormData, name: string): number | null {
   return Number.isFinite(n) ? n / 100 : null; // form takes a whole-number percent, stored as a fraction
 }
 
+// A plain client useState for "which Team Leader row is expanded" does not survive this
+// page's redirect-after-save (verified directly — see TeamLeaderRosterPanel.tsx's own
+// comment on forceOpenId). Every action below that edits one existing Team Leader's row
+// echoes that Team Leader's id back via ?expand=, which TeamLeaderRosterPanel uses to
+// re-open exactly that row, mirroring Manage Users' identical fix.
+function expandSuffix(teamLeaderId?: string): string {
+  return teamLeaderId ? `&expand=${encodeURIComponent(teamLeaderId)}` : "";
+}
+
 // Carries the active hierarchy and roster filters through an edit/deactivate/delete round-trip,
 // so acting on a row never drops the administrator back into the full assignment list.
 function filterSuffix(formData: FormData): string {
@@ -129,7 +138,7 @@ export async function renameTeamLeaderAction(formData: FormData) {
   const id = str(formData, "teamLeaderId");
   const name = str(formData, "name");
   if (!name) {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader name is required."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Team Leader name is required.") + expandSuffix(id));
   }
 
   try {
@@ -139,10 +148,10 @@ export async function renameTeamLeaderAction(formData: FormData) {
       typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002"
         ? `A Team Leader named "${name}" already exists.`
         : "Failed to rename the Team Leader.";
-    redirect("/admin/team-leaders?error=" + encodeURIComponent(message));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent(message) + expandSuffix(id));
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Team Leader renamed."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Team Leader renamed.") + expandSuffix(id));
 }
 
 export async function deleteTeamLeaderAction(formData: FormData) {
@@ -213,10 +222,10 @@ export async function updateTeamLeaderSupervisorAction(formData: FormData) {
   try {
     await prisma.teamLeader.update({ where: { id }, data: { supervisorId } });
   } catch {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Team Leader's Supervisor."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update the Team Leader's Supervisor.") + expandSuffix(id));
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Reporting line updated.") + expandSuffix(id));
 }
 
 /** Admin-only override of which report pages this Team Leader's own User sees
@@ -231,10 +240,10 @@ export async function updateTeamLeaderVisiblePagesAction(formData: FormData) {
   try {
     await prisma.teamLeader.update({ where: { id }, data: { visiblePages: pages } });
   } catch {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update visible pages."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update visible pages.") + expandSuffix(id));
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Visible pages updated."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Visible pages updated.") + expandSuffix(id));
 }
 
 /** Same override mechanism as updateTeamLeaderVisiblePagesAction, one tier up
@@ -265,10 +274,10 @@ export async function updateTeamLeaderCanEditTargetsAction(formData: FormData) {
   try {
     await prisma.teamLeader.update({ where: { id }, data: { canEditTargets } });
   } catch {
-    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update Monthly Target permission."));
+    redirect("/admin/team-leaders?error=" + encodeURIComponent("Failed to update Monthly Target permission.") + expandSuffix(id));
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Monthly Target permission updated."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Monthly Target permission updated.") + expandSuffix(id));
 }
 
 /** Same grant as updateTeamLeaderCanEditTargetsAction, one tier up
@@ -301,11 +310,12 @@ export async function updateTeamLeaderEmailAction(formData: FormData) {
     const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
     redirect(
       "/admin/team-leaders?error=" +
-        encodeURIComponent(code === "P2002" ? "That email is already linked to a different Team Leader." : "Failed to update the email.")
+        encodeURIComponent(code === "P2002" ? "That email is already linked to a different Team Leader." : "Failed to update the email.") +
+        expandSuffix(id)
     );
   }
 
-  redirect("/admin/team-leaders?success=" + encodeURIComponent("Email updated."));
+  redirect("/admin/team-leaders?success=" + encodeURIComponent("Email updated.") + expandSuffix(id));
 }
 
 /** Same mechanism as updateTeamLeaderEmailAction, one tier up

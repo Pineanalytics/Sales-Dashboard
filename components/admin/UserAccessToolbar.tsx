@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type UserRole =
+export type UserRole =
   | "ADMIN"
   | "TEAM_LEADER"
   | "SUPERVISOR"
@@ -34,7 +34,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   LOGISTICS_MANAGER: "Logistics Manager",
 };
 
-export function UserAccessToolbar({ users }: { users: UserSummary[] }) {
+export function UserAccessToolbar({ users, onOpenUser }: { users: UserSummary[]; onOpenUser: (userId: string) => void }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState<UserRole | "">("");
   const normalizedQuery = query.trim().toLowerCase();
@@ -55,13 +55,6 @@ export function UserAccessToolbar({ users }: { users: UserSummary[] }) {
       row.hidden = Boolean((normalizedQuery && !rowText.includes(normalizedQuery)) || (role && rowRole !== role));
     }
   }, [normalizedQuery, role]);
-
-  function openUser(userId: string) {
-    const row = document.getElementById(`user-${userId}`) as HTMLDetailsElement | null;
-    if (!row) return;
-    row.open = true;
-    row.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 
   function clearFilters() {
     setQuery("");
@@ -110,7 +103,7 @@ export function UserAccessToolbar({ users }: { users: UserSummary[] }) {
               <button
                 key={user.id}
                 type="button"
-                onClick={() => openUser(user.id)}
+                onClick={() => onOpenUser(user.id)}
                 className="flex items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-background-elevated"
               >
                 <span className="min-w-0">

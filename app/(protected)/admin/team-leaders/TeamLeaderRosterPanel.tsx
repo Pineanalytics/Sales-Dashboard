@@ -43,14 +43,26 @@ export interface SupervisorOption {
  *  not crammed into one wide row) when clicked. Reduces the wall-of-rows
  *  scroll a full roster produced before. Save/Rename/Remove still go through
  *  the same server actions as every other action on this page (redirect back
- *  here with a success/error banner) — this component only owns the
- *  client-side search/expand state, which survives that redirect since it's
- *  a soft navigation (same route, only searchParams change), not a remount. */
+ *  here with a success/error banner).
+ *
+ *  A plain client useState for `expanded` does NOT survive that redirect —
+ *  verified directly: the redirect remounts this component's subtree even
+ *  though it's a same-origin, same-pathname navigation with no full page
+ *  reload (confirmed with a window-global probe: the JS context itself
+ *  survives, only the React tree doesn't). `forceOpenId` is the fix, the
+ *  same one Manage Users uses — every per-Team-Leader action's redirect in
+ *  actions.ts echoes that Team Leader's id back via `?expand=<id>`, and
+ *  `expanded`'s initial state is seeded from it, so a row stays open across
+ *  several edits in a row instead of collapsing after each save. This
+ *  mirrors `renamingId`, which already does the same thing for the
+ *  "renaming" sub-flow specifically (a `?rename=<id>` param) — `forceOpenId`
+ *  generalizes it to every other save too. */
 export function TeamLeaderRosterPanel({
   teamLeaders,
   allTeamLeaders,
   supervisors,
   renamingId,
+  forceOpenId,
   inputClass,
 }: {
   teamLeaders: TeamLeaderRow[];
@@ -64,11 +76,12 @@ export function TeamLeaderRosterPanel({
   allTeamLeaders?: SupervisorOption[];
   supervisors: SupervisorOption[];
   renamingId?: string;
+  forceOpenId?: string;
   inputClass: string;
 }) {
   const replacementOptions = allTeamLeaders ?? teamLeaders;
   const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(forceOpenId ? [forceOpenId] : []));
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
