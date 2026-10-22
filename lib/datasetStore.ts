@@ -162,12 +162,15 @@ async function overlayCoverage(dataset: Dataset): Promise<Dataset> {
   // alongside Pine's — same row shape, same merge-by-key logic below, so
   // Coverage & Productivity picks each up wherever that principal is
   // selected with zero further changes to this function.
-  const [directRows, pineRows, eablRows, upfieldRows] = await Promise.all([
+  const [directRows, pineRows, eablRows, upfieldRows, distinctRows] = await Promise.all([
     prisma.coverageActual.findMany(),
     getMonthlyCoverageRollup(null),
     getEablMonthlyCoverageRollup(),
     getUpfieldMonthlyCoverageRollup(),
+    prisma.coverageDistinctMonthly.findMany({ select: { year: true, monthIndex: true, principalKey: true, roleCategory: true, customers: true, productiveCustomers: true } }),
   ]);
+  // Customers counted once per month, principal and role (lib/coverageDistinct.ts), carried next to the rep rows below.
+  dataset = { ...dataset, monthlyCoverageDistinct: distinctRows };
   // A persisted direct month is authoritative for Pine coverage. RepCall stays
   // as a live fallback only until that month has been validated and saved;
   // EABL is a separate principal feed and is merged alongside either source.

@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { refreshCoverageDistinctMonth } from "@/lib/coverageDistinct";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { invalidateDatasetCache } from "@/lib/datasetStore";
@@ -128,6 +129,8 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < customerRows.length; i += CUSTOMER_INSERT_BATCH) {
           await tx.coverageCustomerActual.createMany({ data: customerRows.slice(i, i + CUSTOMER_INSERT_BATCH) });
         }
+        // Customers counted once per principal and role for this month (lib/coverageDistinct.ts), saved with the rows they come from.
+        await refreshCoverageDistinctMonth(tx, partitionYear, partitionMonthIndex);
       }
     }, { timeout: 120_000, maxWait: 30_000 });
     invalidateDatasetCache();

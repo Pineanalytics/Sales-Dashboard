@@ -160,12 +160,11 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
   }
   const principalBars = Array.from(byPrincipal.values())
     .map((p) => {
-      const monthTotals = Array.from(p.byMonth.values());
-      const n = monthTotals.length;
       const targets = summarizeCoverageTargetsForPeriod(dataset, period, p.principalKey);
-      const coverage = n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.coverage, 0) / n) : 0;
-      const productiveCalls = n > 0 ? Math.round(monthTotals.reduce((s, m) => s + m.productiveCalls, 0) / n) : 0;
-      const strikeRatePct = coverage > 0 ? Math.round((productiveCalls / coverage) * 1000) / 10 : 0;
+      // The same selector as the headline figure, so a principal's bar counts its customers once (not once per rep) like the total does.
+      const { coverage, productiveCalls, productivityPct: strikeRatePct } = p.byMonth.size > 0
+        ? summarizeCoverageForPeriod(dataset, period, p.principalKey, selectedRole)
+        : { coverage: 0, productiveCalls: 0, productivityPct: 0 };
       const coverageAchievementPct = targets.coverageTarget ? Math.round((coverage / targets.coverageTarget) * 1000) / 10 : null;
       const productivityAchievementPct = targets.productivityTarget ? Math.round((productiveCalls / targets.productivityTarget) * 1000) / 10 : null;
       return {
@@ -281,7 +280,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       </SectionCard>
 
       <KpiGrid>
-        <KpiCard accent="coverage" label="Unique calls visited" value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} sublabel={`${period.kind} · ${roleLabel} Sales`} />
+        <KpiCard accent="coverage" label="Unique calls visited" value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} sublabel={`${period.kind} · ${roleLabel} Sales${currentSummary.basis === "rep-sum" ? " · reps' outlets added up" : " · each customer once"}`} />
         <KpiCard accent="coverage" label="Unique productive calls" value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} sublabel="Sale or order calls" />
         <KpiCard
           accent="coverage"

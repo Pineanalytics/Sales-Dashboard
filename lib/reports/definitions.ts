@@ -146,6 +146,15 @@ const coverageReport: ReportDefinition = {
         { label: "Coverage", value: current.coverage.toLocaleString() },
         { label: "Productive Calls", value: current.productiveCalls.toLocaleString() },
         { label: "Productivity %", value: `${current.productivityPct}%` },
+        {
+          label: "Coverage basis",
+          value:
+            current.basis === "rep-sum"
+              ? "Each rep's outlets added up: an outlet called on by two reps counts twice."
+              : current.basis === "mixed"
+              ? "Each customer counted once (Pine principals); other principals add up their reps' outlets. Monthly figures averaged over the period."
+              : "Each customer counted once per month, averaged over the period. Reps overlap, so the rep rows add up to more than the total.",
+        },
       ],
       sections: [
         {

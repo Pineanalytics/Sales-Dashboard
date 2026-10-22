@@ -10,7 +10,7 @@
 // sheets, so they intentionally stay rolled up by normalized brand key — their
 // summarize functions below normalize an incoming raw principal string before
 // matching, so selecting either location still shows the same combined figures.
-import type { Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow } from "./types";
+import type { CoverageDistinctRow, Dataset, MonthlySalesRow, MonthlyCoverageRow, MonthlyCoverageTargetRow, MonthlyPLRow } from "./types";
 import { normalizePrincipalKey } from "./normalize";
 import { getWeeksInMonth } from "./weeklyTargets";
 
@@ -306,6 +306,9 @@ export interface PeriodCoverageSummary {
   productiveCalls: number;
   productivityPct: number;
   monthsIncluded: number;
+  /** How the figure was counted: "distinct" = every customer once per month (CoverageDistinctMonthly); "rep-sum" = each rep's outlets added up
+   *  (a shop two reps call on counts twice); "mixed" = distinct customers for the Pine principals plus rep sums for principals with no customer data. */
+  basis: "distinct" | "mixed" | "rep-sum";
 }
 
 /** The source sheet's SalesRole values are "Primary Sales"/"Secondary Sales" (plus
@@ -349,18 +352,75 @@ function averageMonthlyTotals(byMonth: Map<string, { coverage: number; productiv
   };
 }
 
+/** One month's coverage for a scope, counting every customer once when the month has customer-level data (CoverageDistinctMonthly) and adding up the
+ *  reps' own counts otherwise. `rows` are that month's coverage rows already narrowed to the scope; `brandKey` null = every principal.
+ *  - A named principal uses its distinct row when the month has one (a missing role row then means no customer of that role: zero); a principal
+ *    with no distinct row (EABL, Upfield, earlier years) keeps its rep sum.
+ *  - Every principal: the all-principals distinct count, plus the rep sums of any principal that has no distinct row (counted as "mixed"). A month
+ *    with no all-principals row (or a dataset narrowed to several principals) is the plain rep sum. */
+function monthCoverageFigures(
+  rows: MonthlyCoverageRow[],
+  distinct: CoverageDistinctRow[],
+  brandKey: string | null,
+  role: RoleCategory | undefined
+): { coverage: number; productiveCalls: number; basis: PeriodCoverageSummary["basis"] } {
+  const repSum = { coverage: rows.reduce((s, r) => s + r.coverage, 0), productiveCalls: rows.reduce((s, r) => s + r.productiveCalls, 0), basis: "rep-sum" as const };
+  const roleKey = role ?? "*";
+  const find = (principalKey: string, roleCategory: string) => distinct.find((d) => d.principalKey === principalKey && d.roleCategory === roleCategory);
+  if (brandKey) {
+    if (!find(brandKey, "*")) return repSum;
+    const d = find(brandKey, roleKey);
+    return { coverage: d?.customers ?? 0, productiveCalls: d?.productiveCustomers ?? 0, basis: "distinct" };
+  }
+  if (!find("*", "*")) return repSum;
+  const all = find("*", roleKey);
+  const covered = new Set(distinct.filter((d) => d.principalKey !== "*" && d.roleCategory === "*").map((d) => d.principalKey));
+  const rest = rows.filter((r) => !covered.has(r.principalKey));
+  const extraCoverage = rest.reduce((s, r) => s + r.coverage, 0);
+  const extraProductive = rest.reduce((s, r) => s + r.productiveCalls, 0);
+  return {
+    coverage: (all?.customers ?? 0) + extraCoverage,
+    productiveCalls: (all?.productiveCustomers ?? 0) + extraProductive,
+    basis: extraCoverage > 0 || extraProductive > 0 ? "mixed" : "distinct",
+  };
+}
+
 /** Coverage measures unique outlets, not repeated visits — a multi-month period (YTD, H1,
- *  a quarter) reports the AVERAGE of each month's total (itself summed across reps for
- *  that Principal/Month/SalesRole), not a running sum across months. Matches how the
- *  source "Sales Update" workbook computes its own period totals. */
-function summarizeCoverageRows(rows: MonthlyCoverageRow[], months: MonthRef[]): PeriodCoverageSummary {
+ *  a quarter) reports the AVERAGE of each month's total, not a running sum across months.
+ *  Each month's total counts every customer once where customer-level data exists
+ *  (monthCoverageFigures); the reps' own counts are only added up for months and principals
+ *  without it. Matches how the source "Sales Update" workbook averages its period totals. */
+function summarizeCoverageRows(
+  rows: MonthlyCoverageRow[],
+  months: MonthRef[],
+  distinct: CoverageDistinctRow[] = [],
+  brandKey: string | null = null,
+  role?: RoleCategory
+): PeriodCoverageSummary {
   const keys = periodKeySet(months);
   const matched = rows.filter((r) => keys.has(rowKey(r.year, r.monthIndex)));
+  const distinctInPeriod = distinct.filter((d) => keys.has(rowKey(d.year, d.monthIndex)));
 
-  const { coverage, productiveCalls, monthsIncluded } = averageMonthlyTotals(monthlyCoverageTotals(matched));
+  const monthKeys = new Set([...matched.map((r) => rowKey(r.year, r.monthIndex)), ...distinctInPeriod.map((d) => rowKey(d.year, d.monthIndex))]);
+  const byMonth = new Map<string, { coverage: number; productiveCalls: number }>();
+  const bases = new Set<PeriodCoverageSummary["basis"]>();
+  for (const key of monthKeys) {
+    const figures = monthCoverageFigures(
+      matched.filter((r) => rowKey(r.year, r.monthIndex) === key),
+      distinctInPeriod.filter((d) => rowKey(d.year, d.monthIndex) === key),
+      brandKey,
+      role
+    );
+    // A distinct-only month (no coverage rows at all for this scope) would read zero; it still counts as a month with data.
+    byMonth.set(key, { coverage: figures.coverage, productiveCalls: figures.productiveCalls });
+    bases.add(figures.basis);
+  }
+
+  const { coverage, productiveCalls, monthsIncluded } = averageMonthlyTotals(byMonth);
   const productivityPct = coverage > 0 ? round1((productiveCalls / coverage) * 100) : 0;
+  const basis: PeriodCoverageSummary["basis"] = bases.size === 0 || (bases.size === 1 && bases.has("rep-sum")) ? "rep-sum" : bases.size === 1 && bases.has("distinct") ? "distinct" : "mixed";
 
-  return { coverage, productiveCalls, productivityPct, monthsIncluded };
+  return { coverage, productiveCalls, productivityPct, monthsIncluded, basis };
 }
 
 /** `principalKey` may be a raw Principal string (e.g. "EABL-Nyeri") or an already-normalized
@@ -377,7 +437,7 @@ export function summarizeCoverageForPeriod(
   const rows = dataset.monthlyCoverage.filter(
     (r) => (!brandKey || r.principalKey === brandKey) && (!roleCategory || classifyRole(r.salesRole) === roleCategory)
   );
-  return summarizeCoverageRows(rows, months);
+  return summarizeCoverageRows(rows, months, dataset.monthlyCoverageDistinct, brandKey, roleCategory);
 }
 
 export interface PeriodCoverageTargetSummary {
@@ -448,8 +508,8 @@ export interface RepCoverageSummary {
 /** Same "average the months, not sum" rule as summarizeCoverageRows, applied per rep —
  *  a rep's own YTD coverage is the average of their monthly totals (summed across any
  *  principals collapsed into the same month), not a running sum across months. This
- *  keeps each rep's figure consistent with the period Total: summing every rep's
- *  (already-averaged) coverage reproduces summarizeCoverageForPeriod's total exactly. */
+ *  counts a rep's own outlets once, so the reps overlap: the team total (every customer
+ *  once, see summarizeCoverageForPeriod) is lower than the sum of the rep rows. */
 export function summarizeCoverageByRep(
   dataset: Dataset,
   selection: PeriodSelection,
