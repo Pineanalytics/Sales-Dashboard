@@ -92,6 +92,29 @@ interface RawEventRow {
   last: Date | string;
 }
 
+/** One row per outlet, the months it bought in as parallel arrays (a year of Pine is 60,000 outlets, not 380,000 outlet-month rows). */
+interface RawOutletEvents {
+  outletKey: string;
+  months: number[];
+  alls: number[];
+  confs: number[];
+  others: number[];
+  first: Date | string;
+  last: Date | string;
+}
+
+/** Folds a per outlet and month query (outletKey, m, all, conf, other, first, last) into one row per outlet. */
+function perOutlet(perMonth: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    SELECT "outletKey", ARRAY_AGG(m ORDER BY m) AS months, ARRAY_AGG("all" ORDER BY m) AS alls, ARRAY_AGG(conf ORDER BY m) AS confs,
+           ARRAY_AGG(other ORDER BY m) AS others, MIN(first) AS first, MAX(last) AS last
+    FROM (${perMonth}) g GROUP BY "outletKey"`;
+}
+
+function addOutlet(into: Map<string, OutletEvents>, source: string, r: RawOutletEvents) {
+  r.months.forEach((m, i) => addEvents(into, outletId(source, r.outletKey), { m, all: r.alls[i], conf: r.confs[i], other: r.others[i], first: iso(r.first), last: iso(r.last) }));
+}
+
 const iso = (value: Date | string) => (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
 
 function addEvents(into: Map<string, OutletEvents>, id: string, row: { m: number; all: number; conf: number; other: number; first: string; last: string }) {
@@ -117,7 +140,7 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
 
   const [pine, eabl, upfield, leverage] = await Promise.all([
     wants("PINE")
-      ? prisma.$queryRaw<RawEventRow[]>(Prisma.sql`
+      ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT "customerId" AS "outletKey", EXTRACT(MONTH FROM date)::int AS m,
                  COUNT(DISTINCT date::date)::int AS "all",
                  (COUNT(DISTINCT date::date) FILTER (WHERE ${confSql(Prisma.sql`principal`)}))::int AS conf,
@@ -126,10 +149,10 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
           FROM "ActiveOutletEvent"
           WHERE date >= ${start} AND date < ${end} AND ${principalPredicate(Prisma.sql`principal`, filters, scope)}
             ${filters.role ? Prisma.sql`AND "salesRole" = ${filters.role}` : Prisma.empty}
-          GROUP BY 1, 2`)
+          GROUP BY 1, 2`))
       : [],
     wants("EABL") && !secondaryOnly
-      ? prisma.$queryRaw<RawEventRow[]>(Prisma.sql`
+      ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT ec."customerCode" AS "outletKey", EXTRACT(MONTH FROM ec."callDate")::int AS m,
                  COUNT(DISTINCT ec."callDate"::date)::int AS "all",
                  (COUNT(DISTINCT ec."callDate"::date) FILTER (WHERE ${confSql(Prisma.sql`ecm.principal`)}))::int AS conf,
@@ -138,17 +161,17 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
           FROM "EablCall" ec INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
           WHERE ec."isProductive" AND ec."customerCode" IS NOT NULL AND ec."callDate" >= ${start} AND ec."callDate" < ${end}
             AND ${principalPredicate(Prisma.sql`ecm.principal`, filters, scope)}
-          GROUP BY 1, 2`)
+          GROUP BY 1, 2`))
       : [],
     wants("UPFIELD") && !secondaryOnly && principalAllowed("Upfield-Nairobi", filters, scope)
-      ? prisma.$queryRaw<RawEventRow[]>(Prisma.sql`
+      ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT "custCode" AS "outletKey", EXTRACT(MONTH FROM "txnDate")::int AS m,
                  COUNT(DISTINCT "txnDate"::date)::int AS "all", 0 AS conf, COUNT(DISTINCT "txnDate"::date)::int AS other,
                  MIN("txnDate"::date) AS first, MAX("txnDate"::date) AS last
           FROM "UpfieldTransaction"
           WHERE type = 'sale' AND "custCode" IS NOT NULL AND btrim("custCode") <> '' AND "custCode" <> '000'
             AND UPPER(COALESCE("custName", '')) NOT LIKE '%CONNECTIVITY TEST%' AND "txnDate" >= ${start} AND "txnDate" < ${end}
-          GROUP BY 1, 2`)
+          GROUP BY 1, 2`))
       : [],
     wants("LEVERAGE") && !secondaryOnly
       ? prisma.$queryRaw<(RawEventRow & { storageLocation: string })[]>(Prisma.sql`
@@ -161,9 +184,9 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
       : [],
   ]);
 
-  for (const r of pine) addEvents(out, outletId("PINE", r.outletKey), { m: r.m, all: r.all, conf: r.conf, other: r.other, first: iso(r.first), last: iso(r.last) });
-  for (const r of eabl) addEvents(out, outletId("EABL", r.outletKey), { m: r.m, all: r.all, conf: r.conf, other: r.other, first: iso(r.first), last: iso(r.last) });
-  for (const r of upfield) addEvents(out, outletId("UPFIELD", r.outletKey), { m: r.m, all: r.all, conf: r.conf, other: r.other, first: iso(r.first), last: iso(r.last) });
+  for (const r of pine) addOutlet(out, "PINE", r);
+  for (const r of eabl) addOutlet(out, "EABL", r);
+  for (const r of upfield) addOutlet(out, "UPFIELD", r);
   for (const r of leverage) {
     const principal = `Unilever-${SALES_RETURNS_BRANCH_LABELS[r.storageLocation] ?? r.storageLocation}`;
     if (!principalAllowed(principal, filters, scope)) continue;
