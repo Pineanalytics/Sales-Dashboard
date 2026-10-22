@@ -12,6 +12,7 @@ import type { OutletFilterOptions, OutletFilters, OutletListRow, OutletUniverseS
 import { Dashboard } from "./activeOutlets/Dashboard";
 import { FilterBar } from "./activeOutlets/FilterBar";
 import { OutletList } from "./activeOutlets/OutletList";
+import { FrequencyExtract } from "./activeOutlets/FrequencyExtract";
 
 interface UniversePayload {
   summary: OutletUniverseSummary;
@@ -269,7 +270,10 @@ export function ActiveOutletsView() {
           {filters.source === null || filters.source === "PINE" ? <PineMonthlyTrend /> : null}
         </>
       ) : (
-        <OutletList list={list} exportHref={exportHref} onPage={setPage} />
+        <>
+          <FrequencyExtract baseParams={toParams(filters).toString()} />
+          <OutletList list={list} exportHref={exportHref} onPage={setPage} />
+        </>
       )}
 
       <p className="text-xs leading-relaxed text-muted">

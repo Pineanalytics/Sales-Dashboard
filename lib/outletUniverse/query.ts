@@ -78,7 +78,7 @@ function principalKeyClause(key: string): Prisma.Sql {
   return Prisma.sql`regexp_replace(lower(split_part(principal, '-', 1)), '[^a-z0-9]', '', 'g') = ${normalizePrincipalKey(key)}`;
 }
 
-function baseWhere(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
+export function baseWhere(filters: OutletFilters, scope: OutletScope): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`TRUE`];
   if (scope) {
     parts.push(scope.principals.length > 0 ? Prisma.sql`lower(principal) IN (${Prisma.join(scope.principals.map((name) => name.toLowerCase()))})` : Prisma.sql`FALSE`);
