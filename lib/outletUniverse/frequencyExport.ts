@@ -146,10 +146,10 @@ export function frequencyWorkbook(report: FrequencyReport, filterNotes: string[]
   summarySheet["!merges"] = merges;
   summarySheet["!cols"] = [{ wch: 3 }, { wch: 24 }, ...Array.from({ length: 6 }, () => ({ wch: 18 }))];
 
-  const dataRows: (string | number)[][] = [OUTLET_COLUMNS.map((c) => c.header), ...outlets.map((o) => OUTLET_COLUMNS.map((c) => c.value(o)))];
-  const dataSheet = XLSX.utils.aoa_to_sheet(dataRows);
+  // Dense mode and a compressed zip: a quarter is 58,000 rows by 38 columns, which as a sparse sheet in an uncompressed zip took 900 MB and made an 80 MB file.
+  const dataSheet = XLSX.utils.aoa_to_sheet([OUTLET_COLUMNS.map((c) => c.header), ...outlets.map((o) => OUTLET_COLUMNS.map((c) => c.value(o)))], { dense: true } as XLSX.AOA2SheetOpts);
   dataSheet["!cols"] = OUTLET_COLUMNS.map((c) => ({ wch: Math.max(12, Math.min(34, c.header.length + 2)) }));
-  dataSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, dataRows.length - 1), c: OUTLET_COLUMNS.length - 1 } }) };
+  dataSheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, outlets.length), c: OUTLET_COLUMNS.length - 1 } }) };
 
   const notes: string[][] = [
     ["Coverage frequency extract"],
@@ -175,5 +175,5 @@ export function frequencyWorkbook(report: FrequencyReport, filterNotes: string[]
   XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
   XLSX.utils.book_append_sheet(workbook, dataSheet, "Outlet Data");
   XLSX.utils.book_append_sheet(workbook, notesSheet, "Notes");
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx", compression: true }) as Buffer;
 }

@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
-import { buildFrequencyOutlets, buildFrequencySummary, cadenceFor, channelGroup, isoWeekOf, isoWeeksInYear, resolveFrequencyPeriod, type FrequencyReport } from "../lib/outletUniverse/frequency";
+import { addOutletEvents, buildFrequencyOutlets, buildFrequencySummary, cadenceFor, channelGroup, isoWeekOf, isoWeeksInYear, resolveFrequencyPeriod, type FrequencyReport } from "../lib/outletUniverse/frequency";
 import { OUTLET_COLUMNS, columnLetter, frequencyCsv, frequencyWorkbook } from "../lib/outletUniverse/frequencyExport";
 
 const NOW = new Date("2026-10-22T09:00:00Z");
@@ -143,5 +143,18 @@ describe("the files", () => {
     const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Outlet Data"]);
     expect(data).toHaveLength(4);
     expect(data[0]["Cadence"]).toBeDefined();
+  });
+});
+
+describe("reading the purchase queries", () => {
+  it("turns the calendar months the queries return (1 to 12) into month indexes, so a buyer in every month of Q3 is monthly", () => {
+    const q3 = period("kind=quarter&year=2026&quarter=3");
+    const map = new Map();
+    addOutletEvents(map, "PINE", { outletKey: "1", months: [7, 8, 9], alls: [4, 3, 5], confs: [0, 0, 0], others: [4, 3, 5], first: "2026-07-01", last: "2026-09-28" });
+    const row = { source: "PINE" as const, outletKey: "1", principal: "Suntory-Nairobi", outletName: "A", channel: "Retail", segment: "Kiosk", rawChannel: null, rawSegment: null, location: "Nairobi", region: "Nairobi", territory: "T", route: null, repName: null, teamLeader: null, sales: 1 };
+    const [outlet] = buildFrequencyOutlets([row], map, q3);
+    expect(outlet.cadenceAll).toBe("Once Per Month");
+    expect(outlet.daysByMonth.slice(6, 9)).toEqual([4, 3, 5]);
+    expect(outlet.daysByMonth[0]).toBe(0);
   });
 });
