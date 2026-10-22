@@ -699,6 +699,7 @@ async function overlayAdminData(dataset: Dataset, includeBrandCustomer = true): 
     stockCoverTargets: withStock.stockCoverTargets,
     monthlyPL: withPL.monthlyPL,
     monthlyCoverage: withCoverage.monthlyCoverage,
+    monthlyCoverageDistinct: withCoverage.monthlyCoverageDistinct,
     monthlyBrandCustomer: withBrandCustomer.monthlyBrandCustomer,
     stockItems: withStock.stockItems,
     stockTotal: withStock.stockTotal,

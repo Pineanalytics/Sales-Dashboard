@@ -106,3 +106,17 @@ describe("scoping the distinct rows to the selected principals", () => {
     expect(summarizeCoverageForPeriod(scoped, july, null)).toMatchObject({ coverage: 100, productiveCalls: 85, basis: "distinct" });
   });
 });
+
+describe("the Coverage & Productivity report", () => {
+  it("shows the customer-once total and says so, while the rep rows stay each rep's own count", async () => {
+    const { REPORT_DEFINITIONS } = await import("../lib/reports/definitions");
+    const report = REPORT_DEFINITIONS.find((r) => r.key === "coverage")!;
+    const ds = dataset(repRows(6), distinctRows(6));
+    const built = await report.build({ dataset: ds, period: july, principalKey: null, repFilter: null, periodLabel: "July 2026" } as never);
+    const kpi = Object.fromEntries((built.summary ?? []).map((s) => [s.label, s.value]));
+    expect(kpi["Coverage"]).toBe("110");
+    expect(kpi["Productivity %"]).toBe("86.4%");
+    expect(kpi["Coverage basis"]).toMatch(/counted once/);
+    expect(built.sections[0].rows.reduce((sum, row) => sum + Number(row[2]), 0)).toBe(250);
+  });
+});
