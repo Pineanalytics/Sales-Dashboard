@@ -1404,6 +1404,24 @@ model CoverageCustomerActual {
   @@index([year, principal, customerId])
 }
 
+// Distinct-customer coverage per month, derived from CoverageCustomerActual by lib/coverageDistinct.ts (refilled whenever the Coverage sync saves a
+// month's customer rows). CoverageActual counts each rep's outlets, so summing it over reps and principals counts a shop served by two reps, or
+// bought from by two principals, more than once; this counts every customer once. principalKey is the normalised brand ("*" = every principal) and
+// roleCategory is "primary" | "secondary" | "other" ("*" = every role). Disposable: it can be rebuilt from CoverageCustomerActual at any time.
+model CoverageDistinctMonthly {
+  id                  String   @id @default(cuid())
+  year                String
+  monthIndex          Int
+  principalKey        String
+  roleCategory        String
+  customers           Int
+  productiveCustomers Int
+  updatedAt           DateTime @updatedAt
+
+  @@unique([year, monthIndex, principalKey, roleCategory])
+  @@index([year, monthIndex])
+}
+
 model ActiveOutlet {
   id                 String   @id @default(cuid())
   year               String
