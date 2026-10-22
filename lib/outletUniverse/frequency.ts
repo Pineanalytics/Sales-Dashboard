@@ -52,7 +52,7 @@ export interface MonthDays {
   other: number;
 }
 
-interface OutletEvents {
+export interface OutletEvents {
   months: Map<number, MonthDays>;
   first: string | null;
   last: string | null;
@@ -93,7 +93,7 @@ interface RawEventRow {
 }
 
 /** One row per outlet, the months it bought in as parallel arrays (a year of Pine is 60,000 outlets, not 380,000 outlet-month rows). */
-interface RawOutletEvents {
+export interface RawOutletEvents {
   outletKey: string;
   months: number[];
   alls: number[];
@@ -111,8 +111,9 @@ function perOutlet(perMonth: Prisma.Sql): Prisma.Sql {
     FROM (${perMonth}) g GROUP BY "outletKey"`;
 }
 
-function addOutlet(into: Map<string, OutletEvents>, source: string, r: RawOutletEvents) {
-  r.months.forEach((m, i) => addEvents(into, outletId(source, r.outletKey), { m, all: r.alls[i], conf: r.confs[i], other: r.others[i], first: iso(r.first), last: iso(r.last) }));
+/** Adds one outlet's rows from the queries, whose months are calendar months (1 to 12, as EXTRACT(MONTH) gives them); the extract works in month indexes (0 to 11). */
+export function addOutletEvents(into: Map<string, OutletEvents>, source: string, r: RawOutletEvents) {
+  r.months.forEach((calendarMonth, i) => addEvents(into, outletId(source, r.outletKey), { m: calendarMonth - 1, all: r.alls[i], conf: r.confs[i], other: r.others[i], first: iso(r.first), last: iso(r.last) }));
 }
 
 const iso = (value: Date | string) => (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
@@ -184,13 +185,13 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
       : [],
   ]);
 
-  for (const r of pine) addOutlet(out, "PINE", r);
-  for (const r of eabl) addOutlet(out, "EABL", r);
-  for (const r of upfield) addOutlet(out, "UPFIELD", r);
+  for (const r of pine) addOutletEvents(out, "PINE", r);
+  for (const r of eabl) addOutletEvents(out, "EABL", r);
+  for (const r of upfield) addOutletEvents(out, "UPFIELD", r);
   for (const r of leverage) {
     const principal = `Unilever-${SALES_RETURNS_BRANCH_LABELS[r.storageLocation] ?? r.storageLocation}`;
     if (!principalAllowed(principal, filters, scope)) continue;
-    addEvents(out, outletId("LEVERAGE", r.outletKey), { m: r.m, all: r.all, conf: isConfectionery(principal) ? r.all : 0, other: isConfectionery(principal) ? 0 : r.all, first: iso(r.first), last: iso(r.last) });
+    addEvents(out, outletId("LEVERAGE", r.outletKey), { m: r.m - 1, all: r.all, conf: isConfectionery(principal) ? r.all : 0, other: isConfectionery(principal) ? 0 : r.all, first: iso(r.first), last: iso(r.last) });
   }
   return out;
 }
