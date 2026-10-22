@@ -2628,6 +2628,27 @@ model GpMarginTarget {
   createdAt DateTime @default(now())
 }
 
+// Full, unscoped Coaching snapshot pushed nightly from the Coaching app
+// (scripts/coaching-dashboard-push.mjs there), replacing the pattern where
+// every /coaching and /coaching/reports page load pulled a scoped slice live
+// from app/api/integrations/analytics/coaching over there
+// (lib/coachingBridge.ts here still falls back to that live pull if no push
+// has landed yet). One row per Coaching form id; `payload` holds
+// { principals, accompaniments, visits, actions } - the same shape the old
+// live pull returned, but for every team leader at once. The viewer's
+// scope (team leader / date range / principal) is applied at read time in
+// lib/coachingBridge.ts, not stored here. Received by
+// app/api/integrations/coaching/snapshot/route.ts, authenticated the same way
+// as the reference bridge (COACHING_REFERENCE_SYNC_KEY). See
+// docs/automation-registry.md.
+model CoachingSnapshotCache {
+  formId             String   @id
+  generatedAt        DateTime
+  receivedAt         DateTime @updatedAt
+  accompanimentCount Int
+  payload            Json
+}
+
 // Run metadata for the Performance Analysis lines: one row per calendar year,
 // replaced on every run of scripts/db-bridge/performance-analysis/run.ts. `payload`
 // holds { excludedSales, excludedLines } (SAP lines left out for having no active

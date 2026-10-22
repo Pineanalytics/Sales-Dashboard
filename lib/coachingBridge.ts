@@ -56,9 +56,54 @@ export async function coachingScopeForUser(user: Session["user"]): Promise<Coach
   return { allLeaders: false, leaderNames: leaders.map((leader) => leader.name) };
 }
 
+type CachedSnapshotPayload = {
+  principals: { id: string; name: string }[];
+  accompaniments: CoachingAccompaniment[];
+  visits: CoachingVisit[];
+  actions: CoachingAction[];
+};
+
+/**
+ * Applies the viewer's scope/date/principal filter to the full, unscoped
+ * snapshot scripts/coaching-dashboard-push.mjs pushes nightly (replacing the
+ * per-user filtering app/api/integrations/analytics/coaching/route.ts used to
+ * do server-side on every live pull).
+ */
+function filterSnapshot(payload: CachedSnapshotPayload, scope: CoachingScope, filters: { from: string; to: string; principal?: string }) {
+  const leaderNames = new Set(scope.leaderNames.map((name) => name.trim().toLocaleLowerCase()));
+  const inScope = (item: CoachingAccompaniment) =>
+    (scope.allLeaders || leaderNames.has(item.teamLeaderName.trim().toLocaleLowerCase())) &&
+    item.date >= filters.from &&
+    item.date <= filters.to;
+
+  const scoped = payload.accompaniments.filter(inScope);
+  const scopedIds = new Set(scoped.map((item) => item.id));
+  const scopedVisits = payload.visits.filter((visit) => scopedIds.has(visit.accompaniment_id));
+
+  const principalName = filters.principal ? payload.principals.find((item) => item.id === filters.principal)?.name : undefined;
+  const includedIds = !filters.principal
+    ? scopedIds
+    : new Set(scopedVisits.filter((visit) => visit.principalName === principalName).map((visit) => visit.accompaniment_id));
+
+  return {
+    principals: payload.principals,
+    accompaniments: scoped.filter((item) => includedIds.has(item.id)),
+    visits: scopedVisits.filter((visit) => includedIds.has(visit.accompaniment_id)),
+    actions: payload.actions.filter((action) => includedIds.has(action.accompaniment_id)),
+  };
+}
+
 export async function loadCoachingSnapshot(scope: CoachingScope, filters: { from: string; to: string; principal?: string }) {
-  const payload = await bridgeRequest({ ...scope, ...filters });
-  return payload as unknown as CoachingSnapshot;
+  const cached = await prisma.coachingSnapshotCache.findUnique({ where: { formId: COACHING_FORM_ID } });
+  if (!cached) {
+    // No push has landed yet (e.g. right after a fresh deploy, before the
+    // nightly job has first run) - fall back to the old live pull so the
+    // page isn't empty.
+    const payload = await bridgeRequest({ ...scope, ...filters });
+    return payload as unknown as CoachingSnapshot;
+  }
+  const filtered = filterSnapshot(cached.payload as unknown as CachedSnapshotPayload, scope, filters);
+  return { generatedAt: cached.generatedAt.toISOString(), ...filtered } satisfies CoachingSnapshot;
 }
 
 export async function submitCoachingReview(scope: CoachingScope, accompanimentId: string, status: "supervisor_reviewed" | "approved", comments: string) {
