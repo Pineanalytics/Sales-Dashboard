@@ -150,9 +150,9 @@ const coverageReport: ReportDefinition = {
           label: "Coverage basis",
           value:
             current.basis === "rep-sum"
-              ? "Each rep's outlets added up: an outlet called on by two reps counts twice."
+              ? "Each rep's outlets added up. EABL and Upfield already give each outlet to one rep; for Pine an outlet called on by two reps counts twice."
               : current.basis === "mixed"
-              ? "Each customer counted once (Pine principals); other principals add up their reps' outlets. Monthly figures averaged over the period."
+              ? "Each customer counted once per month (Pine principals); EABL and Upfield already give each outlet to one rep, so their rep totals are added as they are. A shop served through two systems counts in each. Monthly figures averaged over the period."
               : "Each customer counted once per month, averaged over the period. Reps overlap, so the rep rows add up to more than the total.",
         },
       ],
