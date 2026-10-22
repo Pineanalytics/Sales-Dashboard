@@ -23,6 +23,16 @@ export interface MonthlySalesRow {
   grossMarginPct: number | null;
 }
 
+/** Distinct-customer coverage for one month (see lib/coverageDistinct.ts). principalKey "*" = every principal, roleCategory "*" = every role. */
+export interface CoverageDistinctRow {
+  year: string;
+  monthIndex: number;
+  principalKey: string;
+  roleCategory: string;
+  customers: number;
+  productiveCustomers: number;
+}
+
 export interface MonthlyCoverageRow {
   year: string;
   month: string;
@@ -171,6 +181,8 @@ export interface Dataset {
   monthlySales: MonthlySalesRow[];
   monthlyCoverage: MonthlyCoverageRow[];
   monthlyCoverageTargets?: MonthlyCoverageTargetRow[];
+  /** Customers counted once per month, principal brand and role. Absent (or without a month) = that month's coverage is the rep sums. */
+  monthlyCoverageDistinct?: CoverageDistinctRow[];
   monthlyBrandCustomer: MonthlyBrandCustomerRow[];
   monthlyPL: MonthlyPLRow[];
   stockTotal: StockTotal;

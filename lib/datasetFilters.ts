@@ -39,10 +39,17 @@ export function withDormantHeldStock(total: StockTotal, dormantStockItems: Dorma
 export function filterDatasetToPrincipals(dataset: Dataset, principalKeys: Set<string>): Dataset {
   const monthlySales = dataset.monthlySales.filter((row) => principalKeys.has(row.principalKey));
   const monthlyCoverage = dataset.monthlyCoverage.filter((row) => principalKeys.has(row.principalKey));
+  // Customers counted once per principal stay valid for the principals kept. The all-principals rows do not (they span every principal), except
+  // that a single kept principal IS the whole selection, so its own rows stand in for them. Several kept principals have no overlap-free
+  // figure and fall back to the rep sums.
+  const keptDistinct = (dataset.monthlyCoverageDistinct ?? []).filter((row) => principalKeys.has(row.principalKey));
+  const monthlyCoverageDistinct = principalKeys.size === 1
+    ? [...keptDistinct, ...keptDistinct.map((row) => ({ ...row, principalKey: "*" }))]
+    : keptDistinct;
   const monthlyBrandCustomer = dataset.monthlyBrandCustomer.filter((row) => principalKeys.has(row.principalKey));
   const monthlyPL = dataset.monthlyPL.filter((row) => principalKeys.has(row.principalKey));
   const stockItems = dataset.stockItems.filter((item) => principalKeys.has(item.key));
   const dormantStockItems = dataset.dormantStockItems?.filter((item) => principalKeys.has(item.key));
   const emptiesStockItems = dataset.emptiesStockItems?.filter((item) => principalKeys.has(item.key));
-  return { ...dataset, monthlySales, monthlyCoverage, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, emptiesStockItems, stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems, emptiesStockItems) };
+  return { ...dataset, monthlySales, monthlyCoverage, monthlyCoverageDistinct, monthlyBrandCustomer, monthlyPL, stockItems, dormantStockItems, emptiesStockItems, stockTotal: withDormantHeldStock(stockTotalFromItems(stockItems), dormantStockItems, emptiesStockItems) };
 }
