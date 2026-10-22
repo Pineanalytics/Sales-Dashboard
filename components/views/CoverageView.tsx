@@ -280,7 +280,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       </SectionCard>
 
       <KpiGrid>
-        <KpiCard accent="coverage" label="Unique calls visited" value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} sublabel={`${period.kind} · ${roleLabel} Sales${currentSummary.basis === "rep-sum" ? " · reps' outlets added up" : " · each customer once"}`} />
+        <KpiCard accent="coverage" label="Unique calls visited" value={<AnimatedValue value={currentSummary.coverage} format={formatNumber} />} sublabel={`${period.kind} · ${roleLabel} Sales${currentSummary.basis === "rep-sum" ? " · rep counts added up" : " · each customer once"}`} />
         <KpiCard accent="coverage" label="Unique productive calls" value={<AnimatedValue value={currentSummary.productiveCalls} format={formatNumber} />} sublabel="Sale or order calls" />
         <KpiCard
           accent="coverage"
