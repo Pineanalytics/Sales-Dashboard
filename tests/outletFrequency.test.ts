@@ -1,7 +1,23 @@
 import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
-import { addOutletEvents, buildFrequencyOutlets, buildFrequencySummary, cadenceFor, channelGroup, isoWeekOf, isoWeeksInYear, resolveFrequencyPeriod, type FrequencyReport } from "../lib/outletUniverse/frequency";
+import {
+  addOutletEvents,
+  buildFrequencyOutlets,
+  buildFrequencySummary,
+  cadenceFor,
+  classificationOf,
+  coverageChannel,
+  coverageRegion,
+  isoWeekOf,
+  isoWeeksInYear,
+  resolveFrequencyPeriod,
+  servedByKeyAccountRep,
+  type FrequencyReport,
+  type OutletEvents,
+} from "../lib/outletUniverse/frequency";
 import { OUTLET_COLUMNS, columnLetter, frequencyCsv, frequencyWorkbook } from "../lib/outletUniverse/frequencyExport";
+import type { OutletListRow } from "../lib/outletUniverse/query";
+import { buildNameProfiles } from "../lib/outletUniverse/tiering";
 
 const NOW = new Date("2026-10-22T09:00:00Z");
 const period = (query: string) => resolveFrequencyPeriod(new URLSearchParams(query), NOW);
@@ -60,101 +76,167 @@ describe("the best cadence an outlet kept up", () => {
   });
 });
 
-describe("channel groups", () => {
-  it("map the system's channels to the summary rows", () => {
-    expect(["Retail", "wholesale", "Modern Trade", "On Trade", "Croma 10+2", "", null].map(channelGroup)).toEqual(["Retail", "Wholesale", "Modern Trade", "On Trade", "Others", "Others", "Others"]);
+describe("channel, region and Direct / Indirect", () => {
+  it("map a tiered segment to the summary channel, with key account reps first", () => {
+    const channels = ["Wholesalers", "Distributor", "Minimart", "Mini Mart/T3 Store", "Supermarkets", "Large Modern Trade", "Hyper", "Institutions", "Retailers", "Pharmacies", "Horeca", "Kiosk", "Unspecified"].map((s) => coverageChannel(s, false));
+    expect(channels).toEqual(["Wholesalers", "Wholesalers", "Minimart", "Minimart", "LMT", "LMT", "LMT", "Institutions", "Others", "Others", "Others", "Others", "Others"]);
+    expect(coverageChannel("Wholesalers", true)).toBe("Key Accounts");
+    expect(coverageChannel("Retailers", true)).toBe("Key Accounts");
+  });
+
+  it("puts Central, Nyeri and Nyahururu in Mountain and falls back to the branch for places and placeholders", () => {
+    expect(coverageRegion("Nairobi", "Nairobi")).toBe("Nairobi");
+    expect(coverageRegion("Eastern", "Nairobi")).toBe("Eastern");
+    expect(["Central", "Nyeri", "Nyahururu"].map((r) => coverageRegion(r, "Nairobi"))).toEqual(["Mountain", "Mountain", "Mountain"]);
+    expect(coverageRegion("Unspecified", "Nairobi")).toBe("Nairobi"); // Pine outlets with no region
+    expect(coverageRegion("1Tana River", "Nairobi")).toBe("Nairobi"); // a place, not a region
+    expect(coverageRegion("General", "Nyeri")).toBe("Mountain"); // EABL General, served from Nyeri
+    expect(coverageRegion("Isiolo", "Elsewhere")).toBe("Others");
+  });
+
+  it("calls Primary Sales (and Primary + Secondary) Direct and Secondary Sales Indirect, by the role of the Absolute Principal", () => {
+    expect(["Primary Sales", "Primary + Secondary", "Secondary Sales"].map(classificationOf)).toEqual(["Direct", "Direct", "Indirect"]);
+  });
+
+  it("recognises an outlet served by a key account rep, by name or among its principals' reps", () => {
+    const keyReps = new Set(["clarrine wahome"]);
+    expect(servedByKeyAccountRep({ repName: "Clarrine Wahome", repsByPrincipal: null }, keyReps)).toBe(true);
+    expect(servedByKeyAccountRep({ repName: "Other Rep", repsByPrincipal: "Suntory-Nairobi: Other Rep; Mars-Nairobi: Clarrine Wahome" }, keyReps)).toBe(true);
+    expect(servedByKeyAccountRep({ repName: "Other Rep", repsByPrincipal: "Mars-Nairobi: Someone Else" }, keyReps)).toBe(false);
+    expect(servedByKeyAccountRep({ repName: "Clarrine Wahome", repsByPrincipal: null }, new Set())).toBe(false);
   });
 });
 
-// Three Pine outlets (one buys Mars and Suntory, one Mars only, one Suntory only) and one EABL outlet, over a 2025 year.
-const universe = [
-  { source: "PINE" as const, outletKey: "1", principal: "Mars-Nairobi", outletName: "Alpha", channel: "Retail", segment: "Kiosk", rawChannel: "Retail", rawSegment: "Kiosk", location: "Nairobi", region: "Nairobi", territory: "Roysambu", route: null, repName: "Rep A", teamLeader: "TL", sales: 100 },
-  { source: "PINE" as const, outletKey: "1", principal: "Suntory-Nairobi", outletName: "Alpha", channel: "Retail", segment: "Kiosk", rawChannel: "Retail", rawSegment: "Kiosk", location: "Nairobi", region: "Nairobi", territory: "Roysambu", route: null, repName: "Rep A", teamLeader: "TL", sales: 40 },
-  { source: "PINE" as const, outletKey: "2", principal: "Mars-Nairobi", outletName: "Beta", channel: "Wholesale", segment: "Wholesalers", rawChannel: "Wholesale", rawSegment: "Wholesalers", location: "Nairobi", region: "Eastern", territory: "Machakos", route: null, repName: "Rep B", teamLeader: "TL", sales: 80 },
-  { source: "PINE" as const, outletKey: "3", principal: "Suntory-Nairobi", outletName: "Gamma", channel: "Retail", segment: "Shop", rawChannel: "Retail", rawSegment: "Shop", location: "Nairobi", region: "Nairobi", territory: "Kasarani", route: null, repName: "Rep C", teamLeader: "TL", sales: 30 },
-  { source: "EABL" as const, outletKey: "E1", principal: "EABL-Nyeri", outletName: "Pub", channel: "On Trade", segment: "Bar", rawChannel: "On Trade", rawSegment: "Bar", location: "Nyeri", region: "Nyeri", territory: "Nyeri Town", route: null, repName: "Rep E", teamLeader: "TL", sales: 20 },
-  { source: "PINE" as const, outletKey: "9", principal: "Mars-Nairobi", outletName: "Never bought", channel: "Retail", segment: "Kiosk", rawChannel: null, rawSegment: null, location: "Nairobi", region: "Nairobi", territory: "X", route: null, repName: null, teamLeader: null, sales: 0 },
-];
-const ev = (months: Record<number, [number, number, number]>) => ({
+function outlet(overrides: Partial<OutletListRow>): OutletListRow {
+  return {
+    source: "PINE", outletKey: "1", outletName: "Alpha", principals: "Mars-Nairobi, Suntory-Nairobi", salesRole: "Primary Sales", channel: "Wholesale", segment: "Wholesalers",
+    location: "Nairobi", region: "Central", territory: "Kiambu", route: null, repName: "Rep A", repCode: null, teamLeader: "TL", repStatus: null, repRegion: null, repSubRegion: null,
+    teamLeadersByPrincipal: null, plannedRep: null, matchId: null, matchConfidence: null, matchedSystems: null, latitude: null, longitude: null, lastPurchaseDate: "2026-10-01",
+    sales: 600_000, transactions: 12, active: true, firstPurchaseDate: "2026-01-05", periodsBought90: 3, periodsBought180: 6, principalCount: 2, dominantPrincipal: "Mars-Nairobi",
+    dominantShare: 0.8, sharedPrincipals: null, repCount: 1, repsByPrincipal: "Mars-Nairobi: Rep A",
+    ...overrides,
+  };
+}
+
+const ev = (months: Record<number, [number, number, number]>): OutletEvents => ({
   months: new Map(Object.entries(months).map(([m, [all, conf, other]]) => [Number(m), { all, conf, other }])),
   first: "2025-01-05",
   last: "2025-12-20",
 });
 const monthly = Object.fromEntries(Array.from({ length: 12 }, (_, m) => [m, [2, 1, 1] as [number, number, number]]));
-const events = new Map([
-  ["PINE\u00001", ev(monthly)], // Mars and Suntory every month: monthly overall, monthly excluding Mars
-  ["PINE\u00002", ev({ 0: [1, 1, 0], 7: [1, 1, 0] })], // Mars only: every half-year
-  ["PINE\u00003", ev({ 4: [1, 0, 1] })], // Suntory only, once
-  ["EABL\u0000E1", ev({ 1: [1, 0, 1], 4: [1, 0, 1], 7: [1, 0, 1], 10: [1, 0, 1] })], // quarterly
+
+const rows = [
+  outlet({ outletKey: "1", outletName: "Alpha" }), // wholesaler, Primary, every month, Mars + Suntory
+  outlet({ outletKey: "2", outletName: "Beta", salesRole: "Primary + Secondary", segment: "Unspecified", channel: "Retail", region: "Nairobi", sales: 12_000, transactions: 12, dominantPrincipal: "Suntory-Nairobi" }), // unspecified segment, Secondary, Mars only
+  outlet({ outletKey: "3", outletName: "Gamma", repName: "Clarrine Wahome", region: "Eastern", segment: "Retailers", channel: "Retail", sales: 900_000, transactions: 12 }), // key account
+  outlet({ outletKey: "4", outletName: "Never bought", region: "Nairobi" }),
+];
+const events = new Map<string, OutletEvents>([
+  ["PINE\u00001", ev(monthly)],
+  ["PINE\u00002", ev({ 0: [1, 1, 0], 7: [1, 1, 0] })],
+  ["PINE\u00003", ev({ 4: [1, 0, 1] })],
 ]);
 const y2025 = period("kind=year&year=2025");
-const outlets = buildFrequencyOutlets(universe, events, y2025);
-const summary = buildFrequencySummary(outlets);
+// How each principal reaches the outlet: Beta buys Suntory (dominant) through Secondary Sales although its Mars row is Primary.
+const roles = new Map([
+  ["PINE 1 Mars-Nairobi", "Primary Sales"],
+  ["PINE 2 Suntory-Nairobi", "Secondary Sales"],
+  ["PINE 2 Mars-Nairobi", "Primary Sales"],
+  ["PINE 3 Mars-Nairobi", "Primary Sales"],
+]);
+const built = buildFrequencyOutlets(rows, buildNameProfiles(rows.map((r) => ({ outletName: r.outletName, channel: r.channel, segment: r.segment, sales: r.sales, transactions: r.transactions, active: r.active }))), events, y2025, new Set(["clarrine wahome"]), roles, NOW);
+const byName = Object.fromEntries(built.map((o) => [o.outletName, o]));
 
-describe("the outlet rows and the summary", () => {
-  it("lists only outlets that bought, once each, with their principals and flags", () => {
-    expect(outlets.map((o) => o.outletName).sort()).toEqual(["Alpha", "Beta", "Gamma", "Pub"]);
-    const alpha = outlets.find((o) => o.outletName === "Alpha")!;
-    expect(alpha).toMatchObject({ principals: "Mars-Nairobi; Suntory-Nairobi", boughtConfectionery: true, boughtOther: true, purchaseDays: 24, cadenceAll: "Once Per Month", cadenceOther: "Once Per Month" });
-    expect(outlets.find((o) => o.outletName === "Beta")).toMatchObject({ boughtOther: false, cadenceOther: null, cadenceAll: "Once in 6 Months" });
+describe("the outlet rows", () => {
+  it("lists only outlets that bought, one row each", () => {
+    expect(built.map((o) => o.outletName).sort()).toEqual(["Alpha", "Beta", "Gamma"]);
   });
 
-  it("counts every outlet once in the cadence table, including confectioneries", () => {
-    const t = summary.including;
-    expect(t.total.total).toBe(4);
-    expect(t.total.counts).toEqual({ "Once per Year": 1, "Once in 6 Months": 1, "Once in 3 Months": 1, "Once Per Month": 1 });
-    expect(t.rows.find((r) => r.label === "Retail")).toMatchObject({ total: 2, confectionery: 1 });
-    expect(t.rows.find((r) => r.label === "Wholesale")).toMatchObject({ total: 1, confectionery: 1 });
-    expect(t.total.confectionery).toBe(2);
+  it("carries the tiering of the Active Outlets extract: tiered segment, average sales, combined average and tier", () => {
+    expect(byName["Alpha"]).toMatchObject({ segment: "Wholesalers", averageSales: 50_000, combinedAverage: 50_000, tier: "20,001 - 50,000" });
+    expect(byName["Beta"]).toMatchObject({ segment: "Retailers", sourceSegment: "Unspecified", averageSales: 1_000, tier: "501 - 1,000" }); // Unspecified becomes Retailers
   });
 
-  it("leaves outlets that bought only confectionery out of the excluding tables", () => {
-    expect(summary.excluding.total.total).toBe(3);
-    expect(summary.excluding.rows.find((r) => r.label === "Wholesale")?.total).toBe(0);
-    expect(summary.byRegion.rows.map((r) => r.label)).toEqual(["Nairobi", "Nyeri"]);
-    expect(summary.byRegion.total.total).toBe(3);
+  it("classifies, groups and names the principal", () => {
+    expect(byName["Alpha"]).toMatchObject({ channel: "Wholesalers", classification: "Direct", absolutePrincipal: "Mars-Nairobi", regionGroup: "Mountain", cadenceAll: "Once Per Month", cadenceOther: "Once Per Month" });
+    expect(byName["Beta"]).toMatchObject({ channel: "Others", classification: "Indirect", regionGroup: "Nairobi", boughtOther: false, cadenceOther: null, cadenceAll: "Once in 6 Months" });
+    expect(byName["Gamma"]).toMatchObject({ channel: "Key Accounts", regionGroup: "Eastern", cadenceAll: "Once per Year" });
+  });
+
+  it("adds the buying history and the purchase frequency", () => {
+    expect(byName["Alpha"]).toMatchObject({ purchaseDays: 24, purchaseDaysPerMonth: 2, monthsBought: 12, periodsBought90: 3, consistency90: "Consistent", consistency180: "Consistent" });
+  });
+
+  it("reads the calendar months the queries return (1 to 12) as month indexes, so a buyer in every month of Q3 is monthly", () => {
+    const q3 = period("kind=quarter&year=2026&quarter=3");
+    const map = new Map<string, OutletEvents>();
+    addOutletEvents(map, "PINE", { outletKey: "1", months: [7, 8, 9], alls: [4, 3, 5], confs: [0, 0, 0], others: [4, 3, 5], first: "2026-07-01", last: "2026-09-28" });
+    const [o] = buildFrequencyOutlets([rows[0]], buildNameProfiles([]), map, q3, new Set(), new Map(), NOW);
+    expect(o.cadenceAll).toBe("Once Per Month");
+    expect(o.daysByMonth.slice(6, 9)).toEqual([4, 3, 5]);
+    expect(o.daysByMonth[0]).toBe(0);
+  });
+});
+
+describe("the summary", () => {
+  const summary = buildFrequencySummary(built);
+
+  it("counts every outlet once by channel and cadence", () => {
+    expect(summary.all.total.total).toBe(3);
+    expect(summary.all.rows.find((r) => r.label === "Wholesalers")?.counts["Once Per Month"]).toBe(1);
+    expect(summary.all.rows.find((r) => r.label === "Key Accounts")?.counts["Once per Year"]).toBe(1);
+    expect(summary.all.rows.find((r) => r.label === "DTR")?.total).toBe(0);
+  });
+
+  it("splits Direct and Indirect, by channel and by region", () => {
+    expect(summary.directChannel.total.total).toBe(2);
+    expect(summary.indirectChannel.total.total).toBe(1);
+    expect(summary.indirectChannel.rows.find((r) => r.label === "Others")?.counts["Once in 6 Months"]).toBe(1);
+    expect(summary.directRegion.rows.find((r) => r.label === "Mountain")?.total).toBe(1);
+    expect(summary.directRegion.rows.find((r) => r.label === "Eastern")?.total).toBe(1);
+    expect(summary.indirectRegion.rows.find((r) => r.label === "Nairobi")?.total).toBe(1);
+    expect(summary.directRegion.total.total + summary.indirectRegion.total.total).toBe(3);
   });
 });
 
 describe("the files", () => {
-  const report: FrequencyReport = { period: y2025, outlets, summary, generatedAt: "2025-12-31T00:00:00Z" };
+  const report: FrequencyReport = { period: y2025, outlets: built, summary: buildFrequencySummary(built), generatedAt: "2025-12-31T00:00:00Z" };
+  const letter = (name: string) => columnLetter(OUTLET_COLUMNS.findIndex((c) => c.header === name));
 
-  it("writes the raw rows as CSV with one header and a neutralised formula", () => {
-    const csv = frequencyCsv([{ ...outlets[0], outletName: "=SUM(1)" }, ...outlets.slice(1)]);
+  it("writes the raw rows as CSV, one header and a neutralised formula", () => {
+    const csv = frequencyCsv([{ ...built[0], outletName: "=SUM(1)" }, ...built.slice(1)]);
     const lines = csv.split("\r\n");
-    expect(lines).toHaveLength(outlets.length + 1);
-    expect(lines[0].split(",")[0]).toBe("Source");
+    expect(lines).toHaveLength(built.length + 1);
+    expect(lines[0].split(",")).toHaveLength(OUTLET_COLUMNS.length);
+    expect(lines[0]).toContain("Tier");
+    expect(lines[0]).toContain("Absolute Principal");
     expect(lines[1]).toContain("'=SUM(1)");
   });
 
-  it("writes a workbook whose summary counts the outlet data by formula", () => {
+  it("writes a workbook laid out like the example, whose summary counts the Raw Data sheet by formula", () => {
     const wb = XLSX.read(frequencyWorkbook(report, ["principal brand = Mars"]), { type: "buffer" });
-    expect(wb.SheetNames).toEqual(["Summary", "Outlet Data", "Notes"]);
-    const summarySheet = wb.Sheets["Summary"];
-    // Row 6 is the first channel row of the first table (title row 4, header row 5), like the example.
-    const channelCol = columnLetter(OUTLET_COLUMNS.findIndex((c) => c.header === "Channel (Group)"));
-    const cadenceCol = columnLetter(OUTLET_COLUMNS.findIndex((c) => c.header === "Cadence"));
-    expect(summarySheet["B6"].v).toBe("Retail");
-    expect(summarySheet["C6"].f).toBe(`COUNTIFS('Outlet Data'!$${channelCol}:$${channelCol},$B6,'Outlet Data'!$${cadenceCol}:$${cadenceCol},C$5)`);
-    expect(summarySheet["F6"].v).toBe(1);
-    expect(summarySheet["C5"].v).toBe("Once per Year");
-    expect(summarySheet["G5"].v).toBe("Confectioneries");
-    expect(summarySheet["C11"].f).toBe("SUM(C6:C10)");
-    const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Outlet Data"]);
-    expect(data).toHaveLength(4);
-    expect(data[0]["Cadence"]).toBeDefined();
-  });
-});
-
-describe("reading the purchase queries", () => {
-  it("turns the calendar months the queries return (1 to 12) into month indexes, so a buyer in every month of Q3 is monthly", () => {
-    const q3 = period("kind=quarter&year=2026&quarter=3");
-    const map = new Map();
-    addOutletEvents(map, "PINE", { outletKey: "1", months: [7, 8, 9], alls: [4, 3, 5], confs: [0, 0, 0], others: [4, 3, 5], first: "2026-07-01", last: "2026-09-28" });
-    const row = { source: "PINE" as const, outletKey: "1", principal: "Suntory-Nairobi", outletName: "A", channel: "Retail", segment: "Kiosk", rawChannel: null, rawSegment: null, location: "Nairobi", region: "Nairobi", territory: "T", route: null, repName: null, teamLeader: null, sales: 1 };
-    const [outlet] = buildFrequencyOutlets([row], map, q3);
-    expect(outlet.cadenceAll).toBe("Once Per Month");
-    expect(outlet.daysByMonth.slice(6, 9)).toEqual([4, 3, 5]);
-    expect(outlet.daysByMonth[0]).toBe(0);
+    expect(wb.SheetNames).toEqual(["Summary", "Raw Data", "Notes"]);
+    const s = wb.Sheets["Summary"];
+    const channel = `'Raw Data'!$${letter("Channel")}:$${letter("Channel")}`;
+    const cadence = `'Raw Data'!$${letter("Cadence")}:$${letter("Cadence")}`;
+    const classification = `'Raw Data'!$${letter("Classification")}:$${letter("Classification")}`;
+    const region = `'Raw Data'!$${letter("Region")}:$${letter("Region")}`;
+    // Table one: title C3, headers row 4, DTR in row 5, Total in row 12.
+    expect(s["C3"].v).toBe("Total Coverage (Including Confectioneries)");
+    expect(s["B5"].v).toBe("DTR");
+    expect(s["C5"].f).toBe(`COUNTIFS(${channel},$B5,${cadence},C$4)`);
+    expect(s["B12"].v).toBe("Total");
+    expect(s["C12"].f).toBe("SUM(C5:C11)");
+    // Direct (from B) and Indirect (from I) side by side, titles in row 15.
+    expect(s["C15"].v).toBe("Total Coverage - Direct");
+    expect(s["J15"].v).toBe("Total Coverage - Indirect");
+    expect(s["C17"].f).toBe(`COUNTIFS(${channel},$B17,${cadence},C$16,${classification},"Direct")`);
+    expect(s["J17"].f).toBe(`COUNTIFS(${channel},$I17,${cadence},J$16,${classification},"Indirect")`);
+    // By region, titles in row 28.
+    expect(s["B30"].v).toBe("Nairobi");
+    expect(s["C30"].f).toBe(`COUNTIFS(${region},$B30,${cadence},C$29,${classification},"Direct")`);
+    const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Raw Data"]);
+    expect(data).toHaveLength(3);
+    expect(data.find((r) => r["Outlet"] === "Alpha")).toMatchObject({ Channel: "Wholesalers", Classification: "Direct", Tier: "20,001 - 50,000", Region: "Mountain" });
   });
 });
