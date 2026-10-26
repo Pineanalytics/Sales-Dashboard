@@ -3,6 +3,9 @@
 // rows are built the way the Active Outlets extract builds them: the same outlet query (exportOutlets, one row per outlet), the same name profiles and
 // tiering (lib/outletUniverse/tiering.ts: segment, channel, average sales, tier) and the same place cleaning, so a segment or a tier reads here as it does
 // in that extract. On top of that: the period's purchase days and cadence, the Absolute Principal, and Direct / Indirect.
+// The universe cleanup is applied: territories are the unified names (OutletUniverse.territoryClean) and every row is a SHOP, not a system outlet id: outlets
+// that the cleanup found to be the same shop (OutletUniverse.shopId, within and across systems) are one row, with their purchase days united (a day two of
+// them bought on counts once), so a shop served through two systems or registered twice is counted once and its cadence is judged on all of its buying.
 //
 // Covered = bought: a purchase day from the same event feeds the Active Outlet rebuild reads (Pine ActiveOutletEvent, Leverage invoices, EABL DMS
 // productive calls, Upfield DataEdge sales), not a call. Every outlet lands in ONE cadence, the best it kept up in the period (frequencyPeriod.ts).
@@ -12,6 +15,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
+import { recordKey } from "@/lib/universeAnalysis/pipeline";
 import { OUTLET_SOURCE_LABELS, buyingTenure, longPurchaseConsistency, purchaseConsistency, type OutletSource } from "./normalize";
 import { exportOutlets, parseOutletFilters, type OutletFilters, type OutletListRow, type OutletScope } from "./query";
 import { buildNameProfiles, classification2, cleanPlaces, isPlaceholderPlace, tierRow } from "./tiering";
@@ -84,12 +88,19 @@ export function classificationOf(salesRole: string): Classification {
 // Purchase days in the period
 // ---------------------------------------------------------------------------
 
+/** The days of a month an outlet bought on, as a bit mask (bit 0 = the 1st): across all its principals, on a confectionery principal, on any other principal.
+ *  Masks make the days of several outlets of one shop unite exactly (OR), where counts of days could not. */
 export interface MonthDays {
-  /** Distinct purchase days across the outlet's principals. */
   all: number;
-  /** Distinct purchase days on a confectionery principal / on any other principal. */
   conf: number;
   other: number;
+}
+
+/** Days in a mask. */
+export function popcount(mask: number): number {
+  let n = 0;
+  for (let m = mask >>> 0; m; m &= m - 1) n += 1;
+  return n;
 }
 
 export interface OutletEvents {
@@ -125,6 +136,7 @@ const isConfectionery = (principal: string) => CONFECTIONERY_BRANDS.includes(nor
 interface RawEventRow {
   outletKey: string;
   m: number;
+  /** Day masks (see MonthDays). */
   all: number;
   conf: number;
   other: number;
@@ -132,7 +144,7 @@ interface RawEventRow {
   last: Date | string;
 }
 
-/** One row per outlet, the months it bought in as parallel arrays (a year of Pine is 60,000 outlets, not 380,000 outlet-month rows). */
+/** One row per outlet, the months it bought in as parallel arrays of day masks (a year of Pine is 60,000 outlets, not 380,000 outlet-month rows). */
 export interface RawOutletEvents {
   outletKey: string;
   months: number[];
@@ -161,9 +173,9 @@ const iso = (value: Date | string) => (value instanceof Date ? value.toISOString
 function addEvents(into: Map<string, OutletEvents>, id: string, row: { m: number; all: number; conf: number; other: number; first: string; last: string }) {
   const entry = into.get(id) ?? { months: new Map<number, MonthDays>(), first: null, last: null };
   const month = entry.months.get(row.m) ?? { all: 0, conf: 0, other: 0 };
-  month.all += row.all;
-  month.conf += row.conf;
-  month.other += row.other;
+  month.all |= row.all;
+  month.conf |= row.conf;
+  month.other |= row.other;
   entry.months.set(row.m, month);
   if (!entry.first || row.first < entry.first) entry.first = row.first;
   if (!entry.last || row.last > entry.last) entry.last = row.last;
@@ -183,9 +195,9 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
     wants("PINE")
       ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT "customerId" AS "outletKey", EXTRACT(MONTH FROM date)::int AS m,
-                 COUNT(DISTINCT date::date)::int AS "all",
-                 (COUNT(DISTINCT date::date) FILTER (WHERE ${confSql(Prisma.sql`principal`)}))::int AS conf,
-                 (COUNT(DISTINCT date::date) FILTER (WHERE NOT (${confSql(Prisma.sql`principal`)})))::int AS other,
+                 BIT_OR((1 << (EXTRACT(DAY FROM date::date)::int - 1)))::int AS "all",
+                 COALESCE(BIT_OR((1 << (EXTRACT(DAY FROM date::date)::int - 1))) FILTER (WHERE ${confSql(Prisma.sql`principal`)}), 0)::int AS conf,
+                 COALESCE(BIT_OR((1 << (EXTRACT(DAY FROM date::date)::int - 1))) FILTER (WHERE NOT (${confSql(Prisma.sql`principal`)})), 0)::int AS other,
                  MIN(date::date) AS first, MAX(date::date) AS last
           FROM "ActiveOutletEvent"
           WHERE date >= ${start} AND date < ${end} AND ${principalPredicate(Prisma.sql`principal`, filters, scope)}
@@ -195,9 +207,9 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
     wants("EABL") && !secondaryOnly
       ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT ec."customerCode" AS "outletKey", EXTRACT(MONTH FROM ec."callDate")::int AS m,
-                 COUNT(DISTINCT ec."callDate"::date)::int AS "all",
-                 (COUNT(DISTINCT ec."callDate"::date) FILTER (WHERE ${confSql(Prisma.sql`ecm.principal`)}))::int AS conf,
-                 (COUNT(DISTINCT ec."callDate"::date) FILTER (WHERE NOT (${confSql(Prisma.sql`ecm.principal`)})))::int AS other,
+                 BIT_OR((1 << (EXTRACT(DAY FROM ec."callDate"::date)::int - 1)))::int AS "all",
+                 COALESCE(BIT_OR((1 << (EXTRACT(DAY FROM ec."callDate"::date)::int - 1))) FILTER (WHERE ${confSql(Prisma.sql`ecm.principal`)}), 0)::int AS conf,
+                 COALESCE(BIT_OR((1 << (EXTRACT(DAY FROM ec."callDate"::date)::int - 1))) FILTER (WHERE NOT (${confSql(Prisma.sql`ecm.principal`)})), 0)::int AS other,
                  MIN(ec."callDate"::date) AS first, MAX(ec."callDate"::date) AS last
           FROM "EablCall" ec INNER JOIN "EablCustomerMaster" ecm ON ecm."customerId" = ec."customerCode"
           WHERE ec."isProductive" AND ec."customerCode" IS NOT NULL AND ec."callDate" >= ${start} AND ec."callDate" < ${end}
@@ -207,7 +219,7 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
     wants("UPFIELD") && !secondaryOnly && principalAllowed("Upfield-Nairobi", filters, scope)
       ? prisma.$queryRaw<RawOutletEvents[]>(perOutlet(Prisma.sql`
           SELECT "custCode" AS "outletKey", EXTRACT(MONTH FROM "txnDate")::int AS m,
-                 COUNT(DISTINCT "txnDate"::date)::int AS "all", 0 AS conf, COUNT(DISTINCT "txnDate"::date)::int AS other,
+                 BIT_OR((1 << (EXTRACT(DAY FROM "txnDate"::date)::int - 1)))::int AS "all", 0 AS conf, BIT_OR((1 << (EXTRACT(DAY FROM "txnDate"::date)::int - 1)))::int AS other,
                  MIN("txnDate"::date) AS first, MAX("txnDate"::date) AS last
           FROM "UpfieldTransaction"
           WHERE type = 'sale' AND "custCode" IS NOT NULL AND btrim("custCode") <> '' AND "custCode" <> '000'
@@ -217,7 +229,7 @@ async function loadPurchaseDays(period: FrequencyPeriod, filters: OutletFilters,
     wants("LEVERAGE") && !secondaryOnly
       ? prisma.$queryRaw<(RawEventRow & { storageLocation: string })[]>(Prisma.sql`
           SELECT "customerCode" AS "outletKey", "storageLocation", EXTRACT(MONTH FROM "deliveryDate")::int AS m,
-                 COUNT(DISTINCT "deliveryDate"::date)::int AS "all", 0 AS conf, COUNT(DISTINCT "deliveryDate"::date)::int AS other,
+                 BIT_OR((1 << (EXTRACT(DAY FROM "deliveryDate"::date)::int - 1)))::int AS "all", 0 AS conf, BIT_OR((1 << (EXTRACT(DAY FROM "deliveryDate"::date)::int - 1)))::int AS other,
                  MIN("deliveryDate"::date) AS first, MAX("deliveryDate"::date) AS last
           FROM "SalesReturnLine"
           WHERE "documentType" IN ('01', '06') AND "deliveryDate" >= ${start} AND "deliveryDate" < ${end}
@@ -267,9 +279,15 @@ export function servedByKeyAccountRep(row: Pick<OutletListRow, "repName" | "reps
 // ---------------------------------------------------------------------------
 
 export interface FrequencyOutlet {
+  /** The system of the shop's master outlet, and the master outlet's id; a merged shop lists every system and outlet below. */
   source: string;
   outletKey: string;
   outletName: string;
+  /** The shop: the master outlet's record key (the universe cleanup's shopId), how many system outlets of it bought in the period, and which. */
+  shopId: string;
+  outletsMerged: number;
+  systems: string;
+  mergedOutlets: string;
   channel: CoverageChannel;
   /** Tiered segment (the Active Outlets extract's Segment / Type) and the segment the source system gave. */
   segment: string;
@@ -277,6 +295,7 @@ export interface FrequencyOutlet {
   tier: string;
   regionGroup: string;
   region: string;
+  /** The unified territory (OutletUniverse.territoryClean). */
   territory: string;
   classification: Classification;
   absolutePrincipal: string;
@@ -296,7 +315,7 @@ export interface FrequencyOutlet {
   firstPurchase: string;
   lastPurchase: string;
   cadenceAll: Cadence;
-  /** Cadence counting only purchases of non-confectionery principals; null when the outlet bought none. */
+  /** Cadence counting only purchases of non-confectionery principals; null when the shop bought none. */
   cadenceOther: Cadence | null;
   /** Purchase days per calendar month (index 0 = January), all principals. */
   daysByMonth: number[];
@@ -311,8 +330,14 @@ export interface FrequencyOutlet {
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const round2 = (value: number | null) => (value === null ? null : Math.round(value * 100) / 100);
 
-/** The outlets that bought in the period, each with its tiering, classification and cadence. `rows` are the Active Outlets extract's outlet rows (general
- *  view); `profiles` are the name profiles built from the whole universe, so an outlet keeps its tier whatever the filters are. */
+const labelOf = (source: string) => OUTLET_SOURCE_LABELS[source as OutletSource] ?? source;
+
+/** The shop an outlet row belongs to: its cleanup shopId, or (a universe not yet compiled with the cleanup) itself. */
+const shopKeyOf = (row: Pick<OutletListRow, "source" | "outletKey" | "shopId">) => row.shopId ?? recordKey(labelOf(row.source), row.outletKey);
+
+/** The shops that bought in the period, each with its tiering, classification and cadence. `rows` are the Active Outlets extract's outlet rows (general view);
+ *  `profiles` are the name profiles built from the whole universe, so a shop keeps its tier whatever the filters are. Outlets of one shop (the same shopId)
+ *  are one row: their purchase days are united, the master outlet (the one the cleanup chose, else the biggest seller) supplies the descriptive columns. */
 export function buildFrequencyOutlets(
   rows: OutletListRow[],
   profiles: ReturnType<typeof buildNameProfiles>,
@@ -323,39 +348,65 @@ export function buildFrequencyOutlets(
   now: Date = new Date()
 ): FrequencyOutlet[] {
   const monthsExpected = Math.max(1, period.startedMonths.length);
-  const built: FrequencyOutlet[] = [];
+  const shops = new Map<string, OutletListRow[]>();
   for (const row of rows) {
-    const ev = events.get(outletId(row.source, row.outletKey));
-    if (!ev) continue;
-    const tiered = tierRow(row, profiles);
-    const places = cleanPlaces(row);
+    if (!events.has(outletId(row.source, row.outletKey))) continue;
+    const key = shopKeyOf(row);
+    (shops.get(key) ?? shops.set(key, []).get(key)!).push(row);
+  }
+
+  const built: FrequencyOutlet[] = [];
+  for (const [shopId, members] of shops) {
+    const lead = members.find((m) => recordKey(labelOf(m.source), m.outletKey) === shopId) ?? [...members].sort((a, b) => b.sales - a.sales)[0];
+    const tiered = tierRow(lead, profiles);
+    const places = cleanPlaces(lead);
+    // The days the shop bought on: the union of its outlets', month by month.
+    const months = new Map<number, MonthDays>();
+    let first: string | null = null;
+    let last: string | null = null;
+    for (const member of members) {
+      const ev = events.get(outletId(member.source, member.outletKey))!;
+      for (const [m, d] of ev.months) {
+        const have = months.get(m) ?? months.set(m, { all: 0, conf: 0, other: 0 }).get(m)!;
+        have.all |= d.all;
+        have.conf |= d.conf;
+        have.other |= d.other;
+      }
+      if (ev.first && (!first || ev.first < first)) first = ev.first;
+      if (ev.last && (!last || ev.last > last)) last = ev.last;
+    }
     const monthsAll = new Set<number>();
     const monthsOther = new Set<number>();
     let all = 0;
     let conf = 0;
     let other = 0;
-    for (const [m, d] of ev.months) {
-      if (d.all > 0) monthsAll.add(m);
-      if (d.other > 0) monthsOther.add(m);
-      all += d.all;
-      conf += d.conf;
-      other += d.other;
+    for (const [m, d] of months) {
+      if (d.all) monthsAll.add(m);
+      if (d.other) monthsOther.add(m);
+      all += popcount(d.all);
+      conf += popcount(d.conf);
+      other += popcount(d.other);
     }
+    const dominantRole = lead.dominantPrincipal ? roles.get(roleKey(lead.source, lead.outletKey, lead.dominantPrincipal)) : undefined;
     built.push({
-      source: OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source,
-      outletKey: row.outletKey,
-      outletName: row.outletName,
-      channel: coverageChannel(tiered.segment, servedByKeyAccountRep(row, keyReps)),
+      source: labelOf(lead.source),
+      outletKey: lead.outletKey,
+      outletName: lead.outletName,
+      shopId,
+      outletsMerged: members.length,
+      systems: [...new Set(members.map((m) => labelOf(m.source)))].join("; "),
+      mergedOutlets: members.length > 1 ? members.map((m) => `${labelOf(m.source)} ${m.outletKey}`).join("; ") : "",
+      channel: coverageChannel(tiered.segment, members.some((m) => servedByKeyAccountRep(m, keyReps))),
       segment: tiered.segment,
-      sourceSegment: row.segment,
+      sourceSegment: lead.segment,
       tier: tiered.tier,
-      regionGroup: coverageRegion(row.region, row.location),
+      regionGroup: coverageRegion(lead.region, lead.location),
       region: places.region,
-      territory: places.territory,
-      classification: classificationOf((row.dominantPrincipal ? roles.get(roleKey(row.source, row.outletKey, row.dominantPrincipal)) : undefined) ?? row.salesRole),
-      absolutePrincipal: row.dominantPrincipal ?? row.principals,
-      principals: row.principals,
-      teamLeader: (row.teamLeader ?? "").trim(),
+      territory: lead.territoryClean ?? places.territory,
+      classification: classificationOf(dominantRole ?? lead.salesRole),
+      absolutePrincipal: lead.dominantPrincipal ?? lead.principals,
+      principals: [...new Set(members.flatMap((m) => m.principals.split(", ")))].sort().join(", "),
+      teamLeader: (lead.teamLeader ?? "").trim(),
       boughtConfectionery: conf > 0,
       boughtOther: other > 0,
       averageSales: round2(tiered.averageSales),
@@ -365,16 +416,16 @@ export function buildFrequencyOutlets(
       purchaseDaysOther: other,
       purchaseDaysPerMonth: round1(all / monthsExpected),
       monthsBought: monthsAll.size,
-      firstPurchase: ev.first ?? "",
-      lastPurchase: ev.last ?? "",
+      firstPurchase: first ?? "",
+      lastPurchase: last ?? "",
       cadenceAll: cadenceFor(monthsAll, period) ?? "Once per Year",
       cadenceOther: cadenceFor(monthsOther, period),
-      daysByMonth: Array.from({ length: 12 }, (_, m) => ev.months.get(m)?.all ?? 0),
-      periodsBought90: row.periodsBought90,
-      consistency90: purchaseConsistency(row.periodsBought90),
-      periodsBought180: row.periodsBought180,
-      consistency180: longPurchaseConsistency(row.periodsBought180),
-      buyingTenure: buyingTenure(row.firstPurchaseDate, now).band,
+      daysByMonth: Array.from({ length: 12 }, (_, m) => popcount(months.get(m)?.all ?? 0)),
+      periodsBought90: lead.periodsBought90,
+      consistency90: purchaseConsistency(lead.periodsBought90),
+      periodsBought180: lead.periodsBought180,
+      consistency180: longPurchaseConsistency(lead.periodsBought180),
+      buyingTenure: buyingTenure(lead.firstPurchaseDate, now).band,
     });
   }
   return built.sort((a, b) => a.source.localeCompare(b.source) || a.outletName.localeCompare(b.outletName) || a.outletKey.localeCompare(b.outletKey));
@@ -446,7 +497,11 @@ export function buildFrequencySummary(outlets: FrequencyOutlet[]): FrequencySumm
 
 export interface FrequencyReport {
   period: FrequencyPeriod;
+  /** One row per shop. */
   outlets: FrequencyOutlet[];
+  /** System outlets that bought in the period, and how many of them were merged into another row as the same shop. */
+  systemOutlets: number;
+  duplicatesMerged: number;
   summary: FrequencySummary;
   generatedAt: string;
 }
@@ -473,5 +528,6 @@ export async function loadFrequencyReport(period: FrequencyPeriod, filters: Outl
   ]);
   const profiles = buildNameProfiles(universe ?? rows);
   const outlets = buildFrequencyOutlets(rows, profiles, events, period, keyReps, roles);
-  return { period, outlets, summary: buildFrequencySummary(outlets), generatedAt: new Date().toISOString() };
+  const systemOutlets = outlets.reduce((sum, o) => sum + o.outletsMerged, 0);
+  return { period, outlets, systemOutlets, duplicatesMerged: systemOutlets - outlets.length, summary: buildFrequencySummary(outlets), generatedAt: new Date().toISOString() };
 }

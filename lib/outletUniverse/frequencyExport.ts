@@ -18,6 +18,10 @@ export const OUTLET_COLUMNS: Column[] = [
   { header: "Source", value: (o) => o.source },
   { header: "Outlet ID", value: (o) => o.outletKey },
   { header: "Outlet", value: (o) => o.outletName },
+  { header: "Shop ID", value: (o) => o.shopId },
+  { header: "Outlets Merged", value: (o) => o.outletsMerged },
+  { header: "Systems", value: (o) => o.systems },
+  { header: "Merged Outlets", value: (o) => o.mergedOutlets },
   { header: "Channel", value: (o) => o.channel },
   { header: "Segment / Type", value: (o) => o.segment },
   { header: "Source Segment / Type", value: (o) => o.sourceSegment },
@@ -146,7 +150,7 @@ export function frequencyWorkbook(report: FrequencyReport, filterNotes: string[]
   grid[0] = [];
   grid[0][1] = `Coverage frequency: ${period.label}`;
   grid[1] = [];
-  grid[1][1] = `${outlets.length.toLocaleString("en-US")} outlets bought in the period. Each outlet is counted once, at the best cadence it kept up. See the Notes sheet.`;
+  grid[1][1] = `${outlets.length.toLocaleString("en-US")} shops bought in the period (${report.systemOutlets.toLocaleString("en-US")} system outlets, ${report.duplicatesMerged.toLocaleString("en-US")} merged as duplicates). Each shop is counted once, at the best cadence it kept up. See the Notes sheet.`;
 
   // The layout of the example: the all-outlet table, then Direct (left, from column B) and Indirect (right, from column I) side by side by channel,
   // then the same by region.
@@ -174,8 +178,9 @@ export function frequencyWorkbook(report: FrequencyReport, filterNotes: string[]
     [`Period: ${period.label} (${period.start.toISOString().slice(0, 10)} to ${new Date(period.end.getTime() - 86_400_000).toISOString().slice(0, 10)})`],
     ...(filterNotes.length ? [[`Filters: ${filterNotes.join("; ")}`]] : [["Filters: none (all outlets in your scope)"]]),
     [""],
-    ["Built the way the Active Outlets extract is built: the same outlet rows, name profiles and tiering (segment, channel, Average Sales, Combined Avg Sales, Tier), one row per outlet. Central, Nyeri and Nyahururu outlets are included."],
-    ["Covered means bought. An outlet is in the extract when it had at least one purchase day in the period. Purchase days come from the same feeds as the Active Outlet universe: Pine sales and orders, Leverage invoices, EABL DMS productive calls and Upfield DataEdge sales."],
+    ["Built the way the Active Outlets extract is built: the same outlet rows, name profiles and tiering (segment, channel, Average Sales, Combined Avg Sales, Tier). Central, Nyeri and Nyahururu outlets are included."],
+    ["The universe cleanup is applied. One row is one SHOP: outlets that are the same shop, within and across systems (GPS point and cleaned name, or the extract's match id), are merged under their master outlet (Shop ID, Outlets Merged, Systems and Merged Outlets say which), and their purchase days are united, so a day two of them bought on counts once and the cadence is judged on all of the shop's buying. Territory is the unified territory: spellings such as Nyeri, Nyeri - MBSR and Nairobi-Nyeri are one place."],
+    ["Covered means bought. A shop is in the extract when any of its outlets had at least one purchase day in the period. Purchase days come from the same feeds as the Active Outlet universe: Pine sales and orders, Leverage invoices, EABL DMS productive calls and Upfield DataEdge sales."],
     ["Each outlet is counted once, in the best cadence it kept up over the period:"],
     ["  Once Per Month: bought in every month of the period that has started."],
     ["  Once in 3 Months: bought in every quarter of the period (and not every month)."],
@@ -188,7 +193,7 @@ export function frequencyWorkbook(report: FrequencyReport, filterNotes: string[]
     ["Region: Nairobi, Mountain (Central, Nyeri and Nyahururu together), Eastern, and Others. A region that is a place (1Tana River, Isiolo) or a placeholder (Unspecified, General) takes the branch the outlet is served from, which is Nairobi for Pine. Source Region is the region as cleaned by the Active Outlets extract."],
     [`Confectioneries: ${CONFECTIONERY_BRANDS.map((b) => b[0].toUpperCase() + b.slice(1)).join(", ")} (all of the principal). Bought Other Principals and Cadence (Excl. Confectioneries) count only purchases of the other principals.`],
     ["Average Sales is Sales YTD over Transactions YTD, Combined Avg Sales (Outlet) adds the averages of every row of the same outlet name, and Tier is read from it, exactly as in the Active Outlets extract. Periods Bought, Consistency and Buying Tenure are the extract's buying-history columns as of today."],
-    ["The four systems share no outlet ID, so a shop served by two systems appears once per system. The Active/Inactive status filter is ignored: an outlet that bought in the period counts whatever it is today."],
+    ["The four systems share no outlet ID, so shops served by two systems are matched by name, place and GPS point; a pair the cleanup is not sure of is left as two shops. The Active/Inactive status filter is ignored: a shop that bought in the period counts whatever it is today."],
     ["The Summary sheet is made of COUNTIFS formulas over the Raw Data sheet: filter or edit the data and the summary follows. Purchase feeds start at different dates (Pine and Upfield January 2026, EABL May 2026, Leverage June 2026), so earlier periods are incomplete for the later systems."],
   ];
   const notesSheet = XLSX.utils.aoa_to_sheet(notes);

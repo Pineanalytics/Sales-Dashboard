@@ -2600,9 +2600,18 @@ model OutletUniverse {
   periodsBought90   Int       @default(0)
   // The same over the last six 30-day periods (0 to 6): the six-month consistency.
   periodsBought180  Int       @default(0)
+  // The universe cleanup (lib/outletUniverse/cleanup.ts), computed when the universe is compiled so every reader sees it: the unified territory name
+  // (territory with its spellings merged by name and by where the outlets sit) and the shop this outlet belongs to (outlets that are the same shop,
+  // within and across systems, by GPS point and cleaned name or the match id, share one shopId = the master outlet's record key, e.g. "PINE-12345").
+  // shopSize counts the outlets in the shop (1 = unique); shopConfidence is High or Medium for a merged shop.
+  territoryClean    String?
+  shopId            String?
+  shopSize          Int?
+  shopConfidence    String?
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])
+  @@index([shopId])
   @@index([principal])
   @@index([lastPurchaseDate])
   @@index([channel, segment])

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 import { matchOutlets, type MatchInput } from "./matching";
 import { buildRepDirectory } from "./repIdentity";
+import { withCleanup } from "./cleanup";
 import {
   cleanTerritory,
   exclusionReason,
@@ -44,6 +45,11 @@ export interface OutletUniverseRow {
   matchId?: string | null;
   matchConfidence?: string | null;
   matchedSystems?: string | null;
+  /** The universe cleanup (cleanup.ts): the unified territory and the shop this outlet belongs to. Set when the universe is compiled. */
+  territoryClean?: string | null;
+  shopId?: string | null;
+  shopSize?: number | null;
+  shopConfidence?: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
@@ -645,7 +651,7 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const upfield = keep(loadedUpfield);
   const builtAt = new Date();
   const directory = await loadRepDirectory();
-  const all = flagCrossSystemMatches(withRepIdentity([...pine, ...leverage, ...eabl, ...upfield], directory));
+  const all = withCleanup(flagCrossSystemMatches(withRepIdentity([...pine, ...leverage, ...eabl, ...upfield], directory)));
 
   await prisma.$transaction(
     async (tx) => {
