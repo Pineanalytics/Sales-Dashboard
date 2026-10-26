@@ -65,11 +65,17 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
     <div className="flex flex-col gap-6">
       <SectionCard title={`${scopeLabel}: cleanup progress`} action={<span className="text-xs text-muted">Target by the end of {monthLabel(period)}: {target}% of outlets reviewed</span>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile label="Outlets reviewed" value={`${totals.pctReviewed}%`} sub={`${formatNumber(totals.reviewed)} of ${formatNumber(totals.outlets)}`} />
+          <Tile label="Outlets reviewed" value={`${totals.pctReviewed}%`} sub={`${formatNumber(totals.reviewed)} of ${formatNumber(totals.outlets)} outlets`} />
           <Tile label="Still to review" value={formatNumber(toDo)} sub={ownTeam ? `${ownTeam.attainment}% of your target reached${ownTeam.rank ? ` · rank ${ownTeam.rank} of ${teams.length}` : ""}` : undefined} />
           <Tile label="Missing GPS" value={formatNumber(totals.missingGeo)} sub={`${formatNumber(totals.geoTagged)} tagged so far`} />
           <Tile label="Reps validated" value={formatNumber(totals.repsValidated)} sub={`${formatNumber(totals.validated)} outlets validated by admin · ${formatNumber(totals.disowned)} marked open`} />
         </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Tile label="Active outlets" value={formatNumber(totals.active)} sub="Bought in the last 90 days" />
+          <Tile label="Dormant outlets" value={formatNumber(totals.dormant)} sub="No purchase in 90 days, or none on record" />
+          <Tile label="Distinct shops" value={formatNumber(totals.shops)} sub={`${formatNumber(Math.max(0, totals.outlets - totals.shops))} outlets are duplicates of another`} />
+        </div>
+        <p className="mt-3 text-xs text-muted">The targeted universe is every outlet in your scope, active and dormant, counted once even when several teams sell to it ({formatNumber(totals.teamOutletRows)} team-outlet rows in the table below because a shared outlet counts for each of its teams).</p>
         <div className="mt-4">
           <Bar value={totals.pctReviewed} marker={target} />
           <p className="mt-1 text-xs text-muted">The orange mark is the target.</p>
@@ -86,6 +92,8 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
             <Th>#</Th>
             <Th>Team leader</Th>
             <Th align="right">Outlets</Th>
+            <Th align="right">Active</Th>
+            <Th align="right">Dormant</Th>
             <Th align="right">Reviewed</Th>
             <Th>Progress against target</Th>
             <Th align="right">% reviewed</Th>
@@ -99,6 +107,8 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
                 <Td>{team.rank}</Td>
                 <Td>{team.teamLeader}{mineNames.has(team.teamLeader) ? <span className="ml-2 text-[10px] font-semibold uppercase text-primary-blue">{data.actor.role === "TEAM_LEADER" ? "you" : "yours"}</span> : null}</Td>
                 <Td align="right">{formatNumber(team.outlets)}</Td>
+                <Td align="right">{formatNumber(team.active)}</Td>
+                <Td align="right">{formatNumber(team.dormant)}</Td>
                 <Td align="right">{formatNumber(team.reviewed)}</Td>
                 <Td><div className="w-40"><Bar value={team.attainment} tone={team.attainment >= 100 ? "bg-accent-green" : team.attainment >= 50 ? "bg-primary-blue" : "bg-brand-orange"} /></div></Td>
                 <Td align="right">{team.pctReviewed}%</Td>
@@ -108,11 +118,11 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
               </tr>
             ))}
             {teams.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-8 text-center text-muted">No team has outlets in the universe yet.</td></tr>
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-muted">No team has outlets in the universe yet.</td></tr>
             ) : null}
           </tbody>
         </TableWrap>
-        <p className="mt-3 text-xs text-muted">An outlet counts as reviewed once it has been saved in the cleanup (identification, location, rep, duplicate call) or marked open. An outlet several teams sell to counts for each of those teams.</p>
+        <p className="mt-3 text-xs text-muted">An outlet counts as reviewed once it has been saved in the cleanup (identification, location, rep, duplicate call) or marked open. An outlet several teams sell to counts for each of those teams, so these rows add up to more than the distinct total above.</p>
       </SectionCard>
     </div>
   );

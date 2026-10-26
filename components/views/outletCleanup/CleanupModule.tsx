@@ -6,7 +6,8 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
-import type { CleanupOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
+import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
+import type { CleanupOptions, OutletActivity, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
 import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
@@ -35,6 +36,13 @@ const STATES: { value: string; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
+const ACTIVITY_TIER: Record<OutletActivity, "good" | "warn" | "bad" | "neutral"> = { ACTIVE: "good", LAPSED: "warn", LOST: "bad", NO_PURCHASE: "neutral" };
+const ACTIVITY_FILTERS: { value: "all" | "active" | "dormant"; label: string }[] = [
+  { value: "all", label: "Active and dormant" },
+  { value: "active", label: "Active only" },
+  { value: "dormant", label: "Dormant only" },
+];
+
 const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { UNREVIEWED: "neutral", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad", DISOWNED: "neutral" };
 const STATE_LABEL: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", REVIEWED: "Awaiting admin", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
 
@@ -54,6 +62,7 @@ const pageDisabled = "rounded-full border border-border/60 px-3 py-1.5 text-xs f
 export function CleanupModule() {
   const [section, setSection] = useState<Section>("progress");
   const [state, setState] = useState("todo");
+  const [activity, setActivity] = useState<"all" | "active" | "dormant">("all");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -75,6 +84,7 @@ export function CleanupModule() {
     let cancelled = false;
     const params = new URLSearchParams({ state, page: String(page) });
     if (query) params.set("q", query);
+    if (activity !== "all") params.set("activity", activity);
     fetch(`/api/outlet-cleanup/queue?${params.toString()}`, { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json();
@@ -93,7 +103,7 @@ export function CleanupModule() {
     return () => {
       cancelled = true;
     };
-  }, [state, page, query, tick]);
+  }, [state, activity, page, query, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
@@ -160,6 +170,20 @@ export function CleanupModule() {
                 {s.label}
               </button>
             ))}
+            <span className="mx-1 h-5 w-px bg-border" />
+            {ACTIVITY_FILTERS.map((a) => (
+              <button
+                key={a.value}
+                onClick={() => {
+                  setActivity(a.value);
+                  setPage(1);
+                }}
+                aria-pressed={activity === a.value}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${activity === a.value ? "border-primary-blue bg-primary-blue text-white" : "border-border text-muted-strong hover:bg-accent-blue-soft"}`}
+              >
+                {a.label}
+              </button>
+            ))}
             <input aria-label="Search outlets" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search outlet, territory or key" className="ml-auto w-64 rounded-full border border-border bg-background-elevated px-4 py-1.5 text-xs outline-none focus:border-primary-blue" />
           </div>
 
@@ -176,6 +200,8 @@ export function CleanupModule() {
                     <Th>Territory</Th>
                     <Th>Region</Th>
                     <Th>Team leader</Th>
+                    <Th>Buying</Th>
+                    <Th>Shop</Th>
                     <Th>GPS</Th>
                     <Th>Status</Th>
                     <Th>{""}</Th>
@@ -189,6 +215,10 @@ export function CleanupModule() {
                         <Td>{row.territory}</Td>
                         <Td>{row.region}</Td>
                         <Td>{row.teamLeaders || "—"}</Td>
+                        <Td title={row.lastPurchaseDate ? `Last purchase ${row.lastPurchaseDate}` : "No purchase on record"}>
+                          <Badge tier={ACTIVITY_TIER[row.activity]}>{row.activity === "ACTIVE" || row.daysSince === null ? ACTIVITY_LABELS[row.activity] : `${ACTIVITY_LABELS[row.activity]} · ${row.daysSince} d`}</Badge>
+                        </Td>
+                        <Td>{row.shopSize > 1 ? <Badge tier="warn">Duplicate · {row.shopSize} in shop</Badge> : "—"}</Td>
                         <Td>{row.hasGeo ? "✓" : <span className="font-semibold text-brand-orange">Missing</span>}</Td>
                         <Td><Badge tier={STATE_TIER[row.state]}>{STATE_LABEL[row.state]}</Badge></Td>
                         <Td>
@@ -200,7 +230,7 @@ export function CleanupModule() {
                     ))}
                     {payload.rows.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
+                        <td colSpan={11} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
                       </tr>
                     ) : null}
                   </tbody>
