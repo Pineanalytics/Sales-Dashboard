@@ -114,7 +114,7 @@ function outlet(overrides: Partial<OutletListRow>): OutletListRow {
     location: "Nairobi", region: "Central", territory: "Kiambu", route: null, repName: "Rep A", repCode: null, teamLeader: "TL", repStatus: null, repRegion: null, repSubRegion: null,
     teamLeadersByPrincipal: null, plannedRep: null, matchId: null, matchConfidence: null, matchedSystems: null, latitude: null, longitude: null, lastPurchaseDate: "2026-10-01",
     sales: 600_000, transactions: 12, active: true, firstPurchaseDate: "2026-01-05", periodsBought90: 3, periodsBought180: 6, principalCount: 2, dominantPrincipal: "Mars-Nairobi",
-    dominantShare: 0.8, sharedPrincipals: null, repCount: 1, repsByPrincipal: "Mars-Nairobi: Rep A", territoryClean: null, shopId: null, shopSize: null, shopConfidence: null,
+    dominantShare: 0.8, sharedPrincipals: null, repCount: 1, repsByPrincipal: "Mars-Nairobi: Rep A", territoryClean: null, shopId: null, shopSize: null, shopConfidence: null, visitDays: null,
     ...overrides,
   };
 }

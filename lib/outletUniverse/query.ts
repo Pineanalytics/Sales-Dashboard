@@ -148,7 +148,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
       unit AS (
         SELECT b.source, b."outletKey", b.principal, b.principal AS principals, b."salesRole", b."outletName", b.channel, b.segment, b.location, b.region, b.territory, b.route,
                b."repName", b."repCode", b."teamLeader", b."repStatus", b."repRegion", b."repSubRegion", b."plannedRep", b."matchId", b."matchConfidence", b."matchedSystems", b.latitude, b.longitude, b."lastPurchaseDate", b.sales, b.transactions,
-               b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", b."territoryClean", b."shopId", b."shopSize", b."shopConfidence", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
+               b."firstPurchaseDate", b."periodsBought90", b."periodsBought180", b."territoryClean", b."shopId", b."shopSize", b."shopConfidence", b."visitDays", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
                COALESCE(b."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
                (b."salesRole" = 'Primary Sales') AS "hasPrimary",
                (b."salesRole" = 'Secondary Sales') AS "hasSecondary",
@@ -160,7 +160,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
   return Prisma.sql`WITH ${base}, ${mix},
     head AS (
       SELECT DISTINCT ON (source, "outletKey") source, "outletKey", "outletName", channel, segment, location, region, territory, route,
-             "repName", "repCode", "teamLeader", "repStatus", "repRegion", "repSubRegion", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180", "territoryClean", "shopId", "shopSize", "shopConfidence"
+             "repName", "repCode", "teamLeader", "repStatus", "repRegion", "repSubRegion", "plannedRep", "matchId", "matchConfidence", "matchedSystems", latitude, longitude, "firstPurchaseDate", "periodsBought90", "periodsBought180", "territoryClean", "shopId", "shopSize", "shopConfidence", "visitDays"
       FROM base
       ORDER BY source, "outletKey", "lastPurchaseDate" DESC NULLS LAST, principal
     ),
@@ -179,7 +179,7 @@ function cte(filters: OutletFilters, scope: OutletScope, withMix = false): Prism
                   WHEN a."hasSecondary" THEN 'Secondary Sales' ELSE 'Primary Sales' END AS "salesRole",
              h."outletName", h.channel, h.segment, h.location, h.region, h.territory, h.route,
              h."repName", h."repCode", h."teamLeader", h."repStatus", h."repRegion", h."repSubRegion", h."plannedRep", h."matchId", h."matchConfidence", h."matchedSystems", h.latitude, h.longitude, a."lastPurchaseDate", a.sales, a.transactions,
-             h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", h."territoryClean", h."shopId", h."shopSize", h."shopConfidence", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
+             h."firstPurchaseDate", h."periodsBought90", h."periodsBought180", h."territoryClean", h."shopId", h."shopSize", h."shopConfidence", h."visitDays", m."principalCount", m."dominantPrincipal", m."dominantShare", m."sharedPrincipals", m."repCount", m."repsByPrincipal", m."teamLeadersByPrincipal",
              COALESCE(a."lastPurchaseDate" >= ${cutoff}, FALSE) AS active,
              a."hasPrimary", a."hasSecondary", a."activePrimary", a."activeSecondary"
       FROM head h JOIN agg a USING (source, "outletKey") LEFT JOIN mix m ON m.source = h.source AND m."outletKey" = h."outletKey"
@@ -411,13 +411,15 @@ export interface OutletListRow {
   shopId: string | null;
   shopSize: number | null;
   shopConfidence: string | null;
+  /** The days of the week the outlet is visited ("Mon, Thu"), from the validated outlet cleanup; null until a team leader has validated them. */
+  visitDays: string | null;
 }
 
 const LIST_COLUMNS = Prisma.sql`source, "outletKey", "outletName", principals, "salesRole", channel, segment, location, region, territory, route, "repName", "repCode", "teamLeader", "repStatus", "repRegion", "repSubRegion", "plannedRep", "matchId", "matchConfidence", "matchedSystems",
   latitude, longitude, "lastPurchaseDate", sales::double precision AS sales, transactions::int AS transactions, active,
   "firstPurchaseDate", COALESCE("periodsBought90", 0)::int AS "periodsBought90", COALESCE("periodsBought180", 0)::int AS "periodsBought180", COALESCE("principalCount", 1)::int AS "principalCount",
   "dominantPrincipal", "dominantShare", "sharedPrincipals", COALESCE("repCount", 0)::int AS "repCount", "repsByPrincipal", "teamLeadersByPrincipal",
-  "territoryClean", "shopId", "shopSize", "shopConfidence"`;
+  "territoryClean", "shopId", "shopSize", "shopConfidence", "visitDays"`;
 
 type RawListRow = Omit<OutletListRow, "lastPurchaseDate" | "firstPurchaseDate"> & { lastPurchaseDate: Date | null; firstPurchaseDate: Date | null };
 

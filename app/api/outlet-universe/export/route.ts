@@ -41,6 +41,8 @@ const HEADER = [
   "Territory (Clean)", "Territory Match",
   // The shop the outlet belongs to after the universe cleanup (cleanup.ts): outlets that are the same shop, within and across systems, share a Shop ID.
   "Shop ID", "Outlets in Shop", "Shop Confidence",
+  // The days of the week the outlet is visited, validated by the team leader in the outlet cleanup (Route above is the validated route name). Blank until validated.
+  "Visit Days",
 ];
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
@@ -142,6 +144,7 @@ export async function GET(req: NextRequest) {
           row.shopId,
           row.shopSize,
           row.shopConfidence,
+          row.visitDays,
         ]
           .map(cell)
           .join(",")
