@@ -59,14 +59,14 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
   const ownTeam: TeamProgress | null = data.actor.role === "TEAM_LEADER" ? mine[0] ?? null : null;
   const scopeLabel = data.actor.isAdmin || data.actor.role === "HOD" || data.actor.role === "DIRECTOR" ? "All teams" : data.actor.role === "SUPERVISOR" ? "Your teams" : "Your team";
   const target = ownTeam?.targetPct ?? data.defaultTargetPct;
-  const toDo = Math.max(0, totals.outlets - totals.reviewed);
+  const toDo = Math.max(0, totals.active - totals.reviewedActive);
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionCard title={`${scopeLabel}: cleanup progress`} action={<span className="text-xs text-muted">Target by the end of {monthLabel(period)}: {target}% of outlets reviewed</span>}>
+      <SectionCard title={`${scopeLabel}: cleanup progress`} action={<span className="text-xs text-muted">Target by the end of {monthLabel(period)}: {target}% of active outlets reviewed</span>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile label="Outlets reviewed" value={`${totals.pctReviewed}%`} sub={`${formatNumber(totals.reviewed)} of ${formatNumber(totals.outlets)} outlets`} />
-          <Tile label="Still to review" value={formatNumber(toDo)} sub={ownTeam ? `${ownTeam.attainment}% of your target reached${ownTeam.rank ? ` · rank ${ownTeam.rank} of ${teams.length}` : ""}` : undefined} />
+          <Tile label="Active outlets reviewed" value={`${totals.pctReviewed}%`} sub={`${formatNumber(totals.reviewedActive)} of ${formatNumber(totals.active)} active outlets`} />
+          <Tile label="Active still to review" value={formatNumber(toDo)} sub={ownTeam ? `${ownTeam.attainment}% of your target reached${ownTeam.rank ? ` · rank ${ownTeam.rank} of ${teams.length}` : ""}` : undefined} />
           <Tile label="Missing GPS" value={formatNumber(totals.missingGeo)} sub={`${formatNumber(totals.geoTagged)} tagged so far`} />
           <Tile label="Reps validated" value={formatNumber(totals.repsValidated)} sub={`${formatNumber(totals.validated)} outlets validated by admin · ${formatNumber(totals.disowned)} marked open`} />
         </div>
@@ -75,7 +75,7 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
           <Tile label="Dormant outlets" value={formatNumber(totals.dormant)} sub="No purchase in 90 days, or none on record" />
           <Tile label="Distinct shops" value={formatNumber(totals.shops)} sub={`${formatNumber(Math.max(0, totals.outlets - totals.shops))} outlets are duplicates of another`} />
         </div>
-        <p className="mt-3 text-xs text-muted">The targeted universe is every outlet in your scope, active and dormant, counted once even when several teams sell to it ({formatNumber(totals.teamOutletRows)} team-outlet rows in the table below because a shared outlet counts for each of its teams).</p>
+        <p className="mt-3 text-xs text-muted">The target is measured on <strong>active outlets</strong> only (bought in the last 90 days). Dormant outlets can still be reviewed or marked open, but count neither for nor against it. Your scope holds {formatNumber(totals.outlets)} outlets, each counted once even when several teams sell to it ({formatNumber(totals.teamOutletRows)} team-outlet rows in the table below because a shared outlet counts for each of its teams).</p>
         <div className="mt-4">
           <Bar value={totals.pctReviewed} marker={target} />
           <p className="mt-1 text-xs text-muted">The orange mark is the target.</p>
@@ -94,9 +94,9 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
             <Th align="right">Outlets</Th>
             <Th align="right">Active</Th>
             <Th align="right">Dormant</Th>
-            <Th align="right">Reviewed</Th>
+            <Th align="right">Active reviewed</Th>
             <Th>Progress against target</Th>
-            <Th align="right">% reviewed</Th>
+            <Th align="right">% of active reviewed</Th>
             <Th align="right">Target</Th>
             <Th align="right">GPS missing</Th>
             <Th align="right">Reps validated</Th>
@@ -109,7 +109,7 @@ export function ProgressDashboard({ onOpenOutlets }: { onOpenOutlets: (state: st
                 <Td align="right">{formatNumber(team.outlets)}</Td>
                 <Td align="right">{formatNumber(team.active)}</Td>
                 <Td align="right">{formatNumber(team.dormant)}</Td>
-                <Td align="right">{formatNumber(team.reviewed)}</Td>
+                <Td align="right">{formatNumber(team.reviewedActive)}</Td>
                 <Td><div className="w-40"><Bar value={team.attainment} tone={team.attainment >= 100 ? "bg-accent-green" : team.attainment >= 50 ? "bg-primary-blue" : "bg-brand-orange"} /></div></Td>
                 <Td align="right">{team.pctReviewed}%</Td>
                 <Td align="right">{team.targetPct}%</Td>

@@ -30,6 +30,8 @@ export interface ProgressReport {
     repsValidated: number;
     disowned: number;
     pctReviewed: number;
+    /** Active outlets reviewed; pctReviewed above is this as a share of the active outlets (the target's basis). */
+    reviewedActive: number;
     /** Outlets bought in the last 90 days, and the dormant rest (older purchase or none on record). */
     active: number;
     dormant: number;
@@ -57,6 +59,7 @@ interface RawTeam {
   reps_validated: bigint;
   disowned: bigint;
   active: bigint;
+  reviewed_active: bigint;
 }
 
 interface RawTotals extends RawTeam {
@@ -86,7 +89,8 @@ export function loadTeamCounts(): Promise<RawTeam[]> {
              count(*) FILTER (WHERE e."geoTaggedAt" IS NOT NULL) AS geo_tagged,
              count(*) FILTER (WHERE e."repDecisions" IS NOT NULL AND jsonb_typeof(e."repDecisions") = 'array' AND jsonb_array_length(e."repDecisions") > 0) AS reps_validated,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS disowned,
-             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()}) AS active
+             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()}) AS active,
+             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND (e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active
       FROM owned ow
       LEFT JOIN "OutletCleanupEntry" e ON e.source = ow.source AND e."outletKey" = ow."outletKey"
       GROUP BY ow."teamLeader", lower(regexp_replace(btrim(ow."teamLeader"), '\\s+', ' ', 'g'))
@@ -129,6 +133,7 @@ function loadScopeTotals(actor: CleanupActor): Promise<RawTotals> {
              count(*) FILTER (WHERE e."repDecisions" IS NOT NULL AND jsonb_typeof(e."repDecisions") = 'array' AND jsonb_array_length(e."repDecisions") > 0) AS reps_validated,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS disowned,
              count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()}) AS active,
+             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND (e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active,
              count(DISTINCT ow.shop) AS shops
       FROM owned ow
       LEFT JOIN "OutletCleanupEntry" e ON e.source = ow.source AND e."outletKey" = ow."outletKey"
@@ -165,12 +170,14 @@ export async function loadProgress(actor: CleanupActor, period = currentPeriod()
       disowned: Number(r.disowned),
       active: Number(r.active),
       dormant: Number(r.outlets) - Number(r.active),
+      reviewedActive: Number(r.reviewed_active),
     })),
     targets
   );
   const mine = teams.filter((team) => inActorScope(actor, team.teamLeader));
   const outlets = Number(scope.outlets);
-  const reviewed = Number(scope.reviewed);
+  const active = Number(scope.active);
+  const reviewedActive = Number(scope.reviewed_active);
   return {
     period,
     defaultTargetPct: targets.defaultPct,
@@ -178,15 +185,16 @@ export async function loadProgress(actor: CleanupActor, period = currentPeriod()
     mine,
     totals: {
       outlets,
-      reviewed,
+      reviewed: Number(scope.reviewed),
       validated: Number(scope.validated),
       missingGeo: Number(scope.missing_geo),
       geoTagged: Number(scope.geo_tagged),
       repsValidated: Number(scope.reps_validated),
       disowned: Number(scope.disowned),
-      pctReviewed: pct(reviewed, outlets),
-      active: Number(scope.active),
-      dormant: outlets - Number(scope.active),
+      pctReviewed: pct(reviewedActive, active),
+      reviewedActive,
+      active,
+      dormant: outlets - active,
       shops: Number(scope.shops),
       teamOutletRows: mine.reduce((total, team) => total + team.outlets, 0),
     },

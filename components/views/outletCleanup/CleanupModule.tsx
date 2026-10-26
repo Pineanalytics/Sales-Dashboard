@@ -62,7 +62,7 @@ const pageDisabled = "rounded-full border border-border/60 px-3 py-1.5 text-xs f
 export function CleanupModule() {
   const [section, setSection] = useState<Section>("progress");
   const [state, setState] = useState("todo");
-  const [activity, setActivity] = useState<"all" | "active" | "dormant">("all");
+  const [activity, setActivity] = useState<"all" | "active" | "dormant">("active");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
