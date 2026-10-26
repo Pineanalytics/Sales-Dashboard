@@ -7,7 +7,12 @@ import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
 import type { CleanupOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
+import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
+import { ProgressDashboard } from "./ProgressDashboard";
+import { TargetsPanel } from "./TargetsPanel";
+
+type Section = "progress" | "outlets" | "open" | "targets";
 
 interface QueuePayload {
   rows: QueueRow[];
@@ -31,11 +36,19 @@ const STATES: { value: string; label: string }[] = [
 const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { UNREVIEWED: "neutral", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad", DISOWNED: "neutral" };
 const STATE_LABEL: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", REVIEWED: "Awaiting admin", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
 
+const SECTIONS: { value: Section; label: string }[] = [
+  { value: "progress", label: "Progress" },
+  { value: "outlets", label: "My outlets" },
+  { value: "open", label: "Marked open outlets" },
+  { value: "targets", label: "Targets" },
+];
+
 const pageButton = "rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft";
 const pageDisabled = "rounded-full border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted/60";
 
 /** The Cleanup tab of Active Outlets: the outlets the signed-in person works on, with the form to verify one. Edits go to the cleanup tables, not the universe. */
 export function CleanupModule() {
+  const [section, setSection] = useState<Section>("progress");
   const [state, setState] = useState("todo");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -96,7 +109,27 @@ export function CleanupModule() {
         </p>
       </SectionCard>
 
-      {open ? (
+      <div className="inline-flex w-fit flex-wrap gap-1 rounded-full bg-background-elevated p-0.5" role="tablist" aria-label="Cleanup sections">
+        {SECTIONS.filter((item) => item.value !== "targets" || payload?.actor.isAdmin).map((item) => (
+          <button key={item.value} role="tab" aria-selected={section === item.value} onClick={() => setSection(item.value)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${section === item.value ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"}`}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {section === "progress" ? (
+        <ProgressDashboard
+          onOpenOutlets={(next) => {
+            setState(next);
+            setPage(1);
+            setSection("outlets");
+          }}
+        />
+      ) : null}
+      {section === "open" ? <OpenOutlets onChanged={refresh} /> : null}
+      {section === "targets" && payload?.actor.isAdmin ? <TargetsPanel onChanged={refresh} /> : null}
+
+      {section !== "outlets" ? null : open ? (
         <OutletPanel key={`${open.source}|${open.outletKey}`} source={open.source} outletKey={open.outletKey} onClose={() => setOpen(null)} onChanged={refresh} />
       ) : (
         <SectionCard title="Your outlets">

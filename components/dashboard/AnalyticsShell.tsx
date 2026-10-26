@@ -9,6 +9,7 @@ import type { Dataset } from "@/lib/types";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { GlobalFilterBar } from "./GlobalFilterBar";
+import { CleanupReminder } from "./CleanupReminder";
 import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -94,6 +95,7 @@ export function AnalyticsShell({
 
   return (
     <UserProvider value={user}>
+      {!presentationMode ? <CleanupReminder role={user?.role} /> : null}
       <div className="flex flex-1 min-h-0">
         {!presentationMode ? (
           <div className="no-print">
