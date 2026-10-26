@@ -8,6 +8,7 @@ import { similarity } from "@/lib/universeAnalysis/similarity";
 import { cleanName } from "@/lib/universeAnalysis/dedup";
 import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
 import { inActorScope } from "./access";
+import { activeCutoffDate, outletActivity } from "./activity";
 import { loadRouting } from "./routingData";
 import { haversineM } from "./validate";
 import {
@@ -54,7 +55,7 @@ export function loadCleanupOptions(): Promise<CleanupOptions> {
 }
 
 /** SQL for "this outlet row belongs to a team this person works on" (always true for someone who sees all). */
-function scopeSql(actor: CleanupActor, alias: string): Prisma.Sql {
+export function scopeSql(actor: CleanupActor, alias: string): Prisma.Sql {
   if (actor.teamLeaders === null) return Prisma.sql`TRUE`;
   if (actor.teamLeaders.length === 0) return Prisma.sql`FALSE`;
   const names = actor.teamLeaders.map((n) => n.trim().replace(/\s+/g, " ").toLowerCase());
@@ -70,6 +71,8 @@ export interface QueueFilters {
   territory: string | null;
   principal: string | null;
   teamLeader: string | null;
+  /** Active outlets only, dormant ones only (including those with no purchase on record), or both. */
+  activity: "all" | "active" | "dormant";
 }
 
 export function parseQueueFilters(params: URLSearchParams): QueueFilters {
@@ -79,7 +82,7 @@ export function parseQueueFilters(params: URLSearchParams): QueueFilters {
     const v = (params.get(key) ?? "").trim().slice(0, max);
     return v === "" ? null : v;
   };
-  return { state: states.includes(state) ? state : "todo", q: text("q", 80) ?? "", region: text("region"), territory: text("territory"), principal: text("principal"), teamLeader: text("teamLeader") };
+  return { state: states.includes(state) ? state : "todo", q: text("q", 80) ?? "", region: text("region"), territory: text("territory"), principal: text("principal"), teamLeader: text("teamLeader"), activity: params.get("activity") === "active" || params.get("activity") === "dormant" ? (params.get("activity") as "active" | "dormant") : "all" };
 }
 
 const HAS_GEO = Prisma.sql`(o.latitude IS NOT NULL AND o.latitude <> 0 AND o.latitude BETWEEN -5 AND 5 AND o.longitude BETWEEN 33 AND 43)`;
@@ -97,6 +100,7 @@ interface RawQueueRow {
   hasGeo: boolean;
   shopSize: number;
   state: string;
+  lastPurchase: Date | null;
 }
 
 /** The outlets a person works on, one row each, with what they have verified laid over the universe's values and the review state. */
@@ -120,6 +124,8 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   if (filters.territory) parts.push(Prisma.sql`territory = ${filters.territory}`);
   if (filters.principal) parts.push(Prisma.sql`principals ILIKE ${`%${filters.principal}%`}`);
   if (filters.teamLeader) parts.push(Prisma.sql`"teamLeaders" ILIKE ${`%${filters.teamLeader}%`}`);
+  if (filters.activity === "active") parts.push(Prisma.sql`"lastPurchase" >= ${activeCutoffDate()}`);
+  if (filters.activity === "dormant") parts.push(Prisma.sql`("lastPurchase" IS NULL OR "lastPurchase" < ${activeCutoffDate()})`);
   const where = Prisma.join(parts, " AND ");
 
   const base = Prisma.sql`
@@ -130,14 +136,14 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
       SELECT o.source, o."outletKey", MIN(o."outletName") AS "outletName", STRING_AGG(DISTINCT o.principal, ', ') AS principals,
              MIN(o.region) AS region, MIN(COALESCE(o."territoryClean", o.territory)) AS territory, MIN(o.channel) AS channel, MIN(o.segment) AS "customerType",
              STRING_AGG(DISTINCT NULLIF(btrim(o."teamLeader"), ''), ', ') AS "teamLeaders", BOOL_OR(${HAS_GEO}) AS "hasGeo",
-             MAX(COALESCE(o."shopSize", 1))::int AS "shopSize", SUM(o.sales)::double precision AS sales
+             MAX(COALESCE(o."shopSize", 1))::int AS "shopSize", SUM(o.sales)::double precision AS sales, MAX(o."lastPurchaseDate") AS "lastPurchase"
       FROM "OutletUniverse" o JOIN mine m ON m.source = o.source AND m."outletKey" = o."outletKey"
       GROUP BY o.source, o."outletKey"
     ),
     q AS (
       SELECT a.source, a."outletKey", a."outletName", a.principals,
              COALESCE(e.region, a.region) AS region, COALESCE(e.territory, a.territory) AS territory, COALESCE(e.channel, a.channel) AS channel,
-             COALESCE(e."customerType", a."customerType") AS "customerType", a."teamLeaders", (a."hasGeo" OR e.latitude IS NOT NULL) AS "hasGeo", a."shopSize", a.sales,
+             COALESCE(e."customerType", a."customerType") AS "customerType", a."teamLeaders", (a."hasGeo" OR e.latitude IS NOT NULL) AS "hasGeo", a."shopSize", a.sales, a."lastPurchase",
              CASE WHEN mo.id IS NOT NULL THEN 'DISOWNED' WHEN e.id IS NULL THEN 'UNREVIEWED' ELSE e.status END AS state
       FROM agg a
       LEFT JOIN "OutletCleanupEntry" e ON e.source = a.source AND e."outletKey" = a."outletKey"
@@ -150,7 +156,7 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   const current = Math.min(Math.max(1, page), pageCount);
   const rows = await prisma.$queryRaw<RawQueueRow[]>(Prisma.sql`
     ${base}
-    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", "hasGeo", "shopSize", state FROM q WHERE ${where}
+    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", "hasGeo", "shopSize", state, "lastPurchase" FROM q WHERE ${where}
     ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
     LIMIT ${QUEUE_PAGE_SIZE} OFFSET ${(current - 1) * QUEUE_PAGE_SIZE}
   `);
@@ -168,6 +174,8 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
       hasGeo: Boolean(r.hasGeo),
       shopSize: Number(r.shopSize ?? 1),
       state: r.state as ReviewState,
+      lastPurchaseDate: r.lastPurchase ? r.lastPurchase.toISOString().slice(0, 10) : null,
+      ...outletActivity(r.lastPurchase),
     })),
     total,
     page: current,
@@ -218,6 +226,7 @@ interface RawUniverseRow {
   contactPhone: string | null;
   route: string | null;
   visitDays: string | null;
+  lastPurchaseDate: Date | null;
 }
 
 const validPoint = (lat: number | null, lon: number | null): boolean => lat !== null && lon !== null && lat !== 0 && lat >= -5 && lat <= 5 && lon >= 33 && lon <= 43;
@@ -225,7 +234,7 @@ const validPoint = (lat: number | null, lon: number | null): boolean => lat !== 
 /** Everything the form needs for one outlet, or null when the outlet does not exist or is not one this person works on. */
 export async function loadOutletDetail(actor: CleanupActor, source: OutletSource, outletKey: string): Promise<OutletDetail | null> {
   const universe = await prisma.$queryRaw<RawUniverseRow[]>(Prisma.sql`
-    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone", route, "visitDays"
+    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone", route, "visitDays", "lastPurchaseDate"
     FROM "OutletUniverse" WHERE source = ${source} AND "outletKey" = ${outletKey} ORDER BY principal
   `);
   if (universe.length === 0) return null;
@@ -286,6 +295,10 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
     lockedFields: (entry?.lockedFields ?? []) as LockableField[],
     confirmedAsIs: entry?.confirmedAsIs ?? false,
     shop: { shopId: lead.shopId, shopSize: Number(lead.shopSize ?? 1), confidence: lead.shopConfidence },
+    activity: (() => {
+      const last = universe.reduce<Date | null>((latest, r) => (r.lastPurchaseDate && (!latest || r.lastPurchaseDate > latest) ? r.lastPurchaseDate : latest), null);
+      return { lastPurchaseDate: last ? last.toISOString().slice(0, 10) : null, ...outletActivity(last) };
+    })(),
     duplicates: near.map((c) => {
       const d = decisions.find((x) => (x.aSource === c.source && x.aKey === c.outletKey) || (x.bSource === c.source && x.bKey === c.outletKey));
       return { ...c, decision: d ? (d.decision as "MERGE" | "NOT_DUPLICATE") : null };

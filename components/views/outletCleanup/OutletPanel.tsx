@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
 import { matchOption } from "@/lib/outletCleanup/validate";
+import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
 import { RepRouteRow } from "./RepRouteRow";
 import { FIELD_LABELS, IDENTIFICATION_FIELDS, type IdentificationField, type OutletDetail } from "@/lib/outletCleanup/types";
 
@@ -142,6 +143,9 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Badge tier={detail.activity.activity === "ACTIVE" ? "good" : detail.activity.activity === "LOST" ? "bad" : detail.activity.activity === "LAPSED" ? "warn" : "neutral"}>
+            {detail.activity.activity === "ACTIVE" || detail.activity.daysSince === null ? ACTIVITY_LABELS[detail.activity.activity] : `${ACTIVITY_LABELS[detail.activity.activity]} · ${detail.activity.daysSince} d`}
+          </Badge>
           <Badge tier={detail.state === "VALIDATED" || detail.state === "APPLIED" ? "good" : detail.state === "REJECTED" ? "bad" : detail.state === "UNREVIEWED" ? "neutral" : "warn"}>{detail.state.toLowerCase()}</Badge>
           <button onClick={onClose} className={ghostButton}>Close</button>
         </div>

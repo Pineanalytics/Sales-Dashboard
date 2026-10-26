@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pct, rankTeams, type RawTeamCounts } from "../lib/outletCleanup/progressRank";
 
-const team = (teamLeader: string, outlets: number, reviewed: number): RawTeamCounts => ({ teamLeader, outlets, reviewed, validated: 0, missingGeo: 0, geoTagged: 0, repsValidated: 0, disowned: 0 });
+const team = (teamLeader: string, outlets: number, reviewed: number): RawTeamCounts => ({ teamLeader, outlets, reviewed, validated: 0, missingGeo: 0, geoTagged: 0, repsValidated: 0, disowned: 0, active: outlets, dormant: 0 });
 
 describe("cleanup ranking", () => {
   it("ranks on the share of the target reached, then on outlets reviewed", () => {

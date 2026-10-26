@@ -10,6 +10,9 @@ export interface TeamProgress {
   geoTagged: number;
   repsValidated: number;
   disowned: number;
+  /** Outlets still buying (bought in the last 90 days) and the dormant rest (older purchase or none on record). */
+  active: number;
+  dormant: number;
   /** Share of the team's outlets reviewed, 0-100. */
   pctReviewed: number;
   targetPct: number;
@@ -27,6 +30,8 @@ export interface RawTeamCounts {
   geoTagged: number;
   repsValidated: number;
   disowned: number;
+  active: number;
+  dormant: number;
 }
 
 export const foldName = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();

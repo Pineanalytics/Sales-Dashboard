@@ -90,6 +90,9 @@ export interface RowRouting {
   routeOptions: string[];
 }
 
+/** Whether the outlet is still buying: Active, or dormant (Lapsed, Lost, or no purchase on record). */
+export type OutletActivity = "ACTIVE" | "LAPSED" | "LOST" | "NO_PURCHASE";
+
 export interface QueueRow {
   source: OutletSource;
   outletKey: string;
@@ -101,8 +104,12 @@ export interface QueueRow {
   customerType: string;
   teamLeaders: string;
   hasGeo: boolean;
+  /** Outlets in this outlet's shop (1 = unique); more than 1 marks a duplicate the universe cleanup merged. */
   shopSize: number;
   state: ReviewState;
+  lastPurchaseDate: string | null;
+  activity: OutletActivity;
+  daysSince: number | null;
 }
 
 export const QUEUE_PAGE_SIZE = 25;
@@ -151,6 +158,8 @@ export interface OutletDetail {
   lockedFields: LockableField[];
   confirmedAsIs: boolean;
   shop: { shopId: string | null; shopSize: number; confidence: string | null };
+  /** Whether the outlet is still buying, and when it last bought. */
+  activity: { activity: OutletActivity; lastPurchaseDate: string | null; daysSince: number | null };
   duplicates: DuplicateCandidate[];
   openStatus: { status: string; candidates: { teamLeader: string; response: string }[] } | null;
   /** What this person may do on this outlet right now. */
