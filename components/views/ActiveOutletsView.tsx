@@ -13,6 +13,9 @@ import { Dashboard } from "./activeOutlets/Dashboard";
 import { FilterBar } from "./activeOutlets/FilterBar";
 import { OutletList } from "./activeOutlets/OutletList";
 import { FrequencyExtract } from "./activeOutlets/FrequencyExtract";
+import { CleanupModule } from "./activeOutlets/cleanup/CleanupModule";
+
+type ModuleTab = "dashboard" | "list" | "cleanup";
 
 interface UniversePayload {
   summary: OutletUniverseSummary;
@@ -47,7 +50,7 @@ function toParams(filters: OutletFilters, page?: number): URLSearchParams {
 }
 
 /** Lets another page (the Executive Summary's dormant-outlet link) open this module already filtered. */
-function initialFromParams(params: URLSearchParams): { filters: OutletFilters; tab: "dashboard" | "list" } {
+function initialFromParams(params: URLSearchParams): { filters: OutletFilters; tab: ModuleTab } {
   const role = params.get("role");
   const status = params.get("status");
   const key = (params.get("principalKey") ?? "").trim().slice(0, 80);
@@ -59,7 +62,7 @@ function initialFromParams(params: URLSearchParams): { filters: OutletFilters; t
       role: role === "Primary Sales" || role === "Secondary Sales" ? role : null,
       principalKey: key || null,
     },
-    tab: params.get("list") === "1" ? "list" : "dashboard",
+    tab: params.get("cleanup") === "1" ? "cleanup" : params.get("list") === "1" ? "list" : "dashboard",
   };
 }
 
@@ -134,7 +137,7 @@ export function ActiveOutletsView() {
   const [filters, setFilters] = useState<OutletFilters>(initial.filters);
   const [searchText, setSearchText] = useState("");
   const [page, setPage] = useState(1);
-  const [tab, setTab] = useState<"dashboard" | "list">(initial.tab);
+  const [tab, setTab] = useState<ModuleTab>(initial.tab);
   const [payload, setPayload] = useState<UniversePayload | null>(null);
   const [options, setOptions] = useState<OutletFilterOptions | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
@@ -213,16 +216,7 @@ export function ActiveOutletsView() {
     }
   };
 
-  if (status === "loading") return <FullPageSpinner label="Loading Active Outlets…" />;
-  if (status === "error" || !payload) {
-    return <EmptyState icon={<BuildingShop20Regular className="h-10 w-10" />} title="Couldn't load Active Outlets" description="Try refreshing the page. If this keeps happening, the outlet universe may still be compiling." />;
-  }
-  if (compiling) {
-    return <EmptyState icon={<BuildingShop20Regular className="h-10 w-10" />} title="Compiling the Active Outlet universe" description="Pine, Leverage and EABL DMS outlets are being merged for the first time. This page refreshes itself in a few seconds." />;
-  }
-
-  const { summary, list } = payload;
-  const tabButton = (value: "dashboard" | "list", label: string) => (
+  const tabButton = (value: ModuleTab, label: string) => (
     <button
       key={value}
       onClick={() => setTab(value)}
@@ -232,6 +226,34 @@ export function ActiveOutletsView() {
       {label}
     </button>
   );
+
+  const tabRow = (
+    <div className="inline-flex w-fit gap-1 rounded-full bg-background-elevated p-0.5">
+      {tabButton("dashboard", "Dashboard")}
+      {tabButton("list", "Outlet listing")}
+      {tabButton("cleanup", "Cleanup")}
+    </div>
+  );
+
+  // The cleanup works from its own lists, so it does not wait for the universe to load.
+  if (tab === "cleanup") {
+    return (
+      <div className="flex flex-col gap-6">
+        {tabRow}
+        <CleanupModule />
+      </div>
+    );
+  }
+
+  if (status === "loading") return <FullPageSpinner label="Loading Active Outlets…" />;
+  if (status === "error" || !payload) {
+    return <EmptyState icon={<BuildingShop20Regular className="h-10 w-10" />} title="Couldn't load Active Outlets" description="Try refreshing the page. If this keeps happening, the outlet universe may still be compiling." />;
+  }
+  if (compiling) {
+    return <EmptyState icon={<BuildingShop20Regular className="h-10 w-10" />} title="Compiling the Active Outlet universe" description="Pine, Leverage and EABL DMS outlets are being merged for the first time. This page refreshes itself in a few seconds." />;
+  }
+
+  const { summary, list } = payload;
 
   return (
     <div className="flex flex-col gap-6">
@@ -259,10 +281,7 @@ export function ActiveOutletsView() {
         ) : null}
       </SectionCard>
 
-      <div className="inline-flex w-fit gap-1 rounded-full bg-background-elevated p-0.5">
-        {tabButton("dashboard", "Dashboard")}
-        {tabButton("list", "Outlet listing")}
-      </div>
+      {tabRow}
 
       {tab === "dashboard" ? (
         <>
