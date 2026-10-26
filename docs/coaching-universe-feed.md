@@ -17,7 +17,7 @@ for the roster, outlets and performance, with two added resources. Read-only: no
 
 ### `resource=universe`: every outlet x principal, all four systems
 
-One row per outlet and principal from Pine, Leverage, EABL DMS and Upfield DataEdge: the same columns as the Active Outlets extract, plus the master outlet id.
+One row per outlet and principal from Pine, Leverage, EABL DMS and Upfield DataEdge: the same columns as the Active Outlets extract, plus the shop id (outlets that are the same shop share one).
 
 Filters: `status=active` (default) | `dormant` | `all`; `source=PINE|LEVERAGE|EABL|UPFIELD`; `principal=Mars-Nairobi` (exact name).
 
@@ -29,7 +29,8 @@ Each outlet row:
 |---|---|
 | `source`, `sourceCode` | System label ("Pine", "EABL DMS", "Upfield DataEdge", "Leverage") and its code (PINE, EABL, UPFIELD, LEVERAGE). |
 | `outletId` | The source system's own outlet id (Pine customer id, EABL DMS customer code, Upfield outlet code, Leverage customer code). Ids from different systems can collide: key on `sourceCode` + `outletId` + `principal`. |
-| `masterOutletId`, `duplicateGroupSize` | The same shop registered twice (within or across systems) shares one master id. Computed over the active outlets (matched by GPS point within 60 m and cleaned name, and by the extract's match id); a dormant outlet carries its own id. Count shops on `masterOutletId`, never on `outletId`. |
+| `shopId`, `shopSize`, `shopConfidence` | The shop this outlet belongs to. The same shop registered twice, within or across systems, shares one `shopId` (the master outlet's record key, e.g. `PINE-12345`) on every outlet and principal row of it; `shopSize` is how many outlets it was merged from (1 = unique) and `shopConfidence` is `High` or `Medium` for a merged shop. Computed when the universe is compiled, over **every** outlet (active and dormant), by GPS point and cleaned name (identical names or the same letters within 60 m, near-identical names within 45 m; common names and wholesale / retail clashes are left apart) and by the extract's match id. Count shops on `shopId`, never on `outletId`. |
+| `masterOutletId`, `duplicateGroupSize` | The same values as `shopId` and `shopSize`, under the names the feed first used (it used to be computed over the active outlets only, so a dormant outlet carried its own id). |
 | `outlet`, `principal` | Outlet name and the principal this row is about (e.g. `Mars-Nairobi`). |
 | `salesRole` | `Primary Sales` (direct: sold by Pinefrost reps) or `Secondary Sales` (through distributor reps). |
 | `channel`, `segment`, `sourceChannel`, `sourceSegment` | Normalised channel (Retail / Wholesale) and segment, and the source system's own. |
