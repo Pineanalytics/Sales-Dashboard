@@ -84,7 +84,7 @@ export function CleanupReminder({ role }: { role: string | null | undefined }) {
           </div>
         ) : null}
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link ref={startRef} href="/coverage?tab=active-outlets&cleanup=1" onClick={() => setOpen(false)} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2 text-sm font-semibold text-white hover:shadow-cyan-glow">
+          <Link ref={startRef} href="/outlet-cleanup" onClick={() => setOpen(false)} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2 text-sm font-semibold text-white hover:shadow-cyan-glow">
             Open the cleanup
           </Link>
           <button type="button" onClick={() => setOpen(false)} className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-primary-blue hover:bg-accent-blue-soft">

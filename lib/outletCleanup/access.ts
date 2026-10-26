@@ -3,6 +3,7 @@
 // everything but do not edit.
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { canAccessOutletCleanup } from "@/lib/pageAccess";
 import { normalizeTeamLeaderKind } from "@/lib/teamLeaderKind";
 import type { CleanupActor } from "./types";
 
@@ -12,7 +13,7 @@ const VIEW_ALL_ROLES = new Set(["ADMIN", "HOD", "DIRECTOR"]);
 
 /** The roles that use the cleanup. Anyone else gets a 403. */
 export function cleanupRoleAllowed(role: string | null | undefined): boolean {
-  return role === "TEAM_LEADER" || role === "SUPERVISOR" || (role !== null && role !== undefined && VIEW_ALL_ROLES.has(role));
+  return canAccessOutletCleanup(role);
 }
 
 export async function resolveCleanupActor(): Promise<CleanupAccess> {
