@@ -66,8 +66,8 @@ export function CleanupReminder({ role }: { role: string | null | undefined }) {
         <h2 id="cleanup-reminder-title" className="mt-1 text-xl font-bold text-primary-blue">Keep your outlet data up to date{summary.name ? `, ${summary.name.split(" ")[0]}` : ""}</h2>
         <p className="mt-2 text-sm text-muted-strong">
           {summary.outlets === 0
-            ? "No outlets are on your team in the universe yet."
-            : `You have reviewed ${summary.reviewed.toLocaleString()} of ${summary.outlets.toLocaleString()} outlets (${summary.pctReviewed}%). The target for ${month} is ${summary.targetPct}%${onTrack ? ", and you have reached it." : "."}`}
+            ? "No active outlets are on your team in the universe yet."
+            : `You have reviewed ${summary.reviewed.toLocaleString()} of ${summary.outlets.toLocaleString()} active outlets (${summary.pctReviewed}%). The target for ${month} is ${summary.targetPct}%${onTrack ? ", and you have reached it." : "."}`}
         </p>
         {summary.outlets > 0 ? (
           <div className="mt-4">
@@ -76,7 +76,7 @@ export function CleanupReminder({ role }: { role: string | null | undefined }) {
               {summary.targetPct < 100 ? <div className="absolute top-0 h-full w-0.5 bg-brand-orange" style={{ left: `${summary.targetPct}%` }} /> : null}
             </div>
             <ul className="mt-3 flex flex-col gap-1 text-sm text-muted-strong">
-              <li>{toDo.toLocaleString()} outlets still to review</li>
+              <li>{toDo.toLocaleString()} active outlets still to review</li>
               {summary.missingGeo > 0 ? <li>{summary.missingGeo.toLocaleString()} outlets have no GPS point: visit and tag them</li> : null}
               {summary.waitingForMe > 0 ? <li className="font-semibold text-brand-orange">{summary.waitingForMe} marked-open outlet{summary.waitingForMe === 1 ? "" : "s"} waiting for your answer</li> : null}
               {summary.rank ? <li>You are ranked {summary.rank} of {summary.rankedTeams} team leaders</li> : null}

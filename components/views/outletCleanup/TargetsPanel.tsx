@@ -14,7 +14,7 @@ const inputClass = "rounded-full border border-border bg-background-elevated px-
 const primaryButton = "rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-1.5 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-50";
 const ghostButton = "rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft disabled:opacity-50";
 
-/** Admin: the share of outlets every team leader must have reviewed by the end of a month, and any team leader's own target. */
+/** Admin: the share of active outlets every team leader must have reviewed by the end of a month, and any team leader's own target. */
 export function TargetsPanel({ onChanged }: { onChanged: () => void }) {
   const [period, setPeriod] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }).slice(0, 7));
   const [data, setData] = useState<Payload | null>(null);
@@ -66,7 +66,7 @@ export function TargetsPanel({ onChanged }: { onChanged: () => void }) {
 
   return (
     <SectionCard title="Cleanup targets">
-      <p className="text-sm text-muted-strong">The share of their outlets each team leader must have reviewed by the end of the month. Teams are ranked on how much of this they have reached. Progress is cumulative, so a rising target (40% in November, 100% in December) works.</p>
+      <p className="text-sm text-muted-strong">The share of their active outlets (bought in the last 90 days) each team leader must have reviewed by the end of the month; dormant outlets do not count for or against it. Teams are ranked on how much of this they have reached. Progress is cumulative, so a rising target (40% in November, 100% in December) works.</p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month</span>

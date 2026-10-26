@@ -24,8 +24,9 @@ export async function GET() {
         role: actor.role,
         period: progress.period,
         teams: progress.mine.length,
-        outlets: progress.totals.outlets,
-        reviewed: progress.totals.reviewed,
+        // The target is measured on active outlets: how many of them there are and how many have been reviewed.
+        outlets: progress.totals.active,
+        reviewed: progress.totals.reviewedActive,
         pctReviewed: progress.totals.pctReviewed,
         missingGeo: progress.totals.missingGeo,
         targetPct: own?.targetPct ?? progress.defaultTargetPct,
