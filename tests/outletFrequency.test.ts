@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addOutletEvents,
   buildFrequencyOutlets,
+  popcount,
   buildFrequencySummary,
   cadenceFor,
   classificationOf,
@@ -113,13 +114,20 @@ function outlet(overrides: Partial<OutletListRow>): OutletListRow {
     location: "Nairobi", region: "Central", territory: "Kiambu", route: null, repName: "Rep A", repCode: null, teamLeader: "TL", repStatus: null, repRegion: null, repSubRegion: null,
     teamLeadersByPrincipal: null, plannedRep: null, matchId: null, matchConfidence: null, matchedSystems: null, latitude: null, longitude: null, lastPurchaseDate: "2026-10-01",
     sales: 600_000, transactions: 12, active: true, firstPurchaseDate: "2026-01-05", periodsBought90: 3, periodsBought180: 6, principalCount: 2, dominantPrincipal: "Mars-Nairobi",
-    dominantShare: 0.8, sharedPrincipals: null, repCount: 1, repsByPrincipal: "Mars-Nairobi: Rep A",
+    dominantShare: 0.8, sharedPrincipals: null, repCount: 1, repsByPrincipal: "Mars-Nairobi: Rep A", territoryClean: null, shopId: null, shopSize: null, shopConfidence: null,
     ...overrides,
   };
 }
 
+// Purchase days as bit masks: bit 0 is the 1st. `days` builds one from day numbers.
+const days = (...d: number[]) => d.reduce((mask, day) => mask | (1 << (day - 1)), 0);
+/** [all, conf, other] are counts of days here: the first `all` days of the month, the first `conf` of them on a confectionery principal, the rest on others. */
 const ev = (months: Record<number, [number, number, number]>): OutletEvents => ({
-  months: new Map(Object.entries(months).map(([m, [all, conf, other]]) => [Number(m), { all, conf, other }])),
+  months: new Map(Object.entries(months).map(([m, [all, conf, other]]) => {
+    const allMask = (1 << all) - 1;
+    const confMask = (1 << conf) - 1;
+    return [Number(m), { all: allMask, conf: confMask, other: other > 0 ? allMask & ~confMask : 0 }];
+  })),
   first: "2025-01-05",
   last: "2025-12-20",
 });
@@ -170,11 +178,70 @@ describe("the outlet rows", () => {
   it("reads the calendar months the queries return (1 to 12) as month indexes, so a buyer in every month of Q3 is monthly", () => {
     const q3 = period("kind=quarter&year=2026&quarter=3");
     const map = new Map<string, OutletEvents>();
-    addOutletEvents(map, "PINE", { outletKey: "1", months: [7, 8, 9], alls: [4, 3, 5], confs: [0, 0, 0], others: [4, 3, 5], first: "2026-07-01", last: "2026-09-28" });
+    addOutletEvents(map, "PINE", { outletKey: "1", months: [7, 8, 9], alls: [0b1111, 0b111, 0b11111], confs: [0, 0, 0], others: [0b1111, 0b111, 0b11111], first: "2026-07-01", last: "2026-09-28" });
     const [o] = buildFrequencyOutlets([rows[0]], buildNameProfiles([]), map, q3, new Set(), new Map(), NOW);
     expect(o.cadenceAll).toBe("Once Per Month");
     expect(o.daysByMonth.slice(6, 9)).toEqual([4, 3, 5]);
     expect(o.daysByMonth[0]).toBe(0);
+  });
+});
+
+describe("one row per shop", () => {
+  const q3 = period("kind=quarter&year=2026&quarter=3");
+  const profiles = buildNameProfiles([]);
+  const evMask = (months: Record<number, number>): OutletEvents => ({ months: new Map(Object.entries(months).map(([m, mask]) => [Number(m), { all: mask, conf: 0, other: mask }])), first: "2026-07-01", last: "2026-09-28" });
+
+  it("merges the outlets of one shop, uniting their purchase days so a shared day counts once", () => {
+    const pine = outlet({ outletKey: "1", outletName: "Gitero Shop", shopId: "PINE-1", shopSize: 2, sales: 5_000 });
+    const lev = outlet({ source: "LEVERAGE", outletKey: "L1", outletName: "Gitero Shop", shopId: "PINE-1", shopSize: 2, sales: 1_000, principals: "Unilever-Nairobi", dominantPrincipal: "Unilever-Nairobi" });
+    const events = new Map<string, OutletEvents>([
+      ["PINE\u00001", evMask({ 6: days(1, 2) })], // July 1st and 2nd
+      ["LEVERAGE\u0000L1", evMask({ 6: days(2, 3), 7: days(10) })], // July 2nd and 3rd, August 10th
+    ]);
+    const shops = buildFrequencyOutlets([pine, lev], profiles, events, q3, new Set(), new Map(), NOW);
+    expect(shops).toHaveLength(1);
+    expect(shops[0]).toMatchObject({
+      shopId: "PINE-1", source: "Pine", outletKey: "1", outletsMerged: 2, systems: "Pine; Leverage", mergedOutlets: "Pine 1; Leverage L1",
+      purchaseDays: 4, // July 1, 2, 3 and August 10: the 2nd counts once
+      monthsBought: 2, cadenceAll: "Once in 3 Months", principals: "Mars-Nairobi, Suntory-Nairobi, Unilever-Nairobi",
+    });
+    expect(shops[0].daysByMonth.slice(6, 9)).toEqual([3, 1, 0]);
+  });
+
+  it("judges the cadence on all of the shop's buying: two outlets that each missed a month together did not", () => {
+    const a = outlet({ outletKey: "1", shopId: "PINE-1", sales: 5 });
+    const b = outlet({ outletKey: "2", shopId: "PINE-1", sales: 4 });
+    const events = new Map<string, OutletEvents>([
+      ["PINE\u00001", evMask({ 6: days(5), 7: days(5) })],
+      ["PINE\u00002", evMask({ 8: days(9) })],
+    ]);
+    const shops = buildFrequencyOutlets([a, b], profiles, events, q3, new Set(), new Map(), NOW);
+    expect(shops[0].cadenceAll).toBe("Once Per Month");
+  });
+
+  it("leaves outlets with different shops apart, and an outlet without a shop id on its own", () => {
+    const a = outlet({ outletKey: "1", shopId: "PINE-1" });
+    const b = outlet({ outletKey: "2", shopId: "PINE-2" });
+    const c = outlet({ outletKey: "3", shopId: null });
+    const events = new Map<string, OutletEvents>(["1", "2", "3"].map((k) => [`PINE\u0000${k}`, evMask({ 6: days(1) })] as [string, OutletEvents]));
+    expect(buildFrequencyOutlets([a, b, c], profiles, events, q3, new Set(), new Map(), NOW)).toHaveLength(3);
+  });
+
+  it("takes the descriptive columns from the master outlet and uses the unified territory", () => {
+    const master = outlet({ outletKey: "1", outletName: "Master Shop", shopId: "PINE-1", sales: 10, territory: "Kitui - MBSR", territoryClean: "Kitui" });
+    const other = outlet({ source: "UPFIELD", outletKey: "U9", outletName: "Master Shop (Upfield)", shopId: "PINE-1", sales: 90_000 });
+    const events = new Map<string, OutletEvents>([
+      ["PINE\u00001", evMask({ 6: days(1) })],
+      ["UPFIELD\u0000U9", evMask({ 6: days(2) })],
+    ]);
+    const [shop] = buildFrequencyOutlets([other, master], profiles, events, q3, new Set(), new Map(), NOW);
+    expect(shop).toMatchObject({ outletName: "Master Shop", territory: "Kitui" }); // the master, not the bigger seller
+  });
+
+  it("counts the days in a mask", () => {
+    expect(popcount(0)).toBe(0);
+    expect(popcount(days(1, 15, 31))).toBe(3);
+    expect(popcount(0x7fffffff)).toBe(31);
   });
 });
 
@@ -200,7 +267,7 @@ describe("the summary", () => {
 });
 
 describe("the files", () => {
-  const report: FrequencyReport = { period: y2025, outlets: built, summary: buildFrequencySummary(built), generatedAt: "2025-12-31T00:00:00Z" };
+  const report: FrequencyReport = { period: y2025, outlets: built, systemOutlets: built.length, duplicatesMerged: 0, summary: buildFrequencySummary(built), generatedAt: "2025-12-31T00:00:00Z" };
   const letter = (name: string) => columnLetter(OUTLET_COLUMNS.findIndex((c) => c.header === name));
 
   it("writes the raw rows as CSV, one header and a neutralised formula", () => {

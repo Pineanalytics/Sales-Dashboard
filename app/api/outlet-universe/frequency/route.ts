@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
         headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${frequencyFileStem(report)}.csv"`, "Cache-Control": "private, no-store" },
       });
     }
-    return NextResponse.json({ period: { kind: report.period.kind, year: report.period.year, quarter: report.period.quarter, month: report.period.month, week: report.period.week, label: report.period.label }, outletCount: report.outlets.length, summary: report.summary, generatedAt: report.generatedAt }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ period: { kind: report.period.kind, year: report.period.year, quarter: report.period.quarter, month: report.period.month, week: report.period.week, label: report.period.label }, outletCount: report.outlets.length, systemOutlets: report.systemOutlets, duplicatesMerged: report.duplicatesMerged, summary: report.summary, generatedAt: report.generatedAt }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Failed to build the coverage frequency extract", error);
     return NextResponse.json({ error: "Failed to build the coverage frequency extract." }, { status: 500 });

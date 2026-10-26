@@ -14,6 +14,8 @@ const download = "rounded-full bg-gradient-to-r from-primary-blue to-secondary-b
 interface Preview {
   period: { label: string };
   outletCount: number;
+  systemOutlets: number;
+  duplicatesMerged: number;
   summary: FrequencySummary;
 }
 
@@ -96,7 +98,7 @@ export function FrequencyExtract({ baseParams, minYear = 2026 }: { baseParams: s
       }
     >
       <p className="mb-3 text-xs leading-relaxed text-muted">
-        Every outlet that <em>bought</em> in the period, once, with how often it did: Once per Month, in 3 Months, in 6 Months or per Year (its best cadence), its Tier and Average Sales (built as in the Outlet Listing CSV), its Absolute Principal and Direct / Indirect.
+        Every shop that <em>bought</em> in the period, once (outlets the cleanup found to be the same shop are merged, and territories are the unified names), with how often it did: Once per Month, in 3 Months, in 6 Months or per Year (its best cadence), its Tier and Average Sales (built as in the Outlet Listing CSV), its Absolute Principal and Direct / Indirect.
         The Excel summary (Total Coverage by channel, and Direct and Indirect by channel and by region) is made of formulas over the Raw Data sheet, so it can be re-cut. It follows the filters above.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -131,7 +133,7 @@ export function FrequencyExtract({ baseParams, minYear = 2026 }: { baseParams: s
       {state === "error" ? <p className="text-sm text-muted">The preview could not be loaded.</p> : null}
       {preview ? (
         <div className="flex flex-col gap-4">
-          <p className="text-xs text-muted"><strong>{preview.period.label}</strong>: {formatNumber(preview.outletCount)} outlets bought in the period.</p>
+          <p className="text-xs text-muted"><strong>{preview.period.label}</strong>: {formatNumber(preview.outletCount)} shops bought in the period ({formatNumber(preview.systemOutlets)} system outlets, {formatNumber(preview.duplicatesMerged)} merged as duplicates).</p>
           <SummaryTable table={preview.summary.all} />
           <div className="grid gap-4 lg:grid-cols-2">
             <SummaryTable table={preview.summary.directChannel} />
