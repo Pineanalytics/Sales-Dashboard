@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { OutletSource } from "@/lib/outletUniverse/normalize";
 import { inActorScope } from "./access";
-import { loadOutletDetail, loadRepOptions } from "./data";
+import { loadOutletDetail, loadRepOptions, loadTeamLeaderOptions } from "./data";
+import { isPeriod } from "./progress";
 import { checkGeoTag, planIdentification, type IdentificationRequest } from "./validate";
 import type { CleanupActor, IdentificationField, LockableField, OutletDetail, RepDecision } from "./types";
 
@@ -260,4 +261,59 @@ export async function unlockFields(actor: CleanupActor, source: OutletSource, ou
     await writeLog(tx, actor, source, outletKey, "UNLOCK", { fields });
     return saved;
   });
+}
+
+/** An admin settles a marked-open outlet nobody claimed (or that has waited too long): allocates it to a team leader, or closes it. */
+export async function resolveOpenOutlet(actor: CleanupActor, openId: string, request: { decision: "ASSIGN" | "CLOSE"; teamLeader?: string; note?: string }) {
+  if (!actor.isAdmin) throw new CleanupError("Only an admin can settle a marked-open outlet.", 403);
+  const open = await prisma.markedOpenOutlet.findUnique({ where: { id: openId } });
+  if (!open) throw new CleanupError("That open outlet was not found.", 404);
+  if (open.status === "CLAIMED" || open.status === "CLOSED") throw new CleanupError("This outlet has already been settled.", 409);
+  const note = request.note?.trim().slice(0, 300) || null;
+  let teamLeader: string | null = null;
+  if (request.decision === "ASSIGN") {
+    const known = new Map((await loadTeamLeaderOptions()).map((n) => [n.toLowerCase(), n]));
+    teamLeader = known.get((request.teamLeader ?? "").trim().toLowerCase()) ?? null;
+    if (!teamLeader) throw new CleanupError("Choose the team leader who takes the outlet from the list.", 400, [{ field: "teamLeader", message: "Choose a team leader." }]);
+  } else if (!note) {
+    throw new CleanupError("Say why the outlet is being closed.", 400, [{ field: "note", message: "Give a short reason." }]);
+  }
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const saved = await tx.markedOpenOutlet.update({
+      where: { id: open.id },
+      data: request.decision === "ASSIGN" ? { status: "CLAIMED", claimedBy: teamLeader, claimedAt: now, resolvedBy: actor.email, resolvedAt: now, resolutionNote: note } : { status: "CLOSED", resolvedBy: actor.email, resolvedAt: now, resolutionNote: note },
+    });
+    await writeLog(tx, actor, open.source, open.outletKey, request.decision === "ASSIGN" ? "OPEN_ASSIGNED" : "OPEN_CLOSED", { teamLeader, note });
+    return saved;
+  });
+}
+
+/** An admin sets the share of outlets that must be reviewed by the end of a month: for everyone ("*") or for one team leader. */
+export async function setCleanupTarget(actor: CleanupActor, request: { period: string; teamLeader: string; targetPct: number }) {
+  if (!actor.isAdmin) throw new CleanupError("Only an admin can set targets.", 403);
+  if (!isPeriod(request.period)) throw new CleanupError("Choose a month.", 400, [{ field: "period", message: "Use the form 2026-11." }]);
+  if (!Number.isFinite(request.targetPct) || request.targetPct < 1 || request.targetPct > 100) throw new CleanupError("A target is between 1% and 100%.", 400, [{ field: "targetPct", message: "Enter 1 to 100." }]);
+  let teamLeader = "*";
+  if (request.teamLeader !== "*") {
+    const known = new Map((await loadTeamLeaderOptions()).map((n) => [n.toLowerCase(), n]));
+    const match = known.get(request.teamLeader.trim().toLowerCase());
+    if (!match) throw new CleanupError("Choose a team leader from the list.", 400, [{ field: "teamLeader", message: "Choose a team leader." }]);
+    teamLeader = match;
+  }
+  const targetPct = Math.round(request.targetPct * 10) / 10;
+  const saved = await prisma.cleanupTarget.upsert({
+    where: { period_teamLeader: { period: request.period, teamLeader } },
+    create: { period: request.period, teamLeader, targetPct, setBy: actor.email },
+    update: { targetPct, setBy: actor.email },
+  });
+  await prisma.outletCleanupLog.create({ data: { source: "-", outletKey: `${request.period}|${teamLeader}`, action: "TARGET", actor: actor.email, actorRole: actor.role, changes: { targetPct } } });
+  return saved;
+}
+
+/** Removes a team leader's own target for a month, so they fall back to the default. */
+export async function clearCleanupTarget(actor: CleanupActor, request: { period: string; teamLeader: string }) {
+  if (!actor.isAdmin) throw new CleanupError("Only an admin can set targets.", 403);
+  if (!isPeriod(request.period) || request.teamLeader === "*") throw new CleanupError("Nothing to clear.", 400);
+  await prisma.cleanupTarget.deleteMany({ where: { period: request.period, teamLeader: request.teamLeader } });
 }
