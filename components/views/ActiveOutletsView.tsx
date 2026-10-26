@@ -13,9 +13,7 @@ import { Dashboard } from "./activeOutlets/Dashboard";
 import { FilterBar } from "./activeOutlets/FilterBar";
 import { OutletList } from "./activeOutlets/OutletList";
 import { FrequencyExtract } from "./activeOutlets/FrequencyExtract";
-import { CleanupModule } from "./activeOutlets/cleanup/CleanupModule";
-
-type ModuleTab = "dashboard" | "list" | "cleanup";
+type ModuleTab = "dashboard" | "list";
 
 interface UniversePayload {
   summary: OutletUniverseSummary;
@@ -62,7 +60,7 @@ function initialFromParams(params: URLSearchParams): { filters: OutletFilters; t
       role: role === "Primary Sales" || role === "Secondary Sales" ? role : null,
       principalKey: key || null,
     },
-    tab: params.get("cleanup") === "1" ? "cleanup" : params.get("list") === "1" ? "list" : "dashboard",
+    tab: params.get("list") === "1" ? "list" : "dashboard",
   };
 }
 
@@ -231,19 +229,8 @@ export function ActiveOutletsView() {
     <div className="inline-flex w-fit gap-1 rounded-full bg-background-elevated p-0.5">
       {tabButton("dashboard", "Dashboard")}
       {tabButton("list", "Outlet listing")}
-      {tabButton("cleanup", "Cleanup")}
     </div>
   );
-
-  // The cleanup works from its own lists, so it does not wait for the universe to load.
-  if (tab === "cleanup") {
-    return (
-      <div className="flex flex-col gap-6">
-        {tabRow}
-        <CleanupModule />
-      </div>
-    );
-  }
 
   if (status === "loading") return <FullPageSpinner label="Loading Active Outlets…" />;
   if (status === "error" || !payload) {

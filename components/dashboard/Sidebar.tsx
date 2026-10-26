@@ -25,10 +25,11 @@ import {
   Briefcase20Regular,
   DataBarVertical20Regular,
   PersonMoney20Regular,
+  ClipboardTaskListLtr20Regular,
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
-import { canAccessCoverage, canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessCoverage, canAccessFinancials, canAccessOutletCleanup, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
@@ -183,6 +184,31 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
                   <PersonMoney20Regular />
                 </span>
                 <span className={expanded ? "" : "md:hidden"}>My Sales</span>
+              </Link>
+            </nav>
+          </>
+        ) : null}
+
+        {canAccessOutletCleanup(user?.role) ? (
+          <>
+            <div className={`mt-4 px-6 text-[11px] font-semibold uppercase tracking-wide text-muted ${expanded ? "" : "md:hidden"}`}>Outlet data</div>
+            <nav className="px-3 pt-2 flex flex-col gap-1">
+              <Link
+                href="/outlet-cleanup"
+                title="Outlet Cleanup"
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                  expanded ? "" : "md:justify-center md:px-0 md:w-11 md:mx-auto"
+                } ${
+                  pathname?.startsWith("/outlet-cleanup")
+                    ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
+                    : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"
+                }`}
+              >
+                <span className={pathname?.startsWith("/outlet-cleanup") ? "text-white" : "text-secondary-blue"}>
+                  <ClipboardTaskListLtr20Regular />
+                </span>
+                <span className={expanded ? "" : "md:hidden"}>Outlet Cleanup</span>
               </Link>
             </nav>
           </>
