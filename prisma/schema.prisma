@@ -2608,6 +2608,9 @@ model OutletUniverse {
   shopId            String?
   shopSize          Int?
   shopConfidence    String?
+  // The outlet's contact, set only by an admin-approved cleanup (lib/outletCleanup/overlay.ts); no source system carries it.
+  contactName       String?
+  contactPhone      String?
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])

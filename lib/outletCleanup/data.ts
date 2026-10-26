@@ -213,6 +213,8 @@ interface RawUniverseRow {
   shopId: string | null;
   shopSize: number | null;
   shopConfidence: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
 }
 
 const validPoint = (lat: number | null, lon: number | null): boolean => lat !== null && lon !== null && lat !== 0 && lat >= -5 && lat <= 5 && lon >= 33 && lon <= 43;
@@ -220,7 +222,7 @@ const validPoint = (lat: number | null, lon: number | null): boolean => lat !== 
 /** Everything the form needs for one outlet, or null when the outlet does not exist or is not one this person works on. */
 export async function loadOutletDetail(actor: CleanupActor, source: OutletSource, outletKey: string): Promise<OutletDetail | null> {
   const universe = await prisma.$queryRaw<RawUniverseRow[]>(Prisma.sql`
-    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence"
+    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone"
     FROM "OutletUniverse" WHERE source = ${source} AND "outletKey" = ${outletKey} ORDER BY principal
   `);
   if (universe.length === 0) return null;
@@ -231,7 +233,7 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
   const [entry, open, decisions, logs, options, teamLeaderOptions] = await Promise.all([
     prisma.outletCleanupEntry.findUnique({ where: { source_outletKey: { source, outletKey } } }),
     prisma.markedOpenOutlet.findFirst({ where: { source, outletKey, status: { in: ["OPEN", "UNCLAIMED"] } }, include: { candidates: true }, orderBy: { markedAt: "desc" } }),
-    prisma.outletDuplicateDecision.findMany({ where: { OR: [{ aSource: source, aKey: outletKey }, { bSource: source, bKey: outletKey }] } }),
+    prisma.outletDuplicateDecision.findMany({ where: { status: { not: "REJECTED" }, OR: [{ aSource: source, aKey: outletKey }, { bSource: source, bKey: outletKey }] } }),
     prisma.outletCleanupLog.findMany({ where: { source, outletKey }, orderBy: { at: "desc" }, take: 8 }),
     loadCleanupOptions(),
     loadTeamLeaderOptions(),
@@ -246,8 +248,8 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
     territory: lead.territoryClean ?? lead.territory ?? "",
     channel: lead.channel ?? "",
     customerType: lead.segment ?? "",
-    contactName: "",
-    contactPhone: "",
+    contactName: universe.find((r) => r.contactName)?.contactName ?? "",
+    contactPhone: universe.find((r) => r.contactPhone)?.contactPhone ?? "",
   };
   const verified: Partial<Record<IdentificationField, string>> = {};
   if (entry) for (const field of IDENTIFICATION_FIELDS) if (entry[field]) verified[field] = entry[field] as string;

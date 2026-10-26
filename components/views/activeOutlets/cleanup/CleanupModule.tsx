@@ -10,9 +10,10 @@ import type { CleanupOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/
 import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
+import { ReviewPanel } from "./ReviewPanel";
 import { TargetsPanel } from "./TargetsPanel";
 
-type Section = "progress" | "outlets" | "open" | "targets";
+type Section = "progress" | "outlets" | "open" | "review" | "targets";
 
 interface QueuePayload {
   rows: QueueRow[];
@@ -40,6 +41,7 @@ const SECTIONS: { value: Section; label: string }[] = [
   { value: "progress", label: "Progress" },
   { value: "outlets", label: "My outlets" },
   { value: "open", label: "Marked open outlets" },
+  { value: "review", label: "Review" },
   { value: "targets", label: "Targets" },
 ];
 
@@ -110,7 +112,7 @@ export function CleanupModule() {
       </SectionCard>
 
       <div className="inline-flex w-fit flex-wrap gap-1 rounded-full bg-background-elevated p-0.5" role="tablist" aria-label="Cleanup sections">
-        {SECTIONS.filter((item) => item.value !== "targets" || payload?.actor.isAdmin).map((item) => (
+        {SECTIONS.filter((item) => (item.value !== "targets" && item.value !== "review") || payload?.actor.isAdmin).map((item) => (
           <button key={item.value} role="tab" aria-selected={section === item.value} onClick={() => setSection(item.value)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${section === item.value ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"}`}>
             {item.label}
           </button>
@@ -127,6 +129,14 @@ export function CleanupModule() {
         />
       ) : null}
       {section === "open" ? <OpenOutlets onChanged={refresh} /> : null}
+      {section === "review" && payload?.actor.isAdmin ? (
+        <ReviewPanel
+          onOpenOutlet={(source, outletKey) => {
+            setOpen({ source, outletKey });
+            setSection("outlets");
+          }}
+        />
+      ) : null}
       {section === "targets" && payload?.actor.isAdmin ? <TargetsPanel onChanged={refresh} /> : null}
 
       {section !== "outlets" ? null : open ? (
