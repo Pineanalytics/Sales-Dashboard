@@ -38,7 +38,10 @@ export function loadCleanupOptions(): Promise<CleanupOptions> {
         UNION ALL SELECT 'channel', channel FROM "OutletUniverse" WHERE channel IS NOT NULL AND btrim(channel) <> '' GROUP BY channel
         UNION ALL SELECT 'type', segment FROM "OutletUniverse" WHERE segment IS NOT NULL AND btrim(segment) <> '' GROUP BY segment
       `);
-      const pick = (kind: string) => [...new Set(rows.filter((r) => r.kind === kind && !isPlaceholderPlace(r.value)).map((r) => r.value.trim()))].sort((a, b) => a.localeCompare(b));
+      // Values that are not a place, a channel or a customer type: promotion / tender scheme names that sit in the channel column, and region names with a stray digit ("1Tana River") or the "General" catch-all.
+      const SCHEME_CHANNEL = /croma|activation|tender|lmt-jbp/i;
+      const usable = (kind: string, value: string) => !isPlaceholderPlace(value) && !(kind === "channel" && SCHEME_CHANNEL.test(value)) && !(kind === "region" && (/^\d/.test(value.trim()) || value.trim().toLowerCase() === "general"));
+      const pick = (kind: string) => [...new Set(rows.filter((r) => r.kind === kind && usable(kind, r.value)).map((r) => r.value.trim()))].sort((a, b) => a.localeCompare(b));
       return { regions: pick("region"), territories: pick("territory"), channels: pick("channel"), customerTypes: pick("type") };
     })();
     value.catch(() => {
