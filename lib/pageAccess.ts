@@ -90,6 +90,9 @@ export function canAccessFinancials(role: string | null | undefined, allowedPage
 export function canAccessCoverage(role: string | null | undefined, allowedPages: readonly string[] = []): boolean {
   return (
     role === "ADMIN" ||
+    // The outlet cleanup (Active Outlets > Cleanup) is every team leader's and supervisor's routine work; the module's data stays scoped to them.
+    role === "TEAM_LEADER" ||
+    role === "SUPERVISOR" ||
     allowedPages.includes("coverage") ||
     allowedPages.includes("active-outlets") ||
     allowedPages.includes("jp-adherence") ||

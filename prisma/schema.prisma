@@ -2728,3 +2728,138 @@ model UpfieldOutletMaster {
   @@index([channel])
   @@index([outletType])
 }
+
+// ---------------------------------------------------------------------------
+// Outlet cleanup (the Cleanup tab of Active Outlets): team leaders and supervisors verify their outlets, tag them with GPS, confirm or change the selling rep,
+// declare duplicates and disown outlets. Their work is kept here, apart from the derived OutletUniverse (which is rebuilt every compile), until an admin
+// validates it and applies it to the universe. See lib/outletCleanup/*.
+// ---------------------------------------------------------------------------
+
+// One verification record per outlet (source + the source system's outlet id). Null in a verified field = left as the universe has it.
+model OutletCleanupEntry {
+  id            String    @id @default(cuid())
+  source        String // PINE | LEVERAGE | EABL | UPFIELD
+  outletKey     String
+  outletName    String
+  // The team leader (TeamLeader.name) whose outlet this was when the review was done.
+  teamLeader    String?
+  // REVIEWED = saved by the team leader (counts as progress); VALIDATED = an admin checked it; APPLIED = in the universe; REJECTED = sent back (its fields are unlocked).
+  status        String    @default("REVIEWED")
+  // The team leader marked every identification field as correct without changes.
+  confirmedAsIs Boolean   @default(false)
+  region        String?
+  territory     String?
+  channel       String?
+  customerType  String?
+  contactName   String?
+  contactPhone  String?
+  latitude      Float?
+  longitude     Float?
+  geoAccuracyM  Float?
+  geoTaggedAt   DateTime?
+  geoTaggedBy   String?
+  // [{ principal, rep, repCode, previousRep, action: "CONFIRMED" | "CHANGED" }] - the selling rep per principal, validated or reassigned.
+  repDecisions  Json?
+  // Fields the team leader has already updated or confirmed: refused for them afterwards; an admin or supervisor can reopen.
+  lockedFields  String[]  @default([])
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  checkedBy     String?
+  checkedAt     DateTime?
+  adminNote     String?
+  appliedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([source, outletKey])
+  @@index([teamLeader, status])
+  @@index([status])
+}
+
+// Every change, who made it and what it was before: the audit trail behind the entries, duplicates and open outlets.
+model OutletCleanupLog {
+  id         String   @id @default(cuid())
+  source     String
+  outletKey  String
+  action     String // SAVE | CONFIRM_ALL | GEO_TAG | REP | DUPLICATE | DISOWN | CLAIM | DECLINE | VALIDATE | APPLY | REJECT | UNLOCK
+  actor      String // the user's email
+  actorRole  String
+  changes    Json?
+  at         DateTime @default(now())
+
+  @@index([source, outletKey])
+  @@index([at])
+}
+
+// A team leader's call on a pair of outlets: they are the same shop (MERGE) or not (NOT_DUPLICATE). Applied to the universe's shop ids once an admin validates it.
+model OutletDuplicateDecision {
+  id           String    @id @default(cuid())
+  aSource      String
+  aKey         String
+  bSource      String
+  bKey         String
+  decision     String // MERGE | NOT_DUPLICATE
+  status       String    @default("REVIEWED") // REVIEWED | VALIDATED | APPLIED | REJECTED
+  teamLeader   String?
+  decidedBy    String
+  decidedAt    DateTime  @default(now())
+  note         String?
+  checkedBy    String?
+  checkedAt    DateTime?
+
+  @@unique([aSource, aKey, bSource, bKey])
+  @@index([status])
+}
+
+// An outlet a team leader has disowned. Before disowning they name the possible owners in other teams (MarkedOpenCandidate), who then claim or decline it.
+model MarkedOpenOutlet {
+  id                 String                 @id @default(cuid())
+  source             String
+  outletKey          String
+  outletName         String
+  principals         String?
+  territory          String?
+  region             String?
+  previousTeamLeader String?
+  previousReps       String?
+  reason             String
+  markedBy           String
+  markedAt           DateTime               @default(now())
+  // OPEN = waiting for a claim; CLAIMED = a team leader took it; UNCLAIMED = every named owner declined, an admin allocates it; CLOSED = settled.
+  status             String                 @default("OPEN")
+  claimedBy          String? // TeamLeader.name
+  claimedAt          DateTime?
+  resolvedBy         String?
+  resolvedAt         DateTime?
+  resolutionNote     String?
+  candidates         MarkedOpenCandidate[]
+
+  @@index([status])
+  @@index([source, outletKey])
+}
+
+model MarkedOpenCandidate {
+  id          String           @id @default(cuid())
+  openId      String
+  open        MarkedOpenOutlet @relation(fields: [openId], references: [id], onDelete: Cascade)
+  teamLeader  String // TeamLeader.name
+  response    String           @default("PENDING") // PENDING | CLAIMED | DECLINED
+  respondedAt DateTime?
+  respondedBy String?
+  note        String?
+
+  @@unique([openId, teamLeader])
+  @@index([teamLeader, response])
+}
+
+// What a team leader is ranked against: the share of their outlets reviewed by the end of a month. teamLeader "*" is the default for everyone; a named row overrides it.
+model CleanupTarget {
+  id         String   @id @default(cuid())
+  period     String // "2026-10"
+  teamLeader String   @default("*")
+  targetPct  Float    @default(100)
+  setBy      String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([period, teamLeader])
+}
