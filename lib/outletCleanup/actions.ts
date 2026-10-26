@@ -317,3 +317,39 @@ export async function clearCleanupTarget(actor: CleanupActor, request: { period:
   if (!isPeriod(request.period) || request.teamLeader === "*") throw new CleanupError("Nothing to clear.", 400);
   await prisma.cleanupTarget.deleteMany({ where: { period: request.period, teamLeader: request.teamLeader } });
 }
+
+/** An admin validates or rejects entries the teams have saved. Validated entries are laid over the universe at the next compile; a rejected one is sent back with its fields unlocked and its rep decisions cleared. */
+export async function reviewEntries(actor: CleanupActor, request: { ids: string[]; decision: "VALIDATE" | "REJECT"; note?: string }) {
+  if (!actor.isAdmin) throw new CleanupError("Only an admin can validate or reject cleanup entries.", 403);
+  const ids = [...new Set(request.ids)].slice(0, 500);
+  if (ids.length === 0) throw new CleanupError("Choose at least one entry.", 400);
+  const note = request.note?.trim().slice(0, 300) || null;
+  if (request.decision === "REJECT" && !note) throw new CleanupError("Say what the team leader should correct.", 400, [{ field: "note", message: "Give a short reason." }]);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const found = await tx.outletCleanupEntry.findMany({ where: { id: { in: ids }, status: request.decision === "VALIDATE" ? "REVIEWED" : { in: ["REVIEWED", "VALIDATED"] } }, select: { id: true, source: true, outletKey: true } });
+    if (found.length === 0) throw new CleanupError("Those entries are no longer waiting for review.", 409);
+    const where = { id: { in: found.map((f) => f.id) } };
+    if (request.decision === "VALIDATE") await tx.outletCleanupEntry.updateMany({ where, data: { status: "VALIDATED", checkedBy: actor.email, checkedAt: now, adminNote: note } });
+    else await tx.outletCleanupEntry.updateMany({ where, data: { status: "REJECTED", checkedBy: actor.email, checkedAt: now, adminNote: note, lockedFields: [], repDecisions: Prisma.DbNull } });
+    await tx.outletCleanupLog.createMany({ data: found.map((f) => ({ source: f.source, outletKey: f.outletKey, action: request.decision === "VALIDATE" ? "VALIDATE" : "REJECT", actor: actor.email, actorRole: actor.role, changes: note ? { note } : Prisma.JsonNull })) });
+    return { count: found.length, skipped: ids.length - found.length };
+  });
+}
+
+/** The same for the duplicate calls: a validated "same shop" or "not a duplicate" is applied to the shops at the next compile. */
+export async function reviewDuplicates(actor: CleanupActor, request: { ids: string[]; decision: "VALIDATE" | "REJECT"; note?: string }) {
+  if (!actor.isAdmin) throw new CleanupError("Only an admin can validate or reject duplicate calls.", 403);
+  const ids = [...new Set(request.ids)].slice(0, 500);
+  if (ids.length === 0) throw new CleanupError("Choose at least one decision.", 400);
+  const note = request.note?.trim().slice(0, 300) || null;
+  if (request.decision === "REJECT" && !note) throw new CleanupError("Say why the call is rejected.", 400, [{ field: "note", message: "Give a short reason." }]);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const found = await tx.outletDuplicateDecision.findMany({ where: { id: { in: ids }, status: request.decision === "VALIDATE" ? "REVIEWED" : { in: ["REVIEWED", "VALIDATED"] } }, select: { id: true, aSource: true, aKey: true } });
+    if (found.length === 0) throw new CleanupError("Those decisions are no longer waiting for review.", 409);
+    await tx.outletDuplicateDecision.updateMany({ where: { id: { in: found.map((f) => f.id) } }, data: { status: request.decision === "VALIDATE" ? "VALIDATED" : "REJECTED", checkedBy: actor.email, checkedAt: now, ...(note ? { note } : {}) } });
+    await tx.outletCleanupLog.createMany({ data: found.map((f) => ({ source: f.aSource, outletKey: f.aKey, action: request.decision === "VALIDATE" ? "VALIDATE" : "REJECT", actor: actor.email, actorRole: actor.role, changes: { duplicateDecision: f.id, note } })) });
+    return { count: found.length, skipped: ids.length - found.length };
+  });
+}
