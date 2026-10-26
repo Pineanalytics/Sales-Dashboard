@@ -47,12 +47,47 @@ export interface OutletRepRow {
   editable: boolean;
 }
 
+export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+
 export interface RepDecision {
   principal: string;
   rep: string;
   repCode: string | null;
   previousRep: string | null;
   action: "CONFIRMED" | "CHANGED";
+  /** The route the rep visits the outlet on, and the days of the week, as the team leader validated them. */
+  routeName?: string | null;
+  visitDays?: Weekday[];
+}
+
+/** What the visit history says about an outlet's route days: where the suggestion in the form comes from. */
+export interface VisitSuggestion {
+  /** Where the visits come from, e.g. "Pine call timestamps". */
+  basis: string;
+  windowDays: number;
+  /** Distinct days the outlet was visited in the window (by the rep of this row when they have visits, else by anyone). */
+  visitDays: number;
+  weeksVisited: number;
+  weeksInWindow: number;
+  visitsPerMonth: number;
+  cadence: "Weekly or more" | "Fortnightly" | "Monthly" | "Occasional" | "No visits on record";
+  weekdayCounts: Record<Weekday, number>;
+  suggestedDays: Weekday[];
+  /** Reps who visited, most visits first. */
+  reps: { code: string | null; name: string; visits: number }[];
+  /** The rep with the most visits when that is not the rep on this row and is on the principal's rep list. */
+  suggestedRep: { code: string; name: string } | null;
+  /** A route and days the source system already plans (Leverage and Upfield journey plans, Pine's July-August plan). */
+  planned: { route: string | null; days: Weekday[] } | null;
+}
+
+export interface RowRouting {
+  routeName: string | null;
+  visitDays: Weekday[];
+  suggestion: VisitSuggestion;
+  /** The routes this row may be put on: the team leader's named routes and the routes already on their outlets. */
+  routeOptions: string[];
 }
 
 export interface QueueRow {
@@ -109,6 +144,10 @@ export interface OutletDetail {
   geo: { latitude: number | null; longitude: number | null; taggedAt: string | null; taggedBy: string | null; accuracyM: number | null; missing: boolean };
   reps: OutletRepRow[];
   repDecisions: RepDecision[];
+  /** Per principal row: the current route and days, the suggestion from the visit history, and the routes to choose from. */
+  routing: Record<string, RowRouting>;
+  /** The places the outlets of this outlet's team leader sit in, for naming a route after its major locations. */
+  routeLocations: string[];
   lockedFields: LockableField[];
   confirmedAsIs: boolean;
   shop: { shopId: string | null; shopSize: number; confidence: string | null };

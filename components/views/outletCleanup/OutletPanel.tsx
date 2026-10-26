@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
 import { matchOption } from "@/lib/outletCleanup/validate";
+import { RepRouteRow } from "./RepRouteRow";
 import { FIELD_LABELS, IDENTIFICATION_FIELDS, type IdentificationField, type OutletDetail } from "@/lib/outletCleanup/types";
 
 const inputClass = "w-full rounded-lg border border-border bg-background-elevated px-3 py-2 text-sm text-muted-strong outline-none focus:border-primary-blue disabled:cursor-not-allowed disabled:opacity-60";
@@ -176,10 +177,18 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
       </section>
 
       <section className={cardClass}>
-        <h4 className="text-sm font-bold text-primary-blue">3 · Selling reps</h4>
+        <h4 className="text-sm font-bold text-primary-blue">3 · Reps, routes and visit days</h4>
+        <p className="mt-1 text-xs text-muted">For each principal, validate the rep who visits this outlet, the route they visit it on and the days of the week. The suggestions come from how the outlet has actually been visited.</p>
         <div className="mt-3 flex flex-col gap-3">
           {detail.reps.map((row) => (
-            <RepRow key={row.principal} detail={detail} row={row} disabled={frozen || busy} error={errorFor(row.principal)} onDecide={(action, repCode) => send({ action: "reps", reps: [{ principal: row.principal, action, repCode }] }, `${row.principal}: rep saved.`)} />
+            <RepRouteRow
+              key={row.principal}
+              detail={detail}
+              row={row}
+              disabled={frozen || busy}
+              error={errorFor(row.principal)}
+              onSave={(payload) => send({ action: "reps", reps: [payload] }, `${row.principal}: rep, route and days saved.`)}
+            />
           ))}
         </div>
       </section>
@@ -247,34 +256,6 @@ function GeoTagger({ disabled, label, onTag }: { disabled: boolean; label: strin
       <button className={primaryButton} disabled={disabled || locating} onClick={locate}>{locating ? "Getting a fix…" : label}</button>
       <p className="mt-2 text-xs text-muted">Stand at the outlet. The point is accepted only when the phone&apos;s fix is within 100 m and inside Kenya.</p>
       {problem ? <p className="mt-1 text-xs text-accent-red">{problem}</p> : null}
-    </div>
-  );
-}
-
-function RepRow({ detail, row, disabled, error, onDecide }: { detail: OutletDetail; row: OutletDetail["reps"][number]; disabled: boolean; error?: string; onDecide: (action: "CONFIRM" | "CHANGE", repCode?: string) => void }) {
-  const decision = detail.repDecisions.find((d) => d.principal.toLowerCase() === row.principal.toLowerCase());
-  const options = detail.repOptions[row.principal] ?? [];
-  const [choice, setChoice] = useState("");
-  const settled = Boolean(decision) && !detail.canUnlock;
-  const off = disabled || !row.editable || settled;
-  return (
-    <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border px-3 py-2">
-      <div className="text-sm">
-        <span className="font-semibold text-brand-navy">{row.principal}</span>
-        <span className="ml-2 text-muted-strong">{decision ? decision.rep : row.rep ?? "No rep on record"}</span>
-        <span className="ml-2 text-xs text-muted">{row.teamLeader ? `TL ${row.teamLeader}` : ""}</span>
-        {decision ? <span className="ml-2"><Badge tier="good">{decision.action === "CHANGED" ? `Changed from ${decision.previousRep ?? "none"}` : "Validated ✓"}</Badge></span> : null}
-        {!row.editable ? <span className="ml-2 text-xs text-muted">Not on your team</span> : null}
-        {error ? <div className="text-xs text-accent-red">{error}</div> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {row.rep && !decision ? <button className={ghostButton} disabled={off} onClick={() => onDecide("CONFIRM")}>This rep is correct</button> : null}
-        <select aria-label={`Rep for ${row.principal}`} className={`${inputClass} !w-56`} disabled={off} value={choice} onChange={(e) => setChoice(e.target.value)}>
-          <option value="">Assign a different rep…</option>
-          {options.map((o) => <option key={o.code} value={o.code}>{o.name}{o.teamLeader ? ` (${o.teamLeader})` : ""}</option>)}
-        </select>
-        <button className={primaryButton} disabled={off || choice === ""} onClick={() => onDecide("CHANGE", choice)}>Assign</button>
-      </div>
     </div>
   );
 }

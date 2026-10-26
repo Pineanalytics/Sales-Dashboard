@@ -206,7 +206,7 @@ function EntryCard({ row, checked, selectable, onToggle, onOpen }: { row: Review
       <ul className="mt-3 flex flex-col gap-1 text-sm text-muted-strong">
         {row.changes.map((c) => <li key={c.field}><span className="font-semibold">{c.label}:</span> {c.from && c.from !== c.to ? <>{c.from} → <strong>{c.to}</strong></> : <strong>{c.to}</strong>}{c.from === c.to ? " (confirmed)" : ""}</li>)}
         {row.geo ? <li><span className="font-semibold">GPS:</span> {row.geo.from ? `${row.geo.from} → ` : "new point "}<strong>{row.geo.to}</strong>{row.geo.accuracyM !== null ? ` (fix ${Math.round(row.geo.accuracyM)} m)` : ""}{row.geo.distanceM !== null ? `, ${row.geo.distanceM} m from the old point` : ""}</li> : null}
-        {row.reps.map((r) => <li key={r.principal}><span className="font-semibold">{r.principal}:</span> {r.action === "CHANGED" ? <>{r.from ?? "no rep"} → <strong>{r.to}</strong></> : <>{r.to} confirmed</>}</li>)}
+        {row.reps.map((r) => <li key={r.principal}><span className="font-semibold">{r.principal}:</span> {r.action === "CHANGED" ? <>{r.from ?? "no rep"} → <strong>{r.to}</strong></> : <>{r.to} confirmed</>}{r.routeName ? <> · route <strong>{r.routeName}</strong></> : null}{r.visitDays.length > 0 ? <> · visits <strong>{r.visitDays.join(", ")}</strong></> : null}</li>)}
         {row.confirmed.length > 0 ? <li><span className="font-semibold">Confirmed as correct:</span> {row.confirmed.join(", ")}</li> : null}
         {row.changes.length === 0 && !row.geo && row.reps.length === 0 && row.confirmed.length === 0 ? <li className="text-muted">No field changes.</li> : null}
       </ul>

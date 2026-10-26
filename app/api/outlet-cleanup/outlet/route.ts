@@ -71,7 +71,13 @@ export async function POST(req: NextRequest) {
       }
       case "reps": {
         const reps: RepRequest[] = Array.isArray(input.reps)
-          ? input.reps.slice(0, 20).map((r: Record<string, unknown>) => ({ principal: asText(r?.principal, 120), action: r?.action === "CHANGE" ? "CHANGE" : "CONFIRM", repCode: asText(r?.repCode, 60) || undefined }))
+          ? input.reps.slice(0, 20).map((r: Record<string, unknown>) => ({
+              principal: asText(r?.principal, 120),
+              action: r?.action === "CHANGE" ? ("CHANGE" as const) : ("CONFIRM" as const),
+              repCode: asText(r?.repCode, 60) || undefined,
+              routeName: asText(r?.routeName, 120) || undefined,
+              visitDays: Array.isArray(r?.visitDays) ? r.visitDays.slice(0, 7).map((d: unknown) => asText(d, 12)) : undefined,
+            }))
           : [];
         await decideReps(actor, source, key, reps);
         break;

@@ -1,7 +1,7 @@
 // The rules a cleanup entry has to satisfy before it is saved. Pure, so the form (browser) and the API (server) apply the very same checks:
 // values come from the existing lists only (no free text where a list exists), contact details are normalised, a GPS tag must be a real,
 // accurate point in Kenya, and a field that has been updated or confirmed is locked.
-import { IDENTIFICATION_FIELDS, type CleanupOptions, type IdentificationField, type LockableField } from "./types";
+import { IDENTIFICATION_FIELDS, WEEKDAYS, type CleanupOptions, type IdentificationField, type LockableField, type Weekday } from "./types";
 
 /** A phone's GPS fix must be at least this accurate (metres) to tag an outlet: a looser fix can be a street away. */
 export const MAX_GEO_ACCURACY_M = 100;
@@ -118,4 +118,26 @@ export function planIdentification(input: {
     lock.add(field);
   }
   return { values, lock: [...lock], errors };
+}
+
+/** A route name tidied (spacing, hyphens joined without spaces), or null when it is not a usable name: 3 to 60 characters of letters, digits, spaces and . & ' / ( ) - . */
+export function cleanRouteName(input: string): string | null {
+  const name = String(input ?? "").trim().replace(/\s+/g, " ").replace(/\s*-\s*/g, "-");
+  return name.length >= 3 && name.length <= 60 && /^[\p{L}\p{N}][\p{L}\p{N} .&'/()-]*$/u.test(name) ? name : null;
+}
+
+/** A route named after the major locations it covers: up to three of them joined by hyphens ("Imara Daima-Fedha"). */
+export function routeNameFromLocations(locations: readonly string[]): string {
+  return locations.map((l) => l.trim().replace(/\s+/g, " ")).filter((l) => l !== "").slice(0, 3).join("-");
+}
+
+/** The weekdays in the request, in week order and without repeats, or null when any is not a weekday. */
+export function cleanVisitDays(input: readonly string[]): Weekday[] | null {
+  const wanted = new Set<string>();
+  for (const day of input) {
+    const match = WEEKDAYS.find((d) => d.toLowerCase() === String(day).trim().toLowerCase().slice(0, 3));
+    if (!match) return null;
+    wanted.add(match);
+  }
+  return WEEKDAYS.filter((d) => wanted.has(d));
 }

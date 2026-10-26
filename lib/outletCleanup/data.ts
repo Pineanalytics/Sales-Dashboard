@@ -8,6 +8,7 @@ import { similarity } from "@/lib/universeAnalysis/similarity";
 import { cleanName } from "@/lib/universeAnalysis/dedup";
 import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
 import { inActorScope } from "./access";
+import { loadRouting } from "./routingData";
 import { haversineM } from "./validate";
 import {
   IDENTIFICATION_FIELDS,
@@ -215,6 +216,8 @@ interface RawUniverseRow {
   shopConfidence: string | null;
   contactName: string | null;
   contactPhone: string | null;
+  route: string | null;
+  visitDays: string | null;
 }
 
 const validPoint = (lat: number | null, lon: number | null): boolean => lat !== null && lon !== null && lat !== 0 && lat >= -5 && lat <= 5 && lon >= 33 && lon <= 43;
@@ -222,7 +225,7 @@ const validPoint = (lat: number | null, lon: number | null): boolean => lat !== 
 /** Everything the form needs for one outlet, or null when the outlet does not exist or is not one this person works on. */
 export async function loadOutletDetail(actor: CleanupActor, source: OutletSource, outletKey: string): Promise<OutletDetail | null> {
   const universe = await prisma.$queryRaw<RawUniverseRow[]>(Prisma.sql`
-    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone"
+    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone", route, "visitDays"
     FROM "OutletUniverse" WHERE source = ${source} AND "outletKey" = ${outletKey} ORDER BY principal
   `);
   if (universe.length === 0) return null;
@@ -241,6 +244,8 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
 
   const principals = universe.map((r) => r.principal);
   const [repOptions, near] = await Promise.all([loadRepOptions(principals), loadDuplicateCandidates(source, outletKey, lead, universe)]);
+  const decided: RepDecision[] = Array.isArray(entry?.repDecisions) ? (entry?.repDecisions as unknown as RepDecision[]) : [];
+  const { routing, routeLocations } = await loadRouting({ source, outletKey, universe: universe.map((r) => ({ principal: r.principal, repCode: r.repCode, repName: r.repName, teamLeader: r.teamLeader, route: r.route, visitDays: r.visitDays })), repOptions, decisions: decided });
 
   const point = universe.find((r) => validPoint(r.latitude, r.longitude));
   const current: Record<IdentificationField, string> = {
@@ -275,7 +280,9 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
       missing: !taggedGeo && !point,
     },
     reps,
-    repDecisions: Array.isArray(entry?.repDecisions) ? (entry?.repDecisions as unknown as RepDecision[]) : [],
+    repDecisions: decided,
+    routing,
+    routeLocations,
     lockedFields: (entry?.lockedFields ?? []) as LockableField[],
     confirmedAsIs: entry?.confirmedAsIs ?? false,
     shop: { shopId: lead.shopId, shopSize: Number(lead.shopSize ?? 1), confidence: lead.shopConfidence },

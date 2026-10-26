@@ -55,6 +55,8 @@ export interface OutletUniverseRow {
   /** Set only by an admin-approved cleanup (lib/outletCleanup/overlay.ts). */
   contactName?: string | null;
   contactPhone?: string | null;
+  /** The days of the week the outlet is visited, set only by an admin-approved cleanup. */
+  visitDays?: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
