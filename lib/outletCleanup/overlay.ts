@@ -68,6 +68,8 @@ export interface OverlayRow {
   longitude: number | null;
   contactName?: string | null;
   contactPhone?: string | null;
+  route?: string | null;
+  visitDays?: string | null;
 }
 
 /** The rows with the approved identification, GPS, reps and ownership laid over them. Run after the rep identity is set and before the matching and the universe cleanup read the rows. */
@@ -95,7 +97,10 @@ export function applyApprovedCleanup<T extends OverlayRow>(rows: readonly T[], a
         next.longitude = entry.longitude;
       }
       for (const decision of entry.repDecisions) {
-        if (decision.action !== "CHANGED" || fold(decision.principal) !== fold(row.principal)) continue;
+        if (fold(decision.principal) !== fold(row.principal)) continue;
+        if (decision.routeName) next.route = decision.routeName;
+        if (decision.visitDays && decision.visitDays.length > 0) next.visitDays = decision.visitDays.join(", ");
+        if (decision.action !== "CHANGED") continue;
         next.repName = decision.rep;
         next.repCode = decision.repCode;
         const leader = decision.repCode ? approved.repTeamLeader.get(decision.repCode) : undefined;

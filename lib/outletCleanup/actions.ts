@@ -6,7 +6,7 @@ import type { OutletSource } from "@/lib/outletUniverse/normalize";
 import { inActorScope } from "./access";
 import { loadOutletDetail, loadRepOptions, loadTeamLeaderOptions } from "./data";
 import { isPeriod } from "./progress";
-import { checkGeoTag, planIdentification, type IdentificationRequest } from "./validate";
+import { checkGeoTag, cleanVisitDays, planIdentification, type IdentificationRequest } from "./validate";
 import type { CleanupActor, IdentificationField, LockableField, OutletDetail, RepDecision } from "./types";
 
 export class CleanupError extends Error {
@@ -116,6 +116,9 @@ export interface RepRequest {
   /** CONFIRM keeps the rep the universe has; CHANGE needs `repCode` from the principal's rep list. */
   action: "CONFIRM" | "CHANGE";
   repCode?: string;
+  /** The route this rep visits the outlet on (one of the row's route options) and the days of the week. */
+  routeName?: string;
+  visitDays?: string[];
 }
 
 /** Validates the selling rep of each principal, or changes it to a rep from the synced roster. */
@@ -150,6 +153,29 @@ export async function decideReps(actor: CleanupActor, source: OutletSource, outl
       }
       next.set(row.principal.toLowerCase(), { principal: row.principal, rep: choice.name, repCode: choice.code, previousRep: row.rep, action: row.rep && row.rep.toLowerCase() === choice.name.toLowerCase() ? "CONFIRMED" : "CHANGED" });
     }
+
+    // The route and the visit days validated with the rep: the route must be one the row may be put on, the days must be weekdays.
+    const made = next.get(row.principal.toLowerCase())!;
+    const prior = decided.get(row.principal.toLowerCase());
+    let routeName = prior?.routeName ?? null;
+    let visitDays = prior?.visitDays;
+    if (req.routeName !== undefined && req.routeName.trim() !== "") {
+      const match = (detail.routing[row.principal]?.routeOptions ?? []).find((o) => o.toLowerCase() === req.routeName!.trim().toLowerCase());
+      if (!match) {
+        errors.push({ field: req.principal, message: "Choose a route from the list, or name a new route first." });
+        continue;
+      }
+      routeName = match;
+    }
+    if (req.visitDays !== undefined && req.visitDays.length > 0) {
+      const days = cleanVisitDays(req.visitDays);
+      if (!days) {
+        errors.push({ field: req.principal, message: "Choose the days from Monday to Sunday." });
+        continue;
+      }
+      visitDays = days;
+    }
+    next.set(row.principal.toLowerCase(), { ...made, routeName, visitDays });
   }
   if (errors.length > 0) throw new CleanupError("Some reps could not be saved.", 400, errors);
   const decisions: RepDecision[] = [...next.values()];
@@ -162,7 +188,7 @@ export async function decideReps(actor: CleanupActor, source: OutletSource, outl
       create: { source, outletKey, outletName: detail.outletName, teamLeader: entryTeamLeader(actor, detail), ...data },
       update: data,
     });
-    await writeLog(tx, actor, source, outletKey, "REP", { decisions: requests.map((r) => ({ principal: r.principal, action: r.action, repCode: r.repCode ?? null })) });
+    await writeLog(tx, actor, source, outletKey, "REP", { decisions: requests.map((r) => ({ principal: r.principal, action: r.action, repCode: r.repCode ?? null, routeName: r.routeName ?? null, visitDays: r.visitDays ?? null })) });
     return saved;
   });
 }

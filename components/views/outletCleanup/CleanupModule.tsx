@@ -11,9 +11,10 @@ import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
 import { ReviewPanel } from "./ReviewPanel";
+import { RoutesPanel } from "./RoutesPanel";
 import { TargetsPanel } from "./TargetsPanel";
 
-type Section = "progress" | "outlets" | "open" | "review" | "targets";
+type Section = "progress" | "outlets" | "routes" | "open" | "review" | "targets";
 
 interface QueuePayload {
   rows: QueueRow[];
@@ -40,6 +41,7 @@ const STATE_LABEL: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", R
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "progress", label: "Progress" },
   { value: "outlets", label: "My outlets" },
+  { value: "routes", label: "Routes" },
   { value: "open", label: "Marked open outlets" },
   { value: "review", label: "Review" },
   { value: "targets", label: "Targets" },
@@ -128,6 +130,7 @@ export function CleanupModule() {
           }}
         />
       ) : null}
+      {section === "routes" ? <RoutesPanel /> : null}
       {section === "open" ? <OpenOutlets onChanged={refresh} /> : null}
       {section === "review" && payload?.actor.isAdmin ? (
         <ReviewPanel

@@ -2611,6 +2611,8 @@ model OutletUniverse {
   // The outlet's contact, set only by an admin-approved cleanup (lib/outletCleanup/overlay.ts); no source system carries it.
   contactName       String?
   contactPhone      String?
+  // The days of the week the outlet is visited ("Mon, Thu"), set only by an admin-approved cleanup (the route column then holds the validated route name).
+  visitDays         String?
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])
@@ -2853,6 +2855,19 @@ model MarkedOpenCandidate {
 
   @@unique([openId, teamLeader])
   @@index([teamLeader, response])
+}
+
+// A route a team leader has named, usually after the major locations it covers ("Imara Daima-Fedha"). Outlets are put on a route in the cleanup's rep decisions.
+model CleanupRoute {
+  id         String   @id @default(cuid())
+  teamLeader String // TeamLeader.name
+  name       String
+  locations  String[] @default([])
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  @@unique([teamLeader, name])
+  @@index([teamLeader])
 }
 
 // What a team leader is ranked against: the share of their outlets reviewed by the end of a month. teamLeader "*" is the default for everyone; a named row overrides it.

@@ -29,7 +29,7 @@ export interface ReviewRow {
   /** Fields confirmed as correct without a change. */
   confirmed: string[];
   geo: { from: string | null; to: string; accuracyM: number | null; distanceM: number | null; flagged: boolean } | null;
-  reps: { principal: string; from: string | null; to: string; action: string }[];
+  reps: { principal: string; from: string | null; to: string; action: string; routeName: string | null; visitDays: string[] }[];
   /** Why an admin might look twice before validating. */
   flags: string[];
 }
@@ -140,7 +140,7 @@ export async function listReviewEntries(filters: { status: string; q: string; te
       changes,
       confirmed,
       geo: e.latitude !== null && e.longitude !== null ? { from: point ? `${point.latitude?.toFixed(5)}, ${point.longitude?.toFixed(5)}` : null, to: `${e.latitude.toFixed(5)}, ${e.longitude.toFixed(5)}`, accuracyM: e.geoAccuracyM, distanceM: geoInfo?.distanceM ?? null, flagged: Boolean(geoInfo?.farFromPrevious) } : null,
-      reps: decisions.map((d) => ({ principal: d.principal, from: d.previousRep, to: d.rep, action: d.action })),
+      reps: decisions.map((d) => ({ principal: d.principal, from: d.previousRep, to: d.rep, action: d.action, routeName: d.routeName ?? null, visitDays: d.visitDays ?? [] })),
       flags,
     };
   });
