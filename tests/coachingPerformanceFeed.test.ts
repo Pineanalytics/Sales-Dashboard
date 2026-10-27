@@ -50,6 +50,40 @@ describe("shapeRepPerformance", () => {
   });
 });
 
+describe("volume from the rep's own Pine calls", () => {
+  const rows = shapeRepPerformance({
+    period: "2026-10",
+    asOf: "2026-10-14",
+    employeeCodes: new Set(["100", "101", "102", "103"]),
+    sales: [{ employeeCode: "100", cases: 120.44, revenue: 90_000 }],
+    calls: [
+      { employeeCode: "100", callsMade: 50, productiveCalls: 40, daysWorked: 10 },
+      { employeeCode: "101", callsMade: 60, productiveCalls: 45, daysWorked: 12 },
+      { employeeCode: "102", callsMade: 30, productiveCalls: 20, daysWorked: 8 },
+    ],
+    targets: [],
+    callVolumes: [
+      { employeeCode: "100", cases: 999, callsWithQty: 40, callsWithCases: 40 }, // SAP wins over this
+      { employeeCode: "101", cases: 310.26, callsWithQty: 40, callsWithCases: 30 },
+      { employeeCode: "102", cases: null, callsWithQty: 20, callsWithCases: 0 }, // no usable pack size on any line
+    ],
+  });
+  const byCode = Object.fromEntries(rows.map((r) => [r.employeeCode, r]));
+
+  it("keeps the SAP figure when the rep has one", () => {
+    expect(byCode["100"]).toMatchObject({ volumeCases: 120.4, volumeSource: "sap", volumeCoveragePct: null });
+  });
+
+  it("falls back to the sum of the rep's calls, with how complete it is", () => {
+    expect(byCode["101"]).toMatchObject({ volumeCases: 310.3, volumeSource: "pine_calls", volumeCoveragePct: 75 });
+  });
+
+  it("stays unavailable when no call could be turned into cases", () => {
+    expect(byCode["102"]).toMatchObject({ volumeCases: null, volumeSource: null, volumeCoveragePct: null });
+    expect(byCode["103"]).toBeUndefined(); // no sales, calls or target: no row at all
+  });
+});
+
 describe("periods", () => {
   it("lists the current month then the previous one, across a year boundary", () => {
     expect(recentPeriods(new Date("2026-10-15T08:00:00Z"), 2)).toEqual(["2026-10", "2026-09"]);
