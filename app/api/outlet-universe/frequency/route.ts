@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
+import { oneAtATime } from "@/lib/outletUniverse/exportQueue";
 import { loadFrequencyReport, resolveFrequencyPeriod } from "@/lib/outletUniverse/frequency";
 import { frequencyCsv, frequencyFileStem, frequencyWorkbook } from "@/lib/outletUniverse/frequencyExport";
 import { parseOutletFilters } from "@/lib/outletUniverse/query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** One extract is built at a time: a year holds about 60,000 outlets and the Excel build alone needs about half a gigabyte, so two at once would be a lot to ask of the app. */
-let queue: Promise<unknown> = Promise.resolve();
-function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work, work);
-  queue = run.catch(() => undefined);
-  return run;
-}
 
 /** The filters that narrow the extract, as short phrases for the workbook's notes. */
 function filterNotes(params: URLSearchParams): string[] {
