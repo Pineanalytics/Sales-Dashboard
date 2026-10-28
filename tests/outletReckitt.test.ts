@@ -101,9 +101,11 @@ describe("Reckitt buying tenure", () => {
 });
 
 describe("Reckitt selection", () => {
-  it("selects a retail segment above KSh 3,000 a purchase and a wholesaler above KSh 20,000", () => {
-    expect(reckittSelection("Retailers", 3001).selected).toBe(true);
-    expect(reckittSelection("Retailers", 3000).selected).toBe(false);
+  it("selects a retail segment above KSh 1,000 a purchase and a wholesaler above KSh 20,000", () => {
+    expect(reckittSelection("Retailers", 1001).selected).toBe(true);
+    expect(reckittSelection("Retailers", 1000)).toEqual({ selected: false, basis: "At or below KSh 1,000 per purchase" });
+    expect(reckittSelection("Retailers", 3000).selected).toBe(true);
+    expect(reckittSelection("Wholesalers", 20000)).toEqual({ selected: false, basis: "Wholesaler at or below KSh 20,000 per purchase" });
     expect(reckittSelection("Wholesalers", 20001).selected).toBe(true);
     expect(reckittSelection("Wholesalers", 15000).selected).toBe(false);
     expect(reckittSelection("Pharmacies", 5000).selected).toBe(true);

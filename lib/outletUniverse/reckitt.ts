@@ -12,7 +12,7 @@
 // Direct is Primary Sales and Indirect everything else (the Active Outlets rule: Primary + Secondary counts as Primary).
 //
 // The selected universe is the part of the entire universe that could stock the Reckitt portfolio and buys at a worthwhile size: a segment Reckitt can sell
-// into, spending more than KSh 20,000 a purchase (wholesalers) or KSh 3,000 a purchase (every other segment). Strike rate and location / shopper profile are
+// into, spending more than KSh 20,000 a purchase (wholesalers) or KSh 1,000 a purchase (every other segment). Strike rate and location / shopper profile are
 // not applied: they are not measured per outlet in the extract.
 import { nairobiToday } from "@/lib/financePresentation";
 import { OUTLET_ACTIVE_WINDOW_DAYS } from "./normalize";
@@ -56,7 +56,7 @@ export const RECKITT_WINDOW_MONTHS = 6;
 export const RECKITT_SEGMENTS = ["Baby Shop", "Beauty Shop", "Institutions", "LMT", "Pharmacies", "Retailers", "Wholesalers"] as const;
 /** Spend per purchase an outlet must exceed, in KSh: wholesalers, and every other segment. */
 export const RECKITT_WHOLESALE_MIN = 20_000;
-export const RECKITT_RETAIL_MIN = 3_000;
+export const RECKITT_RETAIL_MIN = 1_000;
 const WHOLESALE_SEGMENT = "wholesalers";
 
 /** The six calendar months ending with the current one, as a frequency period (start inclusive, end exclusive, `startedMonths` in order, oldest first). */
@@ -94,9 +94,10 @@ export function reckittSelection(segment: string, spend: number | null): { selec
   if (spend === null) return { selected: false, basis: "No average spend on record" };
   const wholesale = segment.trim().toLowerCase() === WHOLESALE_SEGMENT;
   const minimum = wholesale ? RECKITT_WHOLESALE_MIN : RECKITT_RETAIL_MIN;
+  const limit = `KSh ${minimum.toLocaleString("en-US")} per purchase`;
   return spend > minimum
-    ? { selected: true, basis: wholesale ? "Wholesaler above KSh 20k per purchase" : "Above KSh 3k per purchase" }
-    : { selected: false, basis: wholesale ? "Wholesaler at or below KSh 20k per purchase" : "At or below KSh 3k per purchase" };
+    ? { selected: true, basis: wholesale ? `Wholesaler above ${limit}` : `Above ${limit}` }
+    : { selected: false, basis: wholesale ? `Wholesaler at or below ${limit}` : `At or below ${limit}` };
 }
 
 export interface ReckittOutlet extends FrequencyOutlet {
