@@ -103,6 +103,8 @@ export interface QueueRow {
   channel: string;
   customerType: string;
   teamLeaders: string;
+  /** The selling reps on this person's teams for the outlet, across principals. */
+  reps: string;
   hasGeo: boolean;
   /** Outlets in this outlet's shop (1 = unique); more than 1 marks a duplicate the universe cleanup merged. */
   shopSize: number;
@@ -119,6 +121,12 @@ export interface CleanupOptions {
   territories: string[];
   channels: string[];
   customerTypes: string[];
+}
+
+/** The reps and territories a person can narrow their outlet list to; each list is cut down by the other's current choice. */
+export interface QueueFilterOptions {
+  reps: string[];
+  territories: string[];
 }
 
 export interface RepOption {

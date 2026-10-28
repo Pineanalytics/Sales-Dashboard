@@ -21,6 +21,7 @@ import {
   type LockableField,
   type OutletDetail,
   type OutletRepRow,
+  type QueueFilterOptions,
   type QueueRow,
   type RepDecision,
   type RepOption,
@@ -69,6 +70,8 @@ export interface QueueFilters {
   q: string;
   region: string | null;
   territory: string | null;
+  /** A selling rep's name, as the universe spells it (matched ignoring case and spacing). */
+  rep: string | null;
   principal: string | null;
   teamLeader: string | null;
   /** Active outlets only, dormant ones only (including those with no purchase on record), or both. */
@@ -82,7 +85,7 @@ export function parseQueueFilters(params: URLSearchParams): QueueFilters {
     const v = (params.get(key) ?? "").trim().slice(0, max);
     return v === "" ? null : v;
   };
-  return { state: states.includes(state) ? state : "todo", q: text("q", 80) ?? "", region: text("region"), territory: text("territory"), principal: text("principal"), teamLeader: text("teamLeader"), activity: params.get("activity") === "active" || params.get("activity") === "dormant" ? (params.get("activity") as "active" | "dormant") : "all" };
+  return { state: states.includes(state) ? state : "todo", q: text("q", 80) ?? "", region: text("region"), territory: text("territory"), rep: text("rep"), principal: text("principal"), teamLeader: text("teamLeader"), activity: params.get("activity") === "active" || params.get("activity") === "dormant" ? (params.get("activity") as "active" | "dormant") : "all" };
 }
 
 const HAS_GEO = Prisma.sql`(o.latitude IS NOT NULL AND o.latitude <> 0 AND o.latitude BETWEEN -5 AND 5 AND o.longitude BETWEEN 33 AND 43)`;
@@ -97,13 +100,63 @@ interface RawQueueRow {
   channel: string;
   customerType: string;
   teamLeaders: string | null;
+  reps: string | null;
   hasGeo: boolean;
   shopSize: number;
   state: string;
   lastPurchase: Date | null;
 }
 
-/** The outlets a person works on, one row each, with what they have verified laid over the universe's values and the review state. */
+const foldName = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * The outlets a person works on, one row each, with what they have verified laid over the universe's values and the review state.
+ * `repNames` are the selling reps on this person's own teams only, so a rep filter never matches a rep from another team's row of the same outlet.
+ */
+function queueBase(actor: CleanupActor): Prisma.Sql {
+  return Prisma.sql`
+    WITH mine AS (
+      SELECT o.source, o."outletKey" FROM "OutletUniverse" o WHERE ${scopeSql(actor, "o")} GROUP BY o.source, o."outletKey"
+    ),
+    agg AS (
+      SELECT o.source, o."outletKey", MIN(o."outletName") AS "outletName", STRING_AGG(DISTINCT o.principal, ', ') AS principals,
+             MIN(o.region) AS region, MIN(COALESCE(o."territoryClean", o.territory)) AS territory, MIN(o.channel) AS channel, MIN(o.segment) AS "customerType",
+             STRING_AGG(DISTINCT NULLIF(btrim(o."teamLeader"), ''), ', ') AS "teamLeaders", BOOL_OR(${HAS_GEO}) AS "hasGeo",
+             ARRAY_AGG(DISTINCT btrim(o."repName")) FILTER (WHERE ${scopeSql(actor, "o")} AND NULLIF(btrim(o."repName"), '') IS NOT NULL) AS "repNames",
+             MAX(COALESCE(o."shopSize", 1))::int AS "shopSize", SUM(o.sales)::double precision AS sales, MAX(o."lastPurchaseDate") AS "lastPurchase"
+      FROM "OutletUniverse" o JOIN mine m ON m.source = o.source AND m."outletKey" = o."outletKey"
+      GROUP BY o.source, o."outletKey"
+    ),
+    q AS (
+      SELECT a.source, a."outletKey", a."outletName", a.principals,
+             COALESCE(e.region, a.region) AS region, COALESCE(e.territory, a.territory) AS territory, COALESCE(e.channel, a.channel) AS channel,
+             COALESCE(e."customerType", a."customerType") AS "customerType", a."teamLeaders", a."repNames", (a."hasGeo" OR e.latitude IS NOT NULL) AS "hasGeo", a."shopSize", a.sales, a."lastPurchase",
+             CASE WHEN mo.id IS NOT NULL THEN 'DISOWNED' WHEN e.id IS NULL THEN 'UNREVIEWED' ELSE e.status END AS state
+      FROM agg a
+      LEFT JOIN "OutletCleanupEntry" e ON e.source = a.source AND e."outletKey" = a."outletKey"
+      LEFT JOIN "MarkedOpenOutlet" mo ON mo.source = a.source AND mo."outletKey" = a."outletKey" AND mo.status IN ('OPEN', 'UNCLAIMED')
+    )`;
+}
+
+const repMatch = (rep: string): Prisma.Sql =>
+  Prisma.sql`EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE lower(regexp_replace(n, '\\s+', ' ', 'g')) = ${foldName(rep)})`;
+
+/** The reps and territories to offer as filters: the ones on this person's outlets, each list narrowed by the other's current choice. */
+export async function loadQueueFilterOptions(actor: CleanupActor, choice: { rep: string | null; territory: string | null }): Promise<QueueFilterOptions> {
+  const base = queueBase(actor);
+  const [reps, territories] = await Promise.all([
+    prisma.$queryRaw<{ name: string }[]>(Prisma.sql`${base} SELECT DISTINCT n AS name FROM q, unnest("repNames") AS n WHERE ${choice.territory ? Prisma.sql`territory = ${choice.territory}` : Prisma.sql`TRUE`}`),
+    prisma.$queryRaw<{ territory: string }[]>(Prisma.sql`${base} SELECT DISTINCT territory FROM q WHERE territory IS NOT NULL AND btrim(territory) <> '' AND ${choice.rep ? repMatch(choice.rep) : Prisma.sql`TRUE`}`),
+  ]);
+  const seen = new Map<string, string>();
+  for (const r of reps) if (!seen.has(foldName(r.name))) seen.set(foldName(r.name), r.name);
+  return {
+    reps: [...seen.values()].sort((a, b) => a.localeCompare(b)),
+    territories: territories.map((t) => t.territory.trim()).sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+/** One page of the queue, narrowed by the state, search, rep, territory and activity filters. */
 export async function listQueue(actor: CleanupActor, filters: QueueFilters, page: number): Promise<{ rows: QueueRow[]; total: number; page: number; pageCount: number }> {
   const stateWhere: Record<QueueState, Prisma.Sql> = {
     all: Prisma.sql`TRUE`,
@@ -122,33 +175,14 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   }
   if (filters.region) parts.push(Prisma.sql`region = ${filters.region}`);
   if (filters.territory) parts.push(Prisma.sql`territory = ${filters.territory}`);
+  if (filters.rep) parts.push(repMatch(filters.rep));
   if (filters.principal) parts.push(Prisma.sql`principals ILIKE ${`%${filters.principal}%`}`);
   if (filters.teamLeader) parts.push(Prisma.sql`"teamLeaders" ILIKE ${`%${filters.teamLeader}%`}`);
   if (filters.activity === "active") parts.push(Prisma.sql`"lastPurchase" >= ${activeCutoffDate()}`);
   if (filters.activity === "dormant") parts.push(Prisma.sql`("lastPurchase" IS NULL OR "lastPurchase" < ${activeCutoffDate()})`);
   const where = Prisma.join(parts, " AND ");
 
-  const base = Prisma.sql`
-    WITH mine AS (
-      SELECT o.source, o."outletKey" FROM "OutletUniverse" o WHERE ${scopeSql(actor, "o")} GROUP BY o.source, o."outletKey"
-    ),
-    agg AS (
-      SELECT o.source, o."outletKey", MIN(o."outletName") AS "outletName", STRING_AGG(DISTINCT o.principal, ', ') AS principals,
-             MIN(o.region) AS region, MIN(COALESCE(o."territoryClean", o.territory)) AS territory, MIN(o.channel) AS channel, MIN(o.segment) AS "customerType",
-             STRING_AGG(DISTINCT NULLIF(btrim(o."teamLeader"), ''), ', ') AS "teamLeaders", BOOL_OR(${HAS_GEO}) AS "hasGeo",
-             MAX(COALESCE(o."shopSize", 1))::int AS "shopSize", SUM(o.sales)::double precision AS sales, MAX(o."lastPurchaseDate") AS "lastPurchase"
-      FROM "OutletUniverse" o JOIN mine m ON m.source = o.source AND m."outletKey" = o."outletKey"
-      GROUP BY o.source, o."outletKey"
-    ),
-    q AS (
-      SELECT a.source, a."outletKey", a."outletName", a.principals,
-             COALESCE(e.region, a.region) AS region, COALESCE(e.territory, a.territory) AS territory, COALESCE(e.channel, a.channel) AS channel,
-             COALESCE(e."customerType", a."customerType") AS "customerType", a."teamLeaders", (a."hasGeo" OR e.latitude IS NOT NULL) AS "hasGeo", a."shopSize", a.sales, a."lastPurchase",
-             CASE WHEN mo.id IS NOT NULL THEN 'DISOWNED' WHEN e.id IS NULL THEN 'UNREVIEWED' ELSE e.status END AS state
-      FROM agg a
-      LEFT JOIN "OutletCleanupEntry" e ON e.source = a.source AND e."outletKey" = a."outletKey"
-      LEFT JOIN "MarkedOpenOutlet" mo ON mo.source = a.source AND mo."outletKey" = a."outletKey" AND mo.status IN ('OPEN', 'UNCLAIMED')
-    )`;
+  const base = queueBase(actor);
 
   const [count] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${where}`);
   const total = Number(count?.total ?? 0);
@@ -156,7 +190,7 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   const current = Math.min(Math.max(1, page), pageCount);
   const rows = await prisma.$queryRaw<RawQueueRow[]>(Prisma.sql`
     ${base}
-    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", "hasGeo", "shopSize", state, "lastPurchase" FROM q WHERE ${where}
+    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", array_to_string("repNames", ', ') AS reps, "hasGeo", "shopSize", state, "lastPurchase" FROM q WHERE ${where}
     ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
     LIMIT ${QUEUE_PAGE_SIZE} OFFSET ${(current - 1) * QUEUE_PAGE_SIZE}
   `);
@@ -171,6 +205,7 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
       channel: r.channel ?? "",
       customerType: r.customerType ?? "",
       teamLeaders: r.teamLeaders ?? "",
+      reps: r.reps ?? "",
       hasGeo: Boolean(r.hasGeo),
       shopSize: Number(r.shopSize ?? 1),
       state: r.state as ReviewState,
