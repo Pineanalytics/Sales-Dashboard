@@ -103,8 +103,11 @@ const rawColumn = (columns: Column[], name: string) => {
 };
 
 /** One summary table with its title row at (zero-based) `top` and its labels in column `left`; returns the zero-based row of its Grand Total line.
- *  `groupColumn` is the Raw Data column the rows are counted by; `direct` narrows to one class; `selectedOnly` narrows to the Reckitt selection. */
-function placeTable(layout: Layout, top: number, left: number, t: ReckittTable, groupColumn: string, classification: "Direct" | "Indirect" | null, selectedOnly: boolean): number {
+ *  `groupColumn` is the Raw Data column the rows are counted by; `classification` narrows to one class; `scope` narrows to the Reckitt selection or to the active shops;
+ *  `weighted` sums the shops' Outlets Merged (system outlets) instead of counting shops. */
+type Scope = "all" | "selected" | "active";
+
+function placeTable(layout: Layout, top: number, left: number, t: ReckittTable, groupColumn: string, classification: "Direct" | "Indirect" | null, scope: Scope, weighted = false): number {
   const { grid, merges, columns } = layout;
   const put = (r: number, c: number, value: SheetCell) => {
     grid[r] ??= [];
@@ -113,6 +116,8 @@ function placeTable(layout: Layout, top: number, left: number, t: ReckittTable, 
   const tenureCol = rawColumn(columns, "Buying Tenure");
   const classCol = rawColumn(columns, "Direct vs Indirect");
   const selectedCol = rawColumn(columns, "Reckitt Selected");
+  const activeCol = rawColumn(columns, "Active (90 days)");
+  const mergedCol = rawColumn(columns, "Outlets Merged");
   const group = rawColumn(columns, groupColumn);
   put(top, left + 1, t.title);
   merges.push({ s: { r: top, c: left + 1 }, e: { r: top, c: left + RECKITT_TENURES.length + 1 } });
@@ -123,13 +128,13 @@ function placeTable(layout: Layout, top: number, left: number, t: ReckittTable, 
 
   const first = top + 2;
   const labelCol = columnLetter(left);
-  const extra = `${classification ? `,${classCol},"${classification}"` : ""}${selectedOnly ? `,${selectedCol},"Yes"` : ""}`;
+  const extra = `${classification ? `,${classCol},"${classification}"` : ""}${scope === "selected" ? `,${selectedCol},"Yes"` : ""}${scope === "active" ? `,${activeCol},"Yes"` : ""}`;
   t.rows.forEach((row, i) => {
     const r = first + i;
     put(r, left, row.label);
     RECKITT_TENURES.forEach((tenure, k) => {
       const letter = columnLetter(left + 1 + k);
-      put(r, left + 1 + k, count(row.counts[tenure], `COUNTIFS(${group},$${labelCol}${r + 1},${tenureCol},${letter}$${top + 2}${extra})`));
+      put(r, left + 1 + k, count(row.counts[tenure], `${weighted ? `SUMIFS(${mergedCol},` : "COUNTIFS("}${group},$${labelCol}${r + 1},${tenureCol},${letter}$${top + 2}${extra})`));
     });
     const a = columnLetter(left + 1);
     const b = columnLetter(left + RECKITT_TENURES.length);
@@ -147,14 +152,14 @@ function placeTable(layout: Layout, top: number, left: number, t: ReckittTable, 
 }
 
 /** One universe's four blocks: total by segment, Direct and Indirect side by side by segment, then by region. Returns the next free row. */
-function placeUniverse(layout: Layout, top: number, tables: UniverseTables, selectedOnly: boolean): number {
-  const allEnd = placeTable(layout, top, 1, tables.all, SEGMENT_HEADER, null, selectedOnly);
+function placeUniverse(layout: Layout, top: number, tables: UniverseTables, scope: Scope): number {
+  const allEnd = placeTable(layout, top, 1, tables.all, SEGMENT_HEADER, null, scope);
   const segmentTop = allEnd + 3;
-  const segmentEnd = placeTable(layout, segmentTop, 1, tables.directSegment, SEGMENT_HEADER, "Direct", selectedOnly);
-  placeTable(layout, segmentTop, 8, tables.indirectSegment, SEGMENT_HEADER, "Indirect", selectedOnly);
+  const segmentEnd = placeTable(layout, segmentTop, 1, tables.directSegment, SEGMENT_HEADER, "Direct", scope);
+  placeTable(layout, segmentTop, 8, tables.indirectSegment, SEGMENT_HEADER, "Indirect", scope);
   const regionTop = segmentEnd + 3;
-  const regionEnd = placeTable(layout, regionTop, 1, tables.directRegion, "Region", "Direct", selectedOnly);
-  placeTable(layout, regionTop, 8, tables.indirectRegion, "Region", "Indirect", selectedOnly);
+  const regionEnd = placeTable(layout, regionTop, 1, tables.directRegion, "Region", "Direct", scope);
+  placeTable(layout, regionTop, 8, tables.indirectRegion, "Region", "Indirect", scope);
   return regionEnd + 4;
 }
 
@@ -182,7 +187,8 @@ function definitions(report: ReckittReport): string[][] {
     ["Segment / Type (highlighted): the segment restructured from the source system's own Segment Name (Source Segment / Type). A shop that shares a name with others takes the segment of its highest-selling row (as in the Active Outlets extract), and the segment names are then grouped:"],
     ...Object.entries(SEGMENT_GROUPS).filter(([, members]) => members.length > 1).map(([group, members]) => [`  ${group}: ${members.join(", ")}`]),
     ["  Baby Shop, Beauty Shop, Liquor Shops, Pharmacies, Institutions and Export keep their own name. A segment in no group is kept as the source gave it. Segment Restructured says Yes where Segment / Type differs from Source Segment / Type."],
-    ["Entire universe: every shop that bought in the window, selected or not. The Summary shows it first, then the part selected for Reckitt."],
+    ["Entire universe: every shop that bought in the window, selected or not. The Summary shows it first, then the active universe, then the part selected for Reckitt."],
+    ["Active universe: the shops that bought in the last 90 days, grouped by buying tenure like the entire universe (a shop active in the last 90 days has bought in the last 3 months or so, so it is Once in 3 Months or Once Per Month; Once in 6 Months holds only the few whose purchases fall just outside the last 3 calendar months). Its last table counts system outlets rather than distinct shops, Direct and Indirect, which is how the Outlet Cleanup module's Active outlets tile counts; that tile judges each outlet on its own last purchase, so it can differ from this by a little."],
     [`Selected for Reckitt: a shop in a segment Reckitt can sell into (${RECKITT_SEGMENTS.join(", ")}) whose combined average spend per purchase is above KSh ${RECKITT_WHOLESALE_MIN.toLocaleString("en-US")} for a wholesaler or above KSh ${RECKITT_RETAIL_MIN.toLocaleString("en-US")} for any other segment, except that ${RECKITT_RELEVANT_SEGMENTS.join(", ")} are the direct suites by relevance and are always selected, whatever they spend. The call strike rate and the outlet location / shopper profile are not applied: they are not measured per outlet in this extract. Selection Basis says why each shop is in or out.`],
     ["Active (90 days): bought in the last 90 days, the Active Outlets module's activity window. Dormant shops (bought in the window but not in the last 90 days) are included; filter this column to see only active ones."],
     ["Shop: one row is one shop. Outlets that are the same shop, within and across systems, are merged under their master outlet (Shop ID, Outlets Merged, Systems and Merged Outlets say which) and their purchase days are united, so a day two of them bought on counts once."],
@@ -223,13 +229,20 @@ export function reckittWorkbook(report: ReckittReport): Buffer {
 
   // The entire universe, then the part selected for Reckitt.
   const entireTop = 3;
-  const entireEnd = placeUniverse(layout, entireTop, summary.entire, false);
+  const entireEnd = placeUniverse(layout, entireTop, summary.entire, "all");
   layout.grid[entireTop - 1] ??= [];
   layout.grid[entireTop - 1][1] = "ENTIRE UNIVERSE: every shop that bought in the window";
-  const selectedTop = entireEnd + 1;
+
+  // The active universe: the shops that bought in the last 90 days, by buying tenure, then counted in system outlets as the dashboard's Active outlets tile does.
+  const activeTop = entireEnd + 1;
+  layout.grid[activeTop - 1] ??= [];
+  layout.grid[activeTop - 1][1] = "ACTIVE UNIVERSE: the shops that bought in the last 90 days (the dashboard's Active outlets)";
+  const activeTablesEnd = placeUniverse(layout, activeTop, summary.active, "active");
+  const activeOutletsEnd = placeTable(layout, activeTablesEnd, 1, summary.activeOutlets, "Direct vs Indirect", null, "active", true);
+  const selectedTop = activeOutletsEnd + 5;
   layout.grid[selectedTop - 1] ??= [];
   layout.grid[selectedTop - 1][1] = "SELECTED FOR RECKITT: the segments Reckitt can stock, above the spend per purchase thresholds";
-  const selectedEnd = placeUniverse(layout, selectedTop, summary.selected, true);
+  const selectedEnd = placeUniverse(layout, selectedTop, summary.selected, "selected");
 
   // Recommended coverage for Reckitt: the selected shops by segment, Direct and Indirect.
   const recTop = selectedEnd;

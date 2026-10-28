@@ -73,7 +73,7 @@ export function ReckittExtract() {
       <p className="mb-3 text-xs leading-relaxed text-muted">
         The entire universe, and the part selected for Reckitt: every shop that <em>bought</em> in the last six months (this month included), counted once, with its buying tenure
         (<strong>Once in 6 Months</strong>, <strong>Once in 3 Months</strong> or <strong>Once Per Month</strong>, the strictest it kept up), Direct (Primary) or Indirect, and its segment restructured from the source system&apos;s own (highlighted in the Excel).
-        Selected for Reckitt means a segment Reckitt can stock spending above KSh 20k a purchase (wholesalers) or KSh 1k (everything else); Beauty Shop, Pharmacies, Baby Shop and Institutions are always in. Whole universe within your principals: the filters above do not narrow it.
+        The active universe (bought in the last 90 days) is grouped the same way. Selected for Reckitt means a segment Reckitt can stock spending above KSh 20k a purchase (wholesalers) or KSh 1k (everything else); Beauty Shop, Pharmacies, Baby Shop and Institutions are always in. Whole universe within your principals: the filters above do not narrow it.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={loadPreview} disabled={state === "loading"} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft disabled:opacity-60">
@@ -92,6 +92,16 @@ export function ReckittExtract() {
             <TenureTable table={preview.summary.entire.directSegment} />
             <TenureTable table={preview.summary.entire.indirectSegment} />
           </div>
+          <div className="flex flex-col gap-1.5">
+            <h4 className="text-xs font-semibold text-primary-blue">Active universe: bought in the last 90 days ({formatNumber(preview.activeCount)} shops)</h4>
+            <p className="text-xs text-muted">The dashboard&apos;s Active outlets, grouped by buying tenure. The last table counts system outlets, as the Outlet Cleanup tile does.</p>
+          </div>
+          <TenureTable table={preview.summary.active.all} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TenureTable table={preview.summary.active.directSegment} />
+            <TenureTable table={preview.summary.active.indirectSegment} />
+          </div>
+          <TenureTable table={preview.summary.activeOutlets} />
           <TenureTable table={preview.summary.selected.all} />
           <div className="flex flex-col gap-1.5">
             <h4 className="text-xs font-semibold text-primary-blue">Recommended coverage for Reckitt</h4>
