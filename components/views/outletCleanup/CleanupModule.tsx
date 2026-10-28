@@ -7,7 +7,7 @@ import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
-import type { CleanupOptions, OutletActivity, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
+import type { CleanupOptions, OutletActivity, QueueFilterOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
 import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
@@ -55,6 +55,8 @@ const SECTIONS: { value: Section; label: string }[] = [
   { value: "targets", label: "Targets" },
 ];
 
+const filterSelect = "w-52 rounded-full border border-border bg-background-elevated px-3 py-1.5 text-xs text-muted-strong outline-none focus:border-primary-blue";
+
 const pageButton = "rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft";
 const pageDisabled = "rounded-full border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted/60";
 
@@ -66,6 +68,9 @@ export function CleanupModule() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [rep, setRep] = useState("");
+  const [territory, setTerritory] = useState("");
+  const [filterOptions, setFilterOptions] = useState<QueueFilterOptions>({ reps: [], territories: [] });
   const [payload, setPayload] = useState<QueuePayload | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [errorText, setErrorText] = useState("");
@@ -82,8 +87,28 @@ export function CleanupModule() {
 
   useEffect(() => {
     let cancelled = false;
+    const params = new URLSearchParams();
+    if (rep) params.set("rep", rep);
+    if (territory) params.set("territory", territory);
+    fetch(`/api/outlet-cleanup/filters?${params.toString()}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: QueueFilterOptions | null) => {
+        if (!cancelled && body) setFilterOptions(body);
+      })
+      .catch(() => {
+        // The filters are a convenience; the list still works without them.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rep, territory, tick]);
+
+  useEffect(() => {
+    let cancelled = false;
     const params = new URLSearchParams({ state, page: String(page) });
     if (query) params.set("q", query);
+    if (rep) params.set("rep", rep);
+    if (territory) params.set("territory", territory);
     if (activity !== "all") params.set("activity", activity);
     fetch(`/api/outlet-cleanup/queue?${params.toString()}`, { cache: "no-store" })
       .then(async (response) => {
@@ -103,9 +128,11 @@ export function CleanupModule() {
     return () => {
       cancelled = true;
     };
-  }, [state, activity, page, query, tick]);
+  }, [state, activity, page, query, rep, territory, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  // The chosen value stays on its list even when the other filter has narrowed it away, so the control never shows a value it cannot display.
+  const withChoice = (list: string[], choice: string) => (choice && !list.includes(choice) ? [choice, ...list] : list);
 
   if (status === "error") {
     return (
@@ -184,7 +211,18 @@ export function CleanupModule() {
                 {a.label}
               </button>
             ))}
-            <input aria-label="Search outlets" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search outlet, territory or key" className="ml-auto w-64 rounded-full border border-border bg-background-elevated px-4 py-1.5 text-xs outline-none focus:border-primary-blue" />
+            <select aria-label="Filter by rep" value={rep} onChange={(e) => { setRep(e.target.value); setPage(1); }} className={filterSelect}>
+              <option value="">All reps</option>
+              {withChoice(filterOptions.reps, rep).map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <select aria-label="Filter by territory" value={territory} onChange={(e) => { setTerritory(e.target.value); setPage(1); }} className={filterSelect}>
+              <option value="">All territories</option>
+              {withChoice(filterOptions.territories, territory).map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            {rep || territory ? (
+              <button onClick={() => { setRep(""); setTerritory(""); setPage(1); }} className={pageButton}>Clear rep / territory</button>
+            ) : null}
+            <input aria-label="Search outlets" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search outlet or key" className="w-56 rounded-full border border-border bg-background-elevated px-4 py-1.5 text-xs outline-none focus:border-primary-blue" />
           </div>
 
           {status === "loading" || !payload ? (
@@ -197,6 +235,7 @@ export function CleanupModule() {
                     <Th>Outlet</Th>
                     <Th>System</Th>
                     <Th>Principal(s)</Th>
+                    <Th>Rep</Th>
                     <Th>Territory</Th>
                     <Th>Region</Th>
                     <Th>Team leader</Th>
@@ -212,6 +251,7 @@ export function CleanupModule() {
                         <Td title={`${row.outletName} (${row.outletKey})`}>{row.outletName}</Td>
                         <Td>{OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source}</Td>
                         <Td title={row.principals}>{row.principals}</Td>
+                        <Td title={row.reps}>{row.reps || "—"}</Td>
                         <Td>{row.territory}</Td>
                         <Td>{row.region}</Td>
                         <Td>{row.teamLeaders || "—"}</Td>
@@ -230,7 +270,7 @@ export function CleanupModule() {
                     ))}
                     {payload.rows.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
+                        <td colSpan={12} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
                       </tr>
                     ) : null}
                   </tbody>
