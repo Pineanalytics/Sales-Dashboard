@@ -123,10 +123,12 @@ export interface CleanupOptions {
   customerTypes: string[];
 }
 
-/** The reps and territories a person can narrow their outlet list to; each list is cut down by the other's current choice. */
+/** The roster reps and territories a person can narrow their outlet list to; each list is cut down by the other's current choice. */
 export interface QueueFilterOptions {
   reps: string[];
   territories: string[];
+  /** Outlets here whose selling rep is not on the person's roster; the filter offers them as their own choice. */
+  offRoster: number;
 }
 
 export interface RepOption {

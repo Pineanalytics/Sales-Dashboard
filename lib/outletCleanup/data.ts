@@ -9,6 +9,7 @@ import { cleanName } from "@/lib/universeAnalysis/dedup";
 import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
 import { inActorScope } from "./access";
 import { activeCutoffDate, outletActivity } from "./activity";
+import { OFF_ROSTER_REP } from "./repFilter";
 import { loadRouting } from "./routingData";
 import { haversineM } from "./validate";
 import {
@@ -109,6 +110,25 @@ interface RawQueueRow {
 
 const foldName = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
 
+
+/**
+ * The reps the filter may offer: the active reps on the roster under the person's team leaders (everyone's, for those who see all), by name.
+ * The universe's own rep names also include reps that merely last sold at an outlet, from other principals or teams, which would pad a team's list with people who are not on it.
+ */
+export async function loadRosterRepNames(actor: CleanupActor): Promise<string[]> {
+  const rows = await prisma.employeeMaster.findMany({ where: { active: true }, select: { pineName: true, teamLeader: true, teamLeaderId: true } });
+  let linked: Set<string> | null = null;
+  const mine = actor.teamLeaders === null ? null : new Set(actor.teamLeaders.map(foldName));
+  if (mine) {
+    const leaders = await prisma.teamLeader.findMany({ select: { id: true, name: true } });
+    linked = new Set(leaders.filter((l) => mine.has(foldName(l.name))).map((l) => l.id));
+  }
+  const names = rows.filter((r) => !mine || mine.has(foldName(r.teamLeader ?? "")) || (r.teamLeaderId !== null && (linked?.has(r.teamLeaderId) ?? false))).map((r) => foldName(r.pineName)).filter((n) => n !== "");
+  return [...new Set(names)];
+}
+
+const FOLDED_REP = Prisma.sql`lower(regexp_replace(btrim(n), '\\s+', ' ', 'g'))`;
+
 /**
  * The outlets a person works on, one row each, with what they have verified laid over the universe's values and the review state.
  * `repNames` are the selling reps on this person's own teams only, so a rep filter never matches a rep from another team's row of the same outlet.
@@ -138,21 +158,27 @@ function queueBase(actor: CleanupActor): Prisma.Sql {
     )`;
 }
 
-const repMatch = (rep: string): Prisma.Sql =>
-  Prisma.sql`EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE lower(regexp_replace(n, '\\s+', ' ', 'g')) = ${foldName(rep)})`;
+const repMatch = (rep: string, roster: string[]): Prisma.Sql =>
+  rep === OFF_ROSTER_REP
+    ? Prisma.sql`NOT EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE ${FOLDED_REP} = ANY(${roster}::text[]))`
+    : Prisma.sql`EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE ${FOLDED_REP} = ${foldName(rep)})`;
 
-/** The reps and territories to offer as filters: the ones on this person's outlets, each list narrowed by the other's current choice. */
+/** The reps and territories to offer as filters: the roster reps who have outlets here and the territories of those outlets, each list narrowed by the other's current choice. */
 export async function loadQueueFilterOptions(actor: CleanupActor, choice: { rep: string | null; territory: string | null }): Promise<QueueFilterOptions> {
   const base = queueBase(actor);
-  const [reps, territories] = await Promise.all([
-    prisma.$queryRaw<{ name: string }[]>(Prisma.sql`${base} SELECT DISTINCT n AS name FROM q, unnest("repNames") AS n WHERE ${choice.territory ? Prisma.sql`territory = ${choice.territory}` : Prisma.sql`TRUE`}`),
-    prisma.$queryRaw<{ territory: string }[]>(Prisma.sql`${base} SELECT DISTINCT territory FROM q WHERE territory IS NOT NULL AND btrim(territory) <> '' AND ${choice.rep ? repMatch(choice.rep) : Prisma.sql`TRUE`}`),
+  const roster = await loadRosterRepNames(actor);
+  const inTerritory = choice.territory ? Prisma.sql`territory = ${choice.territory}` : Prisma.sql`TRUE`;
+  const [reps, territories, off] = await Promise.all([
+    prisma.$queryRaw<{ name: string }[]>(Prisma.sql`${base} SELECT DISTINCT n AS name FROM q, unnest("repNames") AS n WHERE ${inTerritory} AND ${FOLDED_REP} = ANY(${roster}::text[])`),
+    prisma.$queryRaw<{ territory: string }[]>(Prisma.sql`${base} SELECT DISTINCT territory FROM q WHERE territory IS NOT NULL AND btrim(territory) <> '' AND ${choice.rep ? repMatch(choice.rep, roster) : Prisma.sql`TRUE`}`),
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${inTerritory} AND ${repMatch(OFF_ROSTER_REP, roster)}`),
   ]);
   const seen = new Map<string, string>();
   for (const r of reps) if (!seen.has(foldName(r.name))) seen.set(foldName(r.name), r.name);
   return {
     reps: [...seen.values()].sort((a, b) => a.localeCompare(b)),
     territories: territories.map((t) => t.territory.trim()).sort((a, b) => a.localeCompare(b)),
+    offRoster: Number(off[0]?.total ?? 0),
   };
 }
 
@@ -175,7 +201,7 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   }
   if (filters.region) parts.push(Prisma.sql`region = ${filters.region}`);
   if (filters.territory) parts.push(Prisma.sql`territory = ${filters.territory}`);
-  if (filters.rep) parts.push(repMatch(filters.rep));
+  if (filters.rep) parts.push(repMatch(filters.rep, filters.rep === OFF_ROSTER_REP ? await loadRosterRepNames(actor) : []));
   if (filters.principal) parts.push(Prisma.sql`principals ILIKE ${`%${filters.principal}%`}`);
   if (filters.teamLeader) parts.push(Prisma.sql`"teamLeaders" ILIKE ${`%${filters.teamLeader}%`}`);
   if (filters.activity === "active") parts.push(Prisma.sql`"lastPurchase" >= ${activeCutoffDate()}`);
