@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { resolveScopeForSession } from "@/lib/teamLeaderScope";
+import { resolveScopeForSession, restrictToPrincipal, UPFIELD_PRINCIPAL } from "@/lib/teamLeaderScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
   if (selectedDate && !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) return NextResponse.json({ error: '"date" must be YYYY-MM-DD.' }, { status: 400 });
   if (selectedDate && !selectedDate.startsWith(`${month}-`)) return NextResponse.json({ error: '"date" must fall within the selected month.' }, { status: 400 });
 
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
+  const scope = restrictToPrincipal(await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId), UPFIELD_PRINCIPAL);
   if (scope && !scope.normalizedNames.has(rep.toLowerCase())) {
     return NextResponse.json({ error: "That rep isn't in your assigned team." }, { status: 403 });
   }
