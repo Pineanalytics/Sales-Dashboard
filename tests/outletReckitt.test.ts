@@ -175,6 +175,17 @@ describe("Reckitt rows and summary", () => {
     expect(s.recommended.find((r) => r.label === "Wholesalers")).toEqual({ label: "Wholesalers", direct: 0, indirect: 1, total: 1 });
   });
 
+  it("groups the active universe by tenure and counts it again in system outlets", () => {
+    const merged = buildReckittOutlets([...shops.slice(0, 2).map((x, i) => (i === 1 ? { ...x, outletsMerged: 3 } : x)), ...shops.slice(2)], w, NOW);
+    const s = buildReckittSummary(merged);
+    expect(s.active.all.total.total).toBe(3);
+    expect(s.active.all.total.counts).toEqual({ "Once in 6 Months": 0, "Once in 3 Months": 2, "Once Per Month": 1 });
+    expect(s.active.directSegment.total.total + s.active.indirectSegment.total.total).toBe(3);
+    expect(s.activeOutlets.rows.map((r) => r.label)).toEqual(["Direct", "Indirect"]);
+    expect(s.activeOutlets.total.total).toBe(1 + 3 + 1);
+    expect(s.activeOutlets.rows.find((r) => r.label === "Indirect")?.counts["Once in 3 Months"]).toBe(3);
+  });
+
   it("lists a segment found in the data but not in the fixed rows", () => {
     expect(rowLabels(["Retailers", "Wholesalers"], ["Retailers", "Kiosk", "kiosk"])).toEqual(["Retailers", "Wholesalers", "Kiosk"]);
   });
@@ -213,6 +224,15 @@ describe("Reckitt workbook", () => {
     expect(formulas.some((f) => f.startsWith("COUNTIFS('Raw Data'!"))).toBe(true);
     expect(formulas.some((f) => f.includes('"Direct"'))).toBe(true);
     expect(formulas.some((f) => f.includes('"Yes"'))).toBe(true);
+  });
+
+  it("has the active universe, by shops and by system outlets", () => {
+    const sheet = workbook.Sheets["Summary"];
+    const text = XLSX.utils.sheet_to_csv(sheet);
+    expect(text).toContain("ACTIVE UNIVERSE");
+    expect(text).toContain("Active universe - system outlets");
+    const formulas = Object.values(sheet).filter((c): c is XLSX.CellObject => typeof c === "object" && c !== null && "f" in c).map((c) => String(c.f));
+    expect(formulas.some((f) => f.startsWith("SUMIFS('Raw Data'!") && f.includes('"Yes"'))).toBe(true);
   });
 
   it("highlights the Segment / Type column yellow, header and cells, and nothing else in the sheet", () => {

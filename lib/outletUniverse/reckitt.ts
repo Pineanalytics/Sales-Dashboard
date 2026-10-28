@@ -202,14 +202,15 @@ export function rowLabels(listed: readonly string[], present: Iterable<string>):
   return [...listed, ...extras.sort((a, b) => a.localeCompare(b))];
 }
 
-export function reckittTable(title: string, rowHeader: string, labels: readonly string[], items: ReckittOutlet[], group: (o: ReckittOutlet) => string): ReckittTable {
+/** `weight` counts something other than shops per row, e.g. the system outlets a shop is made of. */
+export function reckittTable(title: string, rowHeader: string, labels: readonly string[], items: ReckittOutlet[], group: (o: ReckittOutlet) => string, weight: (o: ReckittOutlet) => number = () => 1): ReckittTable {
   const rows: ReckittRow[] = labels.map((label) => ({ label, counts: emptyCounts(), total: 0 }));
   const byLabel = new Map(rows.map((r) => [r.label.toLowerCase(), r]));
   for (const o of items) {
     const row = byLabel.get(group(o).toLowerCase());
     if (!row) continue;
-    row.counts[o.tenure] += 1;
-    row.total += 1;
+    row.counts[o.tenure] += weight(o);
+    row.total += weight(o);
   }
   const total: ReckittRow = { label: "Grand Total", counts: emptyCounts(), total: 0 };
   for (const row of rows) {
@@ -223,6 +224,10 @@ export interface ReckittSummary {
   /** The entire universe and the selected one, each by Segment / Type, then Direct and Indirect by Segment / Type and by region. */
   entire: UniverseTables;
   selected: UniverseTables;
+  /** The active universe: the shops that bought in the last 90 days (the dashboard's Active outlets), by the same tables. */
+  active: UniverseTables;
+  /** The active universe counted in system outlets rather than distinct shops, Direct and Indirect by tenure: the basis of the Outlet Cleanup "Active outlets" tile. */
+  activeOutlets: ReckittTable;
   /** Direct, Indirect and total shops of the selected universe by segment: the "Recommended coverage for Reckitt" table. */
   recommended: { label: string; direct: number; indirect: number; total: number }[];
 }
@@ -258,5 +263,12 @@ export function buildReckittSummary(outlets: ReckittOutlet[]): ReckittSummary {
     const direct = inSegment.filter((o) => o.classification === "Direct").length;
     return { label: label as string, direct, indirect: inSegment.length - direct, total: inSegment.length };
   });
-  return { entire: universeTables("Entire universe", outlets, segments, regions), selected: universeTables("Selected for Reckitt", selected, segments, regions), recommended };
+  const active = outlets.filter((o) => o.active);
+  return {
+    entire: universeTables("Entire universe", outlets, segments, regions),
+    selected: universeTables("Selected for Reckitt", selected, segments, regions),
+    active: universeTables("Active universe", active, segments, regions),
+    activeOutlets: reckittTable("Active universe - system outlets", "Direct vs Indirect", ["Direct", "Indirect"], active, (o) => o.classification, (o) => o.outletsMerged),
+    recommended,
+  };
 }
