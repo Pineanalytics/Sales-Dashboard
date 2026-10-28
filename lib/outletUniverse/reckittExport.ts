@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { columnLetter } from "./frequencyExport";
 import {
+  RECKITT_RELEVANT_SEGMENTS,
   RECKITT_RETAIL_MIN,
   RECKITT_SEGMENTS,
   RECKITT_TENURES,
@@ -182,7 +183,7 @@ function definitions(report: ReckittReport): string[][] {
     ...Object.entries(SEGMENT_GROUPS).filter(([, members]) => members.length > 1).map(([group, members]) => [`  ${group}: ${members.join(", ")}`]),
     ["  Baby Shop, Beauty Shop, Liquor Shops, Pharmacies, Institutions and Export keep their own name. A segment in no group is kept as the source gave it. Segment Restructured says Yes where Segment / Type differs from Source Segment / Type."],
     ["Entire universe: every shop that bought in the window, selected or not. The Summary shows it first, then the part selected for Reckitt."],
-    [`Selected for Reckitt: a shop in a segment Reckitt can sell into (${RECKITT_SEGMENTS.join(", ")}) whose combined average spend per purchase is above KSh ${RECKITT_WHOLESALE_MIN.toLocaleString("en-US")} for a wholesaler or above KSh ${RECKITT_RETAIL_MIN.toLocaleString("en-US")} for any other segment. The call strike rate and the outlet location / shopper profile are not applied: they are not measured per outlet in this extract. Selection Basis says why each shop is in or out.`],
+    [`Selected for Reckitt: a shop in a segment Reckitt can sell into (${RECKITT_SEGMENTS.join(", ")}) whose combined average spend per purchase is above KSh ${RECKITT_WHOLESALE_MIN.toLocaleString("en-US")} for a wholesaler or above KSh ${RECKITT_RETAIL_MIN.toLocaleString("en-US")} for any other segment, except that ${RECKITT_RELEVANT_SEGMENTS.join(", ")} are the direct suites by relevance and are always selected, whatever they spend. The call strike rate and the outlet location / shopper profile are not applied: they are not measured per outlet in this extract. Selection Basis says why each shop is in or out.`],
     ["Active (90 days): bought in the last 90 days, the Active Outlets module's activity window. Dormant shops (bought in the window but not in the last 90 days) are included; filter this column to see only active ones."],
     ["Shop: one row is one shop. Outlets that are the same shop, within and across systems, are merged under their master outlet (Shop ID, Outlets Merged, Systems and Merged Outlets say which) and their purchase days are united, so a day two of them bought on counts once."],
     ["Purchases come from the same feeds as the Active Outlet universe: Pine sales and orders, Leverage invoices, EABL DMS productive calls and Upfield DataEdge sales. Purchase feeds start at different dates (Pine and Upfield January 2026, EABL May 2026, Leverage June 2026), so a window reaching back before a feed began shows its shops as buying in fewer months."],

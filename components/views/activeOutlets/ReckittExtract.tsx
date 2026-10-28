@@ -73,7 +73,7 @@ export function ReckittExtract() {
       <p className="mb-3 text-xs leading-relaxed text-muted">
         The entire universe, and the part selected for Reckitt: every shop that <em>bought</em> in the last six months (this month included), counted once, with its buying tenure
         (<strong>Once in 6 Months</strong>, <strong>Once in 3 Months</strong> or <strong>Once Per Month</strong>, the strictest it kept up), Direct (Primary) or Indirect, and its segment restructured from the source system&apos;s own (highlighted in the Excel).
-        Selected for Reckitt means a segment Reckitt can stock spending above KSh 20k a purchase (wholesalers) or KSh 1k (everything else). Whole universe within your principals: the filters above do not narrow it.
+        Selected for Reckitt means a segment Reckitt can stock spending above KSh 20k a purchase (wholesalers) or KSh 1k (everything else); Beauty Shop, Pharmacies, Baby Shop and Institutions are always in. Whole universe within your principals: the filters above do not narrow it.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={loadPreview} disabled={state === "loading"} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft disabled:opacity-60">

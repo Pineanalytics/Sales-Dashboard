@@ -108,9 +108,16 @@ describe("Reckitt selection", () => {
     expect(reckittSelection("Wholesalers", 20000)).toEqual({ selected: false, basis: "Wholesaler at or below KSh 20,000 per purchase" });
     expect(reckittSelection("Wholesalers", 20001).selected).toBe(true);
     expect(reckittSelection("Wholesalers", 15000).selected).toBe(false);
-    expect(reckittSelection("Pharmacies", 5000).selected).toBe(true);
+    expect(reckittSelection("LMT", 1500).selected).toBe(true);
+    expect(reckittSelection("LMT", 500).selected).toBe(false);
   });
-  it("leaves out segments Reckitt cannot stock, and shops with no average", () => {
+  it("always selects the direct-suite segments, whatever they spend, even with no average on record", () => {
+    for (const segment of ["Beauty Shop", "Pharmacies", "Baby Shop", "Institutions", " pharmacies "]) {
+      expect(reckittSelection(segment, 50).selected).toBe(true);
+      expect(reckittSelection(segment, null)).toEqual({ selected: true, basis: "Relevant segment: included whatever the spend" });
+    }
+  });
+  it("leaves out segments Reckitt cannot stock, and other shops with no average", () => {
     expect(reckittSelection("Horeca", 90000)).toEqual({ selected: false, basis: "Segment cannot stock the Reckitt portfolio" });
     expect(reckittSelection("Wines & Spirits", 90000).selected).toBe(false);
     expect(reckittSelection("Retailers", null)).toEqual({ selected: false, basis: "No average spend on record" });
