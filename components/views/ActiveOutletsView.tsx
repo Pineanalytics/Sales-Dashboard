@@ -13,6 +13,7 @@ import { Dashboard } from "./activeOutlets/Dashboard";
 import { FilterBar } from "./activeOutlets/FilterBar";
 import { OutletList } from "./activeOutlets/OutletList";
 import { FrequencyExtract } from "./activeOutlets/FrequencyExtract";
+import { ReckittExtract } from "./activeOutlets/ReckittExtract";
 type ModuleTab = "dashboard" | "list";
 
 interface UniversePayload {
@@ -278,6 +279,7 @@ export function ActiveOutletsView() {
       ) : (
         <>
           <FrequencyExtract baseParams={toParams(filters).toString()} />
+          <ReckittExtract />
           <OutletList list={list} exportHref={exportHref} onPage={setPage} />
         </>
       )}

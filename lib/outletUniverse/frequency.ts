@@ -513,10 +513,10 @@ function isUnfiltered(f: OutletFilters): boolean {
   return !(f.role || f.source || f.principal || f.principalKey || f.channel || f.segment || f.region || f.territory || f.route || f.rep || f.q);
 }
 
-/** Every outlet matching the filters that bought in the period, and the summary of them. The Active/Inactive status filter is ignored: an outlet that
- *  bought in a past period counts whatever it is today. The outlet query and the name profiles are the Active Outlets extract's own (one query when
- *  nothing narrows the universe, two when something does, as in that extract). */
-export async function loadFrequencyReport(period: FrequencyPeriod, filters: OutletFilters, scope: OutletScope): Promise<FrequencyReport> {
+/** The shops matching the filters that bought in the period, one row each, and how many system outlets they were built from. The Active/Inactive status filter is
+ *  ignored: an outlet that bought in a past period counts whatever it is today. The outlet query and the name profiles are the Active Outlets extract's own (one
+ *  query when nothing narrows the universe, two when something does, as in that extract). */
+export async function loadFrequencyOutlets(period: FrequencyPeriod, filters: OutletFilters, scope: OutletScope): Promise<{ outlets: FrequencyOutlet[]; systemOutlets: number }> {
   const general: OutletFilters = { ...filters, view: "general", status: "all" };
   const unfiltered = isUnfiltered(filters);
   const [rows, universe, events, keyReps, roles] = await Promise.all([
@@ -528,6 +528,11 @@ export async function loadFrequencyReport(period: FrequencyPeriod, filters: Outl
   ]);
   const profiles = buildNameProfiles(universe ?? rows);
   const outlets = buildFrequencyOutlets(rows, profiles, events, period, keyReps, roles);
-  const systemOutlets = outlets.reduce((sum, o) => sum + o.outletsMerged, 0);
+  return { outlets, systemOutlets: outlets.reduce((sum, o) => sum + o.outletsMerged, 0) };
+}
+
+/** Every outlet matching the filters that bought in the period, and the summary of them. */
+export async function loadFrequencyReport(period: FrequencyPeriod, filters: OutletFilters, scope: OutletScope): Promise<FrequencyReport> {
+  const { outlets, systemOutlets } = await loadFrequencyOutlets(period, filters, scope);
   return { period, outlets, systemOutlets, duplicatesMerged: systemOutlets - outlets.length, summary: buildFrequencySummary(outlets), generatedAt: new Date().toISOString() };
 }
