@@ -22,7 +22,7 @@ import { getWeeksInMonth } from "./weeklyTargets";
 import { nairobiMinutesAfterMidnight, averageMinutes } from "./timeManagement";
 import { normalizePrincipalKey } from "./normalize";
 import { scopeClause } from "./timestampSummary";
-import { scopeNameClause, type TeamLeaderScope } from "./teamLeaderScope";
+import { restrictToPrincipal, scopeNameClause, UPFIELD_PRINCIPAL, type TeamLeaderScope } from "./teamLeaderScope";
 
 export type TimeInTradeSource = "pine" | "eabl" | "upfield" | "unilever";
 
@@ -235,7 +235,7 @@ async function upfieldRepDayRows(start: Date, end: Date, _roleFilter: TimeInTrad
       COUNT(*)::bigint AS visits
     FROM "UpfieldTransaction"
     WHERE "txnDate" >= ${queryStart} AND "txnDate" < ${queryEnd}
-      AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST' ${scopeNameClause(scope, UPFIELD_REP_EXPRESSION)}
+      AND NULLIF(BTRIM(fsr), '') IS NOT NULL AND UPPER(BTRIM(fsr)) <> 'CONNECTIVITY TEST' ${scopeNameClause(restrictToPrincipal(scope, UPFIELD_PRINCIPAL), UPFIELD_REP_EXPRESSION)}
     GROUP BY 1, ${UPFIELD_REP_EXPRESSION}`);
   return rows.map((r) => ({
     date: r.date, principalKey: "upfield", principal: "Upfield",
@@ -250,7 +250,7 @@ async function upfieldOutletRows(start: Date, end: Date, _roleFilter: TimeInTrad
     SELECT DISTINCT DATE("txnDate" + ${NAIROBI_OFFSET}) AS date,
       COALESCE(NULLIF(BTRIM("custCode"), ''), NULLIF(BTRIM("custName"), '')) AS "outletKey"
     FROM "UpfieldTransaction"
-    WHERE "txnDate" >= ${queryStart} AND "txnDate" < ${queryEnd} AND type = 'sale' AND COALESCE("saleIncl", 0) > 0 ${scopeNameClause(scope, UPFIELD_REP_EXPRESSION)}`);
+    WHERE "txnDate" >= ${queryStart} AND "txnDate" < ${queryEnd} AND type = 'sale' AND COALESCE("saleIncl", 0) > 0 ${scopeNameClause(restrictToPrincipal(scope, UPFIELD_PRINCIPAL), UPFIELD_REP_EXPRESSION)}`);
   return rows.map((r) => ({ date: r.date, principalKey: "upfield", outletKey: r.outletKey }));
 }
 
