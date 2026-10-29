@@ -6,6 +6,7 @@ import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Td, Th, Thead } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
 import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { OFF_ROSTER_REP } from "@/lib/outletCleanup/repFilter";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
 import type { CleanupOptions, OutletActivity, QueueFilterOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
 import { OpenOutlets } from "./OpenOutlets";
@@ -70,7 +71,7 @@ export function CleanupModule() {
   const [query, setQuery] = useState("");
   const [rep, setRep] = useState("");
   const [territory, setTerritory] = useState("");
-  const [filterOptions, setFilterOptions] = useState<QueueFilterOptions>({ reps: [], territories: [] });
+  const [filterOptions, setFilterOptions] = useState<QueueFilterOptions>({ reps: [], territories: [], offRoster: 0 });
   const [payload, setPayload] = useState<QueuePayload | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [errorText, setErrorText] = useState("");
@@ -213,7 +214,8 @@ export function CleanupModule() {
             ))}
             <select aria-label="Filter by rep" value={rep} onChange={(e) => { setRep(e.target.value); setPage(1); }} className={filterSelect}>
               <option value="">All reps</option>
-              {withChoice(filterOptions.reps, rep).map((name) => <option key={name} value={name}>{name}</option>)}
+              {filterOptions.offRoster > 0 || rep === OFF_ROSTER_REP ? <option value={OFF_ROSTER_REP}>Rep not on my roster ({formatNumber(filterOptions.offRoster)})</option> : null}
+              {filterOptions.reps.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
             <select aria-label="Filter by territory" value={territory} onChange={(e) => { setTerritory(e.target.value); setPage(1); }} className={filterSelect}>
               <option value="">All territories</option>
