@@ -1,7 +1,7 @@
 // The rules a cleanup entry has to satisfy before it is saved. Pure, so the form (browser) and the API (server) apply the very same checks:
 // values come from the existing lists only (no free text where a list exists), contact details are normalised, a GPS tag must be a real,
 // accurate point in Kenya, and a field that has been updated or confirmed is locked.
-import { IDENTIFICATION_FIELDS, WEEKDAYS, type CleanupOptions, type IdentificationField, type LockableField, type Weekday } from "./types";
+import { IDENTIFICATION_FIELDS, WEEKDAYS, type CleanupOptions, type DraftRep, type IdentificationField, type LockableField, type Weekday } from "./types";
 
 /** A phone's GPS fix must be at least this accurate (metres) to tag an outlet: a looser fix can be a street away. */
 export const MAX_GEO_ACCURACY_M = 100;
@@ -140,4 +140,31 @@ export function cleanVisitDays(input: readonly string[]): Weekday[] | null {
     wanted.add(match);
   }
   return WEEKDAYS.filter((d) => wanted.has(d));
+}
+
+/**
+ * What a draft may hold: the identification fields as typed (text, trimmed, 120 characters; the lists are checked only when the draft is saved final) and, per principal,
+ * the rep code, route and weekdays chosen so far. Anything else in the request is dropped, and a draft with no content is null.
+ */
+export function cleanDraftInput(input: { set?: unknown; reps?: unknown }, editable: { identification: readonly IdentificationField[]; principals: readonly string[] }): { identification: Partial<Record<IdentificationField, string>>; reps: DraftRep[] } {
+  const identification: Partial<Record<IdentificationField, string>> = {};
+  if (input.set && typeof input.set === "object") {
+    for (const field of editable.identification) {
+      const value = (input.set as Record<string, unknown>)[field];
+      if (typeof value === "string" && value.trim() !== "") identification[field] = value.trim().slice(0, 120);
+    }
+  }
+  const reps: DraftRep[] = [];
+  if (Array.isArray(input.reps)) {
+    for (const raw of input.reps.slice(0, 20) as Record<string, unknown>[]) {
+      const principal = editable.principals.find((p) => p.toLowerCase() === String(raw?.principal ?? "").trim().toLowerCase());
+      if (!principal || reps.some((r) => r.principal === principal)) continue;
+      const repCode = typeof raw.repCode === "string" ? raw.repCode.trim().slice(0, 60) : "";
+      const routeName = typeof raw.routeName === "string" ? raw.routeName.trim().slice(0, 120) : "";
+      const days = Array.isArray(raw.visitDays) ? cleanVisitDays(raw.visitDays.slice(0, 7).map((d) => String(d))) : [];
+      if (!repCode && !routeName && !(days && days.length > 0)) continue;
+      reps.push({ principal, ...(repCode ? { repCode } : {}), ...(routeName ? { routeName } : {}), visitDays: days ?? [] });
+    }
+  }
+  return { identification, reps };
 }
