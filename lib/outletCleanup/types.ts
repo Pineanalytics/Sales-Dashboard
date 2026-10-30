@@ -23,6 +23,8 @@ export type EntryStatus = "REVIEWED" | "VALIDATED" | "APPLIED" | "REJECTED";
 /** What the queue shows for an outlet: no entry yet, or the entry's status. */
 export type ReviewState = "UNREVIEWED" | EntryStatus | "DISOWNED";
 
+export const REVIEW_STATE_LABELS: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", REVIEWED: "Awaiting admin", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
+
 export interface CleanupActor {
   email: string;
   role: string;
@@ -109,6 +111,8 @@ export interface QueueRow {
   /** Outlets in this outlet's shop (1 = unique); more than 1 marks a duplicate the universe cleanup merged. */
   shopSize: number;
   state: ReviewState;
+  /** The signed-in person has saved an unfinished draft of this outlet. */
+  hasDraft: boolean;
   lastPurchaseDate: string | null;
   activity: OutletActivity;
   daysSince: number | null;
@@ -129,6 +133,28 @@ export interface QueueFilterOptions {
   territories: string[];
   /** Outlets here whose selling rep is not on the person's roster; the filter offers them as their own choice. */
   offRoster: number;
+}
+
+/** The lists the report extract narrows by. */
+export interface ReportOptions {
+  principals: string[];
+  regions: string[];
+  teamLeaders: string[];
+}
+
+/** One principal's rep / route / days as typed on the form and saved as a draft: not yet validated. */
+export interface DraftRep {
+  principal: string;
+  repCode?: string;
+  routeName?: string;
+  visitDays: Weekday[];
+}
+
+/** A person's saved, uncommitted work on one outlet. */
+export interface OutletDraft {
+  identification: Partial<Record<IdentificationField, string>>;
+  reps: DraftRep[];
+  savedAt: string;
 }
 
 export interface RepOption {
@@ -178,5 +204,7 @@ export interface OutletDetail {
   options: CleanupOptions;
   repOptions: Record<string, RepOption[]>;
   teamLeaderOptions: string[];
+  /** The signed-in person's saved draft of this outlet, if any. */
+  draft: OutletDraft | null;
   history: { at: string; actor: string; action: string }[];
 }

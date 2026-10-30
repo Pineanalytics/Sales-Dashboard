@@ -6,14 +6,16 @@ import type { OutletSource } from "@/lib/outletUniverse/normalize";
 import { inActorScope } from "./access";
 import { loadOutletDetail, loadRepOptions, loadTeamLeaderOptions } from "./data";
 import { isPeriod } from "./progress";
-import { checkGeoTag, cleanVisitDays, planIdentification, type IdentificationRequest } from "./validate";
-import type { CleanupActor, IdentificationField, LockableField, OutletDetail, RepDecision } from "./types";
+import { checkGeoTag, cleanDraftInput, cleanVisitDays, planIdentification, type IdentificationRequest } from "./validate";
+import { IDENTIFICATION_FIELDS, type CleanupActor, type IdentificationField, type LockableField, type OutletDetail, type RepDecision } from "./types";
 
 export class CleanupError extends Error {
   constructor(
     message: string,
     public status: 400 | 403 | 404 | 409 = 400,
-    public fields?: { field: string; message: string }[]
+    public fields?: { field: string; message: string }[],
+    /** Part of a combined save went through before the rest failed, so the form should reload what is now saved. */
+    public partial = false
   ) {
     super(message);
   }
@@ -191,6 +193,55 @@ export async function decideReps(actor: CleanupActor, source: OutletSource, outl
     await writeLog(tx, actor, source, outletKey, "REP", { decisions: requests.map((r) => ({ principal: r.principal, action: r.action, repCode: r.repCode ?? null, routeName: r.routeName ?? null, visitDays: r.visitDays ?? null })) });
     return saved;
   });
+}
+
+/**
+ * Keeps the person's unfinished work on an outlet ("Save draft"): the identification values typed and the rep / route / days chosen so far. Nothing is validated against the lists,
+ * locked, logged as progress or shown to the admin; an empty draft removes the saved one. Private to the person who saved it.
+ */
+export async function saveDraft(actor: CleanupActor, source: OutletSource, outletKey: string, input: { set?: unknown; reps?: unknown }): Promise<{ cleared: boolean }> {
+  const detail = await editableDetail(actor, source, outletKey);
+  const decided = new Set(detail.repDecisions.map((d) => d.principal.toLowerCase()));
+  const clean = cleanDraftInput(input, {
+    identification: IDENTIFICATION_FIELDS.filter((f) => detail.canUnlock || !detail.lockedFields.includes(f)),
+    principals: detail.reps.filter((r) => r.editable && (detail.canUnlock || !decided.has(r.principal.toLowerCase()))).map((r) => r.principal),
+  });
+  const where = { source_outletKey_savedBy: { source, outletKey, savedBy: actor.email } };
+  if (Object.keys(clean.identification).length === 0 && clean.reps.length === 0) {
+    await prisma.outletCleanupDraft.deleteMany({ where: { source, outletKey, savedBy: actor.email } });
+    return { cleared: true };
+  }
+  const data = { identification: clean.identification as Prisma.InputJsonValue, reps: clean.reps as unknown as Prisma.InputJsonValue };
+  await prisma.outletCleanupDraft.upsert({
+    where,
+    create: { source, outletKey, outletName: detail.outletName, savedBy: actor.email, teamLeader: entryTeamLeader(actor, detail), ...data },
+    update: data,
+  });
+  return { cleared: false };
+}
+
+export async function discardDraft(actor: CleanupActor, source: OutletSource, outletKey: string) {
+  await prisma.outletCleanupDraft.deleteMany({ where: { source, outletKey, savedBy: actor.email } });
+}
+
+/**
+ * "Save final": commits the identification values and the rep / route / days rows together, exactly as saving them one by one would (fields lock, the outlet counts as reviewed and goes
+ * to the admin), then drops the person's draft. If the reps are refused after the identification went through, the error says so and the draft is kept.
+ */
+export async function saveFinal(actor: CleanupActor, source: OutletSource, outletKey: string, request: { set?: Partial<Record<IdentificationField, string>>; reps?: RepRequest[] }) {
+  const identification = Object.keys(request.set ?? {}).length > 0;
+  const reps = request.reps ?? [];
+  if (!identification && reps.length === 0) throw new CleanupError("Nothing to save.", 400);
+  if (identification) await saveIdentification(actor, source, outletKey, { set: request.set });
+  if (reps.length > 0) {
+    try {
+      await decideReps(actor, source, outletKey, reps);
+    } catch (error) {
+      if (identification && error instanceof CleanupError) throw new CleanupError(`The details were saved, but the reps were not. ${error.message}`, error.status, error.fields, true);
+      throw error;
+    }
+  }
+  await discardDraft(actor, source, outletKey);
 }
 
 /** A team leader's call on a pair of outlets: the same shop (merge) or not. */

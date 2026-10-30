@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
-import { WEEKDAYS, type OutletDetail, type Weekday } from "@/lib/outletCleanup/types";
+import { WEEKDAYS, type DraftRep, type OutletDetail, type Weekday } from "@/lib/outletCleanup/types";
 import { RouteBuilder } from "./RouteBuilder";
 
 const inputClass = "w-full rounded-lg border border-border bg-background-elevated px-3 py-2 text-sm text-muted-strong outline-none focus:border-primary-blue disabled:cursor-not-allowed disabled:opacity-60";
@@ -17,16 +17,32 @@ export interface RepRoutePayload {
   visitDays: Weekday[];
 }
 
+/** What the row holds right now, reported to the form so it can be saved as a draft or saved final together with the rest. */
+export interface RepRouteEdit {
+  principal: string;
+  repChoice: string;
+  routeName: string;
+  days: Weekday[];
+  /** Anything differs from what the row opened with (the saved values, or the draft). */
+  dirty: boolean;
+  /** A route and at least one day are chosen, so the row can be saved final. */
+  complete: boolean;
+  /** The row cannot be changed (locked, not on the person's team, or the form is busy). */
+  off: boolean;
+}
+
 /** One principal of the outlet: the rep who visits it, the route they visit it on and the days of the week. The visit history suggests the days and the rep; the team leader validates or changes them. */
-export function RepRouteRow({ detail, row, disabled, error, onSave }: { detail: OutletDetail; row: OutletDetail["reps"][number]; disabled: boolean; error?: string; onSave: (payload: RepRoutePayload) => Promise<boolean> }) {
+export function RepRouteRow({ detail, row, disabled, error, draft, onSave, onEdit }: { detail: OutletDetail; row: OutletDetail["reps"][number]; disabled: boolean; error?: string; draft?: DraftRep; onSave: (payload: RepRoutePayload) => Promise<boolean>; onEdit?: (edit: RepRouteEdit) => void }) {
   const decision = detail.repDecisions.find((d) => d.principal.toLowerCase() === row.principal.toLowerCase());
   const routing = detail.routing[row.principal];
   const repOptions = detail.repOptions[row.principal] ?? [];
   const suggestion = routing?.suggestion;
 
-  const [repChoice, setRepChoice] = useState("");
-  const [routeName, setRouteName] = useState(routing?.routeName ?? "");
-  const [days, setDays] = useState<Weekday[]>(routing?.visitDays ?? []);
+  const savedRoute = routing?.routeName ?? "";
+  const savedDays = routing?.visitDays ?? [];
+  const [repChoice, setRepChoice] = useState(draft?.repCode ?? "");
+  const [routeName, setRouteName] = useState(draft?.routeName || savedRoute);
+  const [days, setDays] = useState<Weekday[]>(draft && draft.visitDays.length > 0 ? draft.visitDays : savedDays);
   const [extraRoutes, setExtraRoutes] = useState<string[]>([]);
   const [naming, setNaming] = useState(false);
 
@@ -35,6 +51,10 @@ export function RepRouteRow({ detail, row, disabled, error, onSave }: { detail: 
   const routeOptions = [...new Set([...(routing?.routeOptions ?? []), ...extraRoutes, ...(routeName ? [routeName] : [])])].sort((a, b) => a.localeCompare(b));
   const currentRep = decision ? decision.rep : row.rep;
   const canSave = !off && (repChoice !== "" || Boolean(row.rep)) && routeName !== "" && days.length > 0;
+  const dirty = repChoice !== "" || routeName !== savedRoute || days.join() !== savedDays.join();
+  useEffect(() => {
+    onEdit?.({ principal: row.principal, repChoice, routeName, days, dirty, complete: routeName !== "" && days.length > 0 && (repChoice !== "" || Boolean(row.rep)), off });
+  }, [onEdit, row.principal, row.rep, repChoice, routeName, days, dirty, off]);
   const toggleDay = (day: Weekday) => setDays((current) => (current.includes(day) ? current.filter((d) => d !== day) : WEEKDAYS.filter((d) => d === day || current.includes(d))));
 
   const useSuggestion = () => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveCleanupActor } from "@/lib/outletCleanup/access";
-import { CleanupError, decideDuplicate, decideReps, disownOutlet, saveIdentification, tagGeo, unlockFields, type RepRequest } from "@/lib/outletCleanup/actions";
+import { CleanupError, decideDuplicate, decideReps, discardDraft, disownOutlet, saveDraft, saveFinal, saveIdentification, tagGeo, unlockFields, type RepRequest } from "@/lib/outletCleanup/actions";
 import { loadOutletDetail } from "@/lib/outletCleanup/data";
 import { IDENTIFICATION_FIELDS, type IdentificationField, type LockableField } from "@/lib/outletCleanup/types";
 import { OUTLET_SOURCES, type OutletSource } from "@/lib/outletUniverse/normalize";
@@ -14,6 +14,28 @@ const asSource = (value: unknown): OutletSource | null => ((OUTLET_SOURCES as st
 const asKey = (value: unknown): string | null => (typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null);
 const asText = (value: unknown, max: number): string => (typeof value === "string" ? value.slice(0, max) : "");
 const asNumber = (value: unknown): number => (typeof value === "number" ? value : Number.NaN);
+
+const asSet = (value: unknown): Partial<Record<IdentificationField, string>> => {
+  const set: Partial<Record<IdentificationField, string>> = {};
+  if (value && typeof value === "object") {
+    for (const field of IDENTIFICATION_FIELDS) {
+      const v = (value as Record<string, unknown>)[field];
+      if (typeof v === "string") set[field] = v.slice(0, 120);
+    }
+  }
+  return set;
+};
+
+const asReps = (value: unknown): RepRequest[] =>
+  Array.isArray(value)
+    ? value.slice(0, 20).map((r: Record<string, unknown>) => ({
+        principal: asText(r?.principal, 120),
+        action: r?.action === "CHANGE" ? ("CHANGE" as const) : ("CONFIRM" as const),
+        repCode: asText(r?.repCode, 60) || undefined,
+        routeName: asText(r?.routeName, 120) || undefined,
+        visitDays: Array.isArray(r?.visitDays) ? r.visitDays.slice(0, 7).map((d: unknown) => asText(d, 12)) : undefined,
+      }))
+    : [];
 
 type Denied = NextResponse<{ error: string }>;
 async function actorOr403(): Promise<{ actor: import("@/lib/outletCleanup/types").CleanupActor } | { denied: Denied }> {
@@ -39,7 +61,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Saves one change to an outlet: identification, GPS tag, rep validation, duplicate call, disowning, or (admin / supervisor) reopening locked fields. */
+/** Saves one change to an outlet: identification, GPS tag, rep validation, duplicate call, disowning, a draft or the final save of the whole form, or (admin / supervisor) reopening locked fields. */
 export async function POST(req: NextRequest) {
   const who = await actorOr403();
   if ("denied" in who) return who.denied;
@@ -53,13 +75,7 @@ export async function POST(req: NextRequest) {
     let result: object = { ok: true };
     switch (input.action) {
       case "save": {
-        const set: Partial<Record<IdentificationField, string>> = {};
-        if (input.set && typeof input.set === "object") {
-          for (const field of IDENTIFICATION_FIELDS) {
-            const value = (input.set as Record<string, unknown>)[field];
-            if (typeof value === "string") set[field] = value.slice(0, 120);
-          }
-        }
+        const set = asSet(input.set);
         const confirm = input.confirm === "ALL" ? "ALL" : Array.isArray(input.confirm) ? input.confirm.filter((f): f is IdentificationField => (IDENTIFICATION_FIELDS as readonly string[]).includes(f)) : undefined;
         await saveIdentification(actor, source, key, { set, confirm });
         break;
@@ -70,16 +86,19 @@ export async function POST(req: NextRequest) {
         break;
       }
       case "reps": {
-        const reps: RepRequest[] = Array.isArray(input.reps)
-          ? input.reps.slice(0, 20).map((r: Record<string, unknown>) => ({
-              principal: asText(r?.principal, 120),
-              action: r?.action === "CHANGE" ? ("CHANGE" as const) : ("CONFIRM" as const),
-              repCode: asText(r?.repCode, 60) || undefined,
-              routeName: asText(r?.routeName, 120) || undefined,
-              visitDays: Array.isArray(r?.visitDays) ? r.visitDays.slice(0, 7).map((d: unknown) => asText(d, 12)) : undefined,
-            }))
-          : [];
-        await decideReps(actor, source, key, reps);
+        await decideReps(actor, source, key, asReps(input.reps));
+        break;
+      }
+      case "draft": {
+        result = { ok: true, ...(await saveDraft(actor, source, key, { set: input.set, reps: input.reps })) };
+        break;
+      }
+      case "discardDraft": {
+        await discardDraft(actor, source, key);
+        break;
+      }
+      case "final": {
+        await saveFinal(actor, source, key, { set: asSet(input.set), reps: asReps(input.reps) });
         break;
       }
       case "duplicate": {
@@ -106,7 +125,11 @@ export async function POST(req: NextRequest) {
     const detail = await loadOutletDetail(actor, source, key);
     return NextResponse.json({ ...result, detail }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
-    if (error instanceof CleanupError) return NextResponse.json({ error: error.message, fields: error.fields ?? [] }, { status: error.status });
+    if (error instanceof CleanupError) {
+      // After a partly saved "final", the form reloads what is now saved.
+      const detail = error.partial ? await loadOutletDetail(actor, source, key).catch(() => null) : null;
+      return NextResponse.json({ error: error.message, fields: error.fields ?? [], detail }, { status: error.status });
+    }
     console.error("Failed to save the outlet cleanup", error);
     return NextResponse.json({ error: "Failed to save." }, { status: 500 });
   }

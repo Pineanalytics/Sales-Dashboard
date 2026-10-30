@@ -8,10 +8,11 @@ import { formatNumber } from "@/lib/format";
 import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { OFF_ROSTER_REP } from "@/lib/outletCleanup/repFilter";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
-import type { CleanupOptions, OutletActivity, QueueFilterOptions, QueueRow, ReviewState } from "@/lib/outletCleanup/types";
+import { REVIEW_STATE_LABELS, type CleanupOptions, type OutletActivity, type QueueFilterOptions, type QueueRow, type ReviewState } from "@/lib/outletCleanup/types";
 import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
+import { ReportExtract } from "./ReportExtract";
 import { ReviewPanel } from "./ReviewPanel";
 import { RoutesPanel } from "./RoutesPanel";
 import { TargetsPanel } from "./TargetsPanel";
@@ -30,6 +31,7 @@ interface QueuePayload {
 const STATES: { value: string; label: string }[] = [
   { value: "todo", label: "To do" },
   { value: "unreviewed", label: "Not yet reviewed" },
+  { value: "drafts", label: "My drafts" },
   { value: "needs-geo", label: "Missing GPS" },
   { value: "rejected", label: "Sent back" },
   { value: "reviewed", label: "Reviewed" },
@@ -45,7 +47,6 @@ const ACTIVITY_FILTERS: { value: "all" | "active" | "dormant"; label: string }[]
 ];
 
 const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { UNREVIEWED: "neutral", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad", DISOWNED: "neutral" };
-const STATE_LABEL: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", REVIEWED: "Awaiting admin", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
 
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "progress", label: "Progress" },
@@ -77,6 +78,7 @@ export function CleanupModule() {
   const [errorText, setErrorText] = useState("");
   const [tick, setTick] = useState(0);
   const [open, setOpen] = useState<{ source: string; outletKey: string } | null>(null);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -224,8 +226,13 @@ export function CleanupModule() {
             {rep || territory ? (
               <button onClick={() => { setRep(""); setTerritory(""); setPage(1); }} className={pageButton}>Clear rep / territory</button>
             ) : null}
+            <button onClick={() => setReporting(!reporting)} aria-pressed={reporting} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${reporting ? "border-primary-blue bg-primary-blue text-white" : "border-primary-blue text-primary-blue hover:bg-accent-blue-soft"}`}>
+              {reporting ? "Hide report extract" : "Report extract"}
+            </button>
             <input aria-label="Search outlets" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search outlet or key" className="w-56 rounded-full border border-border bg-background-elevated px-4 py-1.5 text-xs outline-none focus:border-primary-blue" />
           </div>
+
+          {reporting ? <ReportExtract initialRep={rep} initialTerritory={territory} /> : null}
 
           {status === "loading" || !payload ? (
             <p className="mt-4 text-sm text-muted">Loading…</p>
@@ -262,7 +269,7 @@ export function CleanupModule() {
                         </Td>
                         <Td>{row.shopSize > 1 ? <Badge tier="warn">Duplicate · {row.shopSize} in shop</Badge> : "—"}</Td>
                         <Td>{row.hasGeo ? "✓" : <span className="font-semibold text-brand-orange">Missing</span>}</Td>
-                        <Td><Badge tier={STATE_TIER[row.state]}>{STATE_LABEL[row.state]}</Badge></Td>
+                        <Td><Badge tier={STATE_TIER[row.state]}>{REVIEW_STATE_LABELS[row.state]}</Badge>{row.hasDraft ? <span className="ml-1.5 align-middle"><Badge tier="warn">Draft saved</Badge></span> : null}</Td>
                         <Td>
                           <button onClick={() => setOpen({ source: row.source, outletKey: row.outletKey })} className={pageButton}>
                             {row.state === "UNREVIEWED" || row.state === "REJECTED" ? "Review" : "Open"}

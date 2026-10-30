@@ -1,0 +1,127 @@
+// The Outlet Cleanup report extract as files: an Excel workbook (the outlets, and a sheet saying what the report holds) or a CSV of the same rows.
+// One row per outlet the person works on, narrowed by the filters they chose, with the universe's values overlaid by what the teams have verified.
+import * as XLSX from "xlsx";
+import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/normalize";
+import { ACTIVITY_LABELS } from "./activity";
+import { REVIEW_STATE_LABELS, type OutletActivity, type ReviewState } from "./types";
+
+export interface ReportRow {
+  source: string;
+  outletKey: string;
+  outletName: string;
+  principals: string;
+  region: string;
+  territory: string;
+  channel: string;
+  customerType: string;
+  contactName: string;
+  contactPhone: string;
+  teamLeaders: string;
+  reps: string;
+  latitude: number | null;
+  longitude: number | null;
+  hasGeo: boolean;
+  shopSize: number;
+  lastPurchaseDate: string | null;
+  activity: OutletActivity;
+  daysSince: number | null;
+  state: ReviewState;
+  hasDraft: boolean;
+  reviewedBy: string;
+  reviewedAt: string;
+  /** The fields the team has verified (and so locked), by label. */
+  verifiedFields: string;
+  /** The reps, routes and days the team validated, one clause per principal. */
+  repDecisions: string;
+  adminNote: string;
+}
+
+export interface ReportMeta {
+  generatedAt: Date;
+  generatedBy: string;
+  /** The filters in force, as "Label: value" lines. */
+  filters: string[];
+}
+
+interface Column {
+  header: string;
+  value: (row: ReportRow) => string | number;
+}
+
+const orBlank = (value: number | null) => (value === null ? "" : value);
+
+export const REPORT_COLUMNS: Column[] = [
+  { header: "System", value: (r) => OUTLET_SOURCE_LABELS[r.source as OutletSource] ?? r.source },
+  { header: "Outlet ID", value: (r) => r.outletKey },
+  { header: "Outlet", value: (r) => r.outletName },
+  { header: "Principal(s)", value: (r) => r.principals },
+  { header: "Selling Rep(s)", value: (r) => r.reps },
+  { header: "Team Leader", value: (r) => r.teamLeaders },
+  { header: "Region", value: (r) => r.region },
+  { header: "Territory", value: (r) => r.territory },
+  { header: "Channel", value: (r) => r.channel },
+  { header: "Customer Type", value: (r) => r.customerType },
+  { header: "Contact Name", value: (r) => r.contactName },
+  { header: "Contact Phone", value: (r) => r.contactPhone },
+  { header: "Has GPS", value: (r) => (r.hasGeo ? "Yes" : "No") },
+  { header: "Latitude", value: (r) => (r.hasGeo ? orBlank(r.latitude) : "") },
+  { header: "Longitude", value: (r) => (r.hasGeo ? orBlank(r.longitude) : "") },
+  { header: "Last Purchase", value: (r) => r.lastPurchaseDate ?? "" },
+  { header: "Buying", value: (r) => ACTIVITY_LABELS[r.activity] },
+  { header: "Days Since Purchase", value: (r) => orBlank(r.daysSince) },
+  { header: "Outlets In Shop", value: (r) => r.shopSize },
+  { header: "Cleanup Status", value: (r) => REVIEW_STATE_LABELS[r.state] },
+  { header: "Draft Saved", value: (r) => (r.hasDraft ? "Yes" : "") },
+  { header: "Reviewed By", value: (r) => r.reviewedBy },
+  { header: "Reviewed On", value: (r) => r.reviewedAt },
+  { header: "Fields Verified", value: (r) => r.verifiedFields },
+  { header: "Rep / Route / Days Validated", value: (r) => r.repDecisions },
+  { header: "Admin Note", value: (r) => r.adminNote },
+];
+
+/** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
+function cell(value: string | number): string {
+  let text = String(value);
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function reportCsv(rows: readonly ReportRow[]): string {
+  const lines = [REPORT_COLUMNS.map((c) => cell(c.header)).join(",")];
+  for (const row of rows) lines.push(REPORT_COLUMNS.map((c) => cell(c.value(row))).join(","));
+  return lines.join("\r\n");
+}
+
+/** The same neutralising as the CSV, so a value copied out of the workbook never runs as a formula either. */
+const safe = (value: string | number): string | number => (typeof value === "string" && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value);
+
+export function reportWorkbook(rows: readonly ReportRow[], meta: ReportMeta): Buffer {
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([REPORT_COLUMNS.map((c) => c.header), ...rows.map((row) => REPORT_COLUMNS.map((c) => safe(c.value(row))))]);
+  sheet["!cols"] = REPORT_COLUMNS.map((c) => ({ wch: Math.min(40, Math.max(c.header.length + 2, c.header === "Outlet" ? 34 : 14)) }));
+  sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(rows.length, 1), c: REPORT_COLUMNS.length - 1 } }) };
+  XLSX.utils.book_append_sheet(book, sheet, "Outlets");
+
+  const info = XLSX.utils.aoa_to_sheet([
+    ["Outlet Cleanup report"],
+    ["Generated", meta.generatedAt.toISOString().replace("T", " ").slice(0, 16) + " UTC"],
+    ["Generated by", meta.generatedBy],
+    ["Outlets", rows.length],
+    [],
+    ["Filters"],
+    ...(meta.filters.length > 0 ? meta.filters.map((f) => [f]) : [["None: every outlet you work on"]]),
+    [],
+    ["Notes"],
+    ["One row per outlet. Region, territory, channel, customer type and contact show what the team verified where they have, otherwise the universe's value."],
+    ["Cleanup Status: Not reviewed, Awaiting admin (saved final by the team), Validated or Applied (checked by an admin), Sent back, or Marked open. Draft Saved means you have an unfinished draft."],
+    ["Selling Rep(s) are the reps on your own teams for the outlet; Rep / Route / Days Validated are the decisions the team saved."],
+  ]);
+  info["!cols"] = [{ wch: 28 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(book, info, "About");
+  return Buffer.from(XLSX.write(book, { type: "buffer", bookType: "xlsx", compression: true }));
+}
+
+/** A file name for the extract, e.g. outlet-cleanup-report-2026-10-30. */
+export function reportFileStem(now: Date = new Date()): string {
+  return `outlet-cleanup-report-${now.toISOString().slice(0, 10)}`;
+}

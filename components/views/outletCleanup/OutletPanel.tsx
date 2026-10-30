@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
 import { matchOption } from "@/lib/outletCleanup/validate";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
-import { RepRouteRow } from "./RepRouteRow";
+import { RepRouteRow, type RepRouteEdit } from "./RepRouteRow";
 import { FIELD_LABELS, IDENTIFICATION_FIELDS, type IdentificationField, type OutletDetail } from "@/lib/outletCleanup/types";
 
 const inputClass = "w-full rounded-lg border border-border bg-background-elevated px-3 py-2 text-sm text-muted-strong outline-none focus:border-primary-blue disabled:cursor-not-allowed disabled:opacity-60";
@@ -22,11 +22,16 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [draft, setDraft] = useState<Record<IdentificationField, string> | null>(null);
+  // What each principal's row holds right now, and a counter that remounts the rows to start them afresh (after a final save or a discarded draft).
+  const [rowEdits, setRowEdits] = useState<Record<string, RepRouteEdit>>({});
+  const [rowsVersion, setRowsVersion] = useState(0);
+  const onRowEdit = useCallback((edit: RepRouteEdit) => setRowEdits((all) => ({ ...all, [edit.principal]: edit })), []);
 
   const adopt = (next: OutletDetail) => {
     setDetail(next);
     const values = {} as Record<IdentificationField, string>;
-    for (const field of IDENTIFICATION_FIELDS) values[field] = next.verified[field] ?? next.current[field] ?? "";
+    // The form opens with the person's saved draft laid over the saved values, except where a field is locked.
+    for (const field of IDENTIFICATION_FIELDS) values[field] = (!next.lockedFields.includes(field) ? next.draft?.identification[field] : undefined) ?? next.verified[field] ?? next.current[field] ?? "";
     setDraft(values);
   };
 
@@ -54,6 +59,7 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
       const response = await fetch("/api/outlet-cleanup/outlet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source, outletKey, ...body }) });
       const result = await response.json();
       if (!response.ok) {
+        if (result.detail) adopt(result.detail as OutletDetail);
         setErrors(result.fields ?? []);
         setMessage({ tone: "error", text: result.error ?? "Failed to save." });
         return false;
@@ -90,6 +96,32 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
     const set: Partial<Record<IdentificationField, string>> = {};
     for (const field of changedFields) set[field] = draft[field];
     return send({ action: "save", set }, "Saved. The fields you updated are now locked.");
+  };
+
+  // Saving the whole form: draft keeps everything typed so far; final commits the changed fields and the reps the person worked on.
+  const workedRows = Object.values(rowEdits).filter((e) => e.dirty && !e.off);
+  const incompleteRows = workedRows.filter((e) => !e.complete);
+  const changedSet = () => {
+    const set: Partial<Record<IdentificationField, string>> = {};
+    for (const field of changedFields) set[field] = draft[field];
+    return set;
+  };
+  const draftReps = () => workedRows.map((e) => ({ principal: e.principal, repCode: e.repChoice || undefined, routeName: e.routeName || undefined, visitDays: e.days }));
+  const finalReps = () => workedRows.map((e) => ({ principal: e.principal, action: e.repChoice === "" ? "CONFIRM" : "CHANGE", repCode: e.repChoice || undefined, routeName: e.routeName, visitDays: e.days }));
+  const hasWork = changedFields.length > 0 || workedRows.length > 0;
+  const saveDraft = () => send({ action: "draft", set: changedSet(), reps: draftReps() }, "Draft saved. Nothing is locked yet; come back and save it final when you are done.");
+  const saveFinal = async () => {
+    const saved = await send({ action: "final", set: changedSet(), reps: finalReps() }, "Saved final. What you changed is now locked and has gone to your admin to validate.");
+    if (saved) {
+      setRowEdits({});
+      setRowsVersion((v) => v + 1);
+    }
+  };
+  const discardDraft = async () => {
+    if (await send({ action: "discardDraft" }, "Draft discarded.")) {
+      setRowEdits({});
+      setRowsVersion((v) => v + 1);
+    }
   };
 
   const listFor = (field: IdentificationField): string[] | null =>
@@ -186,16 +218,35 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
         <div className="mt-3 flex flex-col gap-3">
           {detail.reps.map((row) => (
             <RepRouteRow
-              key={row.principal}
+              key={`${row.principal}-${rowsVersion}`}
               detail={detail}
               row={row}
               disabled={frozen || busy}
               error={errorFor(row.principal)}
+              draft={detail.draft?.reps.find((d) => d.principal.toLowerCase() === row.principal.toLowerCase())}
+              onEdit={onRowEdit}
               onSave={(payload) => send({ action: "reps", reps: [payload] }, `${row.principal}: rep, route and days saved.`)}
             />
           ))}
         </div>
       </section>
+
+      {!frozen ? (
+        <section aria-label="Save your work on this outlet" className="sticky bottom-3 z-10 rounded-xl border border-primary-blue/40 bg-surface p-4 shadow-lg">
+          <div className="flex flex-wrap items-center gap-2">
+            <button className={ghostButton} disabled={busy || !hasWork} onClick={saveDraft}>Save draft</button>
+            <button className={primaryButton} disabled={busy || !hasWork || incompleteRows.length > 0} onClick={saveFinal}>Save final</button>
+            {detail.draft ? <button className="text-xs font-semibold text-accent-red hover:underline disabled:opacity-50" disabled={busy} onClick={discardDraft}>Discard draft</button> : null}
+            <span className="text-xs text-muted">
+              {detail.draft ? `Draft saved ${new Date(detail.draft.savedAt).toLocaleString()}.` : hasWork ? "You have changes that are not saved yet." : "Nothing changed yet."}
+            </span>
+          </div>
+          {incompleteRows.length > 0 ? <p className="mt-2 text-xs text-accent-red">Choose the route and at least one day for {incompleteRows.map((e) => e.principal).join(", ")} before saving final, or save a draft.</p> : null}
+          <p className="mt-2 text-xs text-muted">
+            <strong>Save draft</strong> keeps what you have typed so you can finish later: nothing is locked, it does not count as progress and your admin does not see it. <strong>Save final</strong> saves your changed details and reps together, locks them and sends the outlet to your admin to validate. GPS tags, duplicate calls and disowning save at once.
+          </p>
+        </section>
+      ) : null}
 
       <section className={cardClass}>
         <h4 className="text-sm font-bold text-primary-blue">4 · Possible duplicates</h4>

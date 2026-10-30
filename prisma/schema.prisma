@@ -2781,6 +2781,26 @@ model OutletCleanupEntry {
   @@index([status])
 }
 
+// A person's unfinished work on one outlet ("Save draft"): the identification values and rep / route / day choices they have typed but not yet committed. Private to the
+// person who saved it, never locks a field, never counts as progress and is never seen by the admin review; "Save final" commits it to OutletCleanupEntry and deletes it.
+model OutletCleanupDraft {
+  id             String   @id @default(cuid())
+  source         String
+  outletKey      String
+  outletName     String
+  savedBy        String // the user's email
+  teamLeader     String?
+  // { region?, territory?, channel?, customerType?, contactName?, contactPhone? } as typed, not yet validated against the lists.
+  identification Json?
+  // [{ principal, repCode?, routeName?, visitDays: [] }] as chosen, not yet validated.
+  reps           Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([source, outletKey, savedBy])
+  @@index([savedBy])
+}
+
 // Every change, who made it and what it was before: the audit trail behind the entries, duplicates and open outlets.
 model OutletCleanupLog {
   id         String   @id @default(cuid())
