@@ -29,6 +29,9 @@
 //               in the previous month, and the same days last year. It does
 //               not run YTD_Raw, and is intentionally a one-off repair for
 //               date-aware comparison cards.
+//   --month=YYYY-MM  Refresh ONE closed month, e.g. `--month=2026-10`: reads only that month's days, derives the monthly rollup from them, replaces
+//               only that month, and keeps its stored COGS/GP ratios (revenue is refreshed, like a backfill). For late or backdated postings after a
+//               month has closed. Add --skip-brand-customer to leave the Customer & Brands tables alone (run `npm run brand-customer:sync` for them).
 //   (default)   Routine refresh. Skips the full-year YTD_Raw scan entirely —
 //               only fetches the CURRENT MONTH's day-grain rows, then derives
 //               the monthly-grain rollup from those same rows via
@@ -61,6 +64,7 @@ import {
   buildMonthlyRepSales,
   dailyRowsToMonthlyInput,
 } from "./transform/buildRepSales";
+import { monthWindow } from "./transform/salesMonthWindow";
 import { replacementPeriodsFromDailyWindows, replacementPeriodsFromMonthlyRows } from "@/lib/salesReplacement";
 import { prisma } from "@/lib/db";
 import {
@@ -87,6 +91,8 @@ const skipBrandCustomer = process.argv.includes("--skip-brand-customer");
 // history would otherwise re-cost it (see transform/freezeClosedMonthCosts.ts).
 // Pass --recost-history to re-cost closed months on purpose.
 const recostHistory = process.argv.includes("--recost-history");
+// Refresh a single closed month (revenue only, stored margins kept) instead of the current month or the whole year: `--month=2026-10`.
+const monthArg = process.argv.find((arg) => arg.startsWith("--month="))?.slice("--month=".length) ?? null;
 
 /** The stored COGS/GP-to-revenue ratios of every closed row, read from the live tables before they are overwritten. */
 async function loadStoredCostRatios(asOf: Date) {
@@ -144,12 +150,15 @@ async function main() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
 
   const asOfDate = new Date();
-  const mode = isBackfill ? "BACKFILL" : isComparisonBackfill ? "COMPARISON BACKFILL" : "routine";
+  const month = monthArg === null ? null : monthWindow(monthArg, asOfDate);
+  if (month && "error" in month) throw new Error(month.error);
+  if (month && (isBackfill || isComparisonBackfill)) throw new Error("--month cannot be combined with --backfill or --comparison-backfill.");
+  const mode = month ? `MONTH ${monthArg}` : isBackfill ? "BACKFILL" : isComparisonBackfill ? "COMPARISON BACKFILL" : "routine";
   console.log(
     `[sales-sync] Connecting to ${config.server}/${config.database} (as of ${asOfDate.toISOString().slice(0, 10)}, mode: ${mode})...`
   );
 
-  const dailyWindowsToRead = dailyWindows(asOfDate, isBackfill, isComparisonBackfill);
+  const dailyWindowsToRead = month ? [{ start: month.start, end: month.end }] : dailyWindows(asOfDate, isBackfill, isComparisonBackfill);
 
   // Read the bounded comparison windows serially. This is a rare manual path,
   // so protecting SAP from concurrent long-running aggregates matters more
@@ -193,7 +202,7 @@ async function main() {
   const dailyCustomerSales = skipBrandCustomer ? [] : buildDailyCustomerSales(dailyRawRows, products, warehousesData, principalsData);
   const unmappedProductSales = buildUnmappedProductSales(monthlyInputRows, products);
 
-  if (isBackfill && !recostHistory) {
+  if ((isBackfill || month) && !recostHistory) {
     const ratios = await loadStoredCostRatios(asOfDate);
     const frozen = {
       monthly: freezeCosts(monthlySales, monthlyKey, (row) => isClosedMonth(Number(row.year), row.monthIndex, asOfDate), ratios.monthly),
