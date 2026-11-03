@@ -238,6 +238,26 @@ describe("one row per shop", () => {
     expect(shop).toMatchObject({ outletName: "Master Shop", territory: "Kitui" }); // the master, not the bigger seller
   });
 
+  it("carries the shop's GPS point: the master's, else the first merged outlet that has one, else blank", () => {
+    const events = new Map<string, OutletEvents>([
+      ["PINE\u00001", evMask({ 6: days(1) })],
+      ["LEVERAGE\u0000L1", evMask({ 6: days(2) })],
+    ]);
+    const lev = outlet({ source: "LEVERAGE", outletKey: "L1", shopId: "PINE-1", latitude: -1.28, longitude: 36.82 });
+    const withMaster = outlet({ outletKey: "1", shopId: "PINE-1", latitude: -1.3, longitude: 36.9 });
+    const noPoint = outlet({ outletKey: "1", shopId: "PINE-1", latitude: null, longitude: null });
+    expect(buildFrequencyOutlets([withMaster, lev], profiles, events, q3, new Set(), new Map(), NOW)[0]).toMatchObject({ latitude: -1.3, longitude: 36.9 });
+    expect(buildFrequencyOutlets([noPoint, lev], profiles, events, q3, new Set(), new Map(), NOW)[0]).toMatchObject({ latitude: -1.28, longitude: 36.82 });
+    const [bare] = buildFrequencyOutlets([noPoint], profiles, events, q3, new Set(), new Map(), NOW);
+    expect(bare).toMatchObject({ latitude: null, longitude: null });
+    const lat = OUTLET_COLUMNS.find((c) => c.header === "Latitude");
+    const lon = OUTLET_COLUMNS.find((c) => c.header === "Longitude");
+    expect(lat?.value(bare)).toBe("");
+    expect(lon?.value(bare)).toBe("");
+    expect(lat?.value({ ...bare, latitude: -1.28 })).toBe(-1.28);
+    expect(frequencyCsv([bare]).split("\r\n")[0]).toContain("Latitude,Longitude");
+  });
+
   it("counts the days in a mask", () => {
     expect(popcount(0)).toBe(0);
     expect(popcount(days(1, 15, 31))).toBe(3);
