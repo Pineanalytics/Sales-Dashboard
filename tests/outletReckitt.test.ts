@@ -31,6 +31,8 @@ function shop(overrides: Partial<FrequencyOutlet> & { daysByMonth: number[] }): 
     regionGroup: "Nairobi",
     region: "Nairobi",
     territory: "Westlands",
+    latitude: null,
+    longitude: null,
     classification: "Direct",
     absolutePrincipal: "Mars-Nairobi",
     principals: "Mars-Nairobi",

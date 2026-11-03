@@ -297,6 +297,9 @@ export interface FrequencyOutlet {
   region: string;
   /** The unified territory (OutletUniverse.territoryClean). */
   territory: string;
+  /** The shop's GPS point: the master outlet's, else the first merged outlet that has one; null when none of them has a usable fix. */
+  latitude: number | null;
+  longitude: number | null;
   classification: Classification;
   absolutePrincipal: string;
   principals: string;
@@ -387,6 +390,8 @@ export function buildFrequencyOutlets(
       conf += popcount(d.conf);
       other += popcount(d.other);
     }
+    const hasPoint = (m: OutletListRow) => m.latitude !== null && m.longitude !== null;
+    const point = hasPoint(lead) ? lead : members.find(hasPoint);
     const dominantRole = lead.dominantPrincipal ? roles.get(roleKey(lead.source, lead.outletKey, lead.dominantPrincipal)) : undefined;
     built.push({
       source: labelOf(lead.source),
@@ -403,6 +408,8 @@ export function buildFrequencyOutlets(
       regionGroup: coverageRegion(lead.region, lead.location),
       region: places.region,
       territory: lead.territoryClean ?? places.territory,
+      latitude: point?.latitude ?? null,
+      longitude: point?.longitude ?? null,
       classification: classificationOf(dominantRole ?? lead.salesRole),
       absolutePrincipal: lead.dominantPrincipal ?? lead.principals,
       principals: [...new Set(members.flatMap((m) => m.principals.split(", ")))].sort().join(", "),
