@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { aggregatePerformance } from "./aggregate";
-import type { PerfLine, PerformanceMeta, PerformanceResponse } from "./types";
+import { buildPerformanceDetail, type PerformanceDetail } from "./detail";
+import type { PerfLine, PerformanceMeta, PerformancePayload, PerformanceResponse } from "./types";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 4;
@@ -84,16 +85,27 @@ export interface PerformanceReportRequest {
 
 /** The report for one period and principal selection, from the stored SAP lines. */
 export async function buildPerformanceReport(request: PerformanceReportRequest): Promise<PerformanceResponse> {
+  const data = await readPerformance(request);
+  return { meta: data.meta, report: data.report };
+}
+
+/** The report and the full lists behind it (every item, customer, rep and branch of the period), for the Excel export. */
+export async function buildPerformanceExportData(request: PerformanceReportRequest): Promise<{ meta: PerformanceMeta | null; report: PerformancePayload | null; detail: PerformanceDetail | null }> {
+  const data = await readPerformance(request);
+  return { meta: data.meta, report: data.report, detail: data.report ? buildPerformanceDetail(data.lines, data.scopeMonths) : null };
+}
+
+async function readPerformance(request: PerformanceReportRequest): Promise<{ meta: PerformanceMeta | null; report: PerformancePayload | null; lines: PerfLine[]; scopeMonths: string[] }> {
   const months = Array.from(new Set(request.months)).sort();
   const year = months.length > 0 ? Number(months[months.length - 1].slice(0, 4)) : undefined;
   const meta = await getPerformanceMeta(year);
-  if (!meta || months.length === 0) return { meta, report: null };
+  if (!meta || months.length === 0) return { meta, report: null, lines: [], scopeMonths: [] };
   // Months after the SAP read (the rest of a quarter or half still to come) have no sales yet and must not
   // count as part of the period, or the latest month would be treated as complete-but-empty.
   const asOfMonth = meta.asOf.slice(0, 7);
   const scopeMonths = months.filter((month) => month.startsWith(`${meta.year}-`) && month <= asOfMonth);
-  if (scopeMonths.length === 0) return { meta, report: null };
+  if (scopeMonths.length === 0) return { meta, report: null, lines: [], scopeMonths };
 
   const lines = await loadLines(meta, request.principalKeys);
-  return { meta, report: aggregatePerformance(lines, { asOf: meta.asOf, scopeMonths }) };
+  return { meta, report: aggregatePerformance(lines, { asOf: meta.asOf, scopeMonths }), lines, scopeMonths };
 }

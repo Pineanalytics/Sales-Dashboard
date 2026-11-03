@@ -75,6 +75,9 @@ export interface ReportDefinition {
   description: string;
   pageKey: PageKey;
   build: (ctx: ReportContext) => Promise<ReportContent>;
+  /** A server-built, full-detail Excel workbook for the same filters. When set, the Excel download fetches this URL instead of
+   *  rendering `build`'s summary tables (the PDF stays the summary). */
+  fullExcelUrl?: (ctx: ReportContext) => string;
 }
 
 function round2(n: number): number {
@@ -370,8 +373,14 @@ const pctCell = (n: number | null): string | number => (n === null ? "N/A" : rou
 const customersReport: ReportDefinition = {
   key: "customers",
   label: "Customers & Brands",
-  description: "Customer ranking and tiering, brands and products, and principals for the current period. For the full raw-data extracts use the Brand and Customer extract buttons on the Customers page.",
+  description: "Customer ranking and tiering, brands and products, and principals for the chosen period and principal. Excel is the full extract (SFA customer names, by month, brand, rep and billing account, with raw data); PDF is the summary.",
   pageKey: "customers",
+  fullExcelUrl({ period, principalKey, periodLabel }) {
+    const params = new URLSearchParams({ kind: "all", label: periodLabel, principalLabel: principalKey ?? "All principals" });
+    for (const { year, monthIndex } of resolvePeriodMonths(period)) params.append("period", `${year}-${String(monthIndex + 1).padStart(2, "0")}`);
+    if (principalKey) params.append("principal", principalKey);
+    return `/api/reports/brand-customer-extract?${params.toString()}`;
+  },
   async build({ period, principalKey, periodLabel }) {
     const portfolio = await fetchCustomerPortfolio(period, principalKey);
     const { totals } = portfolio;
