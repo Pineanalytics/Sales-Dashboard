@@ -344,10 +344,25 @@ export function buildCustomerExtract(input: { currentRows: MonthlyBrandCustomerR
   };
 }
 
+/** The customer extract with the brand and product sheets after it, for the Reports page's one-workbook Customers & Brands download.
+ *  The Summary and customer sheets come first as they are; the brand roll-ups follow, and the brand raw rows (SAP billing account, item level)
+ *  are called "Brand Raw Data" so they do not collide with the customer raw rows. */
+export function combineExtracts(customers: BrandCustomerExtract, brands: BrandCustomerExtract): BrandCustomerExtract {
+  const brandSheets = brands.sheets
+    .filter((sheet) => sheet.name !== "Summary")
+    .map((sheet) => (sheet.name === "Raw Data" ? { ...sheet, name: "Brand Raw Data" } : sheet));
+  const sheets = customers.sheets.map((sheet) =>
+    sheet.name === "Summary"
+      ? { ...sheet, rows: [...sheet.rows, [], ["Brand sheets", "Brand Performance, Brand by Month, Brand by Rep and Brand Raw Data follow the customer sheets. They are at SAP item level for the same principal and period."]] }
+      : sheet
+  );
+  return { sheets: [...sheets, ...brandSheets], rawRowCount: customers.rawRowCount + brands.rawRowCount };
+}
+
 /** Above this many raw rows the row-level sheets are left out (see trimLargeExtract). A single large principal (about
  *  30,000 raw rows) still gets everything; an all-principals full year (90,000 to 170,000) does not. */
 export const LARGE_EXTRACT_RAW_ROWS = 40_000;
-const ROW_LEVEL_SHEETS = new Set(["Raw Data", "Customer by Brand", "Customer by Month", "Customer by Principal", "Customer by Rep"]);
+const ROW_LEVEL_SHEETS = new Set(["Raw Data", "Brand Raw Data", "Customer by Brand", "Customer by Month", "Customer by Principal", "Customer by Rep"]);
 
 function listNames(names: string[]): string {
   return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

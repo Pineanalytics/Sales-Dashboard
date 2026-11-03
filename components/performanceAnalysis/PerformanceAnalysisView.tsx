@@ -5,7 +5,9 @@ import { useDashboardStore } from "@/lib/store";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CANONICAL_MONTHS, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
 import type { PerformanceResponse } from "@/lib/performanceAnalysis/types";
+import { periodLabelFor } from "@/lib/reports/download";
 import { CustomersSection } from "./CustomersSection";
+import { ExportButton } from "./ExportButton";
 import { GrowthSection } from "./GrowthSection";
 import { ItemsSection } from "./ItemsSection";
 import { MonthlySection } from "./MonthlySection";
@@ -57,6 +59,8 @@ export function PerformanceAnalysisView() {
     if (principals.length > 0) params.set("principals", principals.join(","));
     return params.toString();
   }, [selectedPeriod, hasUserSelectedPeriod, selectedPrincipalKeys]);
+  const periodLabel = periodLabelFor(effectivePeriod(selectedPeriod, hasUserSelectedPeriod));
+  const principalLabel = selectedPrincipalKeys.length > 0 ? selectedPrincipalKeys.join(", ") : "All principals";
 
   useEffect(() => {
     if (!query) return;
@@ -102,6 +106,7 @@ export function PerformanceAnalysisView() {
             </button>
           ))}
         </div>
+        <ExportButton query={query} periodLabel={periodLabel} principalLabel={principalLabel} disabled={!hasData || loading} />
       </div>
       {!hasUserSelectedPeriod ? <p className="-mt-2 text-xs text-muted">Showing the year to date. Choose a period above to narrow it.</p> : null}
 

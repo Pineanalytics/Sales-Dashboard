@@ -14,11 +14,17 @@
 // touches only the two customer/brand tables: principal, daily, rep and
 // unmapped-product data and the derived target tables are not changed.
 //
+// It also refreshes the SFA customer names (SalesDocument + SfaCustomerActual, the
+// outlet the SFA app sold to) for the same months, so the SAP billing-account view
+// and the SFA outlet view of the Customers page move together. That step is the
+// same one sfa-sales:sync runs (sfa/syncMonth.ts); --skip-sfa leaves it out.
+//
 //   npm run brand-customer:sync                       current month
 //   npm run brand-customer:sync -- --months=3         current + 2 previous months
 //   npm run brand-customer:sync -- --backfill         Jan of last year to now
 //                                                     (day grain: current year only)
 //   npm run brand-customer:sync -- --from=2026-01 --to=2026-08
+//   npm run brand-customer:sync -- --skip-sfa [...]    SAP billing accounts only, not the SFA customer names
 //   npm run brand-customer:sync -- --dry-run [...]    read + build, upload nothing
 //
 // Not scheduled. Run by hand, e.g. inside the sap-sync-worker container.
@@ -33,6 +39,7 @@ import { fetchYtdRaw } from "./queries/ytdRaw";
 import { fetchDailySalesRaw } from "./queries/dailySalesRaw";
 import { loadPrincipals, loadProducts, loadWarehouses } from "./reference/loadFromDb";
 import { buildDailyCustomerSales, buildMonthlyCustomerSales } from "./transform/buildRepSales";
+import { sfaMonthLabel, syncSfaMonth } from "./sfa/syncMonth";
 import { groupByMonth, monthRange, parseMonthArg, planMonthReads, trailingMonths, type TargetMonth } from "./transform/brandCustomerBatches";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -159,6 +166,21 @@ async function main() {
       const message = `${read.start.slice(0, 7)} daily read: ${error instanceof Error ? error.message : String(error)}`;
       failures.push(message);
       console.error(`[brand-customer] FAILED ${message}`);
+    }
+  }
+
+  // The SFA customer names for the same months: one month at a time, a failed month does not stop the others.
+  if (!flag("skip-sfa")) {
+    for (const month of targets.filter((t) => t.year === asOfYear || t.year === asOfYear - 1)) {
+      const sfaMonth = { year: month.year, monthIndex: month.monthIndex };
+      if (new Date(Date.UTC(sfaMonth.year, sfaMonth.monthIndex, 1)) > asOf) continue; // a month that has not started yet
+      try {
+        await syncSfaMonth({ config, appUrl, apiKey: apiKey ?? "", month: sfaMonth, asOf, products, warehouses, dryRun });
+      } catch (error) {
+        const message = `${sfaMonthLabel(sfaMonth)} SFA customer names: ${error instanceof Error ? error.message : String(error)}`;
+        failures.push(message);
+        console.error(`[brand-customer] FAILED ${message}`);
+      }
     }
   }
 
