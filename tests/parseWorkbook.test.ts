@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWorkbook, weightedCoverDays, stockStatus, WorkbookParseError } from "@/lib/parseWorkbook";
+import { parseWorkbook, weightedCoverDays, stockStatus, stockStatusFromCounts, WorkbookParseError } from "@/lib/parseWorkbook";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { buildFixtureWorkbook, monthlySalesRows, brandCustomerRowsNoOptionalCols, brandCustomerRowsMultiDay } from "./fixtures/buildWorkbook";
 
@@ -45,6 +45,24 @@ describe("stock status thresholds", () => {
 
   it("flags OK at or above 14 days cover", () => {
     expect(stockStatus(35, 5000, 1000)).toContain("OK");
+  });
+});
+
+describe("stockStatusFromCounts", () => {
+  it("is No Sales Data when nothing in the group is actively sold, whatever its item count", () => {
+    expect(stockStatusFromCounts(0, 0, 5, 5)).toContain("No Sales Data");
+  });
+
+  it("is Out of Stock if any actively-sold item is, even surrounded by many OK ones", () => {
+    expect(stockStatusFromCounts(1, 0, 50, 0)).toContain("Out of Stock");
+  });
+
+  it("is Running Out only once nothing is actually out of stock", () => {
+    expect(stockStatusFromCounts(0, 3, 10, 0)).toContain("Running Out");
+  });
+
+  it("ignores No Sales Data items when everything else is OK", () => {
+    expect(stockStatusFromCounts(0, 0, 10, 4)).toContain("OK");
   });
 });
 
