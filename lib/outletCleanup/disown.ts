@@ -62,3 +62,17 @@ export function disownBlocker(target: { rows: readonly DisownRow[]; alreadyOpen:
   if (!target.rows.some((r) => r.editable)) return "Not on your team.";
   return null;
 }
+
+/** Outlets nobody owns that wait for an admin to allocate or close: disowned with the owner unknown, or declined by every team named. */
+export interface AdminOpenQueue {
+  total: number;
+  ownerUnknown: number;
+  declinedByAll: number;
+  overdue: number;
+}
+
+export function adminOpenQueue(rows: readonly { status: string; ownerUnknown: boolean; overdue: boolean }[]): AdminOpenQueue {
+  const waiting = rows.filter((r) => r.status === "UNCLAIMED");
+  const ownerUnknown = waiting.filter((r) => r.ownerUnknown).length;
+  return { total: waiting.length, ownerUnknown, declinedByAll: waiting.length - ownerUnknown, overdue: waiting.filter((r) => r.overdue).length };
+}

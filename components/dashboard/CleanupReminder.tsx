@@ -18,11 +18,14 @@ interface Summary {
   rank: number | null;
   rankedTeams: number;
   waitingForMe: number;
+  /** Admins only: the marked-open outlets nobody owns. */
+  adminQueue?: { total: number; ownerUnknown: number; declinedByAll: number; overdue: number };
+  overdueDays?: number;
 }
 
 /** The reminder a team leader or supervisor sees every time the dashboard opens (a login or a refresh): where the cleanup stands and a way in. */
 export function CleanupReminder({ role }: { role: string | null | undefined }) {
-  const eligible = role === "TEAM_LEADER" || role === "SUPERVISOR";
+  const eligible = role === "TEAM_LEADER" || role === "SUPERVISOR" || role === "ADMIN";
   const [summary, setSummary] = useState<Summary | null>(null);
   const [open, setOpen] = useState(false);
   const startRef = useRef<HTMLAnchorElement>(null);
@@ -55,6 +58,32 @@ export function CleanupReminder({ role }: { role: string | null | undefined }) {
   }, [open]);
 
   if (!open || !summary) return null;
+
+  if (summary.adminQueue) {
+    const queue = summary.adminQueue;
+    return (
+      <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}>
+        <div role="dialog" aria-modal="true" aria-labelledby="cleanup-reminder-title" className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-[0_14px_34px_rgba(11,61,53,0.22)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-blue">Outlet cleanup</p>
+          <h2 id="cleanup-reminder-title" className="mt-1 text-xl font-bold text-primary-blue">{queue.total} outlet{queue.total === 1 ? "" : "s"} need{queue.total === 1 ? "s" : ""} an owner</h2>
+          <p className="mt-2 text-sm text-muted-strong">Teams disowned these outlets and nobody has taken them. Allocate each to a team leader, or close it with a note.</p>
+          <ul className="mt-3 flex flex-col gap-1 text-sm text-muted-strong">
+            {queue.ownerUnknown > 0 ? <li>{queue.ownerUnknown.toLocaleString()} disowned with the owner unknown</li> : null}
+            {queue.declinedByAll > 0 ? <li>{queue.declinedByAll.toLocaleString()} declined by every team named</li> : null}
+            {queue.overdue > 0 ? <li className="font-semibold text-brand-orange">{queue.overdue.toLocaleString()} waiting more than {summary.overdueDays ?? 14} days</li> : null}
+          </ul>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link ref={startRef} href="/outlet-cleanup?section=open" onClick={() => setOpen(false)} className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2 text-sm font-semibold text-white hover:shadow-cyan-glow">
+              Allocate them
+            </Link>
+            <button type="button" onClick={() => setOpen(false)} className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-primary-blue hover:bg-accent-blue-soft">
+              Remind me later
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const toDo = Math.max(0, summary.outlets - summary.reviewed);
   const month = new Date(`${summary.period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long" });
   const onTrack = summary.pctReviewed >= summary.targetPct;
