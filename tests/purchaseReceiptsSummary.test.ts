@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPurchaseSummary, monthsWithoutData, type ReceiptLine } from "../lib/purchaseReceipts/summary";
+import { buildPurchaseSummary, matchesPrincipalFilter, monthsWithoutData, type ReceiptLine } from "../lib/purchaseReceipts/summary";
 
 const line = (over: Partial<ReceiptLine>): ReceiptLine => ({
   year: 2026,
@@ -73,6 +73,17 @@ describe("the Purchases summary", () => {
     const withSecondLine = buildPurchaseSummary([...lines, line({ docEntry: 1, itemCode: "M3", value: 1, cases: 0, qty: 1 })], OCT, null);
     expect(withSecondLine.byPrincipal.find((p) => p.key === "Mars-Nairobi")?.docs).toBe(summary.byPrincipal.find((p) => p.key === "Mars-Nairobi")?.docs);
     expect(summary.totals.suppliers).toBe(3);
+  });
+
+  it("selects exactly the Principal-Location the Reports page picks, and a bare brand key selects the brand", () => {
+    const nyeri = buildPurchaseSummary(lines, OCT, "EABL-Nyeri");
+    expect(nyeri.byPrincipal.map((p) => p.key)).toEqual(["EABL-Nyeri"]);
+    expect(nyeri.totals.net).toBe(900_000);
+    expect(buildPurchaseSummary(lines, OCT, "Mars-Nairobi").totals.net).toBe(500_000 + 300_000 - 50_000 - 5_000 + 20_000);
+    expect(buildPurchaseSummary(lines, OCT, "eabl").byPrincipal.map((p) => p.key)).toEqual(["EABL-Nyeri", "EABL-Nyahururu"]);
+    expect(matchesPrincipalFilter("EABL-Nyeri", "eabl-nyeri")).toBe(true);
+    expect(matchesPrincipalFilter("EABL-Nyeri", null)).toBe(true);
+    expect(matchesPrincipalFilter("EABL-Nyeri", "Mars-Nairobi")).toBe(false);
   });
 
   it("filters by the dashboard's brand key", () => {

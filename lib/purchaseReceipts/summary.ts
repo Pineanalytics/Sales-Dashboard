@@ -85,6 +85,17 @@ export interface PurchaseSummary {
   noPackSize: { lines: number; items: number };
 }
 
+/**
+ * Whether a line belongs to the principal the Reports page picked. The picker offers Principal-Location names ("Mars-Nairobi", "EABL-Nyeri"), which select exactly that principal;
+ * a bare brand key ("eabl") selects the brand across its locations.
+ */
+export function matchesPrincipalFilter(principal: string, filter: string | null): boolean {
+  if (!filter) return true;
+  const wanted = filter.trim();
+  if (wanted.includes("-")) return principal.trim().toLowerCase() === wanted.toLowerCase();
+  return normalizePrincipalKey(principal) === normalizePrincipalKey(wanted);
+}
+
 const brandOf = (principal: string) => principal.split("-")[0].trim() || principal;
 
 interface Bucket<T extends object> {
@@ -111,10 +122,10 @@ function bucketize<T extends object>(lines: ReceiptLine[], keyOf: (l: ReceiptLin
 const byNetDesc = <T extends { net: number }>(a: T, b: T) => b.net - a.net;
 const monthKey = (m: MonthRef) => `${m.year}|${m.monthIndex}`;
 
-/** `principalKey` is the dashboard's brand key ("eabl"); null means every principal. Lines outside `months` are ignored. */
+/** `principalKey` is the Reports page's principal choice (see matchesPrincipalFilter); null means every principal. Lines outside `months` are ignored. */
 export function buildPurchaseSummary(lines: ReceiptLine[], months: MonthRef[], principalKey: string | null): PurchaseSummary {
   const inScope = new Set(months.map(monthKey));
-  const wanted = lines.filter((l) => inScope.has(monthKey(l)) && (!principalKey || normalizePrincipalKey(l.principal) === principalKey));
+  const wanted = lines.filter((l) => inScope.has(monthKey(l)) && matchesPrincipalFilter(l.principal, principalKey));
   const goods = wanted.filter((l) => l.stockClass === "GOODS");
   const empties = wanted.filter((l) => l.stockClass === "EMPTIES");
 
