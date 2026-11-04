@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { OutletSource } from "@/lib/outletUniverse/normalize";
 import { inActorScope } from "./access";
-import { loadOutletDetail, loadRepOptions, loadTeamLeaderOptions } from "./data";
+import { loadDisownTargets, loadOutletDetail, loadRepOptions, loadTeamLeaderOptions, type DisownTarget } from "./data";
+import { describeDisownedRows, disownBlocker, filingTeamLeader, MAX_BULK_DISOWN, planDisown, type DisownPlan, type DisownRequest } from "./disown";
 import { isPeriod } from "./progress";
 import { checkGeoTag, cleanDraftInput, cleanVisitDays, planIdentification, type IdentificationRequest } from "./validate";
 import { IDENTIFICATION_FIELDS, type CleanupActor, type IdentificationField, type LockableField, type OutletDetail, type RepDecision } from "./types";
@@ -37,9 +38,7 @@ async function editableDetail(actor: CleanupActor, source: OutletSource, outletK
 
 /** The team leader an entry is filed under: the actor's own team for a team leader, otherwise the first team that sells the outlet. */
 function entryTeamLeader(actor: CleanupActor, detail: OutletDetail): string | null {
-  if (actor.role === "TEAM_LEADER") return actor.teamLeaders?.[0] ?? null;
-  const row = detail.reps.find((r) => r.editable && r.teamLeader);
-  return row?.teamLeader ?? actor.displayName;
+  return filingTeamLeader(actor, detail.reps.map((r) => ({ principal: r.principal, repName: r.rep, teamLeader: r.teamLeader, editable: r.editable })));
 }
 
 const unionLocks = (existing: readonly string[], add: readonly string[]) => [...new Set([...existing, ...add])] as LockableField[];
@@ -267,36 +266,84 @@ export async function decideDuplicate(actor: CleanupActor, source: OutletSource,
   });
 }
 
-/** Disowns an outlet: it goes to the marked-open list with the possible owners from other teams, who then claim or decline it. */
-export async function disownOutlet(actor: CleanupActor, source: OutletSource, outletKey: string, request: { reason: string; candidates: string[] }) {
-  const detail = await editableDetail(actor, source, outletKey);
-  const reason = request.reason.trim();
-  if (reason.length < 5) throw new CleanupError("Say why the outlet is being disowned.", 400, [{ field: "reason", message: "Give a short reason." }]);
-  const allowed = new Map(detail.teamLeaderOptions.map((n) => [n.toLowerCase(), n]));
-  const candidates = [...new Set(request.candidates.map((c) => allowed.get(c.trim().toLowerCase())).filter((c): c is string => Boolean(c)))];
-  if (candidates.length === 0) throw new CleanupError("Name at least one possible owner from another team before disowning.", 400, [{ field: "candidates", message: "Choose one or more team leaders from other teams." }]);
-  const principals = [...new Set(detail.reps.map((r) => r.principal))].join(", ");
-  const previousReps = detail.reps.filter((r) => r.rep).map((r) => `${r.principal}: ${r.rep}`).join("; ") || null;
-  return prisma.$transaction(async (tx) => {
-    const open = await tx.markedOpenOutlet.create({
-      data: {
-        source,
-        outletKey,
-        outletName: detail.outletName,
-        principals,
-        territory: detail.verified.territory ?? detail.current.territory,
-        region: detail.verified.region ?? detail.current.region,
-        previousTeamLeader: entryTeamLeader(actor, detail),
-        previousReps,
-        reason: reason.slice(0, 300),
-        markedBy: actor.email,
-        candidates: { create: candidates.map((teamLeader) => ({ teamLeader })) },
-      },
-      include: { candidates: true },
-    });
-    await writeLog(tx, actor, source, outletKey, "DISOWN", { reason, candidates });
-    return open;
+interface DisownFiling {
+  source: OutletSource;
+  outletKey: string;
+  outletName: string;
+  principals: string;
+  territory: string | null;
+  region: string | null;
+  previousTeamLeader: string | null;
+  previousReps: string | null;
+}
+
+/** Files one outlet on the marked-open list. With named owners it waits for their answers (OPEN); with the owner unknown there is nobody to ask, so it is UNCLAIMED and an admin allocates it. */
+async function fileMarkedOpen(tx: Tx, actor: CleanupActor, filing: DisownFiling, plan: Extract<DisownPlan, { ok: true }>) {
+  const open = await tx.markedOpenOutlet.create({
+    data: {
+      ...filing,
+      reason: plan.reason.slice(0, 300),
+      markedBy: actor.email,
+      status: plan.ownerUnknown ? "UNCLAIMED" : "OPEN",
+      candidates: { create: plan.candidates.map((teamLeader) => ({ teamLeader })) },
+    },
+    include: { candidates: true },
   });
+  await writeLog(tx, actor, filing.source, filing.outletKey, "DISOWN", { reason: plan.reason, candidates: plan.candidates, ownerUnknown: plan.ownerUnknown });
+  return open;
+}
+
+const planOrThrow = (request: DisownRequest, options: readonly string[]) => {
+  const plan = planDisown(request, options);
+  if (!plan.ok) throw new CleanupError(plan.message, 400, plan.fields);
+  return plan;
+};
+
+/** Disowns an outlet: it goes to the marked-open list with the possible owners from other teams, who then claim or decline it, or with the owner declared unknown for an admin to allocate. */
+export async function disownOutlet(actor: CleanupActor, source: OutletSource, outletKey: string, request: DisownRequest) {
+  const detail = await editableDetail(actor, source, outletKey);
+  const plan = planOrThrow(request, detail.teamLeaderOptions);
+  const rows = detail.reps.map((r) => ({ principal: r.principal, repName: r.rep, teamLeader: r.teamLeader, editable: r.editable }));
+  const { principals, previousReps } = describeDisownedRows(rows);
+  return prisma.$transaction((tx) =>
+    fileMarkedOpen(tx, actor, { source, outletKey, outletName: detail.outletName, principals, territory: detail.verified.territory ?? detail.current.territory, region: detail.verified.region ?? detail.current.region, previousTeamLeader: entryTeamLeader(actor, detail), previousReps }, plan)
+  );
+}
+
+/**
+ * Disowns many outlets with one reason and one answer to "who may own them" (named team leaders, or the owner unknown). Outlets that cannot be disowned (not the person's, already marked
+ * open) are skipped and reported; the rest are filed together, so a failure leaves none half-done.
+ */
+export async function disownOutlets(actor: CleanupActor, items: { source: OutletSource; outletKey: string }[], request: DisownRequest) {
+  if (!actor.canReview) throw new CleanupError("You cannot edit these outlets.", 403);
+  const unique = [...new Map(items.map((i) => [`${i.source}|${i.outletKey}`, i])).values()];
+  if (unique.length === 0) throw new CleanupError("Choose at least one outlet.", 400);
+  if (unique.length > MAX_BULK_DISOWN) throw new CleanupError(`Disown at most ${MAX_BULK_DISOWN} outlets at a time.`, 400);
+  const options = (await loadTeamLeaderOptions()).filter((n) => !actor.teamLeaders?.some((mine) => mine.toLowerCase() === n.toLowerCase()));
+  const plan = planOrThrow(request, options);
+
+  const targets = await loadDisownTargets(actor, unique);
+  const skipped: { source: OutletSource; outletKey: string; outletName: string; reason: string }[] = [];
+  const eligible: DisownTarget[] = [];
+  for (const item of unique) {
+    const target = targets.get(`${item.source}|${item.outletKey}`);
+    const blocker = disownBlocker(target);
+    if (blocker || !target) skipped.push({ ...item, outletName: target?.outletName ?? item.outletKey, reason: blocker ?? "Not one of your outlets." });
+    else eligible.push(target);
+  }
+  if (eligible.length === 0) {
+    throw new CleanupError("None of the chosen outlets can be disowned.", 409, skipped.slice(0, 10).map((s) => ({ field: s.outletKey, message: `${s.outletName}: ${s.reason}` })));
+  }
+  await prisma.$transaction(
+    async (tx) => {
+      for (const target of eligible) {
+        const { principals, previousReps } = describeDisownedRows(target.rows);
+        await fileMarkedOpen(tx, actor, { source: target.source, outletKey: target.outletKey, outletName: target.outletName, principals, territory: target.territory, region: target.region, previousTeamLeader: filingTeamLeader(actor, target.rows), previousReps }, plan);
+      }
+    },
+    { timeout: 60_000 }
+  );
+  return { count: eligible.length, skipped, ownerUnknown: plan.ownerUnknown };
 }
 
 /** A named team leader claims a marked-open outlet or declines it. */

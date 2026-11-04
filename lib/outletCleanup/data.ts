@@ -9,6 +9,7 @@ import { cleanName } from "@/lib/universeAnalysis/dedup";
 import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
 import { inActorScope } from "./access";
 import { activeCutoffDate, outletActivity } from "./activity";
+import type { DisownRow } from "./disown";
 import { OFF_ROSTER_REP } from "./repFilter";
 import { loadRouting } from "./routingData";
 import type { ReportRow } from "./reportExport";
@@ -350,6 +351,64 @@ export async function loadRepOptions(principals: string[]): Promise<Record<strin
       .filter((r) => r.absolutePrincipal.toLowerCase() === principal.toLowerCase())
       .map((r) => ({ code: r.employeeCode, name: r.pineName, teamLeader: r.teamLeader }));
   }
+  return out;
+}
+
+/** Every outlet key the filters match (not counting outlets already marked open), in list order, for selecting more than one page of the list. Capped at `max`; `total` is the full count. */
+export async function listQueueKeys(actor: CleanupActor, filters: QueueFilters, max: number): Promise<{ keys: { source: OutletSource; outletKey: string }[]; total: number }> {
+  const where = Prisma.sql`${await queueWhere(actor, filters)} AND state <> 'DISOWNED'`;
+  const base = queueBase(actor);
+  const [rows, [count]] = await Promise.all([
+    prisma.$queryRaw<{ source: string; outletKey: string }[]>(Prisma.sql`
+      ${base}
+      SELECT source, "outletKey" FROM q WHERE ${where}
+      ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
+      LIMIT ${max}
+    `),
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${where}`),
+  ]);
+  return { keys: rows.map((r) => ({ source: r.source as OutletSource, outletKey: r.outletKey })), total: Number(count?.total ?? 0) };
+}
+
+export interface DisownTarget {
+  source: OutletSource;
+  outletKey: string;
+  outletName: string;
+  region: string | null;
+  territory: string | null;
+  rows: DisownRow[];
+  /** Already on the marked-open list and unsettled. */
+  alreadyOpen: boolean;
+}
+
+/** What disowning needs to know about many outlets at once, in three queries: the universe rows, what the team has verified, and any open record. Outlets outside the person's scope are left out. */
+export async function loadDisownTargets(actor: CleanupActor, items: { source: OutletSource; outletKey: string }[]): Promise<Map<string, DisownTarget>> {
+  const out = new Map<string, DisownTarget>();
+  if (items.length === 0) return out;
+  const pairs = Prisma.join(items.map((i) => Prisma.sql`(${i.source}, ${i.outletKey})`));
+  const [universe, entries, open] = await Promise.all([
+    prisma.$queryRaw<{ source: string; outletKey: string; principal: string; outletName: string; region: string | null; territory: string | null; territoryClean: string | null; repName: string | null; teamLeader: string | null }[]>(Prisma.sql`
+      SELECT source, "outletKey", principal, "outletName", region, territory, "territoryClean", "repName", "teamLeader"
+      FROM "OutletUniverse" WHERE (source, "outletKey") IN (${pairs}) ORDER BY source, "outletKey", principal
+    `),
+    prisma.outletCleanupEntry.findMany({ where: { OR: items.map((i) => ({ source: i.source, outletKey: i.outletKey })) }, select: { source: true, outletKey: true, region: true, territory: true } }),
+    prisma.markedOpenOutlet.findMany({ where: { status: { in: ["OPEN", "UNCLAIMED"] }, OR: items.map((i) => ({ source: i.source, outletKey: i.outletKey })) }, select: { source: true, outletKey: true } }),
+  ]);
+  const verified = new Map(entries.map((e) => [`${e.source}|${e.outletKey}`, e]));
+  const opened = new Set(open.map((o) => `${o.source}|${o.outletKey}`));
+  for (const r of universe) {
+    const key = `${r.source}|${r.outletKey}`;
+    const row: DisownRow = { principal: r.principal, repName: r.repName, teamLeader: r.teamLeader, editable: actor.teamLeaders === null || inActorScope(actor, r.teamLeader) };
+    const have = out.get(key);
+    if (have) {
+      have.rows.push(row);
+      continue;
+    }
+    const entry = verified.get(key);
+    out.set(key, { source: r.source as OutletSource, outletKey: r.outletKey, outletName: r.outletName, region: entry?.region ?? r.region, territory: entry?.territory ?? r.territoryClean ?? r.territory, rows: [row], alreadyOpen: opened.has(key) });
+  }
+  // The same scope rule as the outlet form: an outlet none of whose rows is on the person's teams is not theirs to see.
+  for (const [key, target] of out) if (actor.teamLeaders !== null && !target.rows.some((r) => r.editable)) out.delete(key);
   return out;
 }
 

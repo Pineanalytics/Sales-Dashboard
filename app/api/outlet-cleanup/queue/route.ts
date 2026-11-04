@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveCleanupActor } from "@/lib/outletCleanup/access";
-import { listQueue, loadCleanupOptions, parseQueueFilters } from "@/lib/outletCleanup/data";
+import { MAX_BULK_DISOWN } from "@/lib/outletCleanup/disown";
+import { listQueue, listQueueKeys, loadCleanupOptions, parseQueueFilters } from "@/lib/outletCleanup/data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** The outlets the signed-in team leader, supervisor or admin works on, with what they have verified laid over the universe's values. */
+/**
+ * The outlets the signed-in team leader, supervisor or admin works on, with what they have verified laid over the universe's values.
+ * With `keys=1` it returns instead the keys of every outlet the filters match (up to the most one bulk disown takes), for selecting beyond the page on screen.
+ */
 export async function GET(req: NextRequest) {
   const access = await resolveCleanupActor();
   if (!access.ok) return NextResponse.json({ error: access.status === 401 ? "Sign in required." : "The outlet cleanup is for team leaders and supervisors." }, { status: access.status });
   try {
     const params = req.nextUrl.searchParams;
+    if (params.get("keys") === "1") {
+      const found = await listQueueKeys(access.actor, parseQueueFilters(params), MAX_BULK_DISOWN);
+      return NextResponse.json({ ...found, limit: MAX_BULK_DISOWN }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
     const [queue, options] = await Promise.all([listQueue(access.actor, parseQueueFilters(params), page), loadCleanupOptions()]);
     return NextResponse.json({ ...queue, options, actor: { role: access.actor.role, isAdmin: access.actor.isAdmin, name: access.actor.displayName } }, { headers: { "Cache-Control": "private, no-store" } });

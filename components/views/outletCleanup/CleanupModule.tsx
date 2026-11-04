@@ -9,6 +9,7 @@ import { OUTLET_SOURCE_LABELS, type OutletSource } from "@/lib/outletUniverse/no
 import { OFF_ROSTER_REP } from "@/lib/outletCleanup/repFilter";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
 import { REVIEW_STATE_LABELS, type CleanupOptions, type OutletActivity, type QueueFilterOptions, type QueueRow, type ReviewState } from "@/lib/outletCleanup/types";
+import { BulkDisown, type BulkDisownResult, type SelectedOutlet } from "./BulkDisown";
 import { OpenOutlets } from "./OpenOutlets";
 import { OutletPanel } from "./OutletPanel";
 import { ProgressDashboard } from "./ProgressDashboard";
@@ -79,6 +80,10 @@ export function CleanupModule() {
   const [tick, setTick] = useState(0);
   const [open, setOpen] = useState<{ source: string; outletKey: string } | null>(null);
   const [reporting, setReporting] = useState(false);
+  // Outlets ticked for a bulk disown (only while one rep's outlets are on screen), kept across pages; cleared when the rep changes.
+  const [selected, setSelected] = useState<Map<string, SelectedOutlet>>(new Map());
+  const [selecting, setSelecting] = useState(false);
+  const [disownNotice, setDisownNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -134,6 +139,55 @@ export function CleanupModule() {
   }, [state, activity, page, query, rep, territory, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  // The ticks belong to the rep on screen, so a different rep starts a fresh selection.
+  const changeRep = (next: string) => {
+    setRep(next);
+    setSelected(new Map());
+    setPage(1);
+  };
+  const canBulk = rep !== "" && payload !== null && payload.actor.role !== "HOD" && payload.actor.role !== "DIRECTOR";
+  const rowKey = (row: { source: string; outletKey: string }) => `${row.source}|${row.outletKey}`;
+  const selectable = (payload?.rows ?? []).filter((row) => row.state !== "DISOWNED");
+  const pageSelected = selectable.length > 0 && selectable.every((row) => selected.has(rowKey(row)));
+  const toggleRow = (row: SelectedOutlet) =>
+    setSelected((all) => {
+      const next = new Map(all);
+      if (next.has(rowKey(row))) next.delete(rowKey(row));
+      else next.set(rowKey(row), { source: row.source, outletKey: row.outletKey });
+      return next;
+    });
+  const togglePage = () =>
+    setSelected((all) => {
+      const next = new Map(all);
+      for (const row of selectable) {
+        if (pageSelected) next.delete(rowKey(row));
+        else next.set(rowKey(row), { source: row.source, outletKey: row.outletKey });
+      }
+      return next;
+    });
+  // Every outlet the current filters match, not just the page on screen.
+  const selectAllMatching = async () => {
+    const params = new URLSearchParams({ state, keys: "1" });
+    if (query) params.set("q", query);
+    if (rep) params.set("rep", rep);
+    if (territory) params.set("territory", territory);
+    if (activity !== "all") params.set("activity", activity);
+    try {
+      const response = await fetch(`/api/outlet-cleanup/queue?${params.toString()}`, { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Failed to list the outlets.");
+      setSelected(new Map((body.keys as SelectedOutlet[]).map((k) => [rowKey(k), k])));
+      setDisownNotice(body.total > body.keys.length ? `Chosen the first ${body.keys.length} of ${body.total} matching outlets, the most one bulk disown takes. Narrow the list (territory, search) to reach the rest.` : null);
+    } catch (error) {
+      setDisownNotice((error as Error).message);
+    }
+  };
+  const onDisowned = (result: BulkDisownResult) => {
+    setSelected(new Map());
+    const skipped = result.skipped.length > 0 ? ` ${result.skipped.length} skipped: ${result.skipped.slice(0, 5).map((s) => `${s.outletName} (${s.reason.replace(/\.$/, "").toLowerCase()})`).join("; ")}${result.skipped.length > 5 ? "…" : ""}.` : "";
+    setDisownNotice(`${result.count} outlet${result.count === 1 ? "" : "s"} marked open${result.ownerUnknown ? " with the owner unknown; an admin will allocate them" : ""}.${skipped}`);
+    refresh();
+  };
   // The chosen value stays on its list even when the other filter has narrowed it away, so the control never shows a value it cannot display.
   const withChoice = (list: string[], choice: string) => (choice && !list.includes(choice) ? [choice, ...list] : list);
 
@@ -214,7 +268,7 @@ export function CleanupModule() {
                 {a.label}
               </button>
             ))}
-            <select aria-label="Filter by rep" value={rep} onChange={(e) => { setRep(e.target.value); setPage(1); }} className={filterSelect}>
+            <select aria-label="Filter by rep" value={rep} onChange={(e) => changeRep(e.target.value)} className={filterSelect}>
               <option value="">All reps</option>
               {filterOptions.offRoster > 0 || rep === OFF_ROSTER_REP ? <option value={OFF_ROSTER_REP}>Rep not on my roster ({formatNumber(filterOptions.offRoster)})</option> : null}
               {filterOptions.reps.map((name) => <option key={name} value={name}>{name}</option>)}
@@ -224,7 +278,7 @@ export function CleanupModule() {
               {withChoice(filterOptions.territories, territory).map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
             {rep || territory ? (
-              <button onClick={() => { setRep(""); setTerritory(""); setPage(1); }} className={pageButton}>Clear rep / territory</button>
+              <button onClick={() => { changeRep(""); setTerritory(""); }} className={pageButton}>Clear rep / territory</button>
             ) : null}
             <button onClick={() => setReporting(!reporting)} aria-pressed={reporting} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${reporting ? "border-primary-blue bg-primary-blue text-white" : "border-primary-blue text-primary-blue hover:bg-accent-blue-soft"}`}>
               {reporting ? "Hide report extract" : "Report extract"}
@@ -234,6 +288,22 @@ export function CleanupModule() {
 
           {reporting ? <ReportExtract initialRep={rep} initialTerritory={territory} /> : null}
 
+          {canBulk ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+              <button onClick={() => setSelecting(!selecting)} aria-pressed={selecting} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${selecting ? "border-primary-blue bg-primary-blue text-white" : "border-primary-blue text-primary-blue hover:bg-accent-blue-soft"}`}>
+                {selecting ? "Stop choosing outlets" : "Choose outlets to disown"}
+              </button>
+              {selecting ? <span>Tick the outlets that are not yours{rep === OFF_ROSTER_REP ? "" : ` among ${rep}'s`}, then disown them together.</span> : null}
+              {selecting && payload && payload.total > selectable.length ? <button onClick={selectAllMatching} className={pageButton}>Choose all {formatNumber(payload.total)} matching</button> : null}
+            </div>
+          ) : null}
+          {disownNotice ? (
+            <p role="status" className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm text-muted-strong">
+              <span>{disownNotice}</span>
+              <button onClick={() => setDisownNotice(null)} className="text-xs font-semibold text-primary-blue hover:underline">Dismiss</button>
+            </p>
+          ) : null}
+
           {status === "loading" || !payload ? (
             <p className="mt-4 text-sm text-muted">Loading…</p>
           ) : (
@@ -241,6 +311,7 @@ export function CleanupModule() {
               <div className="mt-4">
                 <TableWrap>
                   <Thead>
+                    {canBulk && selecting ? <Th><input type="checkbox" aria-label="Choose every outlet on this page" checked={pageSelected} disabled={selectable.length === 0} onChange={togglePage} /></Th> : null}
                     <Th>Outlet</Th>
                     <Th>System</Th>
                     <Th>Principal(s)</Th>
@@ -257,6 +328,11 @@ export function CleanupModule() {
                   <tbody>
                     {payload.rows.map((row) => (
                       <tr key={`${row.source}|${row.outletKey}`}>
+                        {canBulk && selecting ? (
+                          <Td>
+                            <input type="checkbox" aria-label={`Choose ${row.outletName}`} checked={selected.has(rowKey(row))} disabled={row.state === "DISOWNED"} onChange={() => toggleRow(row)} title={row.state === "DISOWNED" ? "Already marked open" : undefined} />
+                          </Td>
+                        ) : null}
                         <Td title={`${row.outletName} (${row.outletKey})`}>{row.outletName}</Td>
                         <Td>{OUTLET_SOURCE_LABELS[row.source as OutletSource] ?? row.source}</Td>
                         <Td title={row.principals}>{row.principals}</Td>
@@ -279,7 +355,7 @@ export function CleanupModule() {
                     ))}
                     {payload.rows.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
+                        <td colSpan={canBulk && selecting ? 13 : 12} className="px-3 py-8 text-center text-muted">Nothing here. Try another filter.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -292,6 +368,7 @@ export function CleanupModule() {
                   {payload.page < payload.pageCount ? <button onClick={() => setPage(payload.page + 1)} className={pageButton}>Next →</button> : <span className={pageDisabled}>Next →</span>}
                 </div>
               </div>
+              {canBulk && selecting && selected.size > 0 ? <BulkDisown selected={[...selected.values()]} repName={rep === OFF_ROSTER_REP ? "" : rep} onClear={() => setSelected(new Map())} onDone={onDisowned} /> : null}
             </>
           )}
         </SectionCard>
