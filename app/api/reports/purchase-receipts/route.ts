@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   const months = periods(request);
   if (months.length === 0) return NextResponse.json({ error: "Provide a selected period." }, { status: 400 });
   if (months.length > 24) return NextResponse.json({ error: "Choose at most 24 months." }, { status: 400 });
-  const principalKey = (request.nextUrl.searchParams.get("principal") ?? "").trim().toLowerCase() || null;
+  const principalKey = (request.nextUrl.searchParams.get("principal") ?? "").trim().slice(0, 80) || null;
 
   try {
     const report = await buildPurchaseReport(months, principalKey);

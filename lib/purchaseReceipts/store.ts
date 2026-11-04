@@ -1,7 +1,6 @@
 // Reads the stock-receipt lines the SAP sync stored (PurchaseReceiptLine) for the months of a period.
 import { prisma } from "@/lib/db";
-import { normalizePrincipalKey } from "@/lib/normalize";
-import { buildPurchaseSummary, monthsWithoutData, type MonthRef, type PurchaseSummary, type ReceiptLine } from "./summary";
+import { buildPurchaseSummary, matchesPrincipalFilter, monthsWithoutData, type MonthRef, type PurchaseSummary, type ReceiptLine } from "./summary";
 import type { ReceiptDocType, StockClass } from "./types";
 
 export interface PurchaseReport {
@@ -54,7 +53,7 @@ export async function loadReceiptLines(months: MonthRef[]): Promise<{ lines: Rec
 export async function buildPurchaseReport(months: MonthRef[], principalKey: string | null): Promise<PurchaseReport> {
   const { lines, syncedAt } = await loadReceiptLines(months);
   // "Missing" is judged on every principal's lines, not the filtered ones: a principal with no receipts in a loaded month is not a missing month.
-  const wanted = principalKey ? lines.filter((l) => normalizePrincipalKey(l.principal) === principalKey) : lines;
+  const wanted = principalKey ? lines.filter((l) => matchesPrincipalFilter(l.principal, principalKey)) : lines;
   return {
     summary: buildPurchaseSummary(wanted, months, principalKey),
     missingMonths: monthsWithoutData(lines, months),
