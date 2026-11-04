@@ -64,8 +64,8 @@ const pageButton = "rounded-full border border-border px-3 py-1.5 text-xs font-s
 const pageDisabled = "rounded-full border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted/60";
 
 /** The Cleanup tab of Active Outlets: the outlets the signed-in person works on, with the form to verify one. Edits go to the cleanup tables, not the universe. */
-export function CleanupModule() {
-  const [section, setSection] = useState<Section>("progress");
+export function CleanupModule({ initialSection }: { initialSection?: Section }) {
+  const [section, setSection] = useState<Section>(initialSection ?? "progress");
   const [state, setState] = useState("todo");
   const [activity, setActivity] = useState<"all" | "active" | "dormant">("active");
   const [page, setPage] = useState(1);
@@ -84,6 +84,8 @@ export function CleanupModule() {
   const [selected, setSelected] = useState<Map<string, SelectedOutlet>>(new Map());
   const [selecting, setSelecting] = useState(false);
   const [disownNotice, setDisownNotice] = useState<string | null>(null);
+  // For an admin: the marked-open outlets nobody owns, shown as a count on the tab.
+  const [toAllocate, setToAllocate] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -139,6 +141,21 @@ export function CleanupModule() {
   }, [state, activity, page, query, rep, territory, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const isAdmin = payload?.actor.isAdmin ?? false;
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    fetch("/api/outlet-cleanup/summary", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { adminQueue?: { total: number } } | null) => {
+        if (!cancelled) setToAllocate(body?.adminQueue?.total ?? 0);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, tick, section]);
   // The ticks belong to the rep on screen, so a different rep starts a fresh selection.
   const changeRep = (next: string) => {
     setRep(next);
@@ -211,6 +228,7 @@ export function CleanupModule() {
         {SECTIONS.filter((item) => (item.value !== "targets" && item.value !== "review") || payload?.actor.isAdmin).map((item) => (
           <button key={item.value} role="tab" aria-selected={section === item.value} onClick={() => setSection(item.value)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${section === item.value ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"}`}>
             {item.label}
+            {item.value === "open" && toAllocate > 0 ? <span className="ml-1.5 rounded-full bg-brand-orange px-1.5 py-0.5 text-[10px] font-bold text-white" title={`${toAllocate} outlet${toAllocate === 1 ? "" : "s"} waiting for you to allocate`}>{toAllocate}</span> : null}
           </button>
         ))}
       </div>

@@ -56,9 +56,17 @@ export function OpenOutlets({ onChanged }: { onChanged: () => void }) {
   if (!data) return <SectionCard title="Marked open outlets"><p className="text-sm text-muted">Loading…</p></SectionCard>;
 
   const waiting = data.rows.filter((r) => r.canRespondAs.length > 0);
-  const rest = data.rows.filter((r) => r.canRespondAs.length === 0);
+  // For an admin, the outlets nobody owns come first: owner unknown, or declined by every team named.
+  const toAllocate = data.isAdmin ? data.rows.filter((r) => r.status === "UNCLAIMED" && r.canRespondAs.length === 0) : [];
+  const rest = data.rows.filter((r) => r.canRespondAs.length === 0 && !toAllocate.includes(r));
   return (
     <div className="flex flex-col gap-6">
+      {toAllocate.length > 0 ? (
+        <SectionCard title={`Waiting for you to allocate or close (${toAllocate.length})`}>
+          <p className="mb-3 text-sm text-muted-strong">Nobody owns these outlets: the team that disowned them did not know the owner, or every team named declined. Allocate each to a team leader, or close it with a note.</p>
+          <div className="flex flex-col gap-3">{toAllocate.map((row) => <OpenCard key={row.id} row={row} data={data} onDone={refresh} />)}</div>
+        </SectionCard>
+      ) : null}
       {waiting.length > 0 ? (
         <SectionCard title={`Waiting for your answer (${waiting.length})`}>
           <p className="mb-3 text-sm text-muted-strong">Another team disowned these outlets and named your team as a possible owner. Claim an outlet that sits in your territory, or decline it. The first claim wins.</p>

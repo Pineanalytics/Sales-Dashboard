@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeDisownedRows, disownBlocker, filingTeamLeader, planDisown, type DisownRow } from "../lib/outletCleanup/disown";
+import { adminOpenQueue, describeDisownedRows, disownBlocker, filingTeamLeader, planDisown, type DisownRow } from "../lib/outletCleanup/disown";
 import type { CleanupActor } from "../lib/outletCleanup/types";
 
 const OTHER_TEAMS = ["Eve Theuri", "John Kamau", "Grace Wanjiru"];
@@ -58,5 +58,18 @@ describe("which outlets can be disowned", () => {
     expect(disownBlocker(undefined)).toBe("Not one of your outlets.");
     expect(disownBlocker({ rows: [row()], alreadyOpen: true })).toBe("Already marked open.");
     expect(disownBlocker({ rows: [row({ editable: false })], alreadyOpen: false })).toBe("Not on your team.");
+  });
+});
+
+describe("the admin queue of outlets nobody owns", () => {
+  const open = (status: "OPEN" | "CLAIMED" | "UNCLAIMED" | "CLOSED", ownerUnknown: boolean, overdue = false) => ({ status, ownerUnknown, overdue });
+
+  it("counts owner-unknown and declined-by-all outlets together, and ignores ones still with a team or settled", () => {
+    const queue = adminOpenQueue([open("UNCLAIMED", true), open("UNCLAIMED", true, true), open("UNCLAIMED", false), open("OPEN", false, true), open("CLAIMED", false), open("CLOSED", true)]);
+    expect(queue).toEqual({ total: 3, ownerUnknown: 2, declinedByAll: 1, overdue: 1 });
+  });
+
+  it("is empty when nothing waits for an admin", () => {
+    expect(adminOpenQueue([open("OPEN", false)])).toEqual({ total: 0, ownerUnknown: 0, declinedByAll: 0, overdue: 0 });
   });
 });

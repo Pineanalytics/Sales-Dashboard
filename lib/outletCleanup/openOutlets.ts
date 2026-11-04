@@ -1,6 +1,7 @@
 // The Marked open outlets: outlets a team leader disowned, the teams named as possible owners, and what each has answered.
 import { prisma } from "@/lib/db";
 import { inActorScope } from "./access";
+import { adminOpenQueue, type AdminOpenQueue } from "./disown";
 import { OPEN_OUTLET_OVERDUE_DAYS } from "./progress";
 import type { CleanupActor } from "./types";
 
@@ -31,7 +32,7 @@ export interface OpenOutletRow {
 }
 
 /** The open outlets a person should see: an admin (or HOD / Director) all of them; a team leader or supervisor those they disowned or were asked about. */
-export async function listOpenOutlets(actor: CleanupActor): Promise<{ rows: OpenOutletRow[]; waitingForMe: number; overdue: number }> {
+export async function listOpenOutlets(actor: CleanupActor): Promise<{ rows: OpenOutletRow[]; waitingForMe: number; overdue: number; adminQueue: AdminOpenQueue }> {
   const all = await prisma.markedOpenOutlet.findMany({ include: { candidates: true }, orderBy: { markedAt: "desc" }, take: 2000 });
   const now = Date.now();
   const rows: OpenOutletRow[] = [];
@@ -63,5 +64,5 @@ export async function listOpenOutlets(actor: CleanupActor): Promise<{ rows: Open
       canRespondAs,
     });
   }
-  return { rows, waitingForMe: rows.filter((r) => r.canRespondAs.length > 0).length, overdue: rows.filter((r) => r.overdue).length };
+  return { rows, waitingForMe: rows.filter((r) => r.canRespondAs.length > 0).length, overdue: rows.filter((r) => r.overdue).length, adminQueue: adminOpenQueue(rows) };
 }
