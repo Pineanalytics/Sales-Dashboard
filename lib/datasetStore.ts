@@ -3,7 +3,7 @@ import { prisma } from "./db";
 import { normalizePrincipalKey } from "./normalize";
 import { encodeDataset, decodeDataset } from "./snapshotCodec";
 import { CANONICAL_MONTHS } from "./timeIntelligence";
-import { weightedCoverDays, stockStatus } from "./parseWorkbook";
+import { weightedCoverDays, stockStatus, stockStatusFromCounts } from "./parseWorkbook";
 import { withDormantHeldStock } from "./datasetFilters";
 import { resolveCoverThresholds, standardStockFor, type CoverTargetRow } from "./standardStock";
 import { isEmptiesItem, mapSkuBrand, type BrandRule } from "./brandMapping";
@@ -735,7 +735,7 @@ export function stockTotalFromItems(stockItems: StockItem[]): StockTotal {
     runningOutCount,
     okCount,
     noDataCount,
-    action: stockStatus(daysStock, value, rrWeekValue),
+    action: stockStatusFromCounts(outOfStockCount, runningOutCount, stockItems.length, noDataCount),
   };
 }
 

@@ -1,5 +1,5 @@
 import type { Dataset, StockTotal } from "./types";
-import { weightedCoverDays, stockStatus } from "./parseWorkbook";
+import { weightedCoverDays, stockStatusFromCounts } from "./parseWorkbook";
 import { normalizePrincipalKey } from "./normalize";
 import { resolveCoverThresholds, stockVsStandardPct } from "./standardStock";
 
@@ -71,7 +71,9 @@ export function aggregateStockByPrincipal(dataset: Dataset): StockPrincipalRollu
   for (const agg of rollups) {
     const thresholds = resolveCoverThresholds(dataset.stockCoverTargets, agg.key);
     agg.daysStock = weightedCoverDays(agg.value, agg.rrWeekValue);
-    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue, thresholds.reorderDays);
+    // The status shown for the principal is the worst status among its own actively-sold items, not stockStatus()
+    // re-run on the pooled value/run-rate above — see stockStatusFromCounts's own comment for why.
+    agg.action = stockStatusFromCounts(agg.outOfStockCount, agg.runningOutCount, agg.itemCount, agg.noDataCount);
     agg.targetDays = thresholds.targetDays;
     agg.vsStandardPct = stockVsStandardPct(agg.value, agg.standardValue);
   }
@@ -100,7 +102,7 @@ export function sumStockRollups(rollups: StockPrincipalRollup[]): StockTotal {
     total.noDataCount += r.noDataCount;
   }
   total.daysStock = weightedCoverDays(total.value, total.rrWeekValue);
-  total.action = stockStatus(total.daysStock, total.value, total.rrWeekValue);
+  total.action = stockStatusFromCounts(total.outOfStockCount, total.runningOutCount, total.itemCount, total.noDataCount);
   return total;
 }
 
@@ -176,7 +178,7 @@ export function aggregateStockByBrand(dataset: Dataset, principalKey?: string | 
   for (const agg of rollups) {
     const thresholds = resolveCoverThresholds(dataset.stockCoverTargets, agg.principalKey, agg.brand);
     agg.daysStock = weightedCoverDays(agg.value, agg.rrWeekValue);
-    agg.action = stockStatus(agg.daysStock, agg.value, agg.rrWeekValue, thresholds.reorderDays);
+    agg.action = stockStatusFromCounts(agg.outOfStockCount, agg.runningOutCount, agg.itemCount, agg.noDataCount);
     agg.targetDays = thresholds.targetDays;
     agg.vsStandardPct = stockVsStandardPct(agg.value, agg.standardValue);
   }

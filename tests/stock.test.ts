@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateStockByBrand, classifyDormantPrincipals } from "@/lib/stock";
+import { aggregateStockByBrand, aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups } from "@/lib/stock";
 import type { Dataset, MonthlySalesRow, StockItem } from "@/lib/types";
 
 function salesRow(overrides: Partial<MonthlySalesRow>): MonthlySalesRow {
@@ -111,5 +111,48 @@ describe("aggregateStockByBrand", () => {
     });
     const rollups = aggregateStockByBrand(ds, "mars");
     expect(rollups).toEqual([expect.objectContaining({ principalKey: "mars", brand: "Snickers" })]);
+  });
+
+  it("shows a genuinely out-of-stock item even though it's a small share of the brand's pooled value and run rate", () => {
+    // Pooled: 100,000 of stock on 15,000/week run rate is ~47 days of cover - "OK" against the 14-day default.
+    // That blended number hides that one of the two items is completely out of stock.
+    const ds = dataset({
+      stockItems: [
+        stockItem({ principal: "Mars-Nairobi", key: "mars", brand: "Galaxy", item: "Galaxy 1kg", openingValue: 100_000, rrWeekValue: 10_000, action: "🟢 OK" }),
+        stockItem({ principal: "Mars-Nairobi", key: "mars", brand: "Galaxy", item: "Galaxy 2kg", openingValue: 0, rrWeekValue: 5_000, action: "🔴 Out of Stock - To Order" }),
+      ],
+    });
+    const [brand] = aggregateStockByBrand(ds);
+    expect(brand.action).toContain("Out of Stock");
+    expect(brand.outOfStockCount).toBe(1);
+  });
+});
+
+describe("aggregateStockByPrincipal and sumStockRollups", () => {
+  // Same shape as the brand case above: pooled value/run-rate alone would read as a healthy "OK" principal.
+  const items = [
+    stockItem({ principal: "Mars-Nairobi", key: "mars", item: "Galaxy 1kg", openingValue: 100_000, rrWeekValue: 10_000, action: "🟢 OK" }),
+    stockItem({ principal: "Mars-Nairobi", key: "mars", item: "Galaxy 2kg", openingValue: 0, rrWeekValue: 5_000, action: "🔴 Out of Stock - To Order" }),
+  ];
+
+  it("shows the principal's worst-off actively-sold item, not a re-blended pooled average", () => {
+    const [principal] = aggregateStockByPrincipal(dataset({ stockItems: items }));
+    expect(principal.action).toContain("Out of Stock");
+  });
+
+  it("carries the same worst-status rule into the grand total", () => {
+    const rollups = aggregateStockByPrincipal(dataset({ stockItems: items }));
+    expect(sumStockRollups(rollups).action).toContain("Out of Stock");
+  });
+
+  it("only reaches Out of Stock through a real stockout, not just low pooled cover", () => {
+    // Both items individually Running Out (not Out of Stock): the principal must say Running Out, not escalate.
+    const runningOutItems = [
+      stockItem({ principal: "Mars-Nairobi", key: "mars", item: "A", openingValue: 1000, rrWeekValue: 700, action: "🟡 Running Out" }),
+      stockItem({ principal: "Mars-Nairobi", key: "mars", item: "B", openingValue: 200, rrWeekValue: 350, action: "🟡 Running Out" }),
+    ];
+    const [principal] = aggregateStockByPrincipal(dataset({ stockItems: runningOutItems }));
+    expect(principal.action).toContain("Running Out");
+    expect(principal.action).not.toContain("Out of Stock");
   });
 });

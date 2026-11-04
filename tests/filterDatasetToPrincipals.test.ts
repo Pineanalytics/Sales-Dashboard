@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterDatasetToPrincipals } from "../lib/datasetStore";
+import { stockStatus } from "../lib/parseWorkbook";
 import type { Dataset } from "../lib/types";
 
 function baseDataset(): Dataset {
@@ -67,9 +68,11 @@ describe("filterDatasetToPrincipals", () => {
   });
 
   it("labels the rolled-up stock Out of Stock only below 2 days of cover", () => {
+    // The total's status now comes from this one item's own status (stockTotalFromItems), so the item's
+    // action must be the real one its own (daysCover, rrWeekValue) would produce, same as overlayStock sets it.
     const withCover = (daysCover: number, rrWeekValue: number) => {
       const dataset = baseDataset();
-      dataset.stockItems = [{ principal: "Bic-Nairobi", key: "bic", item: "Item A", openingVolume: 10, openingPcs: 100, openingValue: 1000, rrWeekValue, rrWeekVolume: 5, daysCover, action: "" }];
+      dataset.stockItems = [{ principal: "Bic-Nairobi", key: "bic", item: "Item A", openingVolume: 10, openingPcs: 100, openingValue: 1000, rrWeekValue, rrWeekVolume: 5, daysCover, action: stockStatus(daysCover, 1000, rrWeekValue) }];
       return filterDatasetToPrincipals(dataset, new Set(["bic"])).stockTotal;
     };
     // 1,000 of stock at 3,500 a week is 2 days: Running Out, not Out of Stock (it was, below 7 days)
