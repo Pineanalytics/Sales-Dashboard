@@ -2901,3 +2901,37 @@ model CleanupTarget {
 
   @@unique([period, teamLeader])
 }
+
+// Stock receipts from SAP's stock ledger (OINM): goods receipts against purchase orders, returns to suppliers, AP credit memos, direct AP-invoice stock,
+// manual receipts and landed costs. One row per document, item, warehouse and posting date; quantities are in pieces and signed (returns negative),
+// values are KSh excl. VAT. Read by the Purchases report. Additive and independent of the sales tables.
+model PurchaseReceiptLine {
+  id              String   @id @default(cuid())
+  year            Int
+  monthIndex      Int // 0-11
+  docDate         DateTime @db.Date
+  docType         String // GOODS_RECEIPT_PO | GOODS_RETURN | AP_INVOICE | AP_CREDIT | GOODS_RECEIPT_MANUAL | LANDED_COST
+  docEntry        Int
+  docNum          String
+  supplierCode    String
+  supplierName    String
+  itemCode        String
+  itemName        String
+  warehouseCode   String
+  location        String
+  principal       String // Principal-Location key, or "Unallocated"
+  principalSource String // PRODUCT | PREFIX | UNALLOCATED
+  stockClass      String // GOODS | EMPTIES
+  qty             Float
+  cases           Float    @default(0)
+  value           Float
+  syncToken       String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([docType, docEntry, docDate, itemCode, warehouseCode])
+  @@index([year, monthIndex])
+  @@index([principal, year, monthIndex])
+  @@index([supplierCode])
+  @@index([syncToken])
+}

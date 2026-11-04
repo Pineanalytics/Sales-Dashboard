@@ -22,6 +22,7 @@
     "receivables:backfill-ageing": "tsx scripts/db-bridge/receivables/run-backfill-ageing.ts",
     "payables:sync": "tsx scripts/db-bridge/payables/run.ts",
     "sfa-sales:sync": "tsx scripts/db-bridge/sfa-sales-sync.ts",
+    "purchases:sync": "tsx scripts/db-bridge/purchases-sync.ts",
     "brand-customer:sync": "tsx scripts/db-bridge/brand-customer-sync.ts",
     "performance:sync": "tsx scripts/db-bridge/performance-analysis/run.ts",
     "active-outlets:sync": "tsx scripts/db-bridge/active-outlets/run.ts",
