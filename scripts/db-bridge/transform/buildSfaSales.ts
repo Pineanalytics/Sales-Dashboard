@@ -75,8 +75,9 @@ interface ResolvedLinePrincipal {
   source: PrincipalSource;
 }
 
-function resolveLinePrincipal(
-  line: SfaSalesLine,
+/** The principal key of an SAP line: Product Master principal + warehouse location with the pipeline's fixups, else the item-prefix rules, else unallocated. Shared with the stock-receipt report. */
+export function resolveLinePrincipal(
+  line: { itemCode: string; itemName: string; whsCode: string | null },
   productByItemNo: Map<string, ProductRow>,
   warehouseByCode: Map<string, WarehouseRow>
 ): ResolvedLinePrincipal {
