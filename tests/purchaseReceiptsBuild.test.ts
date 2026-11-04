@@ -5,6 +5,7 @@ import type { PurchaseReceiptSapRow } from "../scripts/db-bridge/queries/purchas
 import type { ProductRow } from "../scripts/db-bridge/reference/loadFromDb";
 import type { WarehouseRow } from "../scripts/db-bridge/transform/buildMonthlySales";
 import { buildPurchaseSummary, type ReceiptLine } from "../lib/purchaseReceipts/summary";
+import { buildTrend } from "../lib/purchaseReceipts/trend";
 import { buildPurchaseWorkbook } from "../lib/purchaseReceipts/workbook";
 
 const product = (itemNo: string, principal: string, packSize: number | null): ProductRow => ({ itemNo, packSize, principal, costPrice: null, classification: "", ssuConversion: null });
@@ -83,7 +84,7 @@ describe("the Purchases workbook", () => {
 
   async function open(register = true): Promise<ExcelJS.Workbook> {
     const summary = buildPurchaseSummary(lines, months, null);
-    const buffer = await buildPurchaseWorkbook({ summary, lines: register ? lines : null, missingMonths: [], syncedAt: "2026-11-04T10:00:00.000Z", periodLabel: "Oct 2026", principalLabel: "All principals", generatedAt: new Date("2026-11-04T12:00:00Z") });
+    const buffer = await buildPurchaseWorkbook({ summary, trend: buildTrend(lines, [], months, null), lines: register ? lines : null, missingMonths: [], syncedAt: "2026-11-04T10:00:00.000Z", periodLabel: "Oct 2026", principalLabel: "All principals", generatedAt: new Date("2026-11-04T12:00:00Z") });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
     return wb;
@@ -91,7 +92,7 @@ describe("the Purchases workbook", () => {
 
   it("has a sheet for each roll-up, the month views, the items, the register and the notes", async () => {
     const wb = await open();
-    expect(wb.worksheets.map((w) => w.name)).toEqual(["Summary", "By Principal", "By Brand", "By Supplier", "By Warehouse", "Month on Month", "Totals by Month", "Top Items", "Receipt Register", "Notes"]);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Summary", "Primary vs Secondary", "By Principal", "By Brand", "By Supplier", "By Warehouse", "Month on Month", "Totals by Month", "Top Items", "Receipt Register", "Notes"]);
   });
 
   it("leaves the register out when the selection is too large to list", async () => {

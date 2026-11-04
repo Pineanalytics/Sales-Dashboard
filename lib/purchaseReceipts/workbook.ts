@@ -3,10 +3,14 @@
 import ExcelJS from "exceljs";
 import { FONT, NAVY, setTitle, tableSheet, type Cell, type Column } from "../excelTables";
 import type { MonthRef, PurchaseSummary, ReceiptLine, Row } from "./summary";
+import { addTrendSheet } from "./trendSheet";
+import type { Trend } from "./trend";
 import { DOC_TYPE_LABELS } from "./types";
 
 export interface PurchaseWorkbookInput {
   summary: PurchaseSummary;
+  /** Primary (purchases) against secondary (actual sales) by month. */
+  trend: Trend;
   /** The receipt register; null when the selection was too large to list. */
   lines: ReceiptLine[] | null;
   missingMonths: MonthRef[];
@@ -22,7 +26,7 @@ export const receiptMonthLabel = (m: MonthRef): string => `${MONTH_NAMES[m.month
 const share = (part: number, whole: number): number | null => (whole > 0 ? (part / whole) * 100 : null);
 
 export async function buildPurchaseWorkbook(input: PurchaseWorkbookInput): Promise<Buffer> {
-  const { summary: s, lines, missingMonths, syncedAt, periodLabel, principalLabel, generatedAt } = input;
+  const { summary: s, trend, lines, missingMonths, syncedAt, periodLabel, principalLabel, generatedAt } = input;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Pinefrost Sales Dashboard";
   wb.created = generatedAt;
@@ -119,6 +123,9 @@ export async function buildPurchaseWorkbook(input: PurchaseWorkbookInput): Promi
     ws.getColumn(2).width = 26;
     ws.getColumn(3).width = 90;
   }
+
+  // ---- Primary vs Secondary trend -----------------------------------------------------------------
+  addTrendSheet(wb, trend, sub);
 
   // ---- Roll-ups -----------------------------------------------------------------------------------
   const rollup = (firstHeader: string, extra: Column<Row>[] = []): Column<Row>[] => [
@@ -232,6 +239,7 @@ export async function buildPurchaseWorkbook(input: PurchaseWorkbookInput): Promi
       "Principals are found the way sales are: the Product master's principal and the warehouse's location (with the same fixups), then the item-code rules; anything left is Unallocated and is still counted.",
       "Empties (returnable packaging, held in warehouses named EMPTIES) are excluded from every headline figure and reported on the Summary.",
       "Transfers between our own warehouses and customer returns are not purchases and are not included.",
+      "Primary vs Secondary: primary sales are these purchases (net of returns and credits); secondary sales are the actual monthly sales from the sales actuals (invoices less credit notes, excl. VAT), for the same principals and months, with cases on the same pack sizes.",
     ];
     notes.forEach((text, index) => {
       const cell = ws.getCell(3 + index, 1);

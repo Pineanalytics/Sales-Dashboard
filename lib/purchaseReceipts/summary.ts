@@ -96,7 +96,7 @@ export function matchesPrincipalFilter(principal: string, filter: string | null)
   return normalizePrincipalKey(principal) === normalizePrincipalKey(wanted);
 }
 
-const brandOf = (principal: string) => principal.split("-")[0].trim() || principal;
+export const brandOf = (principal: string) => principal.split("-")[0].trim() || principal;
 
 interface Bucket<T extends object> {
   amounts: Amounts;

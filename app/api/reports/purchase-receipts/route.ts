@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
     const periodLabel = label(request, "label", "Selected period");
     const principalLabel = label(request, "principalLabel", "All principals");
-    const buffer = await buildPurchaseWorkbook({ summary: report.summary, lines: report.lines, missingMonths: report.missingMonths, syncedAt: report.syncedAt, periodLabel, principalLabel, generatedAt: new Date() });
+    const buffer = await buildPurchaseWorkbook({ summary: report.summary, trend: report.trend, lines: report.lines, missingMonths: report.missingMonths, syncedAt: report.syncedAt, periodLabel, principalLabel, generatedAt: new Date() });
     const filename = `purchases-${fileSlug(principalLabel)}-${fileSlug(periodLabel)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
