@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       }
       case "disown": {
         const candidates = Array.isArray(input.candidates) ? input.candidates.slice(0, 30).map((c) => asText(c, 120)) : [];
-        await disownOutlet(actor, source, key, { reason: asText(input.reason, 300), candidates });
+        await disownOutlet(actor, source, key, { reason: asText(input.reason, 300), candidates, ownerUnknown: input.ownerUnknown === true });
         break;
       }
       case "unlock": {

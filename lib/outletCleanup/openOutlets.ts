@@ -22,6 +22,8 @@ export interface OpenOutletRow {
   resolvedBy: string | null;
   resolutionNote: string | null;
   candidates: { teamLeader: string; response: "PENDING" | "CLAIMED" | "DECLINED"; note: string | null }[];
+  /** Disowned with the owner declared unknown: no team was asked, so it waits for an admin to allocate or close it. */
+  ownerUnknown: boolean;
   /** Still unsettled after OPEN_OUTLET_OVERDUE_DAYS: the admin allocates it. */
   overdue: boolean;
   /** The team leaders of the signed-in person's scope who may claim or decline it right now. */
@@ -56,6 +58,7 @@ export async function listOpenOutlets(actor: CleanupActor): Promise<{ rows: Open
       resolvedBy: item.resolvedBy,
       resolutionNote: item.resolutionNote,
       candidates: item.candidates.map((c) => ({ teamLeader: c.teamLeader, response: c.response as "PENDING" | "CLAIMED" | "DECLINED", note: c.note })),
+      ownerUnknown: item.candidates.length === 0,
       overdue: unsettled && now - item.markedAt.getTime() > OPEN_OUTLET_OVERDUE_DAYS * 86_400_000,
       canRespondAs,
     });

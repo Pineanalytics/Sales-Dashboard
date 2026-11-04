@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { OUTLET_SOURCE_LABELS } from "@/lib/outletUniverse/normalize";
 import { matchOption } from "@/lib/outletCleanup/validate";
 import { ACTIVITY_LABELS } from "@/lib/outletCleanup/activity";
+import { DisownForm } from "./DisownForm";
 import { RepRouteRow, type RepRouteEdit } from "./RepRouteRow";
 import { FIELD_LABELS, IDENTIFICATION_FIELDS, type IdentificationField, type OutletDetail } from "@/lib/outletCleanup/types";
 
@@ -270,7 +271,7 @@ export function OutletPanel({ source, outletKey, onClose, onChanged }: { source:
         </div>
       </section>
 
-      {detail.canEdit && detail.state !== "DISOWNED" ? <DisownSection detail={detail} busy={busy} errorFor={errorFor} onDisown={(reason, candidates) => send({ action: "disown", reason, candidates }, "Outlet marked open. The teams you named can now claim it.")} /> : null}
+      {detail.canEdit && detail.state !== "DISOWNED" ? <DisownSection detail={detail} busy={busy} errorFor={errorFor} onDisown={({ reason, candidates, ownerUnknown }) => send({ action: "disown", reason, candidates, ownerUnknown }, ownerUnknown ? "Outlet marked open with the owner unknown. An admin will allocate it." : "Outlet marked open. The teams you named can now claim it.")} /> : null}
 
       {detail.history.length > 0 ? (
         <section className={cardClass}>
@@ -315,12 +316,8 @@ function GeoTagger({ disabled, label, onTag }: { disabled: boolean; label: strin
   );
 }
 
-function DisownSection({ detail, busy, errorFor, onDisown }: { detail: OutletDetail; busy: boolean; errorFor: (field: string) => string | undefined; onDisown: (reason: string, candidates: string[]) => Promise<boolean> }) {
+function DisownSection({ detail, busy, errorFor, onDisown }: { detail: OutletDetail; busy: boolean; errorFor: (field: string) => string | undefined; onDisown: (choice: { reason: string; candidates: string[]; ownerUnknown: boolean }) => Promise<boolean> }) {
   const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [find, setFind] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
-  const shown = detail.teamLeaderOptions.filter((n) => n.toLowerCase().includes(find.trim().toLowerCase())).slice(0, 40);
   return (
     <section className={cardClass}>
       <div className="flex items-center justify-between">
@@ -328,28 +325,15 @@ function DisownSection({ detail, busy, errorFor, onDisown }: { detail: OutletDet
         <button className={ghostButton} onClick={() => setOpen(!open)}>{open ? "Cancel" : "Disown this outlet"}</button>
       </div>
       {open ? (
-        <div className="mt-3 flex flex-col gap-3">
-          <p className="text-xs text-muted">The outlet moves to Marked open outlets. Name the team leaders from other teams who may own it; each can claim or decline it.</p>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Why is it not yours?</span>
-            <textarea className={inputClass} rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
-            {errorFor("reason") ? <span className="text-xs text-accent-red">{errorFor("reason")}</span> : null}
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Possible owners (other teams)</span>
-            <input className={inputClass} placeholder="Find a team leader" value={find} onChange={(e) => setFind(e.target.value)} />
-          </label>
-          <div className="flex max-h-40 flex-wrap gap-2 overflow-auto">
-            {shown.map((name) => (
-              <button key={name} type="button" aria-pressed={picked.includes(name)} onClick={() => setPicked(picked.includes(name) ? picked.filter((p) => p !== name) : [...picked, name])} className={`rounded-full border px-3 py-1 text-xs font-semibold ${picked.includes(name) ? "border-primary-blue bg-primary-blue text-white" : "border-border text-muted-strong hover:bg-accent-blue-soft"}`}>
-                {name}
-              </button>
-            ))}
-          </div>
-          {picked.length > 0 ? <p className="text-xs text-muted">Chosen: {picked.join(", ")}</p> : null}
-          {errorFor("candidates") ? <span className="text-xs text-accent-red">{errorFor("candidates")}</span> : null}
-          <div><button className={primaryButton} disabled={busy || reason.trim().length < 5 || picked.length === 0} onClick={() => onDisown(reason, picked)}>Mark as open</button></div>
-        </div>
+        <DisownForm
+          teamLeaderOptions={detail.teamLeaderOptions}
+          busy={busy}
+          errorFor={errorFor}
+          intro="The outlet moves to Marked open outlets. Name the team leaders from other teams who may own it; each can claim or decline it. If none of them applies, declare the owner unknown and an admin will allocate it."
+          reasonLabel="Why is it not yours?"
+          submitLabel="Mark as open"
+          onSubmit={onDisown}
+        />
       ) : null}
     </section>
   );

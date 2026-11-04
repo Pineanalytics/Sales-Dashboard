@@ -106,10 +106,11 @@ function OpenCard({ row, data, onDone }: { row: OpenOutletRow; data: Payload; on
         </div>
         <div className="flex items-center gap-2">
           {row.overdue ? <Badge tier="bad">Over {data.overdueDays} days</Badge> : null}
-          <Badge tier={status.tier}>{row.claimedBy && row.status === "CLAIMED" ? `Claimed by ${row.claimedBy}` : status.label}</Badge>
+          <Badge tier={row.ownerUnknown && row.status === "UNCLAIMED" ? "warn" : status.tier}>{row.claimedBy && row.status === "CLAIMED" ? `Claimed by ${row.claimedBy}` : row.ownerUnknown && row.status === "UNCLAIMED" ? "Owner unknown" : status.label}</Badge>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        {row.ownerUnknown ? <span className="text-xs text-muted">The team that disowned it declared the owner unknown, so no team was asked. An admin allocates it or closes it.</span> : null}
         {row.candidates.map((c) => (
           <span key={c.teamLeader} className="rounded-full border border-border px-3 py-1 text-xs text-muted-strong">{c.teamLeader}: {c.response === "PENDING" ? "no answer yet" : c.response === "CLAIMED" ? "claimed" : "declined"}</span>
         ))}
