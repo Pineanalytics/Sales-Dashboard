@@ -10,7 +10,14 @@
 // alone entirely - only Nairobi Lower/Metro/South are touched.
 //
 // James Ndambuki is entered here under 1032, his current code since the 12 January 2026 recode recorded in
-// lib/marsRoster.ts's CODE_ALIASES - the source file still has his retired code, 1028.
+// lib/marsRoster.ts's CODE_ALIASES - the source file still has his retired code, 1028. Likewise Veronica
+// Wambua is entered under 1004, her new code confirmed by the business - the source file still has her old
+// code, 968.
+//
+// Four codes are kept exactly as they are even though the file doesn't list them (confirmed by the business,
+// 6 Nov 2026): the three Mars van placeholder accounts ("Van Mars Nai Lower/Metro/South", 561/562/563) and
+// Isabellah Nderitu (1181, who also sells Suntory under Eve Theuri - only her Mars assignment would have been
+// touched here, and even that is left alone).
 //
 //   node --import tsx scripts/mars-nairobi-team-realign-2026-11.ts            DRY RUN: does everything, prints it, rolls it all back
 //   node --import tsx scripts/mars-nairobi-team-realign-2026-11.ts --apply    the same, committed (then recomputes rep contribution and daily targets)
@@ -27,6 +34,10 @@ const log = (message: string) => console.log(message);
 const AUDIT_USER = "system: mars nairobi team realign 2026-11-06";
 
 const NAIROBI_SUBREGIONS = ["Nairobi Lower", "Nairobi Metro", "Nairobi South"];
+
+/** Confirmed by the business (6 Nov 2026) to stay exactly as they are, whether or not they're on the list: the
+ *  three Mars van placeholder accounts and Isabellah Nderitu (see the header comment). */
+const PRESERVE_CODES: ReadonlySet<string> = new Set(["561", "562", "563", "1181"]);
 
 interface Row {
   teamLeader: string;
@@ -80,7 +91,7 @@ const ROWS: Row[] = [
   { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "1108", employeeName: "Scolastica Mkacharo" },
   { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "909", employeeName: "Scovian Achieng" },
   { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "543", employeeName: "Stella Moraa" },
-  { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "968", employeeName: "Veronica Wambua" },
+  { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "1004", employeeName: "Veronica Wambua" }, // file said 968; recoded to 1004, see header comment
   { teamLeader: "Lewis Muthomi", subRegion: "Nairobi Metro", employeeCode: "1023", employeeName: "Vollenter Wendy" },
 ];
 
@@ -194,7 +205,9 @@ async function run(tx: Prisma.TransactionClient) {
 
   log("\n2. Deactivate Nairobi Lower/Metro/South reps no longer on the list");
   const liveNairobi = await tx.teamLeaderAssignment.findMany({ where: { principal: MARS_PRINCIPAL, active: true, region: "Nairobi", subRegion: { in: NAIROBI_SUBREGIONS } } });
-  const toDeactivate = liveNairobi.filter((a) => !codes.has(a.employeeCode));
+  const preserved = liveNairobi.filter((a) => !codes.has(a.employeeCode) && PRESERVE_CODES.has(a.employeeCode));
+  for (const a of preserved) log(`  kept as is (not on the list, but confirmed to stay): ${a.employeeName} (${a.employeeCode})`);
+  const toDeactivate = liveNairobi.filter((a) => !codes.has(a.employeeCode) && !PRESERVE_CODES.has(a.employeeCode));
   const holderIds = [...new Set(toDeactivate.map((a) => a.teamLeaderId))];
   const holderNameById = new Map((await tx.teamLeader.findMany({ where: { id: { in: holderIds } }, select: { id: true, name: true } })).map((t) => [t.id, t.name]));
   for (const a of toDeactivate) {
