@@ -77,6 +77,24 @@ Response: `{ syncedAt, builtAt, totals, places: [...], mapping: [...], relations
 
 How names are unified: (1) the name, after dropping case, the "- MBSR" tag, "county", a leading city ("Nairobi-") and an "AA" sort prefix; (2) a name that continues another ("Imara" in "Imara Daima") is merged only when the two places are close on the map, allowing for how spread the larger place is; a direction, road, phase or number ("Thika East", "Githurai 44" vs "45") always keeps places apart; (3) address-style names are placed by the place named in them and by the outlets around their GPS point. Nothing is changed in the source data: the raw name is always kept.
 
+### `resource=rep-activity`: one rep's day-by-day activity
+
+Added 2026-11-07 for the Coaching app's sales rep dashboard (day, month and year views).
+
+| Parameter | Meaning |
+|---|---|
+| `codes` | Employee codes of one rep (a rep can hold more than one), comma separated, at most 8 |
+| `from`, `to` | `YYYY-MM-DD`, both days included; the window is 1 to 400 days |
+
+Answer: `{ syncedAt, from, to, reps: [ { employeeCode, source, volumeCoveragePct, days: [...], totals: {...}, jp } ] }`.
+
+- `source` is `sap` when the rep has rows in `DailySalesRepActual` inside the window (value = revenue, cases = cases), otherwise `pine_calls` (value = `RepCall.sales`, cases = `RepCall.cases`); `null` when there is nothing. `volumeCoveragePct` is, for `pine_calls`, the share of selling calls whose cases could be worked out.
+- `days[]`: `date`, `value`, `cases` (null when it cannot be worked out, never shown as zero), `calls`, `productiveCalls` (`callOutcome = 'Sale'`), `lines` (cost centres bought, summed over the productive calls).
+- `totals`: sums plus `strikeRatePct`, `dropSize` (cases per productive call, as Rep Performance defines it), `lppc` (lines per productive call; the call records are used so it works for every rep and any window, unlike Rep Performance's month-grain brand count) and `daysWorked`.
+- `jp`: the PJP ownership adherence of `lib/jpAdherence.ts` for the window (`outletsPlanned`, `outletsVisited`, `plannedNotVisited`, `adherencePct`), or null when the page's query has no figures for the rep.
+
+Unlike `resource=performance`, this resource carries the rep's own sales value. The Coaching app shows it only to that rep, signed in, and never shows targets.
+
 ## Example pull
 
 ```bash
