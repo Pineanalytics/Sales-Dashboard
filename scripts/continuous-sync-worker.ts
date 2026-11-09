@@ -5,7 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "sfa-sales" | "performance" | "pl" | "stock" | "receivables";
+type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "sfa-sales" | "purchases" | "performance" | "pl" | "stock" | "receivables";
 
 interface JobDefinition {
   name: JobName;
@@ -43,6 +43,9 @@ const jobs: Record<JobName, JobDefinition> = {
   // SFA-outlet sales (SalesDocument + SfaCustomerActual), which the Customer analysis ranks. Two months each run, so the
   // previous month keeps absorbing late SAP postings and a month rollover needs no special case.
   "sfa-sales": { name: "sfa-sales", entry: "scripts/db-bridge/sfa-sales-sync.ts", intervalEnv: "SFA_SALES_INTERVAL_SECONDS", defaultSeconds: 3600, runOnStartEnv: "SFA_SALES_RUN_ON_START", args: ["--months=2"], nodeOptions: "--max-old-space-size=700" },
+  // Stock receipts (goods receipts, returns and credits) from SAP's stock ledger, for the Purchases report: the current and previous month every hour. Like every job without
+  // a runOnStartEnv it also runs once when the worker starts (a two-month read, about 20 seconds); a history load is a separate, approved manual run.
+  purchases: { name: "purchases", entry: "scripts/db-bridge/purchases-sync.ts", intervalEnv: "PURCHASES_INTERVAL_SECONDS", defaultSeconds: 3600, args: ["--months=2"] },
   // Performance Analysis reads the whole year of SAP document lines (~575k), so it
   // runs once a day in the small hours rather than on the 5-minute sales cadence,
   // and it never runs on start (a deploy must not trigger a year-long SAP read).

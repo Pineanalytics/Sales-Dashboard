@@ -97,6 +97,12 @@ export function canAccessCoverage(role: string | null | undefined, allowedPages:
   );
 }
 
+/** The outlet cleanup is its own module, open by role rather than by a page grant: team leaders and supervisors work their outlets, an admin reviews, and HOD and
+ *  Director can view. Its data is scoped to the person (lib/outletCleanup/access.ts). */
+export function canAccessOutletCleanup(role: string | null | undefined): boolean {
+  return role === "ADMIN" || role === "TEAM_LEADER" || role === "SUPERVISOR" || role === "HOD" || role === "DIRECTOR";
+}
+
 /** Maps a pathname like "/coverage" or "/coverage/some-sub-route" to its page
  *  key, or null if the pathname isn't one of the gated report routes (e.g.
  *  "/admin/users", which has its own separate ADMIN-only gate). */

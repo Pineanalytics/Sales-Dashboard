@@ -1,16 +1,15 @@
 // The active universe for the Coaching application's bridge feed (app/api/integrations/coaching/reference, resources "universe" and
 // "universe-history"). One row per outlet x principal, from all four systems (Pine, Leverage, EABL DMS, Upfield DataEdge), with the same columns as the Active
-// Outlets extract plus the master outlet id (the same shop under several ids is one master outlet), and a monthly history per outlet x principal for buying
-// trends and rep association. By the business's decision (20 Oct 2026) this feed carries sales values and tiers as well as counts.
+// Outlets extract plus the shop id (the same shop under several ids, within or across systems, shares one: the universe cleanup, lib/outletUniverse/cleanup.ts,
+// run when the universe is compiled), and a monthly history per outlet x principal for buying trends and rep association. By the business's decision (20 Oct 2026) this feed carries sales values and tiers as well as counts.
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { boughtWithin, buyingTenure, dormancyFlag, longPurchaseConsistency, OUTLET_SOURCE_LABELS, principalMix, purchaseConsistency, type OutletSource } from "@/lib/outletUniverse/normalize";
 import { exportOutlets, parseOutletFilters } from "@/lib/outletUniverse/query";
 import { buildNameProfiles, classification2, cleanPlaces, tierRow } from "@/lib/outletUniverse/tiering";
-import { buildMonthlyStrike, loadMonthlyStrike, type MonthlyStrike } from "@/lib/universeAnalysis/monthlyStrike";
+import { loadMonthlyStrike, type MonthlyStrike } from "@/lib/universeAnalysis/monthlyStrike";
 import { cleanLocation, getUnifiedLocations } from "@/lib/locationUnify/source";
-import { recordKey, runPipeline } from "@/lib/universeAnalysis/pipeline";
-import { loadExtractRows } from "@/lib/universeAnalysis/source";
+import { recordKey } from "@/lib/universeAnalysis/pipeline";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 
 const TTL_MS = 10 * 60_000;
@@ -20,9 +19,14 @@ export interface UniverseFeedRow {
   source: string;
   sourceCode: string;
   outletId: string;
-  /** The shop's master id: the same shop registered twice (within or across systems) shares one. */
+  /** The shop this outlet belongs to: the master outlet's record key ("PINE-12345"). The same shop registered twice, within or across systems, shares one shopId
+   *  on every outlet and principal row of it. Count shops on shopId, never on outletId. Covers every outlet, active or dormant. */
+  shopId: string;
+  /** How many outlets the shop was merged from (1 = unique), and how sure the merge is ("High" or "Medium"; null for a unique outlet). */
+  shopSize: number;
+  shopConfidence: string | null;
+  /** The same value as shopId and shopSize, under the names the feed first used. */
   masterOutletId: string;
-  /** How many records the master outlet was merged from (1 = unique). */
   duplicateGroupSize: number;
   outlet: string;
   principal: string;
@@ -123,10 +127,6 @@ export async function buildUniverseFeed(): Promise<UniverseFeedRow[]> {
   const base = parseOutletFilters(new URLSearchParams({ view: "principal" }));
   const [rows, universe] = await Promise.all([exportOutlets({ ...base, status: "all" }, null), exportOutlets({ ...base, status: "all" }, null, { withMix: false })]);
   const profiles = buildNameProfiles(universe);
-  // Master outlet ids come from the same de-duplication the Universe analysis uses (no month needed, so an empty strike table).
-  const extract = await loadExtractRows(null, buildMonthlyStrike(new Date().getFullYear(), []), new Date().getMonth());
-  const { records } = runPipeline(extract.rows);
-  const masterByKey = new Map(records.map((r) => [r.recKey, { masterId: r.masterId, size: r.clusterSize }]));
   const unified = await getUnifiedLocations();
   const now = new Date();
   return rows.map((row) => {
@@ -136,13 +136,19 @@ export async function buildUniverseFeed(): Promise<UniverseFeedRow[]> {
     const source = row.source as OutletSource;
     const label = OUTLET_SOURCE_LABELS[source] ?? row.source;
     const daysSince = row.lastPurchaseDate ? Math.max(0, Math.floor((now.getTime() - new Date(row.lastPurchaseDate).getTime()) / 86_400_000)) : null;
-    const master = masterByKey.get(recordKey(label, String(row.outletKey)));
+    // The shop comes from the universe cleanup stored on the outlet (every outlet, active or not); an outlet compiled before it existed is its own shop.
+    const shopId = row.shopId ?? recordKey(label, String(row.outletKey));
+    const shopSize = row.shopSize ?? 1;
+    const territory = cleanLocation(unified, places.territory);
     return {
       source: label,
       sourceCode: row.source,
       outletId: String(row.outletKey),
-      masterOutletId: master?.masterId ?? recordKey(label, String(row.outletKey)),
-      duplicateGroupSize: master?.size ?? 1,
+      shopId,
+      shopSize,
+      shopConfidence: shopSize > 1 ? row.shopConfidence : null,
+      masterOutletId: shopId,
+      duplicateGroupSize: shopSize,
       outlet: row.outletName,
       principal: row.principals,
       salesRole: classification2(row.salesRole),
@@ -153,9 +159,9 @@ export async function buildUniverseFeed(): Promise<UniverseFeedRow[]> {
       location: places.location,
       region: places.region,
       territory: places.territory,
-      territoryClean: cleanLocation(unified, places.territory).canonical,
-      territoryGroupId: cleanLocation(unified, places.territory).groupId,
-      territoryMatch: cleanLocation(unified, places.territory).match,
+      territoryClean: row.territoryClean ?? territory.canonical,
+      territoryGroupId: territory.groupId,
+      territoryMatch: territory.match,
       route: row.route,
       rep: row.repName,
       repSfaId: row.repCode,

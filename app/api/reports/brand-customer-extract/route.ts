@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getLiveBrandCustomerRows } from "@/lib/datasetStore";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { buildBrandExtract, buildCustomerExtract, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
+import { buildBrandExtract, buildCustomerExtract, combineExtracts, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
 import { buildSfaCustomerExtract } from "@/lib/sfaCustomerExtract";
 import { missingSfaPeriods, onlyPrincipals } from "@/lib/sfaPortfolio";
 import { getDashboardPrincipals, getSfaOutletRows } from "@/lib/sfaPortfolioData";
@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
 // The detailed Excel extracts behind the Customer & Brand Portfolio page. Built here, not in the browser, because
 // the raw sheet is one row per month, product, rep and customer: tens of thousands of rows for a single principal.
 // A selection past LARGE_EXTRACT_RAW_ROWS gets the summary and breakdown sheets without the row-level ones (trimLargeExtract).
+//
+// kind=all is the Reports page's one-workbook Customers & Brands download: the customer sheets, then the brand sheets.
 //
 // Brands: SAP item-level rows (the customer there is the SAP billing account). Customers: the SFA outlet the sales app
 // sold to, from the SFA-outlet tables; if any selected month is not loaded at outlet level it falls back to SAP
@@ -51,7 +53,7 @@ export async function GET(request: NextRequest) {
   }
 
   const kind = request.nextUrl.searchParams.get("kind");
-  if (kind !== "brands" && kind !== "customers") return NextResponse.json({ error: "Choose the brands or customers extract." }, { status: 400 });
+  if (kind !== "brands" && kind !== "customers" && kind !== "all") return NextResponse.json({ error: "Choose the brands, customers or all (Customers & Brands) extract." }, { status: 400 });
   const currentPeriods = periods(request, "period");
   if (currentPeriods.length === 0) return NextResponse.json({ error: "Provide a selected period." }, { status: 400 });
   const priorYearPeriods = currentPeriods.map((p) => ({ year: String(Number(p.year) - 1), monthIndex: p.monthIndex }));
@@ -69,8 +71,7 @@ export async function GET(request: NextRequest) {
     const periodLabel = label(request, "label", "Selected period");
     const extractScope: ExtractScope = { principalLabel, periodLabel, generatedAt: new Date() };
 
-    let built: BrandCustomerExtract;
-    if (kind === "customers") {
+    const customersExtract = async (): Promise<BrandCustomerExtract> => {
       const [sfaCurrent, sfaPrior, currentPrincipals, priorYearPrincipals] = await Promise.all([
         getSfaOutletRows(currentPeriods),
         getSfaOutletRows(priorYearPeriods),
@@ -80,28 +81,33 @@ export async function GET(request: NextRequest) {
       const missing = missingSfaPeriods(currentPeriods, sfaCurrent);
       if (missing.length === 0) {
         const priorYearAvailable = missingSfaPeriods(priorYearPeriods, sfaPrior).length === 0;
-        built = buildSfaCustomerExtract(
+        return buildSfaCustomerExtract(
           {
             currentRows: onlyPrincipals(sfaCurrent, currentPrincipals).filter((row) => inScope(row.principal)),
             priorYearRows: priorYearAvailable ? onlyPrincipals(sfaPrior, priorYearPrincipals).filter((row) => inScope(row.principal)) : null,
           },
           extractScope
         );
-      } else {
-        const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
-        built = withSummaryNote(
-          buildCustomerExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope),
-          ["Customer source", `SAP billing accounts, not SFA outlets: outlet-level sales are not loaded for ${missing.join(", ")}. Several outlets can sit behind one billing account.`]
-        );
       }
-    } else {
       const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
-      built = buildBrandExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope);
-    }
+      return withSummaryNote(
+        buildCustomerExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope),
+        ["Customer source", `SAP billing accounts, not SFA outlets: outlet-level sales are not loaded for ${missing.join(", ")}. Several outlets can sit behind one billing account.`]
+      );
+    };
+    const brandsExtract = async (): Promise<BrandCustomerExtract> => {
+      const [current, priorYear] = await Promise.all([getLiveBrandCustomerRows(currentPeriods), getLiveBrandCustomerRows(priorYearPeriods)]);
+      return buildBrandExtract({ currentRows: current.filter((row) => inScope(row.principal)), priorYearRows: priorYear.filter((row) => inScope(row.principal)) }, extractScope);
+    };
+
+    let built: BrandCustomerExtract;
+    if (kind === "customers") built = await customersExtract();
+    else if (kind === "brands") built = await brandsExtract();
+    else built = combineExtracts(await customersExtract(), await brandsExtract());
     const extract = trimLargeExtract(built);
 
     const body = extractToXlsxBuffer(extract.sheets);
-    const filename = `${kind === "brands" ? "brand-performance" : "customer-analysis"}-detailed-${fileSlug(principalLabel)}-${fileSlug(periodLabel)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `${kind === "brands" ? "brand-performance" : kind === "customers" ? "customer-analysis" : "customers-and-brands"}-detailed-${fileSlug(principalLabel)}-${fileSlug(periodLabel)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
     return new NextResponse(new Uint8Array(body), {
       status: 200,
       headers: {

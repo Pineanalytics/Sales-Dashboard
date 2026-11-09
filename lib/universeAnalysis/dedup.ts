@@ -120,8 +120,11 @@ function gpsPairs(records: WorkRecord[], rules: DedupRules): DedupPair[] {
     if (!a || !b) continue;
     const ha = g[i].head;
     const hb = g[j].head;
-    if (similarity(ha, hb) < rules.headSim) continue;
-    const sim = similarity(a, b);
+    // The same letters once spacing, case and punctuation are ignored ("Home Care Shop" / "Homecare Shop", "J Kare Pharmacy" / "J-KARE PHARMACY"): the same name.
+    const letters = (value: string) => String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const sameLetters = letters(g[i].outlet).length >= 4 && letters(g[i].outlet) === letters(g[j].outlet);
+    if (!sameLetters && similarity(ha, hb) < rules.headSim) continue;
+    const sim = sameLetters ? 1 : similarity(a, b);
     if (sim < rules.minPairSim) continue;
     const d = Math.hypot(xy[i].x - xy[j].x, xy[i].y - xy[j].y);
     const generic = Math.max(headFreq.get(ha) ?? 0, headFreq.get(hb) ?? 0) > rules.commonHeadCount;
@@ -142,14 +145,19 @@ function gpsPairs(records: WorkRecord[], rules: DedupRules): DedupPair[] {
       (pa.length > 0 && pb.length > 0 && JSON.stringify(pa) !== JSON.stringify(pb));
     let confidence: Confidence;
     let reason = "";
-    if (digitsDiffer || branch) {
+    if (!sameLetters && (digitsDiffer || branch)) {
       confidence = "Review";
       reason = "Different branch number / label";
-    } else if (a === b && d <= rules.exactNameMaxM && !segClash && (!generic || d <= rules.exactCommonNameMaxM)) {
+    } else if ((a === b || sameLetters) && d <= rules.exactNameMaxM && !segClash && (!generic || d <= rules.exactCommonNameMaxM)) {
       confidence = "High";
     } else if (!generic && sim >= rules.highSim && d <= rules.exactNameMaxM && !segClash) {
       confidence = "High";
     } else if (!generic && sim >= rules.mediumSim && similarity(ha, hb) >= rules.mediumSim && d <= rules.mediumMaxM && !segClash) {
+      confidence = "Medium";
+    } else if (!generic && !segClash && (a === b || sameLetters) && d <= rules.sameNameMaxM) {
+      // The same cleaned name a little further apart than the tight rule: the same doorway registered twice, with the usual drift of a phone's GPS point.
+      confidence = "Medium";
+    } else if (!generic && !segClash && sim >= rules.highSim && d <= rules.nearNameMaxM) {
       confidence = "Medium";
     } else {
       confidence = "Review";

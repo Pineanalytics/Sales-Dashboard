@@ -17,12 +17,14 @@ import {
   summarizePLByAccount,
   summarizeBrandCustomerByRep,
   resolvePeriodMonths,
+  CANONICAL_MONTHS,
 } from "@/lib/timeIntelligence";
 import { principalsByRevenueDesc } from "@/lib/selectors";
 import { aggregateStockByPrincipal, stockPrincipalStatuses, sumStockRollups } from "@/lib/stock";
 import { STOCK_EXTRACT_ITEM_COLUMNS, STOCK_EXTRACT_PRINCIPAL_COLUMNS, buildStockExtract, formatExtractDate } from "@/lib/stockExtract";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { CustomerPortfolioSummary } from "@/lib/customerPortfolio";
+import type { PurchaseSummary } from "@/lib/purchaseReceipts/summary";
 import type { ReportContent } from "./types";
 
 export interface ReportContext {
@@ -75,6 +77,9 @@ export interface ReportDefinition {
   description: string;
   pageKey: PageKey;
   build: (ctx: ReportContext) => Promise<ReportContent>;
+  /** A server-built, full-detail Excel workbook for the same filters. When set, the Excel download fetches this URL instead of
+   *  rendering `build`'s summary tables (the PDF stays the summary). */
+  fullExcelUrl?: (ctx: ReportContext) => string;
 }
 
 function round2(n: number): number {
@@ -370,8 +375,14 @@ const pctCell = (n: number | null): string | number => (n === null ? "N/A" : rou
 const customersReport: ReportDefinition = {
   key: "customers",
   label: "Customers & Brands",
-  description: "Customer ranking and tiering, brands and products, and principals for the current period. For the full raw-data extracts use the Brand and Customer extract buttons on the Customers page.",
+  description: "Customer ranking and tiering, brands and products, and principals for the chosen period and principal. Excel is the full extract (SFA customer names, by month, brand, rep and billing account, with raw data); PDF is the summary.",
   pageKey: "customers",
+  fullExcelUrl({ period, principalKey, periodLabel }) {
+    const params = new URLSearchParams({ kind: "all", label: periodLabel, principalLabel: principalKey ?? "All principals" });
+    for (const { year, monthIndex } of resolvePeriodMonths(period)) params.append("period", `${year}-${String(monthIndex + 1).padStart(2, "0")}`);
+    if (principalKey) params.append("principal", principalKey);
+    return `/api/reports/brand-customer-extract?${params.toString()}`;
+  },
   async build({ period, principalKey, periodLabel }) {
     const portfolio = await fetchCustomerPortfolio(period, principalKey);
     const { totals } = portfolio;
@@ -934,6 +945,66 @@ const receivablesReport: ReportDefinition = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Purchases & stock receipts (SAP stock ledger, synced hourly into PurchaseReceiptLine). Summary comes from the server; Excel is the full workbook.
+// ---------------------------------------------------------------------------
+
+const purchasesReport: ReportDefinition = {
+  key: "purchases",
+  label: "Purchases & Stock Receipts",
+  description: "Stock received from suppliers by principal for the chosen period: receipts, returns and credits, net, cases, with supplier, warehouse, month and item breakdowns. Excel is the full workbook with every receipt line; PDF is the summary.",
+  pageKey: "stock",
+  fullExcelUrl({ period, principalKey, periodLabel }) {
+    const params = new URLSearchParams({ label: periodLabel, principalLabel: principalKey ?? "All principals" });
+    for (const { year, monthIndex } of resolvePeriodMonths(period)) params.append("period", `${year}-${String(monthIndex + 1).padStart(2, "0")}`);
+    if (principalKey) params.append("principal", principalKey);
+    return `/api/reports/purchase-receipts?${params.toString()}`;
+  },
+  async build({ period, principalKey, periodLabel }) {
+    const params = new URLSearchParams({ format: "json" });
+    for (const { year, monthIndex } of resolvePeriodMonths(period)) params.append("period", `${year}-${String(monthIndex + 1).padStart(2, "0")}`);
+    if (principalKey) params.append("principal", principalKey);
+    const response = await fetch(`/api/reports/purchase-receipts?${params.toString()}`, { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Failed to load purchases.");
+    const s = body.summary as PurchaseSummary;
+    const missing = (body.missingMonths as { year: number; monthIndex: number }[]) ?? [];
+    const rowOf = (r: { label: string; receipts: number; returns: number; other: number; net: number; receiptCases: number; netCases: number; docs: number }) => [r.label, round2(r.receipts), round2(r.returns), round2(r.other), round2(r.net), round2(r.receiptCases), round2(r.netCases), r.docs];
+    const columns = (first: string) => [first, "Receipts", "Returns & Credits", "Other", "Net Receipts", "Receipt Cases", "Net Cases", "Documents"];
+    return {
+      title: `Purchases & Stock Receipts — ${periodLabel}`,
+      generatedAt: new Date(),
+      summary: [
+        { label: "Receipts", value: round2(s.totals.receipts).toLocaleString() },
+        { label: "Returns & Credits", value: round2(s.totals.returns).toLocaleString() },
+        { label: "Net Receipts", value: round2(s.totals.net).toLocaleString() },
+        { label: "Net Cases", value: round2(s.totals.netCases).toLocaleString() },
+        { label: "Documents", value: s.totals.docs.toLocaleString() },
+        { label: "Suppliers", value: s.totals.suppliers.toLocaleString() },
+        ...(s.empties.lines > 0 ? [{ label: "Empties, Net (excluded above)", value: round2(s.empties.net).toLocaleString() }] : []),
+        ...(missing.length > 0 ? [{ label: "Months Not Loaded", value: missing.map((m) => `${CANONICAL_MONTHS[m.monthIndex]} ${m.year}`).join(", ") }] : []),
+        ...(s.unallocated.lines > 0 ? [{ label: "Unallocated Value", value: round2(s.unallocated.value).toLocaleString() }] : []),
+      ],
+      sections: [
+        { title: "By Principal", columns: columns("Principal"), rows: s.byPrincipal.map(rowOf) },
+        { title: "By Brand", columns: columns("Brand"), rows: s.byBrand.map(rowOf) },
+        { title: "By Supplier", columns: columns("Supplier"), rows: s.bySupplier.map(rowOf) },
+        { title: "By Warehouse", columns: columns("Warehouse"), rows: s.byWarehouse.map(rowOf) },
+        {
+          title: "By Month",
+          columns: ["Month", "Receipts", "Returns & Credits", "Other", "Net Receipts", "Receipt Cases", "Net Cases", "Documents"],
+          rows: s.byMonth.map((m) => [`${CANONICAL_MONTHS[m.monthIndex]} ${m.year}`, round2(m.receipts), round2(m.returns), round2(m.other), round2(m.net), round2(m.receiptCases), round2(m.netCases), m.docs]),
+        },
+        {
+          title: "Top Items",
+          columns: ["Item Code", "Item", "Principal", "Receipts", "Returns & Credits", "Net Receipts", "Net Cases"],
+          rows: s.topItems.slice(0, 50).map((i) => [i.itemCode, i.itemName, i.principal, round2(i.receipts), round2(i.returns), round2(i.net), round2(i.netCases)]),
+        },
+      ],
+    };
+  },
+};
+
 export const REPORT_DEFINITIONS: ReportDefinition[] = [
   salesReport,
   coverageReport,
@@ -951,6 +1022,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   dormantStockReport,
   principalKpisReport,
   receivablesReport,
+  purchasesReport,
 ];
 
 // resolvePeriodMonths is re-exported for the catalog UI's periodLabel construction,

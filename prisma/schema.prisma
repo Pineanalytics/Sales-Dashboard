@@ -2600,9 +2600,23 @@ model OutletUniverse {
   periodsBought90   Int       @default(0)
   // The same over the last six 30-day periods (0 to 6): the six-month consistency.
   periodsBought180  Int       @default(0)
+  // The universe cleanup (lib/outletUniverse/cleanup.ts), computed when the universe is compiled so every reader sees it: the unified territory name
+  // (territory with its spellings merged by name and by where the outlets sit) and the shop this outlet belongs to (outlets that are the same shop,
+  // within and across systems, by GPS point and cleaned name or the match id, share one shopId = the master outlet's record key, e.g. "PINE-12345").
+  // shopSize counts the outlets in the shop (1 = unique); shopConfidence is High or Medium for a merged shop.
+  territoryClean    String?
+  shopId            String?
+  shopSize          Int?
+  shopConfidence    String?
+  // The outlet's contact, set only by an admin-approved cleanup (lib/outletCleanup/overlay.ts); no source system carries it.
+  contactName       String?
+  contactPhone      String?
+  // The days of the week the outlet is visited ("Mon, Thu"), set only by an admin-approved cleanup (the route column then holds the validated route name).
+  visitDays         String?
   builtAt          DateTime  @default(now())
 
   @@unique([source, outletKey, principal])
+  @@index([shopId])
   @@index([principal])
   @@index([lastPurchaseDate])
   @@index([channel, segment])
@@ -2718,4 +2732,206 @@ model UpfieldOutletMaster {
   @@index([fsrName])
   @@index([channel])
   @@index([outletType])
+}
+
+// ---------------------------------------------------------------------------
+// Outlet cleanup (the Cleanup tab of Active Outlets): team leaders and supervisors verify their outlets, tag them with GPS, confirm or change the selling rep,
+// declare duplicates and disown outlets. Their work is kept here, apart from the derived OutletUniverse (which is rebuilt every compile), until an admin
+// validates it and applies it to the universe. See lib/outletCleanup/*.
+// ---------------------------------------------------------------------------
+
+// One verification record per outlet (source + the source system's outlet id). Null in a verified field = left as the universe has it.
+model OutletCleanupEntry {
+  id            String    @id @default(cuid())
+  source        String // PINE | LEVERAGE | EABL | UPFIELD
+  outletKey     String
+  outletName    String
+  // The team leader (TeamLeader.name) whose outlet this was when the review was done.
+  teamLeader    String?
+  // REVIEWED = saved by the team leader (counts as progress); VALIDATED = an admin checked it; APPLIED = in the universe; REJECTED = sent back (its fields are unlocked).
+  status        String    @default("REVIEWED")
+  // The team leader marked every identification field as correct without changes.
+  confirmedAsIs Boolean   @default(false)
+  region        String?
+  territory     String?
+  channel       String?
+  customerType  String?
+  contactName   String?
+  contactPhone  String?
+  latitude      Float?
+  longitude     Float?
+  geoAccuracyM  Float?
+  geoTaggedAt   DateTime?
+  geoTaggedBy   String?
+  // [{ principal, rep, repCode, previousRep, action: "CONFIRMED" | "CHANGED" }] - the selling rep per principal, validated or reassigned.
+  repDecisions  Json?
+  // Fields the team leader has already updated or confirmed: refused for them afterwards; an admin or supervisor can reopen.
+  lockedFields  String[]  @default([])
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  checkedBy     String?
+  checkedAt     DateTime?
+  adminNote     String?
+  appliedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([source, outletKey])
+  @@index([teamLeader, status])
+  @@index([status])
+}
+
+// A person's unfinished work on one outlet ("Save draft"): the identification values and rep / route / day choices they have typed but not yet committed. Private to the
+// person who saved it, never locks a field, never counts as progress and is never seen by the admin review; "Save final" commits it to OutletCleanupEntry and deletes it.
+model OutletCleanupDraft {
+  id             String   @id @default(cuid())
+  source         String
+  outletKey      String
+  outletName     String
+  savedBy        String // the user's email
+  teamLeader     String?
+  // { region?, territory?, channel?, customerType?, contactName?, contactPhone? } as typed, not yet validated against the lists.
+  identification Json?
+  // [{ principal, repCode?, routeName?, visitDays: [] }] as chosen, not yet validated.
+  reps           Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([source, outletKey, savedBy])
+  @@index([savedBy])
+}
+
+// Every change, who made it and what it was before: the audit trail behind the entries, duplicates and open outlets.
+model OutletCleanupLog {
+  id         String   @id @default(cuid())
+  source     String
+  outletKey  String
+  action     String // SAVE | CONFIRM_ALL | GEO_TAG | REP | DUPLICATE | DISOWN | CLAIM | DECLINE | VALIDATE | APPLY | REJECT | UNLOCK
+  actor      String // the user's email
+  actorRole  String
+  changes    Json?
+  at         DateTime @default(now())
+
+  @@index([source, outletKey])
+  @@index([at])
+}
+
+// A team leader's call on a pair of outlets: they are the same shop (MERGE) or not (NOT_DUPLICATE). Applied to the universe's shop ids once an admin validates it.
+model OutletDuplicateDecision {
+  id           String    @id @default(cuid())
+  aSource      String
+  aKey         String
+  bSource      String
+  bKey         String
+  decision     String // MERGE | NOT_DUPLICATE
+  status       String    @default("REVIEWED") // REVIEWED | VALIDATED | APPLIED | REJECTED
+  teamLeader   String?
+  decidedBy    String
+  decidedAt    DateTime  @default(now())
+  note         String?
+  checkedBy    String?
+  checkedAt    DateTime?
+
+  @@unique([aSource, aKey, bSource, bKey])
+  @@index([status])
+}
+
+// An outlet a team leader has disowned. Before disowning they name the possible owners in other teams (MarkedOpenCandidate), who then claim or decline it.
+model MarkedOpenOutlet {
+  id                 String                 @id @default(cuid())
+  source             String
+  outletKey          String
+  outletName         String
+  principals         String?
+  territory          String?
+  region             String?
+  previousTeamLeader String?
+  previousReps       String?
+  reason             String
+  markedBy           String
+  markedAt           DateTime               @default(now())
+  // OPEN = waiting for a claim; CLAIMED = a team leader took it; UNCLAIMED = every named owner declined, an admin allocates it; CLOSED = settled.
+  status             String                 @default("OPEN")
+  claimedBy          String? // TeamLeader.name
+  claimedAt          DateTime?
+  resolvedBy         String?
+  resolvedAt         DateTime?
+  resolutionNote     String?
+  candidates         MarkedOpenCandidate[]
+
+  @@index([status])
+  @@index([source, outletKey])
+}
+
+model MarkedOpenCandidate {
+  id          String           @id @default(cuid())
+  openId      String
+  open        MarkedOpenOutlet @relation(fields: [openId], references: [id], onDelete: Cascade)
+  teamLeader  String // TeamLeader.name
+  response    String           @default("PENDING") // PENDING | CLAIMED | DECLINED
+  respondedAt DateTime?
+  respondedBy String?
+  note        String?
+
+  @@unique([openId, teamLeader])
+  @@index([teamLeader, response])
+}
+
+// A route a team leader has named, usually after the major locations it covers ("Imara Daima-Fedha"). Outlets are put on a route in the cleanup's rep decisions.
+model CleanupRoute {
+  id         String   @id @default(cuid())
+  teamLeader String // TeamLeader.name
+  name       String
+  locations  String[] @default([])
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  @@unique([teamLeader, name])
+  @@index([teamLeader])
+}
+
+// What a team leader is ranked against: the share of their outlets reviewed by the end of a month. teamLeader "*" is the default for everyone; a named row overrides it.
+model CleanupTarget {
+  id         String   @id @default(cuid())
+  period     String // "2026-10"
+  teamLeader String   @default("*")
+  targetPct  Float    @default(100)
+  setBy      String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([period, teamLeader])
+}
+
+// Stock receipts from SAP's stock ledger (OINM): goods receipts against purchase orders, returns to suppliers, AP credit memos, direct AP-invoice stock,
+// manual receipts and landed costs. One row per document, item, warehouse and posting date; quantities are in pieces and signed (returns negative),
+// values are KSh excl. VAT. Read by the Purchases report. Additive and independent of the sales tables.
+model PurchaseReceiptLine {
+  id              String   @id @default(cuid())
+  year            Int
+  monthIndex      Int // 0-11
+  docDate         DateTime @db.Date
+  docType         String // GOODS_RECEIPT_PO | GOODS_RETURN | AP_INVOICE | AP_CREDIT | GOODS_RECEIPT_MANUAL | LANDED_COST
+  docEntry        Int
+  docNum          String
+  supplierCode    String
+  supplierName    String
+  itemCode        String
+  itemName        String
+  warehouseCode   String
+  location        String
+  principal       String // Principal-Location key, or "Unallocated"
+  principalSource String // PRODUCT | PREFIX | UNALLOCATED
+  stockClass      String // GOODS | EMPTIES
+  qty             Float
+  cases           Float    @default(0)
+  value           Float
+  syncToken       String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([docType, docEntry, docDate, itemCode, warehouseCode])
+  @@index([year, monthIndex])
+  @@index([principal, year, monthIndex])
+  @@index([supplierCode])
+  @@index([syncToken])
 }

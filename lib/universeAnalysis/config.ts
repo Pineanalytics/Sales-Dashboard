@@ -38,6 +38,8 @@ export interface DedupRules {
   highSim: number; // name similarity for High within exactNameMaxM
   mediumSim: number; // typo-level similarity for Medium
   mediumMaxM: number;
+  sameNameMaxM: number; // identical cleaned names within this distance (not a common name, no wholesale / retail clash) -> Medium
+  nearNameMaxM: number; // names at highSim or closer within this distance -> Medium
   headSim: number; // first-word similarity gate
   minPairSim: number; // below this, not even a review candidate
   commonHeadCount: number; // a first word used by more than N outlets is "common"
@@ -54,6 +56,8 @@ export const DEFAULT_DEDUP: DedupRules = {
   highSim: 0.9,
   mediumSim: 0.85,
   mediumMaxM: 25,
+  sameNameMaxM: 60,
+  nearNameMaxM: 45,
   headSim: 0.8,
   minPairSim: 0.7,
   commonHeadCount: 40,
@@ -63,6 +67,9 @@ export const DEFAULT_DEDUP: DedupRules = {
   fillerRegex:
     "\\b(shop|shops|store|stores|ltd|limited|general|gen|kiosk|the|and|co|company|enterprises?|ent|traders?|trading|supermarket|super|market|minimart|mini|mart|wholesalers?|wholesale|w s|ws|duka|dukas|retail|retailers?|outlet|centre|center|no|one)\\b",
 };
+
+/** The rules as the Active Outlets analysis workbook applied them: identical names only within exactNameMaxM, nothing looser. Kept to check a change to the defaults against it. */
+export const STRICT_DEDUP: DedupRules = { ...DEFAULT_DEDUP, sameNameMaxM: 0, nearNameMaxM: 0 };
 
 /** Editable capture rates used for opportunity sizing (shown in the UI as what-ifs; the defaults never change per user). */
 export interface Assumptions {

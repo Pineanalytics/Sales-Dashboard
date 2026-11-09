@@ -27,6 +27,7 @@ interface ReportCatalogProps {
  *  own — same as their live pages). */
 export function ReportCatalog({ dataset, period: initialPeriod, principalKey: initialPrincipalKey, allowedPages, isAdmin }: ReportCatalogProps) {
   const [pending, setPending] = useState<string | null>(null); // `${reportKey}:${format}`
+  const [error, setError] = useState<string | null>(null);
   // Local-only customization state, seeded from the live dashboard's current filters but
   // never written back to the store — see ReportFilters.tsx.
   const [period, setPeriod] = useState<PeriodSelection>(initialPeriod);
@@ -43,8 +44,17 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
     const def = REPORT_DEFINITIONS.find((d) => d.key === reportKey);
     if (!def) return;
     setPending(`${reportKey}:${format}`);
+    setError(null);
     try {
       const ctx: ReportContext = { dataset, period, principalKey, repFilter, periodLabel };
+      if (format === "excel" && def.fullExcelUrl) {
+        // A full-detail workbook built on the server for the same period and principal; the summary build and AI summary do not apply.
+        const response = await fetch(def.fullExcelUrl(ctx), { cache: "no-store" });
+        if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${response.status}`);
+        const filename = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? `${slugify(label)}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+        triggerDownload(await response.blob(), filename);
+        return;
+      }
       const content = await def.build(ctx);
 
       if (includeNarrative) {
@@ -72,6 +82,7 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
       }
     } catch (err) {
       console.error(`Failed to generate ${label} report`, err);
+      setError(`${label}: ${err instanceof Error ? err.message : "the report could not be generated."}`);
     } finally {
       setPending(null);
     }
@@ -106,6 +117,7 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
         <input type="checkbox" checked={includeNarrative} onChange={(e) => setIncludeNarrative(e.target.checked)} className="h-3.5 w-3.5 accent-primary-blue" />
         Include an AI-written summary (Frost) in the download — adds a short delay per download.
       </label>
+      {error ? <p className="mb-2 px-1 text-xs text-accent-red">{error}</p> : null}
       <div className="flex flex-col divide-y divide-border/60">
         {visible.map((def) => (
           <div key={def.key} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -120,7 +132,7 @@ export function ReportCatalog({ dataset, period: initialPeriod, principalKey: in
                 disabled={pending !== null}
                 onClick={() => handleDownload(def.key, def.label, "excel")}
               >
-                Excel
+                {def.fullExcelUrl ? "Excel (full extract)" : "Excel"}
               </Button>
               <Button
                 variant="secondary"

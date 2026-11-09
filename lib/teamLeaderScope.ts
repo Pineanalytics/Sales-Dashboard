@@ -215,6 +215,17 @@ export function scopeNameClause(scope: TeamLeaderScope | null, nameExpression: P
   return Prisma.sql`AND LOWER(${nameExpression}) IN (${Prisma.join(Array.from(scope.normalizedNames))})`;
 }
 
+/** Principals whose data is Upfield's. */
+export const UPFIELD_PRINCIPAL = /^upfield/i;
+
+/** Upfield carries only a free-text rep name, so name matching alone shows a rep's Upfield activity to anyone who has that rep under another principal (a Suntory
+ *  supervisor seeing the Upfield visits of a rep who also sells Suntory). A scoped session sees such a feed only when its own principals include one that matches;
+ *  otherwise it gets a scope with no reps, which scopeNameClause turns into `AND false`. An unrestricted session (null) is unchanged. */
+export function restrictToPrincipal(scope: TeamLeaderScope | null, principal: RegExp): TeamLeaderScope | null {
+  if (!scope || scope.principals.some((p) => principal.test(p))) return scope;
+  return { ...scope, employeeCodes: [], normalizedNames: new Set() };
+}
+
 // Back-office roles with no identity of their own (no team/group, unlike
 // TEAM_LEADER/SUPERVISOR) that still get the same optional allowedPrincipals
 // restriction a VIEWER does — see the Role enum's own comment in schema.prisma.

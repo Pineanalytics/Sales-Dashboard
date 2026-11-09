@@ -99,10 +99,14 @@ describe("standard stock and the status tiers", () => {
 });
 
 describe("roll-ups against the standard", () => {
-  const item = (brand: string, openingValue: number, rrWeekValue: number, standardValue: number): StockItem =>
-    ({ principal: "Mars-Nairobi", key: "mars", item: `${brand} ${openingValue}`, brand, openingVolume: 0, openingPcs: 1, openingValue, rrWeekValue, rrWeekVolume: 0, daysCover: 0, action: "🟢 OK", standardValue }) as StockItem;
+  // action reflects each item's own days of cover against its own threshold, exactly as lib/datasetStore.ts's
+  // overlayStock computes it — the roll-up's own action is read from these, never re-derived from pooled totals.
+  const item = (brand: string, openingValue: number, rrWeekValue: number, standardValue: number, action: string): StockItem =>
+    ({ principal: "Mars-Nairobi", key: "mars", item: `${brand} ${openingValue}`, brand, openingVolume: 0, openingPcs: 1, openingValue, rrWeekValue, rrWeekVolume: 0, daysCover: 0, action, standardValue }) as StockItem;
   const dataset = {
-    stockItems: [item("Galaxy", 1000, 700, 3000), item("Snickers", 200, 350, 1500)],
+    // Galaxy: 1000 of stock on 700 a week is 10 days of cover: Running Out on the principal's default 14-day line.
+    // Snickers: 200 of stock on 350 a week is 4 days of cover: Running Out on the default 14, and short of its own 5-day line too.
+    stockItems: [item("Galaxy", 1000, 700, 3000, "🟡 Running Out"), item("Snickers", 200, 350, 1500, "🟡 Running Out")],
     stockCoverTargets: [
       { scope: "PRINCIPAL", principalKey: "mars", brand: "", targetDays: 30, reorderDays: 14, overstockDays: null },
       { scope: "BRAND", principalKey: "mars", brand: "Snickers", targetDays: 30, reorderDays: 5, overstockDays: null },

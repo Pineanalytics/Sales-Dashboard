@@ -136,3 +136,51 @@ describe("coordinates as a second signal", () => {
     expect(map.relations.some((r) => r.kind === "possible variant")).toBe(true);
   });
 });
+
+describe("small variants of a bigger place", () => {
+  const noGps = (name: string): LocationStat => ({ name, rows: 1, gps: 0, lat: 0, lon: 0, sources: ["PINE"], cells: new Map() });
+
+  it("merges a spacing variant and a one-letter typo that sit inside the bigger place", () => {
+    const map = buildLocationMap([
+      place("Babadogo", -1.2650, 36.8750, 120, 0.02),
+      place("Baba Dogo", -1.2652, 36.8751, 1, 0),
+      place("Pipeline", -1.3150, 36.9050, 90, 0.02),
+      place("Pipiline", -1.3152, 36.9049, 1, 0),
+      place("Dandora", -1.2600, 36.9000, 80, 0.02),
+      place("Ndandora", -1.2602, 36.9001, 2, 0.001),
+    ]);
+    expect(find(map, "Baba Dogo").canonical).toBe(find(map, "Babadogo").canonical);
+    expect(find(map, "Pipiline").canonical).toBe("Pipeline");
+    expect(find(map, "Ndandora").canonical).toBe("Dandora");
+    expect(find(map, "Pipiline").method).toBe("name variant");
+  });
+
+  it("merges a typo whose outlets sit inside a big, spread-out place even when they are far from its centre", () => {
+    // Pipeline's outlets spread over ~11 km; the typo's outlets are in one of its busy parts, 2.8 km from the centre (beyond the 1.5 km a small name may drift).
+    const map = buildLocationMap([place("Pipeline", -1.3150, 36.9050, 600, 0.1), place("Pipelne", -1.3150, 36.9050 + 0.025, 4, 0)]);
+    expect(find(map, "Pipelne").canonical).toBe("Pipeline");
+    // The same typo's outlets 90 km away are another place.
+    const far = buildLocationMap([place("Pipeline", -1.3150, 36.9050, 600, 0.1), place("Pipelne", -0.4, 36.95, 4, 0.002)]);
+    expect(find(far, "Pipelne").canonical).toBe("Pipelne");
+  });
+
+  it("merges the same letters without a point at all, but not a one-letter typo without one", () => {
+    const map = buildLocationMap([place("Kwadege", -1.2, 36.9, 40, 0.02), noGps("Kwa Dege"), noGps("Kwadeje")]);
+    expect(find(map, "Kwa Dege").canonical).toBe("Kwadege");
+    expect(find(map, "Kwadeje").canonical).toBe("Kwadeje");
+  });
+
+  it("keeps a similar name that is somewhere else, a changed trailing letter, and two big places apart", () => {
+    const map = buildLocationMap([
+      place("Nyeri", -0.4200, 36.9500, 300, 0.05),
+      place("Nderi", -1.2300, 36.7400, 1, 0), // a real place elsewhere, 100 km away
+      place("South B", -1.3100, 36.8300, 60, 0.01),
+      place("South C", -1.3200, 36.8200, 2, 0.001),
+      place("Kasarani", -1.2200, 36.8900, 200, 0.03),
+      place("Kasarini", -1.9000, 37.4000, 150, 0.03), // a big place of its own, far away
+    ]);
+    expect(find(map, "Nderi").canonical).toBe("Nderi");
+    expect(find(map, "South C").canonical).toBe("South C");
+    expect(find(map, "Kasarini").canonical).not.toBe(find(map, "Kasarani").canonical);
+  });
+});

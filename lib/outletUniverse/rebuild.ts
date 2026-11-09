@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
 import { matchOutlets, type MatchInput } from "./matching";
 import { buildRepDirectory } from "./repIdentity";
+import { withCleanup } from "./cleanup";
+import { applyApprovedCleanup, applyShopDecisions } from "@/lib/outletCleanup/overlay";
+import { loadApprovedCleanup, markApplied } from "@/lib/outletCleanup/approved";
 import {
   cleanTerritory,
   exclusionReason,
@@ -44,6 +47,16 @@ export interface OutletUniverseRow {
   matchId?: string | null;
   matchConfidence?: string | null;
   matchedSystems?: string | null;
+  /** The universe cleanup (cleanup.ts): the unified territory and the shop this outlet belongs to. Set when the universe is compiled. */
+  territoryClean?: string | null;
+  shopId?: string | null;
+  shopSize?: number | null;
+  shopConfidence?: string | null;
+  /** Set only by an admin-approved cleanup (lib/outletCleanup/overlay.ts). */
+  contactName?: string | null;
+  contactPhone?: string | null;
+  /** The days of the week the outlet is visited, set only by an admin-approved cleanup. */
+  visitDays?: string | null;
   latitude: number | null;
   longitude: number | null;
   lastPurchaseDate: Date | null;
@@ -645,7 +658,10 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
   const upfield = keep(loadedUpfield);
   const builtAt = new Date();
   const directory = await loadRepDirectory();
-  const all = flagCrossSystemMatches(withRepIdentity([...pine, ...leverage, ...eabl, ...upfield], directory));
+  // What an admin has approved in the outlet cleanup is laid over the source data before the matching and the cleanup read it (identification, GPS, reps, ownership),
+  // and the approved territories and duplicate calls are applied to the shops the cleanup then makes.
+  const approved = await loadApprovedCleanup();
+  const all = applyShopDecisions(withCleanup(flagCrossSystemMatches(applyApprovedCleanup(withRepIdentity([...pine, ...leverage, ...eabl, ...upfield], directory), approved))), approved);
 
   await prisma.$transaction(
     async (tx) => {
@@ -659,6 +675,7 @@ async function runRebuild(): Promise<OutletUniverseRebuildResult> {
     },
     { timeout: 180_000, maxWait: 30_000 }
   );
+  await markApplied(approved).catch((error) => console.error("Failed to mark the approved cleanup as applied", error));
 
   return { pine: pine.length, leverage: leverage.length, eabl: eabl.length, upfield: upfield.length, total: all.length, excluded, durationMs: Date.now() - startedAt };
 }

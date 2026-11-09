@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveOutletAccess } from "@/lib/outletUniverse/access";
+import { oneAtATime } from "@/lib/outletUniverse/exportQueue";
 import { loadFrequencyReport, resolveFrequencyPeriod } from "@/lib/outletUniverse/frequency";
 import { frequencyCsv, frequencyFileStem, frequencyWorkbook } from "@/lib/outletUniverse/frequencyExport";
 import { parseOutletFilters } from "@/lib/outletUniverse/query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** One extract is built at a time: a year holds about 60,000 outlets and the Excel build alone needs about half a gigabyte, so two at once would be a lot to ask of the app. */
-let queue: Promise<unknown> = Promise.resolve();
-function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work, work);
-  queue = run.catch(() => undefined);
-  return run;
-}
 
 /** The filters that narrow the extract, as short phrases for the workbook's notes. */
 function filterNotes(params: URLSearchParams): string[] {
@@ -55,7 +48,7 @@ export async function GET(req: NextRequest) {
         headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${frequencyFileStem(report)}.csv"`, "Cache-Control": "private, no-store" },
       });
     }
-    return NextResponse.json({ period: { kind: report.period.kind, year: report.period.year, quarter: report.period.quarter, month: report.period.month, week: report.period.week, label: report.period.label }, outletCount: report.outlets.length, summary: report.summary, generatedAt: report.generatedAt }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ period: { kind: report.period.kind, year: report.period.year, quarter: report.period.quarter, month: report.period.month, week: report.period.week, label: report.period.label }, outletCount: report.outlets.length, systemOutlets: report.systemOutlets, duplicatesMerged: report.duplicatesMerged, summary: report.summary, generatedAt: report.generatedAt }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Failed to build the coverage frequency extract", error);
     return NextResponse.json({ error: "Failed to build the coverage frequency extract." }, { status: 500 });

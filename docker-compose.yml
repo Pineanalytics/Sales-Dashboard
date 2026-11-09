@@ -172,7 +172,8 @@ services:
       DIRECT_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pinefrost-postgres-1:5432/${POSTGRES_DB}
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
       CONTINUOUS_SYNC_JOBS: mars-kpis
-      MARS_KPIS_INTERVAL_SECONDS: 900
+      # Every 30 minutes (was 15): each pass takes 70-175 seconds of CPU on the shared 4-core VPS, and the daily full resync below still covers drift.
+      MARS_KPIS_INTERVAL_SECONDS: 1800
       MARS_KPIS_RUN_ON_START: "false"
       MARS_KPIS_FULL_RESYNC_AFTER_HOURS: 22
       TZ: Africa/Nairobi
@@ -233,12 +234,15 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,performance,pl,stock,receivables
-      SALES_INTERVAL_SECONDS: 300
+      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables
+      # Every 10 minutes (was 5): each pass reads the month from SAP for 30-60 seconds at over 100% CPU on the shared 4-core VPS.
+      SALES_INTERVAL_SECONDS: 600
       # SFA-outlet sales for the Customer analysis: the current and previous month every hour, and once on start so a
       # deploy loads the current month straight away.
       SFA_SALES_INTERVAL_SECONDS: 3600
       SFA_SALES_RUN_ON_START: "true"
+      # Stock receipts for the Purchases report: the current and previous month every hour, and once on start (no run-on-start setting, so the default applies).
+      PURCHASES_INTERVAL_SECONDS: 3600
       # Performance Analysis: one full-year SAP read a day (container clock is UTC, so
       # 00:30 here is 03:30 Nairobi). Not run on start.
       PERFORMANCE_DAILY_AT: "00:30"

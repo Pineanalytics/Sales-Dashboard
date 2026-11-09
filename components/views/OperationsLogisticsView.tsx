@@ -83,7 +83,7 @@ export function OperationsLogisticsView({
         {activeTab === "inventory-movement" && <InventoryMovementTab dataset={dataset} />}
         {activeTab === "must-sell-list" && <MustSellListTab dataset={dataset} />}
         {activeTab === "top-principal-status" && <TopPrincipalStockStatusTab dataset={dataset} />}
-        {activeTab === "purchases" && <PurchasesTab />}
+        {activeTab === "purchases" && <PurchasesTab period={period} selectedPrincipalKey={selectedPrincipalKey} />}
         {activeTab === "order-fulfillment" && <OrderFulfillmentTab period={period} />}
         {activeTab === "fleet-logistics" && <FleetLogisticsTab />}
       </div>

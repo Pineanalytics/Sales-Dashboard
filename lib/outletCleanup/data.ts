@@ -1,0 +1,593 @@
+// Reads for the outlet cleanup: the option lists the form chooses from, the queue of a person's outlets, and one outlet with everything the form needs.
+// The universe (OutletUniverse) is the source of the prefilled values; what a team leader has verified lives in OutletCleanupEntry and is laid over it.
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { isPlaceholderPlace } from "@/lib/outletUniverse/tiering";
+import type { OutletSource } from "@/lib/outletUniverse/normalize";
+import { similarity } from "@/lib/universeAnalysis/similarity";
+import { cleanName } from "@/lib/universeAnalysis/dedup";
+import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
+import { inActorScope } from "./access";
+import { activeCutoffDate, outletActivity } from "./activity";
+import type { DisownRow } from "./disown";
+import { OFF_ROSTER_REP } from "./repFilter";
+import { loadRouting } from "./routingData";
+import type { ReportRow } from "./reportExport";
+import { haversineM } from "./validate";
+import {
+  FIELD_LABELS,
+  IDENTIFICATION_FIELDS,
+  QUEUE_PAGE_SIZE,
+  type CleanupActor,
+  type CleanupOptions,
+  type DraftRep,
+  type DuplicateCandidate,
+  type IdentificationField,
+  type LockableField,
+  type OutletDetail,
+  type OutletDraft,
+  type OutletRepRow,
+  type QueueFilterOptions,
+  type QueueRow,
+  type ReportOptions,
+  type RepDecision,
+  type RepOption,
+  type ReviewState,
+} from "./types";
+
+const OPTIONS_TTL_MS = 10 * 60_000;
+let optionsCache: { at: number; value: Promise<CleanupOptions> } | null = null;
+
+/** The values the form may choose from: the ones already in the universe, so a field is only ever amended to something that exists. */
+export function loadCleanupOptions(): Promise<CleanupOptions> {
+  if (!optionsCache || Date.now() - optionsCache.at > OPTIONS_TTL_MS) {
+    const value = (async (): Promise<CleanupOptions> => {
+      const rows = await prisma.$queryRaw<{ kind: string; value: string }[]>(Prisma.sql`
+        SELECT 'region' AS kind, region AS value FROM "OutletUniverse" WHERE region IS NOT NULL AND btrim(region) <> '' GROUP BY region
+        UNION ALL SELECT 'territory', COALESCE("territoryClean", territory) FROM "OutletUniverse" WHERE COALESCE("territoryClean", territory) IS NOT NULL AND btrim(COALESCE("territoryClean", territory)) <> '' GROUP BY 2
+        UNION ALL SELECT 'channel', channel FROM "OutletUniverse" WHERE channel IS NOT NULL AND btrim(channel) <> '' GROUP BY channel
+        UNION ALL SELECT 'type', segment FROM "OutletUniverse" WHERE segment IS NOT NULL AND btrim(segment) <> '' GROUP BY segment
+      `);
+      // Values that are not a place, a channel or a customer type: promotion / tender scheme names that sit in the channel column, and region names with a stray digit ("1Tana River") or the "General" catch-all.
+      const SCHEME_CHANNEL = /croma|activation|tender|lmt-jbp/i;
+      const usable = (kind: string, value: string) => !isPlaceholderPlace(value) && !(kind === "channel" && SCHEME_CHANNEL.test(value)) && !(kind === "region" && (/^\d/.test(value.trim()) || value.trim().toLowerCase() === "general"));
+      const pick = (kind: string) => [...new Set(rows.filter((r) => r.kind === kind && usable(kind, r.value)).map((r) => r.value.trim()))].sort((a, b) => a.localeCompare(b));
+      return { regions: pick("region"), territories: pick("territory"), channels: pick("channel"), customerTypes: pick("type") };
+    })();
+    value.catch(() => {
+      optionsCache = null;
+    });
+    optionsCache = { at: Date.now(), value };
+  }
+  return optionsCache.value;
+}
+
+/** SQL for "this outlet row belongs to a team this person works on" (always true for someone who sees all). */
+export function scopeSql(actor: CleanupActor, alias: string): Prisma.Sql {
+  if (actor.teamLeaders === null) return Prisma.sql`TRUE`;
+  if (actor.teamLeaders.length === 0) return Prisma.sql`FALSE`;
+  const names = actor.teamLeaders.map((n) => n.trim().replace(/\s+/g, " ").toLowerCase());
+  return Prisma.sql`lower(regexp_replace(btrim(${Prisma.raw(alias)}."teamLeader"), '\\s+', ' ', 'g')) IN (${Prisma.join(names)})`;
+}
+
+export type QueueState = "all" | "todo" | "unreviewed" | "drafts" | "rejected" | "reviewed" | "needs-geo" | "duplicates" | "disowned";
+
+export interface QueueFilters {
+  state: QueueState;
+  q: string;
+  region: string | null;
+  territory: string | null;
+  /** A selling rep's name, as the universe spells it (matched ignoring case and spacing). */
+  rep: string | null;
+  principal: string | null;
+  teamLeader: string | null;
+  /** Active outlets only, dormant ones only (including those with no purchase on record), or both. */
+  activity: "all" | "active" | "dormant";
+}
+
+export function parseQueueFilters(params: URLSearchParams): QueueFilters {
+  const states: QueueState[] = ["all", "todo", "unreviewed", "drafts", "rejected", "reviewed", "needs-geo", "duplicates", "disowned"];
+  const state = params.get("state") as QueueState;
+  const text = (key: string, max = 100) => {
+    const v = (params.get(key) ?? "").trim().slice(0, max);
+    return v === "" ? null : v;
+  };
+  return { state: states.includes(state) ? state : "todo", q: text("q", 80) ?? "", region: text("region"), territory: text("territory"), rep: text("rep"), principal: text("principal"), teamLeader: text("teamLeader"), activity: params.get("activity") === "active" || params.get("activity") === "dormant" ? (params.get("activity") as "active" | "dormant") : "all" };
+}
+
+const HAS_GEO = Prisma.sql`(o.latitude IS NOT NULL AND o.latitude <> 0 AND o.latitude BETWEEN -5 AND 5 AND o.longitude BETWEEN 33 AND 43)`;
+
+interface RawQueueRow {
+  source: string;
+  outletKey: string;
+  outletName: string;
+  principals: string;
+  region: string;
+  territory: string;
+  channel: string;
+  customerType: string;
+  teamLeaders: string | null;
+  reps: string | null;
+  hasGeo: boolean;
+  shopSize: number;
+  state: string;
+  hasDraft: boolean;
+  lastPurchase: Date | null;
+}
+
+/** The queue row with the detail the report extract adds: contact, GPS point and what the person has verified. */
+interface RawReportRow extends RawQueueRow {
+  contactName: string | null;
+  contactPhone: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
+  lockedFields: string[] | null;
+  repDecisions: unknown;
+  adminNote: string | null;
+}
+
+const foldName = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
+
+
+/**
+ * The reps the filter may offer: the active reps on the roster under the person's team leaders (everyone's, for those who see all), by name.
+ * The universe's own rep names also include reps that merely last sold at an outlet, from other principals or teams, which would pad a team's list with people who are not on it.
+ */
+export async function loadRosterRepNames(actor: CleanupActor): Promise<string[]> {
+  const rows = await prisma.employeeMaster.findMany({ where: { active: true }, select: { pineName: true, teamLeader: true, teamLeaderId: true } });
+  let linked: Set<string> | null = null;
+  const mine = actor.teamLeaders === null ? null : new Set(actor.teamLeaders.map(foldName));
+  if (mine) {
+    const leaders = await prisma.teamLeader.findMany({ select: { id: true, name: true } });
+    linked = new Set(leaders.filter((l) => mine.has(foldName(l.name))).map((l) => l.id));
+  }
+  const names = rows.filter((r) => !mine || mine.has(foldName(r.teamLeader ?? "")) || (r.teamLeaderId !== null && (linked?.has(r.teamLeaderId) ?? false))).map((r) => foldName(r.pineName)).filter((n) => n !== "");
+  return [...new Set(names)];
+}
+
+const FOLDED_REP = Prisma.sql`lower(regexp_replace(btrim(n), '\\s+', ' ', 'g'))`;
+
+/**
+ * The outlets a person works on, one row each, with what they have verified laid over the universe's values and the review state.
+ * `repNames` are the selling reps on this person's own teams only, so a rep filter never matches a rep from another team's row of the same outlet.
+ */
+function queueBase(actor: CleanupActor): Prisma.Sql {
+  return Prisma.sql`
+    WITH mine AS (
+      SELECT o.source, o."outletKey" FROM "OutletUniverse" o WHERE ${scopeSql(actor, "o")} GROUP BY o.source, o."outletKey"
+    ),
+    agg AS (
+      SELECT o.source, o."outletKey", MIN(o."outletName") AS "outletName", STRING_AGG(DISTINCT o.principal, ', ') AS principals,
+             MIN(o.region) AS region, MIN(COALESCE(o."territoryClean", o.territory)) AS territory, MIN(o.channel) AS channel, MIN(o.segment) AS "customerType",
+             STRING_AGG(DISTINCT NULLIF(btrim(o."teamLeader"), ''), ', ') AS "teamLeaders", BOOL_OR(${HAS_GEO}) AS "hasGeo",
+             ARRAY_AGG(DISTINCT btrim(o."repName")) FILTER (WHERE ${scopeSql(actor, "o")} AND NULLIF(btrim(o."repName"), '') IS NOT NULL) AS "repNames",
+             MAX(COALESCE(o."shopSize", 1))::int AS "shopSize", SUM(o.sales)::double precision AS sales, MAX(o."lastPurchaseDate") AS "lastPurchase",
+             MAX(o."contactName") AS "contactName", MAX(o."contactPhone") AS "contactPhone", MAX(CASE WHEN ${HAS_GEO} THEN o.latitude END) AS latitude, MAX(CASE WHEN ${HAS_GEO} THEN o.longitude END) AS longitude
+      FROM "OutletUniverse" o JOIN mine m ON m.source = o.source AND m."outletKey" = o."outletKey"
+      GROUP BY o.source, o."outletKey"
+    ),
+    q AS (
+      SELECT a.source, a."outletKey", a."outletName", a.principals,
+             COALESCE(e.region, a.region) AS region, COALESCE(e.territory, a.territory) AS territory, COALESCE(e.channel, a.channel) AS channel,
+             COALESCE(e."customerType", a."customerType") AS "customerType", a."teamLeaders", a."repNames", (a."hasGeo" OR e.latitude IS NOT NULL) AS "hasGeo", a."shopSize", a.sales, a."lastPurchase",
+             COALESCE(e."contactName", a."contactName") AS "contactName", COALESCE(e."contactPhone", a."contactPhone") AS "contactPhone",
+             COALESCE(e.latitude, a.latitude) AS latitude, COALESCE(e.longitude, a.longitude) AS longitude,
+             e."reviewedBy", e."reviewedAt", e."lockedFields", e."repDecisions", e."adminNote", (d.id IS NOT NULL) AS "hasDraft",
+             CASE WHEN mo.id IS NOT NULL THEN 'DISOWNED' WHEN e.id IS NULL THEN 'UNREVIEWED' ELSE e.status END AS state
+      FROM agg a
+      LEFT JOIN "OutletCleanupEntry" e ON e.source = a.source AND e."outletKey" = a."outletKey"
+      LEFT JOIN "OutletCleanupDraft" d ON d.source = a.source AND d."outletKey" = a."outletKey" AND d."savedBy" = ${actor.email}
+      LEFT JOIN "MarkedOpenOutlet" mo ON mo.source = a.source AND mo."outletKey" = a."outletKey" AND mo.status IN ('OPEN', 'UNCLAIMED')
+    )`;
+}
+
+const repMatch = (rep: string, roster: string[]): Prisma.Sql =>
+  rep === OFF_ROSTER_REP
+    ? Prisma.sql`NOT EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE ${FOLDED_REP} = ANY(${roster}::text[]))`
+    : Prisma.sql`EXISTS (SELECT 1 FROM unnest("repNames") AS n WHERE ${FOLDED_REP} = ${foldName(rep)})`;
+
+/** The reps and territories to offer as filters: the roster reps who have outlets here and the territories of those outlets, each list narrowed by the other's current choice. */
+export async function loadQueueFilterOptions(actor: CleanupActor, choice: { rep: string | null; territory: string | null }): Promise<QueueFilterOptions> {
+  const base = queueBase(actor);
+  const roster = await loadRosterRepNames(actor);
+  const inTerritory = choice.territory ? Prisma.sql`territory = ${choice.territory}` : Prisma.sql`TRUE`;
+  const [reps, territories, off] = await Promise.all([
+    prisma.$queryRaw<{ name: string }[]>(Prisma.sql`${base} SELECT DISTINCT n AS name FROM q, unnest("repNames") AS n WHERE ${inTerritory} AND ${FOLDED_REP} = ANY(${roster}::text[])`),
+    prisma.$queryRaw<{ territory: string }[]>(Prisma.sql`${base} SELECT DISTINCT territory FROM q WHERE territory IS NOT NULL AND btrim(territory) <> '' AND ${choice.rep ? repMatch(choice.rep, roster) : Prisma.sql`TRUE`}`),
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${inTerritory} AND ${repMatch(OFF_ROSTER_REP, roster)}`),
+  ]);
+  const seen = new Map<string, string>();
+  for (const r of reps) if (!seen.has(foldName(r.name))) seen.set(foldName(r.name), r.name);
+  return {
+    reps: [...seen.values()].sort((a, b) => a.localeCompare(b)),
+    territories: territories.map((t) => t.territory.trim()).sort((a, b) => a.localeCompare(b)),
+    offRoster: Number(off[0]?.total ?? 0),
+  };
+}
+
+/** The WHERE of the queue for the chosen state, search, region, territory, rep, principal, team leader and activity. */
+async function queueWhere(actor: CleanupActor, filters: QueueFilters): Promise<Prisma.Sql> {
+  const stateWhere: Record<QueueState, Prisma.Sql> = {
+    all: Prisma.sql`TRUE`,
+    todo: Prisma.sql`state IN ('UNREVIEWED', 'REJECTED')`,
+    unreviewed: Prisma.sql`state = 'UNREVIEWED'`,
+    drafts: Prisma.sql`"hasDraft"`,
+    rejected: Prisma.sql`state = 'REJECTED'`,
+    reviewed: Prisma.sql`state IN ('REVIEWED', 'VALIDATED', 'APPLIED')`,
+    "needs-geo": Prisma.sql`NOT "hasGeo" AND state <> 'DISOWNED'`,
+    duplicates: Prisma.sql`"shopSize" > 1`,
+    disowned: Prisma.sql`state = 'DISOWNED'`,
+  };
+  const parts: Prisma.Sql[] = [stateWhere[filters.state]];
+  if (filters.q) {
+    const like = `%${filters.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    parts.push(Prisma.sql`("outletName" ILIKE ${like} OR "outletKey" ILIKE ${like})`);
+  }
+  if (filters.region) parts.push(Prisma.sql`region = ${filters.region}`);
+  if (filters.territory) parts.push(Prisma.sql`territory = ${filters.territory}`);
+  if (filters.rep) parts.push(repMatch(filters.rep, filters.rep === OFF_ROSTER_REP ? await loadRosterRepNames(actor) : []));
+  if (filters.principal) parts.push(Prisma.sql`principals ILIKE ${`%${filters.principal}%`}`);
+  if (filters.teamLeader) parts.push(Prisma.sql`"teamLeaders" ILIKE ${`%${filters.teamLeader}%`}`);
+  if (filters.activity === "active") parts.push(Prisma.sql`"lastPurchase" >= ${activeCutoffDate()}`);
+  if (filters.activity === "dormant") parts.push(Prisma.sql`("lastPurchase" IS NULL OR "lastPurchase" < ${activeCutoffDate()})`);
+  return Prisma.join(parts, " AND ");
+}
+
+/** One page of the queue, narrowed by the state, search, rep, territory and activity filters. */
+export async function listQueue(actor: CleanupActor, filters: QueueFilters, page: number): Promise<{ rows: QueueRow[]; total: number; page: number; pageCount: number }> {
+  const where = await queueWhere(actor, filters);
+
+  const base = queueBase(actor);
+
+  const [count] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${where}`);
+  const total = Number(count?.total ?? 0);
+  const pageCount = Math.max(1, Math.ceil(total / QUEUE_PAGE_SIZE));
+  const current = Math.min(Math.max(1, page), pageCount);
+  const rows = await prisma.$queryRaw<RawQueueRow[]>(Prisma.sql`
+    ${base}
+    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", array_to_string("repNames", ', ') AS reps, "hasGeo", "shopSize", state, "hasDraft", "lastPurchase" FROM q WHERE ${where}
+    ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
+    LIMIT ${QUEUE_PAGE_SIZE} OFFSET ${(current - 1) * QUEUE_PAGE_SIZE}
+  `);
+  return {
+    rows: rows.map((r) => ({
+      source: r.source as OutletSource,
+      outletKey: r.outletKey,
+      outletName: r.outletName,
+      principals: r.principals,
+      region: r.region ?? "",
+      territory: r.territory ?? "",
+      channel: r.channel ?? "",
+      customerType: r.customerType ?? "",
+      teamLeaders: r.teamLeaders ?? "",
+      reps: r.reps ?? "",
+      hasGeo: Boolean(r.hasGeo),
+      shopSize: Number(r.shopSize ?? 1),
+      state: r.state as ReviewState,
+      hasDraft: Boolean(r.hasDraft),
+      lastPurchaseDate: r.lastPurchase ? r.lastPurchase.toISOString().slice(0, 10) : null,
+      ...outletActivity(r.lastPurchase),
+    })),
+    total,
+    page: current,
+    pageCount,
+  };
+}
+
+/** How many outlets the report extract would hold for these filters. */
+export async function countQueue(actor: CleanupActor, filters: QueueFilters): Promise<number> {
+  const [count] = await prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${queueBase(actor)} SELECT COUNT(*)::int AS total FROM q WHERE ${await queueWhere(actor, filters)}`);
+  return Number(count?.total ?? 0);
+}
+
+/** Every outlet the filters match, one row each, with the detail the report extract shows: contact, GPS, selling reps and what the team has verified. Same scope and filters as the list. */
+export async function listQueueReport(actor: CleanupActor, filters: QueueFilters): Promise<ReportRow[]> {
+  const rows = await prisma.$queryRaw<RawReportRow[]>(Prisma.sql`
+    ${queueBase(actor)}
+    SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "contactName", "contactPhone", "teamLeaders", array_to_string("repNames", ', ') AS reps,
+           latitude, longitude, "hasGeo", "shopSize", state, "hasDraft", "lastPurchase", "reviewedBy", "reviewedAt", "lockedFields", "repDecisions", "adminNote"
+    FROM q WHERE ${await queueWhere(actor, filters)}
+    ORDER BY territory ASC NULLS LAST, "outletName" ASC, "outletKey" ASC
+  `);
+  return rows.map((r) => {
+    const decisions = Array.isArray(r.repDecisions) ? (r.repDecisions as unknown as RepDecision[]) : [];
+    return {
+      source: r.source,
+      outletKey: r.outletKey,
+      outletName: r.outletName,
+      principals: r.principals,
+      region: r.region ?? "",
+      territory: r.territory ?? "",
+      channel: r.channel ?? "",
+      customerType: r.customerType ?? "",
+      contactName: r.contactName ?? "",
+      contactPhone: r.contactPhone ?? "",
+      teamLeaders: r.teamLeaders ?? "",
+      reps: r.reps ?? "",
+      latitude: r.latitude,
+      longitude: r.longitude,
+      hasGeo: Boolean(r.hasGeo),
+      shopSize: Number(r.shopSize ?? 1),
+      lastPurchaseDate: r.lastPurchase ? r.lastPurchase.toISOString().slice(0, 10) : null,
+      ...outletActivity(r.lastPurchase),
+      state: r.state as ReviewState,
+      hasDraft: Boolean(r.hasDraft),
+      reviewedBy: r.reviewedBy ?? "",
+      reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString().slice(0, 10) : "",
+      verifiedFields: (r.lockedFields ?? []).map((f) => FIELD_LABELS[f as LockableField] ?? f).join(", "),
+      repDecisions: decisions.map((d) => `${d.principal}: ${d.rep}${d.action === "CHANGED" ? ` (was ${d.previousRep ?? "none"})` : ""}${d.routeName ? `, route ${d.routeName}` : ""}${d.visitDays && d.visitDays.length > 0 ? `, ${d.visitDays.join("/")}` : ""}`).join("; "),
+      adminNote: r.adminNote ?? "",
+    };
+  });
+}
+
+/** The principals, regions and team leaders on the person's outlets, for narrowing the report extract. */
+export async function loadReportOptions(actor: CleanupActor): Promise<ReportOptions> {
+  const rows = await prisma.$queryRaw<{ kind: string; value: string }[]>(Prisma.sql`
+    ${queueBase(actor)}
+    SELECT 'principal' AS kind, p AS value FROM q, unnest(string_to_array(principals, ', ')) AS p GROUP BY p
+    UNION ALL SELECT 'region', region FROM q WHERE region IS NOT NULL AND btrim(region) <> '' GROUP BY region
+    UNION ALL SELECT 'teamLeader', t FROM q, unnest(string_to_array("teamLeaders", ', ')) AS t GROUP BY t
+  `);
+  const mine = actor.teamLeaders === null ? null : new Set(actor.teamLeaders.map(foldName));
+  const pick = (kind: string, keep: (value: string) => boolean = () => true) =>
+    [...new Set(rows.filter((r) => r.kind === kind && r.value.trim() !== "" && keep(r.value)).map((r) => r.value.trim()))].sort((a, b) => a.localeCompare(b));
+  return { principals: pick("principal"), regions: pick("region"), teamLeaders: pick("teamLeader", (value) => !mine || mine.has(foldName(value))) };
+}
+
+/** The reps a selling rep can be changed to for each principal: the synced roster's active reps of that principal. */
+export async function loadRepOptions(principals: string[]): Promise<Record<string, RepOption[]>> {
+  if (principals.length === 0) return {};
+  const reps = await prisma.employeeMaster.findMany({
+    where: { active: true, absolutePrincipal: { in: principals, mode: "insensitive" } },
+    select: { employeeCode: true, pineName: true, absolutePrincipal: true, teamLeader: true },
+    orderBy: { pineName: "asc" },
+  });
+  const out: Record<string, RepOption[]> = {};
+  for (const principal of principals) {
+    out[principal] = reps
+      .filter((r) => r.absolutePrincipal.toLowerCase() === principal.toLowerCase())
+      .map((r) => ({ code: r.employeeCode, name: r.pineName, teamLeader: r.teamLeader }));
+  }
+  return out;
+}
+
+/** Every outlet key the filters match (not counting outlets already marked open), in list order, for selecting more than one page of the list. Capped at `max`; `total` is the full count. */
+export async function listQueueKeys(actor: CleanupActor, filters: QueueFilters, max: number): Promise<{ keys: { source: OutletSource; outletKey: string }[]; total: number }> {
+  const where = Prisma.sql`${await queueWhere(actor, filters)} AND state <> 'DISOWNED'`;
+  const base = queueBase(actor);
+  const [rows, [count]] = await Promise.all([
+    prisma.$queryRaw<{ source: string; outletKey: string }[]>(Prisma.sql`
+      ${base}
+      SELECT source, "outletKey" FROM q WHERE ${where}
+      ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
+      LIMIT ${max}
+    `),
+    prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${where}`),
+  ]);
+  return { keys: rows.map((r) => ({ source: r.source as OutletSource, outletKey: r.outletKey })), total: Number(count?.total ?? 0) };
+}
+
+export interface DisownTarget {
+  source: OutletSource;
+  outletKey: string;
+  outletName: string;
+  region: string | null;
+  territory: string | null;
+  rows: DisownRow[];
+  /** Already on the marked-open list and unsettled. */
+  alreadyOpen: boolean;
+}
+
+/** What disowning needs to know about many outlets at once, in three queries: the universe rows, what the team has verified, and any open record. Outlets outside the person's scope are left out. */
+export async function loadDisownTargets(actor: CleanupActor, items: { source: OutletSource; outletKey: string }[]): Promise<Map<string, DisownTarget>> {
+  const out = new Map<string, DisownTarget>();
+  if (items.length === 0) return out;
+  const pairs = Prisma.join(items.map((i) => Prisma.sql`(${i.source}, ${i.outletKey})`));
+  const [universe, entries, open] = await Promise.all([
+    prisma.$queryRaw<{ source: string; outletKey: string; principal: string; outletName: string; region: string | null; territory: string | null; territoryClean: string | null; repName: string | null; teamLeader: string | null }[]>(Prisma.sql`
+      SELECT source, "outletKey", principal, "outletName", region, territory, "territoryClean", "repName", "teamLeader"
+      FROM "OutletUniverse" WHERE (source, "outletKey") IN (${pairs}) ORDER BY source, "outletKey", principal
+    `),
+    prisma.outletCleanupEntry.findMany({ where: { OR: items.map((i) => ({ source: i.source, outletKey: i.outletKey })) }, select: { source: true, outletKey: true, region: true, territory: true } }),
+    prisma.markedOpenOutlet.findMany({ where: { status: { in: ["OPEN", "UNCLAIMED"] }, OR: items.map((i) => ({ source: i.source, outletKey: i.outletKey })) }, select: { source: true, outletKey: true } }),
+  ]);
+  const verified = new Map(entries.map((e) => [`${e.source}|${e.outletKey}`, e]));
+  const opened = new Set(open.map((o) => `${o.source}|${o.outletKey}`));
+  for (const r of universe) {
+    const key = `${r.source}|${r.outletKey}`;
+    const row: DisownRow = { principal: r.principal, repName: r.repName, teamLeader: r.teamLeader, editable: actor.teamLeaders === null || inActorScope(actor, r.teamLeader) };
+    const have = out.get(key);
+    if (have) {
+      have.rows.push(row);
+      continue;
+    }
+    const entry = verified.get(key);
+    out.set(key, { source: r.source as OutletSource, outletKey: r.outletKey, outletName: r.outletName, region: entry?.region ?? r.region, territory: entry?.territory ?? r.territoryClean ?? r.territory, rows: [row], alreadyOpen: opened.has(key) });
+  }
+  // The same scope rule as the outlet form: an outlet none of whose rows is on the person's teams is not theirs to see.
+  for (const [key, target] of out) if (actor.teamLeaders !== null && !target.rows.some((r) => r.editable)) out.delete(key);
+  return out;
+}
+
+/** The team leaders an outlet can be offered to: every real team leader on the roster (the caller removes their own). */
+export async function loadTeamLeaderOptions(): Promise<string[]> {
+  const leaders = await prisma.teamLeader.findMany({ where: { kind: { in: ["TEAM_LEADER", "SUPERVISOR_TEAM", "KEY_ACCOUNTS"] } }, select: { name: true }, orderBy: { name: "asc" } });
+  return leaders.map((l) => l.name);
+}
+
+interface RawUniverseRow {
+  principal: string;
+  outletName: string;
+  region: string;
+  territory: string;
+  territoryClean: string | null;
+  channel: string;
+  segment: string;
+  repName: string | null;
+  repCode: string | null;
+  teamLeader: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  shopId: string | null;
+  shopSize: number | null;
+  shopConfidence: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  route: string | null;
+  visitDays: string | null;
+  lastPurchaseDate: Date | null;
+}
+
+const validPoint = (lat: number | null, lon: number | null): boolean => lat !== null && lon !== null && lat !== 0 && lat >= -5 && lat <= 5 && lon >= 33 && lon <= 43;
+
+/** Everything the form needs for one outlet, or null when the outlet does not exist or is not one this person works on. */
+export async function loadOutletDetail(actor: CleanupActor, source: OutletSource, outletKey: string): Promise<OutletDetail | null> {
+  const universe = await prisma.$queryRaw<RawUniverseRow[]>(Prisma.sql`
+    SELECT principal, "outletName", region, territory, "territoryClean", channel, segment, "repName", "repCode", "teamLeader", latitude, longitude, "shopId", "shopSize", "shopConfidence", "contactName", "contactPhone", route, "visitDays", "lastPurchaseDate"
+    FROM "OutletUniverse" WHERE source = ${source} AND "outletKey" = ${outletKey} ORDER BY principal
+  `);
+  if (universe.length === 0) return null;
+  const lead = universe[0];
+  const inScope = actor.teamLeaders === null || universe.some((r) => inActorScope(actor, r.teamLeader));
+  if (!inScope) return null;
+
+  const [entry, open, decisions, logs, options, teamLeaderOptions, draft] = await Promise.all([
+    prisma.outletCleanupEntry.findUnique({ where: { source_outletKey: { source, outletKey } } }),
+    prisma.markedOpenOutlet.findFirst({ where: { source, outletKey, status: { in: ["OPEN", "UNCLAIMED"] } }, include: { candidates: true }, orderBy: { markedAt: "desc" } }),
+    prisma.outletDuplicateDecision.findMany({ where: { status: { not: "REJECTED" }, OR: [{ aSource: source, aKey: outletKey }, { bSource: source, bKey: outletKey }] } }),
+    prisma.outletCleanupLog.findMany({ where: { source, outletKey }, orderBy: { at: "desc" }, take: 8 }),
+    loadCleanupOptions(),
+    loadTeamLeaderOptions(),
+    loadDraft(actor, source, outletKey),
+  ]);
+
+  const principals = universe.map((r) => r.principal);
+  const [repOptions, near] = await Promise.all([loadRepOptions(principals), loadDuplicateCandidates(source, outletKey, lead, universe)]);
+  const decided: RepDecision[] = Array.isArray(entry?.repDecisions) ? (entry?.repDecisions as unknown as RepDecision[]) : [];
+  const { routing, routeLocations } = await loadRouting({ source, outletKey, universe: universe.map((r) => ({ principal: r.principal, repCode: r.repCode, repName: r.repName, teamLeader: r.teamLeader, route: r.route, visitDays: r.visitDays })), repOptions, decisions: decided });
+
+  const point = universe.find((r) => validPoint(r.latitude, r.longitude));
+  const current: Record<IdentificationField, string> = {
+    region: lead.region ?? "",
+    territory: lead.territoryClean ?? lead.territory ?? "",
+    channel: lead.channel ?? "",
+    customerType: lead.segment ?? "",
+    contactName: universe.find((r) => r.contactName)?.contactName ?? "",
+    contactPhone: universe.find((r) => r.contactPhone)?.contactPhone ?? "",
+  };
+  const verified: Partial<Record<IdentificationField, string>> = {};
+  if (entry) for (const field of IDENTIFICATION_FIELDS) if (entry[field]) verified[field] = entry[field] as string;
+
+  const state: ReviewState = open ? "DISOWNED" : entry ? (entry.status as ReviewState) : "UNREVIEWED";
+  const reps: OutletRepRow[] = universe.map((r) => ({ principal: r.principal, rep: r.repName, repCode: r.repCode, teamLeader: r.teamLeader, editable: actor.teamLeaders === null || inActorScope(actor, r.teamLeader) }));
+  const hasOwnRow = reps.some((r) => r.editable);
+  const taggedGeo = entry?.latitude !== null && entry?.latitude !== undefined;
+
+  return {
+    source,
+    outletKey,
+    outletName: lead.outletName,
+    state,
+    current,
+    verified,
+    geo: {
+      latitude: taggedGeo ? (entry?.latitude ?? null) : (point?.latitude ?? null),
+      longitude: taggedGeo ? (entry?.longitude ?? null) : (point?.longitude ?? null),
+      taggedAt: entry?.geoTaggedAt ? entry.geoTaggedAt.toISOString() : null,
+      taggedBy: entry?.geoTaggedBy ?? null,
+      accuracyM: entry?.geoAccuracyM ?? null,
+      missing: !taggedGeo && !point,
+    },
+    reps,
+    repDecisions: decided,
+    routing,
+    routeLocations,
+    lockedFields: (entry?.lockedFields ?? []) as LockableField[],
+    confirmedAsIs: entry?.confirmedAsIs ?? false,
+    shop: { shopId: lead.shopId, shopSize: Number(lead.shopSize ?? 1), confidence: lead.shopConfidence },
+    activity: (() => {
+      const last = universe.reduce<Date | null>((latest, r) => (r.lastPurchaseDate && (!latest || r.lastPurchaseDate > latest) ? r.lastPurchaseDate : latest), null);
+      return { lastPurchaseDate: last ? last.toISOString().slice(0, 10) : null, ...outletActivity(last) };
+    })(),
+    duplicates: near.map((c) => {
+      const d = decisions.find((x) => (x.aSource === c.source && x.aKey === c.outletKey) || (x.bSource === c.source && x.bKey === c.outletKey));
+      return { ...c, decision: d ? (d.decision as "MERGE" | "NOT_DUPLICATE") : null };
+    }),
+    openStatus: open ? { status: open.status, candidates: open.candidates.map((c) => ({ teamLeader: c.teamLeader, response: c.response })) } : null,
+    canEdit: actor.canReview && hasOwnRow && state !== "DISOWNED",
+    canUnlock: actor.isAdmin || actor.role === "SUPERVISOR",
+    options,
+    repOptions,
+    teamLeaderOptions: teamLeaderOptions.filter((n) => !actor.teamLeaders?.some((mine) => mine.toLowerCase() === n.toLowerCase())),
+    draft,
+    history: logs.map((l) => ({ at: l.at.toISOString(), actor: l.actor, action: l.action })),
+  };
+}
+
+/** The signed-in person's own saved draft of an outlet. Drafts are private to whoever saved them. */
+async function loadDraft(actor: CleanupActor, source: OutletSource, outletKey: string): Promise<OutletDraft | null> {
+  const row = await prisma.outletCleanupDraft.findUnique({ where: { source_outletKey_savedBy: { source, outletKey, savedBy: actor.email } } });
+  if (!row) return null;
+  return {
+    identification: row.identification && typeof row.identification === "object" && !Array.isArray(row.identification) ? (row.identification as Partial<Record<IdentificationField, string>>) : {},
+    reps: Array.isArray(row.reps) ? (row.reps as unknown as DraftRep[]) : [],
+    savedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Other outlets that could be the same shop: those already merged into this one's shop, and nearby ones (within about 200 m) with a similar name. */
+async function loadDuplicateCandidates(source: OutletSource, outletKey: string, lead: RawUniverseRow, universe: RawUniverseRow[]): Promise<Omit<DuplicateCandidate, "decision">[]> {
+  const out = new Map<string, Omit<DuplicateCandidate, "decision">>();
+  const key = (s: string, k: string) => `${s}|${k}`;
+  if (lead.shopId) {
+    const members = await prisma.$queryRaw<{ source: string; outletKey: string; outletName: string; principals: string; territory: string; latitude: number | null; longitude: number | null }[]>(Prisma.sql`
+      SELECT source, "outletKey", MIN("outletName") AS "outletName", STRING_AGG(DISTINCT principal, ', ') AS principals, MIN(COALESCE("territoryClean", territory)) AS territory,
+             MIN(latitude) AS latitude, MIN(longitude) AS longitude
+      FROM "OutletUniverse" WHERE "shopId" = ${lead.shopId} AND NOT (source = ${source} AND "outletKey" = ${outletKey}) GROUP BY source, "outletKey"
+    `);
+    const here = universe.find((r) => validPoint(r.latitude, r.longitude));
+    for (const m of members) {
+      out.set(key(m.source, m.outletKey), {
+        source: m.source as OutletSource,
+        outletKey: m.outletKey,
+        outletName: m.outletName,
+        principals: m.principals,
+        territory: m.territory ?? "",
+        distanceM: here && validPoint(m.latitude, m.longitude) ? Math.round(haversineM(here.latitude as number, here.longitude as number, m.latitude as number, m.longitude as number)) : null,
+        inSameShop: true,
+      });
+    }
+  }
+  const here = universe.find((r) => validPoint(r.latitude, r.longitude));
+  if (here) {
+    const box = 0.002;
+    const nearby = await prisma.$queryRaw<{ source: string; outletKey: string; outletName: string; principals: string; territory: string; latitude: number; longitude: number }[]>(Prisma.sql`
+      SELECT source, "outletKey", MIN("outletName") AS "outletName", STRING_AGG(DISTINCT principal, ', ') AS principals, MIN(COALESCE("territoryClean", territory)) AS territory,
+             MIN(latitude) AS latitude, MIN(longitude) AS longitude
+      FROM "OutletUniverse"
+      WHERE latitude BETWEEN ${(here.latitude as number) - box} AND ${(here.latitude as number) + box} AND longitude BETWEEN ${(here.longitude as number) - box} AND ${(here.longitude as number) + box}
+        AND NOT (source = ${source} AND "outletKey" = ${outletKey})
+      GROUP BY source, "outletKey" LIMIT 300
+    `);
+    const mine = cleanName(lead.outletName, DEFAULT_DEDUP.fillerRegex);
+    for (const m of nearby) {
+      const k = key(m.source, m.outletKey);
+      if (out.has(k)) continue;
+      const theirs = cleanName(m.outletName, DEFAULT_DEDUP.fillerRegex);
+      if (!mine || !theirs || similarity(mine, theirs) < 0.6) continue;
+      out.set(k, {
+        source: m.source as OutletSource,
+        outletKey: m.outletKey,
+        outletName: m.outletName,
+        principals: m.principals,
+        territory: m.territory ?? "",
+        distanceM: Math.round(haversineM(here.latitude as number, here.longitude as number, m.latitude, m.longitude)),
+        inSameShop: false,
+      });
+    }
+  }
+  return [...out.values()].sort((a, b) => Number(b.inSameShop) - Number(a.inSameShop) || (a.distanceM ?? 1e9) - (b.distanceM ?? 1e9)).slice(0, 12);
+}

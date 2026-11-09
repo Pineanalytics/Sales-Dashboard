@@ -20,7 +20,7 @@ export interface LocationStat {
 }
 
 export type MergeConfidence = "High" | "Medium";
-export type MergeMethod = "same name" | "name + coordinates" | "spelling + coordinates" | "address -> nearest area";
+export type MergeMethod = "same name" | "name + coordinates" | "spelling + coordinates" | "name variant" | "address -> nearest area";
 
 export interface LocationMapRow {
   raw: string;
@@ -219,6 +219,72 @@ export function buildLocationMap(stats: LocationStat[], options: ClusterOptions 
           mergeInfo.set(a.id, { method: "spelling + coordinates", confidence: "Medium" });
           mergeInfo.set(b.id, { method: "spelling + coordinates", confidence: "Medium" });
         }
+      }
+    }
+  }
+
+  // 2b. A small name next to a much bigger place: a typo or a spacing variant ("Baba Dogo" / "Babadogo", "Pipiline" / "Pipeline") that has too few outlets
+  // for the spelling pass above to trust its coordinates. The same letters ignoring spaces merge when the two places are close (or the small one has no point
+  // at all); one letter apart merge when the small name's outlets sit inside the bigger place (close to its centre, or in map cells its own outlets occupy).
+  // A change in a trailing one-letter token ("South B" / "South C") or in a number is a different place, a name whose outlets are elsewhere ("Nderi" / "Nyeri")
+  // stays apart, and two big places are never merged on spelling alone.
+  const compact = (g: Group) => g.key.replace(/ /g, "");
+  const oneApart = (x: string, y: string) => {
+    if (Math.abs(x.length - y.length) > 1) return false;
+    let i = 0;
+    while (i < x.length && i < y.length && x[i] === y[i]) i++;
+    if (x.length === y.length) return x.slice(i + 1) === y.slice(i + 1);
+    const [long, short] = x.length > y.length ? [x, y] : [y, x];
+    return long.slice(i + 1) === short.slice(i);
+  };
+  const lastTokenLetterOnly = (a: Group, b: Group) => {
+    const ta = a.tokens;
+    const tb = b.tokens;
+    return ta.length === tb.length && ta.length > 1 && ta.slice(0, -1).join(" ") === tb.slice(0, -1).join(" ") && ta[ta.length - 1].length <= 2 && tb[tb.length - 1].length <= 2;
+  };
+  // The share of the small place's outlets that sit in, or next to, a map cell the bigger place's own outlets occupy.
+  const coveredShare = (small: Group, bigger: Group): number => {
+    if (small.gps === 0) return 0;
+    let shared = 0;
+    for (const [cell, n] of small.cells) {
+      const [cy, cx] = cell.split("|").map(Number);
+      let near = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near += bigger.cells.get(`${cy + dy}|${cx + dx}`) ?? 0;
+      if (near > 0) shared += n;
+    }
+    return shared / small.gps;
+  };
+  const byTail = new Map<string, Group[]>();
+  for (const g of groups) {
+    const tail = compact(g).slice(-3);
+    (byTail.get(tail) ?? byTail.set(tail, []).get(tail)!).push(g);
+  }
+  const variantBuckets = [...byPrefix.values(), ...byTail.values()];
+  const tried = new Set<string>();
+  for (const bucket of variantBuckets) {
+    for (let i = 0; i < bucket.length; i++) {
+      for (let j = i + 1; j < bucket.length; j++) {
+        const [small, bigger] = bucket[i].rows <= bucket[j].rows ? [bucket[i], bucket[j]] : [bucket[j], bucket[i]];
+        const pair = small.id < bigger.id ? `${small.id}|${bigger.id}` : `${bigger.id}|${small.id}`;
+        if (tried.has(pair)) continue;
+        tried.add(pair);
+        if (uf.find(small.id) === uf.find(bigger.id)) continue;
+        if (small.rows > 25 || bigger.rows < 8 || bigger.rows < small.rows * 10) continue;
+        const cs = compact(small);
+        const cb = compact(bigger);
+        if (cs.length < 5 || cb.length < 5) continue;
+        if (small.key.replace(/\D/g, "") !== bigger.key.replace(/\D/g, "")) continue;
+        if (lastTokenLetterOnly(small, bigger)) continue;
+        const identical = cs === cb;
+        if (!identical && !oneApart(cs, cb)) continue;
+        const d = dist(small, bigger);
+        const limit = Math.max(options.smallNameRadiusKm, options.spreadFactor * (radius(small) + radius(bigger)));
+        const placed = (d !== null && d <= limit) || coveredShare(small, bigger) >= options.coordinateOverlap;
+        if (!(placed || (identical && small.gps === 0))) continue;
+        uf.union(small.id, bigger.id);
+        const info = { method: "name variant" as MergeMethod, confidence: (identical ? "High" : "Medium") as MergeConfidence };
+        mergeInfo.set(small.id, info);
+        mergeInfo.set(bigger.id, mergeInfo.get(bigger.id) ?? info);
       }
     }
   }

@@ -9,11 +9,12 @@ import type { Dataset } from "@/lib/types";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { GlobalFilterBar } from "./GlobalFilterBar";
+import { CleanupReminder } from "./CleanupReminder";
 import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
-import { canAccessCoverage, canAccessFinancials, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessCoverage, canAccessFinancials, canAccessOutletCleanup, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -49,9 +50,12 @@ export function AnalyticsShell({
   // their own routes); a user granted either of those permissions alone must
   // still reach /coverage, same special-case as Financials above.
   const isCoverage = pathname?.startsWith("/coverage") ?? false;
+  // The outlet cleanup is its own module with its own small feeds, so it never waits for the portfolio dataset; it is open by role.
+  const isOutletCleanup = pathname?.startsWith("/outlet-cleanup") ?? false;
   const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
   const requiresDataset =
     !pathname?.startsWith("/coaching") &&
+    !isOutletCleanup &&
     !pathname?.startsWith("/principal-kpis") &&
     !pathname?.startsWith("/receivables") &&
     !pathname?.startsWith("/my-sales") &&
@@ -67,7 +71,9 @@ export function AnalyticsShell({
   // gate for anyone navigating to a disallowed URL directly).
   const requiredPage = pageKeyForPathname(pathname);
   const isAdmin = user?.role === "ADMIN";
-  const pageAllowed = isFinancials || isFinancePresentation
+  const pageAllowed = isOutletCleanup
+    ? canAccessOutletCleanup(user?.role)
+    : isFinancials || isFinancePresentation
     ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
     : isCoverage
     ? canAccessCoverage(user?.role, user?.allowedPages ?? [])
@@ -94,6 +100,7 @@ export function AnalyticsShell({
 
   return (
     <UserProvider value={user}>
+      {!presentationMode ? <CleanupReminder role={user?.role} /> : null}
       <div className="flex flex-1 min-h-0">
         {!presentationMode ? (
           <div className="no-print">

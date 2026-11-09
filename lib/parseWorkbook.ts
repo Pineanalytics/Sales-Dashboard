@@ -428,6 +428,21 @@ export function stockStatus(days: number, value: number, rrWeekValue: number, re
   return "\u{1F7E2} OK";
 }
 
+/** The one status for a rollup (a principal, a brand, or the grand total) over several SKUs: the worst status among
+ *  its actively-sold items (those with a real run rate to judge by; "No Sales Data" items are excluded from the
+ *  count, same as from "actively sold"). Deliberately NOT stockStatus() run again on the pooled value/run-rate —
+ *  that blends every SKU's stock and run rate into one ratio, so a principal's handful of big movers can hide a
+ *  dozen smaller SKUs that are genuinely out of stock (and the reverse: one large SKU's shortage reading as the
+ *  whole principal being out, when most of what it actually sells is fine). Each item's own status already
+ *  factors its own days of cover against its own threshold (lib/standardStock.ts); this just takes the worst of
+ *  them, never a re-blended average. "No Sales Data" only when nothing in the rollup is actively sold at all. */
+export function stockStatusFromCounts(outOfStockCount: number, runningOutCount: number, itemCount: number, noDataCount: number): string {
+  if (itemCount - noDataCount <= 0) return "\u{26AA} No Sales Data";
+  if (outOfStockCount > 0) return "\u{1F534} Out of Stock - To Order";
+  if (runningOutCount > 0) return "\u{1F7E1} Running Out";
+  return "\u{1F7E2} OK";
+}
+
 function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; total: StockTotal } {
   const sheetName = SHEET_NAMES.stock;
   const aoa = sheetToAOA(wb, sheetName);
@@ -516,7 +531,7 @@ function parseStock(wb: XLSX.WorkBook): { items: StockItem[]; total: StockTotal 
     runningOutCount: totalRunningOut,
     okCount: totalOK,
     noDataCount: totalNoData,
-    action: stockStatus(totalDays, totalValue, totalRRValue),
+    action: stockStatusFromCounts(totalOOS, totalRunningOut, items.length, totalNoData),
   };
 
   return { items, total };
