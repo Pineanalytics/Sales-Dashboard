@@ -15,44 +15,56 @@
 //  - JP adherence: the PJP ownership adherence of lib/jpAdherence.ts for the window: planned outlets, outlets visited, planned and not
 //    visited.
 
-/** A SAP sales row as read: its employee code when the sync could match the SAP salesperson name to the roster, otherwise only the SAP name. */
+/** A SAP sales row as read: its employee code when the sync could match the SAP salesperson name to the roster, otherwise only the SAP name (and the principal it was sold for). */
 export interface SapRowByName {
   employeeCode: string | null;
   sapName: string;
+  principal?: string | null;
   date: string;
   cases: number;
   revenue: number;
 }
 
-/** The roster names that identify an employee: the Pine name and the SAP name the roster holds. */
+/**
+ * The names the roster knows an employee by. One entry per employee record (their Pine name and the SAP name on it) and one per active principal assignment: each assignment
+ * carries its own "SAP Name", the rep's name as SAP spells it for that principal, which is where van names live. An assignment entry names its principal.
+ */
 export interface RosterNames {
   employeeCode: string;
   pineName: string | null;
   sapName: string | null;
+  principal?: string | null;
 }
 
 /** The same name key Rep Performance uses (lib/repPerformance.ts nameFallbackKey): case, spaces and punctuation ignored. */
 export const nameKey = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const add = (map: Map<string, Set<string>>, key: string, code: string) => map.set(key, (map.get(key) ?? new Set()).add(code));
+const onlyOne = (set: Set<string> | undefined): string | null => (set && set.size === 1 ? [...set][0] : null);
+
 /**
- * SAP sales rows that carry no employee code (the sync leaves a row unmatched when the SAP salesperson name is not the one the roster holds, for example a principal booked
- * under a different spelling) belong to the employee whose roster name matches, exactly as Rep Performance attributes them. A name two employees share is never guessed.
- * Rows are added up per employee code and day.
+ * SAP sales rows that carry no employee code (the sync matches a SAP salesperson name only against the one SAP name on the employee record, so a name given on a principal
+ * assignment, such as a van name, comes through unmatched) belong to the employee the roster names it for, exactly as Rep Performance attributes them by name. The principal
+ * narrows it when the row has one; a name that two employees share is never guessed. Rows are added up per employee code and day.
  */
 export function foldSapRowsByName(rows: SapRowByName[], roster: RosterNames[]): RepSapDayFact[] {
-  const owners = new Map<string, Set<string>>();
+  const byName = new Map<string, Set<string>>();
+  const byPrincipalName = new Map<string, Set<string>>();
   for (const e of roster) {
     for (const key of [nameKey(e.pineName), nameKey(e.sapName)]) {
       if (!key) continue;
-      owners.set(key, (owners.get(key) ?? new Set()).add(e.employeeCode));
+      add(byName, key, e.employeeCode);
+      if (e.principal) add(byPrincipalName, `${nameKey(e.principal)}|${key}`, e.employeeCode);
     }
   }
-  const unique = new Map<string, string>();
-  for (const [key, codes] of owners) if (codes.size === 1) unique.set(key, [...codes][0]);
 
   const folded = new Map<string, RepSapDayFact>();
   for (const row of rows) {
-    const code = row.employeeCode ?? unique.get(nameKey(row.sapName)) ?? null;
+    const key = nameKey(row.sapName);
+    const code =
+      row.employeeCode ??
+      (row.principal ? onlyOne(byPrincipalName.get(`${nameKey(row.principal)}|${key}`)) : null) ??
+      onlyOne(byName.get(key));
     if (!code) continue;
     const id = `${code}|${row.date}`;
     const have = folded.get(id);
