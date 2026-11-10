@@ -47,7 +47,7 @@ const ACTIVITY_FILTERS: { value: "all" | "active" | "dormant"; label: string }[]
   { value: "dormant", label: "Dormant only" },
 ];
 
-const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { UNREVIEWED: "neutral", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad", DISOWNED: "neutral" };
+const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { UNREVIEWED: "neutral", SUBMITTED: "warn", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad", DISOWNED: "neutral" };
 
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "progress", label: "Progress" },
@@ -142,6 +142,8 @@ export function CleanupModule({ initialSection }: { initialSection?: Section }) 
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const isAdmin = payload?.actor.isAdmin ?? false;
+  // Admins validate everything, supervisors the team leaders under them, and team leaders approve what their sales reps submit.
+  const reviewer = isAdmin || payload?.actor.role === "SUPERVISOR" || payload?.actor.role === "TEAM_LEADER";
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -225,7 +227,7 @@ export function CleanupModule({ initialSection }: { initialSection?: Section }) 
       </SectionCard>
 
       <div className="inline-flex w-fit flex-wrap gap-1 rounded-full bg-background-elevated p-0.5" role="tablist" aria-label="Cleanup sections">
-        {SECTIONS.filter((item) => (item.value !== "targets" && item.value !== "review") || payload?.actor.isAdmin).map((item) => (
+        {SECTIONS.filter((item) => (item.value === "targets" ? payload?.actor.isAdmin : item.value === "review" ? reviewer : true)).map((item) => (
           <button key={item.value} role="tab" aria-selected={section === item.value} onClick={() => setSection(item.value)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-300 ${section === item.value ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"}`}>
             {item.label}
             {item.value === "open" && toAllocate > 0 ? <span className="ml-1.5 rounded-full bg-brand-orange px-1.5 py-0.5 text-[10px] font-bold text-white" title={`${toAllocate} outlet${toAllocate === 1 ? "" : "s"} waiting for you to allocate`}>{toAllocate}</span> : null}
@@ -244,8 +246,10 @@ export function CleanupModule({ initialSection }: { initialSection?: Section }) 
       ) : null}
       {section === "routes" ? <RoutesPanel /> : null}
       {section === "open" ? <OpenOutlets onChanged={refresh} /> : null}
-      {section === "review" && payload?.actor.isAdmin ? (
+      {section === "review" && reviewer ? (
         <ReviewPanel
+          isAdmin={isAdmin}
+          role={payload?.actor.role ?? ""}
           onOpenOutlet={(source, outletKey) => {
             setOpen({ source, outletKey });
             setSection("outlets");

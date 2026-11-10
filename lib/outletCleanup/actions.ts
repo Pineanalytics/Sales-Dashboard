@@ -3,7 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { OutletSource } from "@/lib/outletUniverse/normalize";
-import { inActorScope } from "./access";
+import { inActorScope, mayApprove, mayValidate } from "./access";
 import { loadDisownTargets, loadOutletDetail, loadRepOptions, loadTeamLeaderOptions, type DisownTarget } from "./data";
 import { describeDisownedRows, disownBlocker, filingTeamLeader, MAX_BULK_DISOWN, planDisown, type DisownPlan, type DisownRequest } from "./disown";
 import { isPeriod } from "./progress";
@@ -43,6 +43,12 @@ function entryTeamLeader(actor: CleanupActor, detail: OutletDetail): string | nu
 
 const unionLocks = (existing: readonly string[], add: readonly string[]) => [...new Set([...existing, ...add])] as LockableField[];
 
+/** What a save by this person leaves the entry as: a rep's work waits for their team leader's approval, everyone else's for validation. */
+const statusFor = (actor: CleanupActor) => (actor.role === "REP" ? "SUBMITTED" : "REVIEWED");
+
+/** A rep's saves never lock a field (it is the team leader's approval that does); everyone else's lock what they settled. */
+const locksFor = (actor: CleanupActor, existing: readonly string[] | undefined, add: readonly string[]) => (actor.role === "REP" ? ([...(existing ?? [])] as LockableField[]) : unionLocks(existing ?? [], add));
+
 /** Saves updated identification values and/or confirmations (including "mark all correct"); locks the fields it settles. */
 export async function saveIdentification(actor: CleanupActor, source: OutletSource, outletKey: string, request: IdentificationRequest) {
   const detail = await editableDetail(actor, source, outletKey);
@@ -57,7 +63,7 @@ export async function saveIdentification(actor: CleanupActor, source: OutletSour
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     const existing = await tx.outletCleanupEntry.findUnique({ where: { source_outletKey: { source, outletKey } } });
-    const lockedFields = unionLocks(existing?.lockedFields ?? [], plan.lock);
+    const lockedFields = locksFor(actor, existing?.lockedFields, plan.lock);
     const entry = await tx.outletCleanupEntry.upsert({
       where: { source_outletKey: { source, outletKey } },
       create: {
@@ -65,7 +71,8 @@ export async function saveIdentification(actor: CleanupActor, source: OutletSour
         outletKey,
         outletName: detail.outletName,
         teamLeader: entryTeamLeader(actor, detail),
-        status: "REVIEWED",
+        status: statusFor(actor),
+        submittedRole: actor.role,
         confirmedAsIs,
         ...plan.values,
         lockedFields,
@@ -74,7 +81,10 @@ export async function saveIdentification(actor: CleanupActor, source: OutletSour
       },
       update: {
         ...plan.values,
-        status: "REVIEWED", // a rejected entry goes back to the admin once it is reworked; a validated one is edited only by someone who may reopen it
+        status: statusFor(actor), // a rejected entry goes back for approval or validation once it is reworked; a validated one is edited only by someone who may reopen it
+        submittedRole: actor.role,
+        approvedBy: null,
+        approvedAt: null,
         confirmedAsIs: existing?.confirmedAsIs ? existing.confirmedAsIs && Object.keys(plan.values).length === 0 : confirmedAsIs,
         lockedFields,
         reviewedBy: actor.email,
@@ -99,8 +109,8 @@ export async function tagGeo(actor: CleanupActor, source: OutletSource, outletKe
   const now = new Date();
   const entry = await prisma.$transaction(async (tx) => {
     const existing = await tx.outletCleanupEntry.findUnique({ where: { source_outletKey: { source, outletKey } } });
-    const lockedFields = unionLocks(existing?.lockedFields ?? [], ["geo"]);
-    const data = { latitude: tag.latitude, longitude: tag.longitude, geoAccuracyM: Math.round(tag.accuracyM), geoTaggedAt: now, geoTaggedBy: actor.email, lockedFields, status: "REVIEWED", reviewedBy: actor.email, reviewedAt: now, checkedBy: null, checkedAt: null };
+    const lockedFields = locksFor(actor, existing?.lockedFields, ["geo"]);
+    const data = { latitude: tag.latitude, longitude: tag.longitude, geoAccuracyM: Math.round(tag.accuracyM), geoTaggedAt: now, geoTaggedBy: actor.email, lockedFields, status: statusFor(actor), submittedRole: actor.role, approvedBy: null, approvedAt: null, reviewedBy: actor.email, reviewedAt: now, checkedBy: null, checkedAt: null };
     const saved = await tx.outletCleanupEntry.upsert({
       where: { source_outletKey: { source, outletKey } },
       create: { source, outletKey, outletName: detail.outletName, teamLeader: entryTeamLeader(actor, detail), ...data },
@@ -136,7 +146,11 @@ export async function decideReps(actor: CleanupActor, source: OutletSource, outl
       errors.push({ field: req.principal, message: "You cannot change the rep of this principal: it is not on your team." });
       continue;
     }
-    if (decided.has(row.principal.toLowerCase()) && !detail.canUnlock) {
+    if (actor.role === "REP" && req.action === "CHANGE") {
+      errors.push({ field: req.principal, message: "A sales rep confirms their own rows; ask your team leader to change the selling rep." });
+      continue;
+    }
+    if (decided.has(row.principal.toLowerCase()) && !detail.canUnlock && actor.role !== "REP") {
       errors.push({ field: req.principal, message: "The rep of this principal was already validated, so it is locked." });
       continue;
     }
@@ -183,7 +197,7 @@ export async function decideReps(actor: CleanupActor, source: OutletSource, outl
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     const existing = await tx.outletCleanupEntry.findUnique({ where: { source_outletKey: { source, outletKey } } });
-    const data = { repDecisions: decisions as unknown as Prisma.InputJsonValue, lockedFields: unionLocks(existing?.lockedFields ?? [], ["reps"]), status: "REVIEWED", reviewedBy: actor.email, reviewedAt: now, checkedBy: null, checkedAt: null };
+    const data = { repDecisions: decisions as unknown as Prisma.InputJsonValue, lockedFields: locksFor(actor, existing?.lockedFields, ["reps"]), status: statusFor(actor), submittedRole: actor.role, approvedBy: null, approvedAt: null, reviewedBy: actor.email, reviewedAt: now, checkedBy: null, checkedAt: null };
     const saved = await tx.outletCleanupEntry.upsert({
       where: { source_outletKey: { source, outletKey } },
       create: { source, outletKey, outletName: detail.outletName, teamLeader: entryTeamLeader(actor, detail), ...data },
@@ -444,14 +458,16 @@ export async function clearCleanupTarget(actor: CleanupActor, request: { period:
 
 /** An admin validates or rejects entries the teams have saved. Validated entries are laid over the universe at the next compile; a rejected one is sent back with its fields unlocked and its rep decisions cleared. */
 export async function reviewEntries(actor: CleanupActor, request: { ids: string[]; decision: "VALIDATE" | "REJECT"; note?: string }) {
-  if (!actor.isAdmin) throw new CleanupError("Only an admin can validate or reject cleanup entries.", 403);
+  if (!mayValidate(actor)) throw new CleanupError("Only an admin, or a supervisor for their own team leaders, can validate or reject cleanup entries.", 403);
   const ids = [...new Set(request.ids)].slice(0, 500);
   if (ids.length === 0) throw new CleanupError("Choose at least one entry.", 400);
   const note = request.note?.trim().slice(0, 300) || null;
   if (request.decision === "REJECT" && !note) throw new CleanupError("Say what the team leader should correct.", 400, [{ field: "note", message: "Give a short reason." }]);
   const now = new Date();
   return prisma.$transaction(async (tx) => {
-    const found = await tx.outletCleanupEntry.findMany({ where: { id: { in: ids }, status: request.decision === "VALIDATE" ? "REVIEWED" : { in: ["REVIEWED", "VALIDATED"] } }, select: { id: true, source: true, outletKey: true } });
+    const candidates = await tx.outletCleanupEntry.findMany({ where: { id: { in: ids }, status: request.decision === "VALIDATE" ? "REVIEWED" : { in: ["REVIEWED", "VALIDATED"] } }, select: { id: true, source: true, outletKey: true, teamLeader: true, reviewedBy: true } });
+    // A supervisor works on the team leaders under them, and never validates their own work.
+    const found = actor.isAdmin ? candidates : candidates.filter((c) => inActorScope(actor, c.teamLeader) && c.reviewedBy !== actor.email);
     if (found.length === 0) throw new CleanupError("Those entries are no longer waiting for review.", 409);
     const where = { id: { in: found.map((f) => f.id) } };
     if (request.decision === "VALIDATE") await tx.outletCleanupEntry.updateMany({ where, data: { status: "VALIDATED", checkedBy: actor.email, checkedAt: now, adminNote: note } });
@@ -475,5 +491,38 @@ export async function reviewDuplicates(actor: CleanupActor, request: { ids: stri
     await tx.outletDuplicateDecision.updateMany({ where: { id: { in: found.map((f) => f.id) } }, data: { status: request.decision === "VALIDATE" ? "VALIDATED" : "REJECTED", checkedBy: actor.email, checkedAt: now, ...(note ? { note } : {}) } });
     await tx.outletCleanupLog.createMany({ data: found.map((f) => ({ source: f.aSource, outletKey: f.aKey, action: request.decision === "VALIDATE" ? "VALIDATE" : "REJECT", actor: actor.email, actorRole: actor.role, changes: { duplicateDecision: f.id, note } })) });
     return { count: found.length, skipped: ids.length - found.length };
+  });
+}
+
+/**
+ * A team leader (or a supervisor over them, or an admin) approves or sends back what a sales rep submitted. Approving makes it the team's work: the fields the rep settled lock, it
+ * counts as progress and it goes on to validation. Sending back needs a reason, clears the rep's decisions and lets the rep work on it again.
+ */
+export async function approveSubmissions(actor: CleanupActor, request: { ids: string[]; decision: "APPROVE" | "SEND_BACK"; note?: string }) {
+  if (!mayApprove(actor)) throw new CleanupError("Only a team leader, a supervisor or an admin can approve a rep's work.", 403);
+  const ids = [...new Set(request.ids)].slice(0, 500);
+  if (ids.length === 0) throw new CleanupError("Choose at least one entry.", 400);
+  const note = request.note?.trim().slice(0, 300) || null;
+  if (request.decision === "SEND_BACK" && !note) throw new CleanupError("Say what the rep should correct.", 400, [{ field: "note", message: "Give a short reason." }]);
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.outletCleanupEntry.findMany({ where: { id: { in: ids }, status: "SUBMITTED" } });
+    const mine = actor.isAdmin ? rows : rows.filter((r) => inActorScope(actor, r.teamLeader));
+    if (mine.length === 0) throw new CleanupError("Those submissions are no longer waiting for approval.", 409);
+    for (const row of mine) {
+      if (request.decision === "APPROVE") {
+        const locks = new Set<string>(row.lockedFields);
+        for (const field of IDENTIFICATION_FIELDS) if (row[field]) locks.add(field);
+        if (row.latitude !== null) locks.add("geo");
+        if (Array.isArray(row.repDecisions) && row.repDecisions.length > 0) locks.add("reps");
+        await tx.outletCleanupEntry.update({ where: { id: row.id }, data: { status: "REVIEWED", approvedBy: actor.email, approvedAt: now, adminNote: note, lockedFields: [...locks] } });
+      } else {
+        await tx.outletCleanupEntry.update({ where: { id: row.id }, data: { status: "REJECTED", checkedBy: actor.email, checkedAt: now, adminNote: note, lockedFields: [], repDecisions: Prisma.DbNull, approvedBy: null, approvedAt: null } });
+      }
+    }
+    await tx.outletCleanupLog.createMany({
+      data: mine.map((r) => ({ source: r.source, outletKey: r.outletKey, action: request.decision, actor: actor.email, actorRole: actor.role, changes: note ? { note } : Prisma.JsonNull })),
+    });
+    return { count: mine.length, skipped: ids.length - mine.length };
   });
 }

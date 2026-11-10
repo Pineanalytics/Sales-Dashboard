@@ -83,14 +83,14 @@ export function loadTeamCounts(): Promise<RawTeam[]> {
       )
       SELECT ow."teamLeader",
              count(*) AS outlets,
-             count(*) FILTER (WHERE e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS reviewed,
+             count(*) FILTER (WHERE (e.id IS NOT NULL AND e.status <> 'SUBMITTED') OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS reviewed,
              count(*) FILTER (WHERE e.status IN ('VALIDATED', 'APPLIED')) AS validated,
              count(*) FILTER (WHERE NOT ow.has_geo AND e.latitude IS NULL) AS missing_geo,
              count(*) FILTER (WHERE e."geoTaggedAt" IS NOT NULL) AS geo_tagged,
              count(*) FILTER (WHERE e."repDecisions" IS NOT NULL AND jsonb_typeof(e."repDecisions") = 'array' AND jsonb_array_length(e."repDecisions") > 0) AS reps_validated,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS disowned,
              count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()}) AS active,
-             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND (e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active
+             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND ((e.id IS NOT NULL AND e.status <> 'SUBMITTED') OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active
       FROM owned ow
       LEFT JOIN "OutletCleanupEntry" e ON e.source = ow.source AND e."outletKey" = ow."outletKey"
       GROUP BY ow."teamLeader", lower(regexp_replace(btrim(ow."teamLeader"), '\\s+', ' ', 'g'))
@@ -126,14 +126,14 @@ function loadScopeTotals(actor: CleanupActor): Promise<RawTotals> {
       )
       SELECT '' AS "teamLeader",
              count(*) AS outlets,
-             count(*) FILTER (WHERE e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS reviewed,
+             count(*) FILTER (WHERE (e.id IS NOT NULL AND e.status <> 'SUBMITTED') OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS reviewed,
              count(*) FILTER (WHERE e.status IN ('VALIDATED', 'APPLIED')) AS validated,
              count(*) FILTER (WHERE NOT ow.has_geo AND e.latitude IS NULL) AS missing_geo,
              count(*) FILTER (WHERE e."geoTaggedAt" IS NOT NULL) AS geo_tagged,
              count(*) FILTER (WHERE e."repDecisions" IS NOT NULL AND jsonb_typeof(e."repDecisions") = 'array' AND jsonb_array_length(e."repDecisions") > 0) AS reps_validated,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey")) AS disowned,
              count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()}) AS active,
-             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND (e.id IS NOT NULL OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active,
+             count(*) FILTER (WHERE ow.lp >= ${activeCutoffDate()} AND ((e.id IS NOT NULL AND e.status <> 'SUBMITTED') OR EXISTS (SELECT 1 FROM "MarkedOpenOutlet" m WHERE m.source = ow.source AND m."outletKey" = ow."outletKey"))) AS reviewed_active,
              count(DISTINCT ow.shop) AS shops
       FROM owned ow
       LEFT JOIN "OutletCleanupEntry" e ON e.source = ow.source AND e."outletKey" = ow."outletKey"

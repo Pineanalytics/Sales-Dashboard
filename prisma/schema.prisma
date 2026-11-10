@@ -2773,6 +2773,10 @@ model OutletCleanupEntry {
   checkedAt     DateTime?
   adminNote     String?
   appliedAt     DateTime?
+  // Who first saved the work: REP | TEAM_LEADER | SUPERVISOR. A rep's work is SUBMITTED: it counts for nothing until their team leader (or supervisor) approves it.
+  submittedRole String?
+  approvedBy    String?
+  approvedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

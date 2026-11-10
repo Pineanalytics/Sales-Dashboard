@@ -19,11 +19,12 @@ export const FIELD_LABELS: Record<LockableField, string> = {
   reps: "Selling rep",
 };
 
-export type EntryStatus = "REVIEWED" | "VALIDATED" | "APPLIED" | "REJECTED";
+/** SUBMITTED = saved by a sales rep, waiting for their team leader or supervisor to approve it; REVIEWED = saved (or approved) and waiting for validation. */
+export type EntryStatus = "SUBMITTED" | "REVIEWED" | "VALIDATED" | "APPLIED" | "REJECTED";
 /** What the queue shows for an outlet: no entry yet, or the entry's status. */
 export type ReviewState = "UNREVIEWED" | EntryStatus | "DISOWNED";
 
-export const REVIEW_STATE_LABELS: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", REVIEWED: "Awaiting admin", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
+export const REVIEW_STATE_LABELS: Record<ReviewState, string> = { UNREVIEWED: "Not reviewed", SUBMITTED: "Awaiting approval", REVIEWED: "Awaiting validation", VALIDATED: "Validated", APPLIED: "Applied", REJECTED: "Sent back", DISOWNED: "Marked open" };
 
 export interface CleanupActor {
   email: string;
@@ -36,6 +37,8 @@ export interface CleanupActor {
   canSeeAll: boolean;
   /** Names of the team leaders (TeamLeader.name) whose outlets this person works on; null means all of them (an admin). */
   teamLeaders: string[] | null;
+  /** A sales rep works only on the outlets they sell: their user codes. Undefined for everyone else. */
+  repCodes?: string[] | null;
   /** The team leader's own name (a team leader), or the supervisor's name. */
   displayName: string | null;
 }
@@ -200,6 +203,14 @@ export interface OutletDetail {
   openStatus: { status: string; candidates: { teamLeader: string; response: string }[] } | null;
   /** What this person may do on this outlet right now. */
   canEdit: boolean;
+  /** A rep's submission waiting for this person (their rep's team leader, or a supervisor) to approve or send back. */
+  canApprove: boolean;
+  /** Saved work waiting for this person (a supervisor of the team, or an admin) to validate or send back. */
+  canValidate: boolean;
+  /** Who first saved the work: REP, TEAM_LEADER or SUPERVISOR. */
+  submittedRole: string | null;
+  /** The cleanup entry this outlet has, for approving or validating it (null until someone has saved something). */
+  entryId: string | null;
   canUnlock: boolean;
   options: CleanupOptions;
   repOptions: Record<string, RepOption[]>;
