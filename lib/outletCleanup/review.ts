@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { FIELD_LABELS, IDENTIFICATION_FIELDS, type RepDecision } from "./types";
 
 export const REVIEW_PAGE_SIZE = 25;
-export const REVIEW_STATUSES = ["REVIEWED", "VALIDATED", "APPLIED", "REJECTED"] as const;
+export const REVIEW_STATUSES = ["SUBMITTED", "REVIEWED", "VALIDATED", "APPLIED", "REJECTED"] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
 export interface ReviewChange {
@@ -22,6 +22,9 @@ export interface ReviewRow {
   teamLeader: string | null;
   status: ReviewStatus;
   reviewedBy: string | null;
+  /** Who first saved the work (REP, TEAM_LEADER, SUPERVISOR) and who approved a rep's submission. */
+  submittedRole: string | null;
+  approvedBy: string | null;
   reviewedAt: string | null;
   adminNote: string | null;
   /** The identification values the team leader changed, against what the universe has. */
@@ -79,11 +82,15 @@ async function universeFor(pairs: { source: string; outletKey: string }[]): Prom
   return out;
 }
 
-export async function listReviewEntries(filters: { status: string; q: string; teamLeader: string | null }, page: number): Promise<{ rows: ReviewRow[]; total: number; page: number; pageCount: number }> {
+/** `scope` limits the list to those team leaders (a supervisor's or team leader's own teams); null means everyone (an admin). */
+export async function listReviewEntries(filters: { status: string; q: string; teamLeader: string | null; scope?: string[] | null }, page: number): Promise<{ rows: ReviewRow[]; total: number; page: number; pageCount: number }> {
   const where: Prisma.OutletCleanupEntryWhereInput = {
     status: filters.status === "ALL" ? undefined : statusOf(filters.status),
     ...(filters.teamLeader ? { teamLeader: { equals: filters.teamLeader, mode: "insensitive" } } : {}),
-    ...(filters.q ? { OR: [{ outletName: { contains: filters.q, mode: "insensitive" } }, { outletKey: { contains: filters.q, mode: "insensitive" } }] } : {}),
+    AND: [
+      ...(filters.scope ? [{ OR: filters.scope.length > 0 ? filters.scope.map((name) => ({ teamLeader: { equals: name, mode: "insensitive" as const } })) : [{ id: "none" }] }] : []),
+      ...(filters.q ? [{ OR: [{ outletName: { contains: filters.q, mode: "insensitive" as const } }, { outletKey: { contains: filters.q, mode: "insensitive" as const } }] }] : []),
+    ],
   };
   const total = await prisma.outletCleanupEntry.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / REVIEW_PAGE_SIZE));
@@ -135,6 +142,8 @@ export async function listReviewEntries(filters: { status: string; q: string; te
       teamLeader: e.teamLeader,
       status: statusOf(e.status),
       reviewedBy: e.reviewedBy,
+      submittedRole: e.submittedRole,
+      approvedBy: e.approvedBy,
       reviewedAt: e.reviewedAt ? e.reviewedAt.toISOString() : null,
       adminNote: e.adminNote,
       changes,

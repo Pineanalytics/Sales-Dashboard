@@ -7,7 +7,7 @@ import type { OutletSource } from "@/lib/outletUniverse/normalize";
 import { similarity } from "@/lib/universeAnalysis/similarity";
 import { cleanName } from "@/lib/universeAnalysis/dedup";
 import { DEFAULT_DEDUP } from "@/lib/universeAnalysis/config";
-import { inActorScope } from "./access";
+import { inActorScope, mayApprove, mayValidate, rowInScope } from "./access";
 import { activeCutoffDate, outletActivity } from "./activity";
 import type { DisownRow } from "./disown";
 import { OFF_ROSTER_REP } from "./repFilter";
@@ -64,13 +64,18 @@ export function loadCleanupOptions(): Promise<CleanupOptions> {
 
 /** SQL for "this outlet row belongs to a team this person works on" (always true for someone who sees all). */
 export function scopeSql(actor: CleanupActor, alias: string): Prisma.Sql {
+  // A sales rep works only on the outlets they sell, by their own user code.
+  if (actor.repCodes) {
+    if (actor.repCodes.length === 0) return Prisma.sql`FALSE`;
+    return Prisma.sql`${Prisma.raw(alias)}."repCode" IN (${Prisma.join(actor.repCodes)})`;
+  }
   if (actor.teamLeaders === null) return Prisma.sql`TRUE`;
   if (actor.teamLeaders.length === 0) return Prisma.sql`FALSE`;
   const names = actor.teamLeaders.map((n) => n.trim().replace(/\s+/g, " ").toLowerCase());
   return Prisma.sql`lower(regexp_replace(btrim(${Prisma.raw(alias)}."teamLeader"), '\\s+', ' ', 'g')) IN (${Prisma.join(names)})`;
 }
 
-export type QueueState = "all" | "todo" | "unreviewed" | "drafts" | "rejected" | "reviewed" | "needs-geo" | "duplicates" | "disowned";
+export type QueueState = "all" | "todo" | "unreviewed" | "drafts" | "rejected" | "submitted" | "reviewed" | "needs-geo" | "duplicates" | "disowned";
 
 export interface QueueFilters {
   state: QueueState;
@@ -86,7 +91,7 @@ export interface QueueFilters {
 }
 
 export function parseQueueFilters(params: URLSearchParams): QueueFilters {
-  const states: QueueState[] = ["all", "todo", "unreviewed", "drafts", "rejected", "reviewed", "needs-geo", "duplicates", "disowned"];
+  const states: QueueState[] = ["all", "todo", "unreviewed", "drafts", "rejected", "submitted", "reviewed", "needs-geo", "duplicates", "disowned"];
   const state = params.get("state") as QueueState;
   const text = (key: string, max = 100) => {
     const v = (params.get(key) ?? "").trim().slice(0, max);
@@ -215,6 +220,7 @@ async function queueWhere(actor: CleanupActor, filters: QueueFilters): Promise<P
     unreviewed: Prisma.sql`state = 'UNREVIEWED'`,
     drafts: Prisma.sql`"hasDraft"`,
     rejected: Prisma.sql`state = 'REJECTED'`,
+    submitted: Prisma.sql`state = 'SUBMITTED'`,
     reviewed: Prisma.sql`state IN ('REVIEWED', 'VALIDATED', 'APPLIED')`,
     "needs-geo": Prisma.sql`NOT "hasGeo" AND state <> 'DISOWNED'`,
     duplicates: Prisma.sql`"shopSize" > 1`,
@@ -248,7 +254,7 @@ export async function listQueue(actor: CleanupActor, filters: QueueFilters, page
   const rows = await prisma.$queryRaw<RawQueueRow[]>(Prisma.sql`
     ${base}
     SELECT source, "outletKey", "outletName", principals, region, territory, channel, "customerType", "teamLeaders", array_to_string("repNames", ', ') AS reps, "hasGeo", "shopSize", state, "hasDraft", "lastPurchase" FROM q WHERE ${where}
-    ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
+    ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'SUBMITTED' THEN 2 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
     LIMIT ${QUEUE_PAGE_SIZE} OFFSET ${(current - 1) * QUEUE_PAGE_SIZE}
   `);
   return {
@@ -362,7 +368,7 @@ export async function listQueueKeys(actor: CleanupActor, filters: QueueFilters, 
     prisma.$queryRaw<{ source: string; outletKey: string }[]>(Prisma.sql`
       ${base}
       SELECT source, "outletKey" FROM q WHERE ${where}
-      ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
+      ORDER BY CASE state WHEN 'UNREVIEWED' THEN 0 WHEN 'REJECTED' THEN 1 WHEN 'SUBMITTED' THEN 2 WHEN 'REVIEWED' THEN 2 ELSE 3 END, "hasGeo" ASC, sales DESC NULLS LAST, "outletName" ASC, "outletKey" ASC
       LIMIT ${max}
     `),
     prisma.$queryRaw<{ total: number }[]>(Prisma.sql`${base} SELECT COUNT(*)::int AS total FROM q WHERE ${where}`),
@@ -451,7 +457,7 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
   `);
   if (universe.length === 0) return null;
   const lead = universe[0];
-  const inScope = actor.teamLeaders === null || universe.some((r) => inActorScope(actor, r.teamLeader));
+  const inScope = actor.teamLeaders === null || universe.some((r) => rowInScope(actor, r));
   if (!inScope) return null;
 
   const [entry, open, decisions, logs, options, teamLeaderOptions, draft] = await Promise.all([
@@ -482,7 +488,7 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
   if (entry) for (const field of IDENTIFICATION_FIELDS) if (entry[field]) verified[field] = entry[field] as string;
 
   const state: ReviewState = open ? "DISOWNED" : entry ? (entry.status as ReviewState) : "UNREVIEWED";
-  const reps: OutletRepRow[] = universe.map((r) => ({ principal: r.principal, rep: r.repName, repCode: r.repCode, teamLeader: r.teamLeader, editable: actor.teamLeaders === null || inActorScope(actor, r.teamLeader) }));
+  const reps: OutletRepRow[] = universe.map((r) => ({ principal: r.principal, rep: r.repName, repCode: r.repCode, teamLeader: r.teamLeader, editable: actor.teamLeaders === null || rowInScope(actor, r) }));
   const hasOwnRow = reps.some((r) => r.editable);
   const taggedGeo = entry?.latitude !== null && entry?.latitude !== undefined;
 
@@ -517,7 +523,11 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
       return { ...c, decision: d ? (d.decision as "MERGE" | "NOT_DUPLICATE") : null };
     }),
     openStatus: open ? { status: open.status, candidates: open.candidates.map((c) => ({ teamLeader: c.teamLeader, response: c.response })) } : null,
-    canEdit: actor.canReview && hasOwnRow && state !== "DISOWNED",
+    // A rep can work on an outlet until their work has been approved; after that it is the team leader's and supervisor's to change.
+    canEdit: actor.canReview && hasOwnRow && state !== "DISOWNED" && !(actor.role === "REP" && (state === "REVIEWED" || state === "VALIDATED" || state === "APPLIED")),
+    canApprove: state === "SUBMITTED" && mayApprove(actor) && (actor.teamLeaders === null || inActorScope(actor, entry?.teamLeader)),
+    canValidate: state === "REVIEWED" && mayValidate(actor) && entry?.reviewedBy !== actor.email && (actor.teamLeaders === null || inActorScope(actor, entry?.teamLeader)),
+    submittedRole: entry?.submittedRole ?? null,
     canUnlock: actor.isAdmin || actor.role === "SUPERVISOR",
     options,
     repOptions,

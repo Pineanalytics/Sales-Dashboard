@@ -17,21 +17,25 @@ interface Page<T> {
 }
 
 const STATUSES: { value: string; label: string }[] = [
-  { value: "REVIEWED", label: "To review" },
+  { value: "SUBMITTED", label: "Rep submissions to approve" },
+  { value: "REVIEWED", label: "To validate" },
   { value: "VALIDATED", label: "Approved, not applied yet" },
   { value: "APPLIED", label: "Applied" },
   { value: "REJECTED", label: "Sent back" },
 ];
 
-const TIER: Record<string, "good" | "warn" | "bad" | "neutral"> = { REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad" };
+const TIER: Record<string, "good" | "warn" | "bad" | "neutral"> = { SUBMITTED: "warn", REVIEWED: "warn", VALIDATED: "good", APPLIED: "good", REJECTED: "bad" };
 const primaryButton = "rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-1.5 text-xs font-semibold text-white hover:shadow-cyan-glow disabled:opacity-50";
 const ghostButton = "rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft disabled:opacity-50";
 const inputClass = "rounded-full border border-border bg-background-elevated px-4 py-1.5 text-xs outline-none focus:border-primary-blue";
 
 /** Admin: validate or reject what the teams have saved, then apply it to the Active Outlet universe. */
-export function ReviewPanel({ onOpenOutlet }: { onOpenOutlet: (source: string, outletKey: string) => void }) {
+export function ReviewPanel({ onOpenOutlet, isAdmin = true, role = "ADMIN" }: { onOpenOutlet: (source: string, outletKey: string) => void; isAdmin?: boolean; role?: string }) {
+  // A team leader approves what their sales reps submitted (and nothing else); a supervisor also validates their team leaders' work; an admin does everything and applies it.
+  const canValidate = isAdmin || role === "SUPERVISOR";
+  const visibleStatuses = canValidate ? STATUSES : STATUSES.filter((s) => s.value === "SUBMITTED");
   const [kind, setKind] = useState<Kind>("entries");
-  const [status, setStatus] = useState("REVIEWED");
+  const [status, setStatus] = useState(canValidate ? "REVIEWED" : "SUBMITTED");
   const [teamLeader, setTeamLeader] = useState("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -80,11 +84,14 @@ export function ReviewPanel({ onOpenOutlet }: { onOpenOutlet: (source: string, o
       setBusy(true);
       setMessage(null);
       try {
-        const response = await fetch("/api/outlet-cleanup/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, decision, ids, note }) });
+        // A rep's submission is approved or sent back (kind "submissions"); saved work is validated or rejected.
+        const submissions = status === "SUBMITTED";
+        const body = submissions ? { kind: "submissions", decision: decision === "VALIDATE" ? "APPROVE" : "SEND_BACK", ids, note } : { kind, decision, ids, note };
+        const response = await fetch("/api/outlet-cleanup/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const result = await response.json();
         if (!response.ok) setMessage({ tone: "error", text: result.error ?? "Failed to save." });
         else {
-          setMessage({ tone: "ok", text: `${result.count} ${decision === "VALIDATE" ? "validated" : "sent back"}${result.skipped ? `, ${result.skipped} were no longer waiting` : ""}.` });
+          setMessage({ tone: "ok", text: `${result.count} ${decision === "VALIDATE" ? (status === "SUBMITTED" ? "approved" : "validated") : "sent back"}${result.skipped ? `, ${result.skipped} were no longer waiting` : ""}.` });
           setNote("");
           setTick((t) => t + 1);
         }
@@ -94,7 +101,7 @@ export function ReviewPanel({ onOpenOutlet }: { onOpenOutlet: (source: string, o
         setBusy(false);
       }
     },
-    [kind, note]
+    [kind, note, status]
   );
 
   const applyNow = async () => {
@@ -117,26 +124,26 @@ export function ReviewPanel({ onOpenOutlet }: { onOpenOutlet: (source: string, o
 
   const rows = (data?.rows ?? []) as (ReviewRow | DuplicateReviewRow)[];
   const toggle = (id: string) => setSelected((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
-  const waiting = status === "REVIEWED";
+  const waiting = status === "REVIEWED" || status === "SUBMITTED";
   const cleanIds = kind === "entries" ? (rows as ReviewRow[]).filter((r) => r.flags.length === 0).map((r) => r.id) : rows.map((r) => r.id);
 
   return (
     <div className="flex flex-col gap-6">
       <SectionCard
         title="Review the cleanup"
-        action={<button className={primaryButton} disabled={busy} onClick={applyNow}>{busy ? "Working…" : "Apply approved work to the universe now"}</button>}
+        action={isAdmin ? <button className={primaryButton} disabled={busy} onClick={applyNow}>{busy ? "Working…" : "Apply approved work to the universe now"}</button> : undefined}
       >
         <p className="text-sm text-muted-strong">
           Check what the teams have saved. A validated entry is laid over the Active Outlet universe whenever it is compiled (within 30 minutes of someone opening it, or when you press the button) and then shows as applied. Validated identification, GPS and reps replace the source system&apos;s values; a claimed marked-open outlet moves to its new team leader; a validated &quot;same shop&quot; call joins two outlets into one shop, and &quot;not a duplicate&quot; separates them.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {(["entries", "duplicates"] as const).map((k) => (
+          {(canValidate && isAdmin ? (["entries", "duplicates"] as const) : (["entries"] as const)).map((k) => (
             <button key={k} aria-pressed={kind === k} onClick={() => { setKind(k); setPage(1); }} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${kind === k ? "border-primary-blue bg-primary-blue text-white" : "border-border text-muted-strong hover:bg-accent-blue-soft"}`}>
               {k === "entries" ? "Outlet entries" : "Duplicate calls"}
             </button>
           ))}
           <span className="mx-1 h-5 w-px bg-border" />
-          {STATUSES.map((s) => (
+          {visibleStatuses.map((s) => (
             <button key={s.value} aria-pressed={status === s.value} onClick={() => { setStatus(s.value); setPage(1); }} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${status === s.value ? "border-primary-blue bg-primary-blue text-white" : "border-border text-muted-strong hover:bg-accent-blue-soft"}`}>
               {s.label}
             </button>
@@ -161,7 +168,7 @@ export function ReviewPanel({ onOpenOutlet }: { onOpenOutlet: (source: string, o
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <button className={ghostButton} onClick={() => setSelected(cleanIds)}>Select all without flags</button>
             <button className={ghostButton} onClick={() => setSelected(rows.map((r) => r.id))}>Select all on this page</button>
-            <button className={primaryButton} disabled={busy || selected.length === 0} onClick={() => decide("VALIDATE", selected)}>Validate selected ({selected.length})</button>
+            <button className={primaryButton} disabled={busy || selected.length === 0} onClick={() => decide("VALIDATE", selected)}>{status === "SUBMITTED" ? "Approve" : "Validate"} selected ({selected.length})</button>
             <input aria-label="Reason for sending back" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (needed to send back)" className={`${inputClass} w-64`} />
             <button className={ghostButton} disabled={busy || selected.length === 0 || note.trim() === ""} onClick={() => decide("REJECT", selected)}>Send selected back</button>
           </div>
