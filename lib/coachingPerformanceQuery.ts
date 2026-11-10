@@ -10,6 +10,7 @@ import {
   recentPeriods,
   shapeRepPerformance,
   type RepCallFact,
+  type RepCallVolumeFact,
   type RepPerformanceRow,
   type RepSalesFact,
   type RepTargetFact,
@@ -32,7 +33,7 @@ export async function loadCoachingPerformance(now = new Date(), months = PERFORM
     const asOf = asOfDate(period, now);
     const asOfEnd = new Date(Date.parse(`${asOf}T00:00:00Z`) + 24 * 3600 * 1000); // exclusive upper bound
 
-    const [sales, calls, targets] = await Promise.all([
+    const [sales, calls, targets, callVolumes] = await Promise.all([
       prisma.$queryRaw<RepSalesFact[]>(Prisma.sql`
         SELECT "employeeCode", SUM(cases)::float AS cases, SUM(revenue)::float AS revenue
         FROM "SalesRepActual"
@@ -56,9 +57,19 @@ export async function loadCoachingPerformance(now = new Date(), months = PERFORM
         WHERE date >= ${start} AND date < ${end}
         GROUP BY "employeeCode"
       `),
+      // Cases from the rep's own calls: the fallback for reps with no SAP-reconciled sales row.
+      prisma.$queryRaw<RepCallVolumeFact[]>(Prisma.sql`
+        SELECT "employeeCode",
+               SUM(cases) FILTER (WHERE cases IS NOT NULL)::float AS cases,
+               COUNT(*) FILTER (WHERE qty > 0)::int AS "callsWithQty",
+               COUNT(*) FILTER (WHERE qty > 0 AND cases IS NOT NULL)::int AS "callsWithCases"
+        FROM "RepCall"
+        WHERE date >= ${start} AND date < ${end}
+        GROUP BY "employeeCode"
+      `),
     ]);
 
-    rows.push(...shapeRepPerformance({ period, asOf, employeeCodes, sales, calls, targets }));
+    rows.push(...shapeRepPerformance({ period, asOf, employeeCodes, sales, calls, targets, callVolumes }));
   }
   return { periods, rows };
 }

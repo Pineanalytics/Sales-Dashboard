@@ -22,6 +22,20 @@ export interface RepCallFact {
   daysWorked: number;
 }
 
+/**
+ * Cases from the rep's own call records (Pine SFA: RepCall, one row per outlet visit with its time stamp). Used for reps
+ * SalesRepActual has no row for, such as indirect sellers whose sales are not reconciled to SAP under their name.
+ * `cases` adds up only the calls whose products all had a usable pack size; the two counts say how complete that is.
+ */
+export interface RepCallVolumeFact {
+  employeeCode: string;
+  cases: number | null;
+  /** Calls that sold something (quantity above zero). */
+  callsWithQty: number;
+  /** Of those, the calls whose cases could be worked out. */
+  callsWithCases: number;
+}
+
 export interface RepTargetFact {
   employeeCode: string;
   /** Target for the whole month. */
@@ -36,6 +50,10 @@ export interface RepPerformanceRow {
   period: string; // "2026-10"
   asOf: string; // "2026-10-14": the last day included
   volumeCases: number | null;
+  /** Where volumeCases came from: the SAP reconciliation, or the sum of the rep's own Pine calls; null when there is none. */
+  volumeSource: "sap" | "pine_calls" | null;
+  /** For the Pine-calls source: the share of selling calls whose cases could be worked out (100 = all of them). */
+  volumeCoveragePct: number | null;
   /** Revenue so far against the target for the days so far (100 = exactly on pace). */
   revenueVsPacePct: number | null;
   /** Revenue so far against the whole month's target. */
@@ -57,11 +75,13 @@ export function shapeRepPerformance(input: {
   sales: RepSalesFact[];
   calls: RepCallFact[];
   targets: RepTargetFact[];
+  callVolumes?: RepCallVolumeFact[];
 }): RepPerformanceRow[] {
   const { period, asOf, employeeCodes } = input;
   const sales = new Map(input.sales.map((s) => [s.employeeCode, s]));
   const calls = new Map(input.calls.map((c) => [c.employeeCode, c]));
   const targets = new Map(input.targets.map((t) => [t.employeeCode, t]));
+  const callVolumes = new Map((input.callVolumes ?? []).map((v) => [v.employeeCode, v]));
 
   const codes = new Set<string>([...sales.keys(), ...calls.keys(), ...targets.keys()]);
   const rows: RepPerformanceRow[] = [];
@@ -70,6 +90,8 @@ export function shapeRepPerformance(input: {
     const s = sales.get(employeeCode);
     const c = calls.get(employeeCode);
     const t = targets.get(employeeCode);
+    const cv = callVolumes.get(employeeCode);
+    const callCases = cv && cv.cases !== null && cv.callsWithCases > 0 ? round1(cv.cases) : null;
     const callsMade = c?.callsMade ?? 0;
     const productiveCalls = c?.productiveCalls ?? 0;
     // A rep with a target but no activity yet still gets a row: "0% of pace" is information.
@@ -77,7 +99,10 @@ export function shapeRepPerformance(input: {
       employeeCode,
       period,
       asOf,
-      volumeCases: s ? round1(s.cases) : null,
+      // The SAP figure wins when the rep has one; otherwise the rep's own Pine calls (and how complete they are).
+      volumeCases: s ? round1(s.cases) : callCases,
+      volumeSource: s ? "sap" : callCases !== null ? "pine_calls" : null,
+      volumeCoveragePct: !s && callCases !== null && cv ? pct(cv.callsWithCases, cv.callsWithQty) : null,
       revenueVsPacePct: s && t ? pct(s.revenue, t.targetToDate) : t && t.targetToDate > 0 ? 0 : null,
       revenueVsMonthPct: s && t ? pct(s.revenue, t.monthTarget) : t && t.monthTarget > 0 ? 0 : null,
       callsMade,

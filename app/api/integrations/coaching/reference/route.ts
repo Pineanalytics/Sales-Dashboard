@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadCoachingPerformance } from "@/lib/coachingPerformanceQuery";
+import { loadRepActivity, MAX_ACTIVITY_CODES, MAX_ACTIVITY_DAYS } from "@/lib/coachingRepActivityQuery";
 import { getUnifiedLocations } from "@/lib/locationUnify/source";
 import { historySnapshot, paginate, universeSnapshot } from "@/lib/universeFeed";
 
@@ -97,6 +98,29 @@ export async function GET(request: NextRequest) {
       { syncedAt: new Date().toISOString(), principals, employees, assignments, teamLeaders, supervisors },
       { headers: { "Cache-Control": "no-store" } }
     );
+  }
+
+  if (resource === "rep-activity") {
+    // One rep's (or a couple of codes') day-by-day activity for any window: the Coaching app's sales rep dashboard.
+    const codes = (url.searchParams.get("codes") ?? "")
+      .split(",")
+      .map((c) => c.trim())
+      .filter((c) => /^[A-Za-z0-9._-]{1,30}$/.test(c));
+    const unique = [...new Set(codes)].slice(0, MAX_ACTIVITY_CODES);
+    const from = url.searchParams.get("from") ?? "";
+    const to = url.searchParams.get("to") ?? "";
+    if (unique.length === 0) return NextResponse.json({ error: "codes is required." }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return NextResponse.json({ error: "from and to must be YYYY-MM-DD." }, { status: 400 });
+    }
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const endExclusive = new Date(Date.parse(`${to}T00:00:00.000Z`) + 24 * 3600 * 1000);
+    const days = (endExclusive.getTime() - start.getTime()) / (24 * 3600 * 1000);
+    if (!Number.isFinite(days) || days < 1 || days > MAX_ACTIVITY_DAYS) {
+      return NextResponse.json({ error: `The window must be 1 to ${MAX_ACTIVITY_DAYS} days.` }, { status: 400 });
+    }
+    const reps = await loadRepActivity(unique, start, endExclusive);
+    return NextResponse.json({ syncedAt: new Date().toISOString(), from, to, reps }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (resource === "performance") {
