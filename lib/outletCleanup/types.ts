@@ -209,6 +209,8 @@ export interface OutletDetail {
   canValidate: boolean;
   /** Who first saved the work: REP, TEAM_LEADER or SUPERVISOR. */
   submittedRole: string | null;
+  /** The cleanup entry this outlet has, for approving or validating it (null until someone has saved something). */
+  entryId: string | null;
   canUnlock: boolean;
   options: CleanupOptions;
   repOptions: Record<string, RepOption[]>;

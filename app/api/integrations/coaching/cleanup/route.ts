@@ -9,6 +9,7 @@ import * as progress from "@/app/api/outlet-cleanup/progress/route";
 import * as queue from "@/app/api/outlet-cleanup/queue/route";
 import * as review from "@/app/api/outlet-cleanup/review/route";
 import * as routes from "@/app/api/outlet-cleanup/routes/route";
+import * as summary from "@/app/api/outlet-cleanup/summary/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 type Handler = { GET?: (req: NextRequest) => Promise<Response> | Response; POST?: (req: NextRequest) => Promise<Response> | Response };
 
-const HANDLERS: Record<string, Handler> = { disown, filters, open, outlet, progress, queue, review, routes };
+const HANDLERS: Record<string, Handler> = { disown, filters, open, outlet, progress, queue, review, routes, summary };
 
 /** What a sales rep may do: look at the outlets they sell and save their own details, location and routes. Everything else belongs to team leaders and supervisors. */
 const REP_OUTLET_ACTIONS = new Set(["save", "geo", "reps", "draft", "discardDraft", "final"]);

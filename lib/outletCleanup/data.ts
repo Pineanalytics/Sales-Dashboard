@@ -528,6 +528,7 @@ export async function loadOutletDetail(actor: CleanupActor, source: OutletSource
     canApprove: state === "SUBMITTED" && mayApprove(actor) && (actor.teamLeaders === null || inActorScope(actor, entry?.teamLeader)),
     canValidate: state === "REVIEWED" && mayValidate(actor) && entry?.reviewedBy !== actor.email && (actor.teamLeaders === null || inActorScope(actor, entry?.teamLeader)),
     submittedRole: entry?.submittedRole ?? null,
+    entryId: entry?.id ?? null,
     canUnlock: actor.isAdmin || actor.role === "SUPERVISOR",
     options,
     repOptions,
