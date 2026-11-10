@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shapeRepActivity } from "@/lib/coachingRepActivity";
+import { foldSapRowsByName, nameKey, shapeRepActivity } from "@/lib/coachingRepActivity";
 
 type CallFact = Parameters<typeof shapeRepActivity>[0]["calls"][number];
 
@@ -59,5 +59,44 @@ describe("shapeRepActivity", () => {
     expect(quiet.source).toBeNull();
     expect(quiet.days).toEqual([]);
     expect(quiet.totals.dropSize).toBeNull();
+  });
+});
+
+describe("foldSapRowsByName", () => {
+  const roster = [
+    { employeeCode: "1181", pineName: "Isabellah Nderitu", sapName: "Isabellah Nderitu" },
+    { employeeCode: "2002", pineName: "Twin Name", sapName: "Twin Name" },
+    { employeeCode: "2003", pineName: "Twin Name", sapName: "Twin Name" },
+  ];
+
+  it("keeps coded rows and attributes uncoded rows to the employee whose roster name matches, ignoring case and punctuation", () => {
+    const rows = foldSapRowsByName(
+      [
+        { employeeCode: "1181", sapName: "Isabellah Nderitu", date: "2026-11-02", cases: 10, revenue: 1000 },
+        { employeeCode: null, sapName: "ISABELLAH  NDERITU.", date: "2026-11-02", cases: 5, revenue: 400 },
+        { employeeCode: null, sapName: "Isabellah Nderitu", date: "2026-11-03", cases: 2, revenue: 100 },
+      ],
+      roster,
+    );
+    expect(rows).toEqual([
+      { employeeCode: "1181", date: "2026-11-02", cases: 15, revenue: 1400 },
+      { employeeCode: "1181", date: "2026-11-03", cases: 2, revenue: 100 },
+    ]);
+  });
+
+  it("never guesses a name two employees share, or one nobody has", () => {
+    const rows = foldSapRowsByName(
+      [
+        { employeeCode: null, sapName: "Twin Name", date: "2026-11-02", cases: 1, revenue: 1 },
+        { employeeCode: null, sapName: "Nobody At All", date: "2026-11-02", cases: 1, revenue: 1 },
+      ],
+      roster,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("uses the same key as Rep Performance", () => {
+    expect(nameKey("  Mary-Anne O'Neil ")).toBe("maryanneoneil");
+    expect(nameKey(null)).toBe("");
   });
 });

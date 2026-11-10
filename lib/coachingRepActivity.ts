@@ -15,6 +15,55 @@
 //  - JP adherence: the PJP ownership adherence of lib/jpAdherence.ts for the window: planned outlets, outlets visited, planned and not
 //    visited.
 
+/** A SAP sales row as read: its employee code when the sync could match the SAP salesperson name to the roster, otherwise only the SAP name. */
+export interface SapRowByName {
+  employeeCode: string | null;
+  sapName: string;
+  date: string;
+  cases: number;
+  revenue: number;
+}
+
+/** The roster names that identify an employee: the Pine name and the SAP name the roster holds. */
+export interface RosterNames {
+  employeeCode: string;
+  pineName: string | null;
+  sapName: string | null;
+}
+
+/** The same name key Rep Performance uses (lib/repPerformance.ts nameFallbackKey): case, spaces and punctuation ignored. */
+export const nameKey = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * SAP sales rows that carry no employee code (the sync leaves a row unmatched when the SAP salesperson name is not the one the roster holds, for example a principal booked
+ * under a different spelling) belong to the employee whose roster name matches, exactly as Rep Performance attributes them. A name two employees share is never guessed.
+ * Rows are added up per employee code and day.
+ */
+export function foldSapRowsByName(rows: SapRowByName[], roster: RosterNames[]): RepSapDayFact[] {
+  const owners = new Map<string, Set<string>>();
+  for (const e of roster) {
+    for (const key of [nameKey(e.pineName), nameKey(e.sapName)]) {
+      if (!key) continue;
+      owners.set(key, (owners.get(key) ?? new Set()).add(e.employeeCode));
+    }
+  }
+  const unique = new Map<string, string>();
+  for (const [key, codes] of owners) if (codes.size === 1) unique.set(key, [...codes][0]);
+
+  const folded = new Map<string, RepSapDayFact>();
+  for (const row of rows) {
+    const code = row.employeeCode ?? unique.get(nameKey(row.sapName)) ?? null;
+    if (!code) continue;
+    const id = `${code}|${row.date}`;
+    const have = folded.get(id);
+    if (have) {
+      have.cases += row.cases;
+      have.revenue += row.revenue;
+    } else folded.set(id, { employeeCode: code, date: row.date, cases: row.cases, revenue: row.revenue });
+  }
+  return [...folded.values()];
+}
+
 export interface RepSapDayFact {
   employeeCode: string;
   date: string; // YYYY-MM-DD
