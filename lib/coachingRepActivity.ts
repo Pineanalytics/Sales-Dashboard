@@ -15,6 +15,67 @@
 //  - JP adherence: the PJP ownership adherence of lib/jpAdherence.ts for the window: planned outlets, outlets visited, planned and not
 //    visited.
 
+/** A SAP sales row as read: its employee code when the sync could match the SAP salesperson name to the roster, otherwise only the SAP name (and the principal it was sold for). */
+export interface SapRowByName {
+  employeeCode: string | null;
+  sapName: string;
+  principal?: string | null;
+  date: string;
+  cases: number;
+  revenue: number;
+}
+
+/**
+ * The names the roster knows an employee by. One entry per employee record (their Pine name and the SAP name on it) and one per active principal assignment: each assignment
+ * carries its own "SAP Name", the rep's name as SAP spells it for that principal, which is where van names live. An assignment entry names its principal.
+ */
+export interface RosterNames {
+  employeeCode: string;
+  pineName: string | null;
+  sapName: string | null;
+  principal?: string | null;
+}
+
+/** The same name key Rep Performance uses (lib/repPerformance.ts nameFallbackKey): case, spaces and punctuation ignored. */
+export const nameKey = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const add = (map: Map<string, Set<string>>, key: string, code: string) => map.set(key, (map.get(key) ?? new Set()).add(code));
+const onlyOne = (set: Set<string> | undefined): string | null => (set && set.size === 1 ? [...set][0] : null);
+
+/**
+ * SAP sales rows that carry no employee code (the sync matches a SAP salesperson name only against the one SAP name on the employee record, so a name given on a principal
+ * assignment, such as a van name, comes through unmatched) belong to the employee the roster names it for, exactly as Rep Performance attributes them by name. The principal
+ * narrows it when the row has one; a name that two employees share is never guessed. Rows are added up per employee code and day.
+ */
+export function foldSapRowsByName(rows: SapRowByName[], roster: RosterNames[]): RepSapDayFact[] {
+  const byName = new Map<string, Set<string>>();
+  const byPrincipalName = new Map<string, Set<string>>();
+  for (const e of roster) {
+    for (const key of [nameKey(e.pineName), nameKey(e.sapName)]) {
+      if (!key) continue;
+      add(byName, key, e.employeeCode);
+      if (e.principal) add(byPrincipalName, `${nameKey(e.principal)}|${key}`, e.employeeCode);
+    }
+  }
+
+  const folded = new Map<string, RepSapDayFact>();
+  for (const row of rows) {
+    const key = nameKey(row.sapName);
+    const code =
+      row.employeeCode ??
+      (row.principal ? onlyOne(byPrincipalName.get(`${nameKey(row.principal)}|${key}`)) : null) ??
+      onlyOne(byName.get(key));
+    if (!code) continue;
+    const id = `${code}|${row.date}`;
+    const have = folded.get(id);
+    if (have) {
+      have.cases += row.cases;
+      have.revenue += row.revenue;
+    } else folded.set(id, { employeeCode: code, date: row.date, cases: row.cases, revenue: row.revenue });
+  }
+  return [...folded.values()];
+}
+
 export interface RepSapDayFact {
   employeeCode: string;
   date: string; // YYYY-MM-DD

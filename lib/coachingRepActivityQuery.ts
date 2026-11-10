@@ -3,19 +3,37 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getJpAdherenceSummary } from "@/lib/jpAdherence";
-import { shapeRepActivity, type RepActivity, type RepCallDayFact, type RepJpFact, type RepSapDayFact } from "@/lib/coachingRepActivity";
+import { foldSapRowsByName, nameKey, shapeRepActivity, type RepActivity, type RepCallDayFact, type RepJpFact, type RosterNames, type SapRowByName } from "@/lib/coachingRepActivity";
 
 export const MAX_ACTIVITY_CODES = 8;
+
+/** Every name the roster knows an employee by: the employee records, and the SAP name on each active principal assignment (where van names live). */
+export async function loadRosterNames(): Promise<RosterNames[]> {
+  const [employees, assignments] = await Promise.all([
+    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true } }),
+    prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { employeeCode: true, employeeName: true, sapName: true, principal: true } }),
+  ]);
+  return [
+    ...employees.map((e) => ({ employeeCode: e.employeeCode, pineName: e.pineName, sapName: e.sapName })),
+    ...assignments.map((a) => ({ employeeCode: a.employeeCode, pineName: a.employeeName, sapName: a.sapName, principal: a.principal })),
+  ];
+}
 export const MAX_ACTIVITY_DAYS = 400;
 
 /** `start` is the first day, `endExclusive` the day after the last (both UTC midnight). */
 export async function loadRepActivity(codes: string[], start: Date, endExclusive: Date): Promise<RepActivity[]> {
-  const [sap, calls] = await Promise.all([
-    prisma.$queryRaw<RepSapDayFact[]>(Prisma.sql`
-      SELECT "employeeCode", to_char(date, 'YYYY-MM-DD') AS date, SUM(cases)::float AS cases, SUM(revenue)::float AS revenue
+  // SAP rows the sync could not match to the roster carry no employee code; they are picked up by the names the roster holds for the rep (including the SAP names on their
+  // principal assignments, such as van names), as Rep Performance does.
+  const roster = await loadRosterNames();
+  const myKeys = [...new Set(roster.filter((e) => codes.includes(e.employeeCode)).flatMap((e) => [nameKey(e.pineName), nameKey(e.sapName)]).filter(Boolean))];
+  const byNameWhere = myKeys.length > 0 ? Prisma.sql`("employeeCode" IS NULL AND lower(regexp_replace(btrim("sapName"), '[^a-zA-Z0-9]', '', 'g')) IN (${Prisma.join(myKeys)}))` : Prisma.sql`FALSE`;
+
+  const [sapRows, calls] = await Promise.all([
+    prisma.$queryRaw<SapRowByName[]>(Prisma.sql`
+      SELECT "employeeCode", "sapName", principal, to_char(date, 'YYYY-MM-DD') AS date, SUM(cases)::float AS cases, SUM(revenue)::float AS revenue
       FROM "DailySalesRepActual"
-      WHERE "employeeCode" IN (${Prisma.join(codes)}) AND date >= ${start} AND date < ${endExclusive}
-      GROUP BY "employeeCode", date
+      WHERE ("employeeCode" IN (${Prisma.join(codes)}) OR ${byNameWhere}) AND date >= ${start} AND date < ${endExclusive}
+      GROUP BY "employeeCode", "sapName", principal, date
     `),
     prisma.$queryRaw<RepCallDayFact[]>(Prisma.sql`
       SELECT "employeeCode", to_char(date, 'YYYY-MM-DD') AS date,
@@ -46,5 +64,6 @@ export async function loadRepActivity(codes: string[], start: Date, endExclusive
     }
   }
 
+  const sap = foldSapRowsByName(sapRows, roster).filter((r) => codes.includes(r.employeeCode));
   return shapeRepActivity({ codes, sap, calls, jp });
 }

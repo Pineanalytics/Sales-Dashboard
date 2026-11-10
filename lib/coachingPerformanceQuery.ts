@@ -5,6 +5,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
+import { foldSapRowsByName } from "@/lib/coachingRepActivity";
+import { loadRosterNames } from "@/lib/coachingRepActivityQuery";
 import {
   asOfDate,
   recentPeriods,
@@ -20,6 +22,7 @@ export const PERFORMANCE_FEED_MONTHS = 2;
 
 export async function loadCoachingPerformance(now = new Date(), months = PERFORMANCE_FEED_MONTHS) {
   const employees = await prisma.employeeMaster.findMany({ where: { active: true }, select: { employeeCode: true } });
+  const roster = await loadRosterNames();
   const employeeCodes = new Set(employees.map((e) => e.employeeCode));
 
   const periods = recentPeriods(now, months);
@@ -33,12 +36,13 @@ export async function loadCoachingPerformance(now = new Date(), months = PERFORM
     const asOf = asOfDate(period, now);
     const asOfEnd = new Date(Date.parse(`${asOf}T00:00:00Z`) + 24 * 3600 * 1000); // exclusive upper bound
 
-    const [sales, calls, targets, callVolumes] = await Promise.all([
-      prisma.$queryRaw<RepSalesFact[]>(Prisma.sql`
-        SELECT "employeeCode", SUM(cases)::float AS cases, SUM(revenue)::float AS revenue
+    const [salesRows, calls, targets, callVolumes] = await Promise.all([
+      // Rows with no employee code (the SAP salesperson name did not match the roster) are attributed by name, as Rep Performance does.
+      prisma.$queryRaw<{ employeeCode: string | null; sapName: string; principal: string; cases: number; revenue: number }[]>(Prisma.sql`
+        SELECT "employeeCode", "sapName", principal, SUM(cases)::float AS cases, SUM(revenue)::float AS revenue
         FROM "SalesRepActual"
-        WHERE year = ${yearText} AND month = ${monthName} AND "employeeCode" IS NOT NULL
-        GROUP BY "employeeCode"
+        WHERE year = ${yearText} AND month = ${monthName}
+        GROUP BY "employeeCode", "sapName", principal
       `),
       prisma.$queryRaw<RepCallFact[]>(Prisma.sql`
         SELECT "employeeCode",
@@ -69,6 +73,8 @@ export async function loadCoachingPerformance(now = new Date(), months = PERFORM
       `),
     ]);
 
+    // One "day" per month here: the fold adds the rows up per employee code.
+    const sales: RepSalesFact[] = foldSapRowsByName(salesRows.map((r) => ({ ...r, date: period })), roster).map((r) => ({ employeeCode: r.employeeCode, cases: r.cases, revenue: r.revenue }));
     rows.push(...shapeRepPerformance({ period, asOf, employeeCodes, sales, calls, targets, callVolumes }));
   }
   return { periods, rows };

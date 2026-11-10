@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shapeRepActivity } from "@/lib/coachingRepActivity";
+import { foldSapRowsByName, nameKey, shapeRepActivity } from "@/lib/coachingRepActivity";
 
 type CallFact = Parameters<typeof shapeRepActivity>[0]["calls"][number];
 
@@ -59,5 +59,79 @@ describe("shapeRepActivity", () => {
     expect(quiet.source).toBeNull();
     expect(quiet.days).toEqual([]);
     expect(quiet.totals.dropSize).toBeNull();
+  });
+});
+
+describe("foldSapRowsByName", () => {
+  const roster = [
+    { employeeCode: "1181", pineName: "Isabellah Nderitu", sapName: "Isabellah Nderitu" },
+    { employeeCode: "2002", pineName: "Twin Name", sapName: "Twin Name" },
+    { employeeCode: "2003", pineName: "Twin Name", sapName: "Twin Name" },
+  ];
+
+  it("keeps coded rows and attributes uncoded rows to the employee whose roster name matches, ignoring case and punctuation", () => {
+    const rows = foldSapRowsByName(
+      [
+        { employeeCode: "1181", sapName: "Isabellah Nderitu", date: "2026-11-02", cases: 10, revenue: 1000 },
+        { employeeCode: null, sapName: "ISABELLAH  NDERITU.", date: "2026-11-02", cases: 5, revenue: 400 },
+        { employeeCode: null, sapName: "Isabellah Nderitu", date: "2026-11-03", cases: 2, revenue: 100 },
+      ],
+      roster,
+    );
+    expect(rows).toEqual([
+      { employeeCode: "1181", date: "2026-11-02", cases: 15, revenue: 1400 },
+      { employeeCode: "1181", date: "2026-11-03", cases: 2, revenue: 100 },
+    ]);
+  });
+
+  it("never guesses a name two employees share, or one nobody has", () => {
+    const rows = foldSapRowsByName(
+      [
+        { employeeCode: null, sapName: "Twin Name", date: "2026-11-02", cases: 1, revenue: 1 },
+        { employeeCode: null, sapName: "Nobody At All", date: "2026-11-02", cases: 1, revenue: 1 },
+      ],
+      roster,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("uses the same key as Rep Performance", () => {
+    expect(nameKey("  Mary-Anne O'Neil ")).toBe("maryanneoneil");
+    expect(nameKey(null)).toBe("");
+  });
+});
+
+describe("foldSapRowsByName with van names on principal assignments", () => {
+  const roster = [
+    { employeeCode: "1181", pineName: "Isabellah Nderitu", sapName: "Isabellah Nderitu" },
+    // her Mars assignment is booked in SAP under a van name
+    { employeeCode: "1181", pineName: "Isabellah Nderitu", sapName: "VAN KDE 045L", principal: "Mars-Nairobi" },
+    { employeeCode: "1181", pineName: "Isabellah Nderitu", sapName: "Isabellah Nderitu", principal: "Suntory-Nairobi" },
+    // another rep also sells Suntory under a van name that happens to repeat across principals
+    { employeeCode: "2002", pineName: "Other Rep", sapName: "VAN SHARED", principal: "Suntory-Nairobi" },
+    { employeeCode: "2003", pineName: "Third Rep", sapName: "VAN SHARED", principal: "Mars-Nairobi" },
+  ];
+
+  it("attributes a van name to the rep it is assigned to", () => {
+    const rows = foldSapRowsByName([{ employeeCode: null, sapName: "Van KDE-045L", principal: "Mars-Nairobi", date: "2026-11-02", cases: 40, revenue: 90_000 }], roster);
+    expect(rows).toEqual([{ employeeCode: "1181", date: "2026-11-02", cases: 40, revenue: 90_000 }]);
+  });
+
+  it("uses the principal to settle a name two reps share, and refuses it when the principal cannot", () => {
+    const named = foldSapRowsByName([{ employeeCode: null, sapName: "VAN SHARED", principal: "Mars-Nairobi", date: "2026-11-02", cases: 1, revenue: 10 }], roster);
+    expect(named).toEqual([{ employeeCode: "2003", date: "2026-11-02", cases: 1, revenue: 10 }]);
+    const unknown = foldSapRowsByName([{ employeeCode: null, sapName: "VAN SHARED", principal: "Unilever-Nairobi", date: "2026-11-02", cases: 1, revenue: 10 }], roster);
+    expect(unknown).toEqual([]);
+  });
+
+  it("adds a rep's person-name and van-name rows together for the day", () => {
+    const rows = foldSapRowsByName(
+      [
+        { employeeCode: "1181", sapName: "Isabellah Nderitu", principal: "Suntory-Nairobi", date: "2026-11-02", cases: 10, revenue: 1000 },
+        { employeeCode: null, sapName: "VAN KDE 045L", principal: "Mars-Nairobi", date: "2026-11-02", cases: 5, revenue: 500 },
+      ],
+      roster,
+    );
+    expect(rows).toEqual([{ employeeCode: "1181", date: "2026-11-02", cases: 15, revenue: 1500 }]);
   });
 });
