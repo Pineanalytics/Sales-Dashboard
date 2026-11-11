@@ -29,7 +29,7 @@ import {
 } from "@fluentui/react-icons";
 import type { FluentIcon } from "@fluentui/react-icons";
 import { useDashboardStore, SIDEBAR_COLLAPSED_KEY } from "@/lib/store";
-import { canAccessCoverage, canAccessFinancials, canAccessOutletCleanup, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessModule, canAccessOutletCleanup, moduleForPathname } from "@/lib/pageAccess";
 import { canAccessPerformanceTracker } from "@/lib/performanceTracker/access";
 
 interface NavItem {
@@ -85,15 +85,12 @@ export function Sidebar({ user }: { user?: Session["user"] | null }) {
   const canAccessCoaching = isAdmin || isTeamLeader || isSupervisor;
   const canAccessHodReview = (isAdmin || isHod || isDirector) && canAccessPerformanceTracker(user?.role ?? "");
   const canAccessTlReview = (isAdmin || isTeamLeader || isSupervisor) && canAccessPerformanceTracker(user?.role ?? "");
-  // Admins always see every report; a viewer only sees the pages their admin granted.
+  // Admins always see every report; anyone else sees a module once any one of its reports is granted (lib/pageAccess.ts).
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => {
-        if (item.href === "/financials") return canAccessFinancials(user?.role, user?.allowedPages ?? []);
-        if (item.href === "/coverage") return canAccessCoverage(user?.role, user?.allowedPages ?? []);
-        const key = pageKeyForPathname(item.href);
-        if (key && isBaselinePage(key)) return true;
-        return key ? (user?.allowedPages ?? []).includes(key) : true;
+        const reportModule = moduleForPathname(item.href);
+        return reportModule ? canAccessModule(reportModule, user?.role, user?.allowedPages ?? []) : true;
       });
 
   const expanded = !sidebarCollapsed || hovered;

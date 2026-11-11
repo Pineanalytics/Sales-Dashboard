@@ -1,16 +1,7 @@
 import type { DefaultSession } from "next-auth";
+import type { Role } from "@/lib/roles";
 
-export type UserRole =
-  | "ADMIN"
-  | "VIEWER"
-  | "TEAM_LEADER"
-  | "SUPERVISOR"
-  | "HOD"
-  | "DIRECTOR"
-  | "SALES_ADMIN"
-  | "FINANCE_MANAGER"
-  | "ACCOUNTANT"
-  | "LOGISTICS_MANAGER";
+export type UserRole = Role;
 
 declare module "next-auth" {
   interface Session {

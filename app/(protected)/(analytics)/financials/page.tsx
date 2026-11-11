@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FinancialsView, type FinancialsTab } from "@/components/views/FinancialsView";
-import { canAccessFinancials } from "@/lib/pageAccess";
+import { canAccessFinancials, canSeeReport } from "@/lib/pageAccess";
 import { getReceivablesDashboard } from "@/lib/receivables";
 import { getGpTargetsForPeriod } from "@/lib/financeGpTarget";
 import { getGpMarginTargets, withGpMarginTargets } from "@/lib/gpMarginTargets";
@@ -32,9 +32,11 @@ export default async function FinancialsPage({
 }) {
   const session = await auth();
   const allowedPages = session?.user.allowedPages ?? [];
-  const canViewReceivables = session?.user.role === "ADMIN" || allowedPages.includes("receivables");
-  const canViewProfitability = session?.user.role === "ADMIN" || allowedPages.includes("profitability");
-  if (!canAccessFinancials(session?.user.role, allowedPages)) return null;
+  const role = session?.user.role;
+  const canViewReceivables = canSeeReport(role, allowedPages, "receivables");
+  const canViewProfitability = canSeeReport(role, allowedPages, "profitability");
+  const canViewFinancePresentation = canSeeReport(role, allowedPages, "finance-presentation");
+  if (!canAccessFinancials(role, allowedPages)) return null;
 
   const query = await searchParams;
   const requestedTab = typeof query.tab === "string" && TABS.includes(query.tab as FinancialsTab) ? query.tab as FinancialsTab : undefined;
@@ -75,6 +77,7 @@ export default async function FinancialsPage({
       receivables={data}
       canViewReceivables={canViewReceivables && data !== null}
       canViewProfitability={canViewProfitability}
+      canViewFinancePresentation={canViewFinancePresentation}
       gpTargets={gpTargets}
       overallMarginTargetPct={gpMarginTargets.overallPct}
       debtAttribution={debtAttribution}

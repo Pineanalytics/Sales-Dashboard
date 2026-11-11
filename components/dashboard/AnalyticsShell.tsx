@@ -14,7 +14,7 @@ import { UserProvider } from "./UserContext";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DocumentTable20Regular, LockClosed20Regular } from "@fluentui/react-icons";
-import { canAccessCoverage, canAccessFinancials, canAccessOutletCleanup, isBaselinePage, pageKeyForPathname } from "@/lib/pageAccess";
+import { canAccessModule, canAccessOutletCleanup, isBaselinePage, moduleById, moduleForPathname, pageKeyForPathname } from "@/lib/pageAccess";
 
 // How often to silently re-check for fresh data while a pane is left open,
 // independent of navigation. Matches the cadence of the sales/coverage sync
@@ -41,15 +41,8 @@ export function AnalyticsShell({
   // Principal KPIs and Coaching have compact, source-specific APIs. They must
   // never make the shell hydrate the portfolio-sized workbook dataset first.
   const isFinancials = pathname?.startsWith("/financials") ?? false;
-  // Finance Presentation is a condensed view of the same profitability/
-  // receivables data, gated by the same derived permission as Financials
-  // itself (its own PageKey is never actually stored in anyone's
-  // allowedPages — see lib/pageAccess.ts's canAccessFinancials).
+  // The old /finance-presentation link only redirects into Financials, so it is gated like Financials.
   const isFinancePresentation = pathname?.startsWith("/finance-presentation") ?? false;
-  // Coverage now hosts Active Outlets and JP Adherence as tabs (moved off
-  // their own routes); a user granted either of those permissions alone must
-  // still reach /coverage, same special-case as Financials above.
-  const isCoverage = pathname?.startsWith("/coverage") ?? false;
   // The outlet cleanup is its own module with its own small feeds, so it never waits for the portfolio dataset; it is open by role.
   const isOutletCleanup = pathname?.startsWith("/outlet-cleanup") ?? false;
   const canViewProfitability = user?.role === "ADMIN" || (user?.allowedPages ?? []).includes("profitability");
@@ -69,15 +62,16 @@ export function AnalyticsShell({
   // Report visibility: a viewer only sees pages their admin explicitly
   // granted (Sidebar.tsx already hides the nav links; this is the actual
   // gate for anyone navigating to a disallowed URL directly).
+  // A module route (Sales Performance, Coverage, Financials...) opens once any one of its reports is granted, and each tab
+  // or section inside then gates itself; a standalone report route (/reps, /customers...) needs that report itself.
   const requiredPage = pageKeyForPathname(pathname);
   const isAdmin = user?.role === "ADMIN";
+  const reportModule = isFinancePresentation ? moduleById("financials") : moduleForPathname(pathname);
   const pageAllowed = isOutletCleanup
     ? canAccessOutletCleanup(user?.role)
-    : isFinancials || isFinancePresentation
-    ? canAccessFinancials(user?.role, user?.allowedPages ?? [])
-    : isCoverage
-    ? canAccessCoverage(user?.role, user?.allowedPages ?? [])
-    : isAdmin || !requiredPage || isBaselinePage(requiredPage) || (user?.allowedPages ?? []).includes(requiredPage);
+    : reportModule
+    ? canAccessModule(reportModule, user?.role, user?.allowedPages ?? [])
+    : isAdmin || !requiredPage || isBaselinePage(requiredPage, user?.role) || (user?.allowedPages ?? []).includes(requiredPage);
 
   useEffect(() => {
     if (initialDataset) {

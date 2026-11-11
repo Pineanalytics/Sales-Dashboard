@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
+import { PRINCIPAL_SCOPED_ROLES } from "./roles";
 
 /** A restricted session's own data scope — either a Team Leader's, resolved
  *  from their active TeamLeaderAssignment rows, or a principal-restricted
@@ -225,11 +226,6 @@ export function restrictToPrincipal(scope: TeamLeaderScope | null, principal: Re
   if (!scope || scope.principals.some((p) => principal.test(p))) return scope;
   return { ...scope, employeeCodes: [], normalizedNames: new Set() };
 }
-
-// Back-office roles with no identity of their own (no team/group, unlike
-// TEAM_LEADER/SUPERVISOR) that still get the same optional allowedPrincipals
-// restriction a VIEWER does — see the Role enum's own comment in schema.prisma.
-const PRINCIPAL_SCOPED_ROLES = new Set(["VIEWER", "SALES_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "LOGISTICS_MANAGER"]);
 
 export async function resolveScopeForSession(
   role: string,

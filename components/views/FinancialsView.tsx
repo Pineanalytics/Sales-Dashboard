@@ -36,6 +36,8 @@ export type FinancialsTab =
 type Props = {
   canViewReceivables: boolean;
   canViewProfitability: boolean;
+  /** Its own grant, which only takes effect alongside Profitability (lib/pageAccess.ts's REPORT_REQUIRES). */
+  canViewFinancePresentation: boolean;
   initialTab?: FinancialsTab;
   /** Seeds Customer Credit Exposure's search box to "Over limit" and expands
    *  its list — the deep-link target for Executive Summary's "N customer(s)
@@ -52,7 +54,7 @@ type Props = {
   presentation: Omit<FinancePresentationProps, "debtAttribution">;
 };
 
-const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitability?: boolean }[] = [
+const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitability?: boolean; presentation?: boolean }[] = [
   { id: "receivables-summary", label: "Receivables & Ageing", receivables: true },
   { id: "credit-exposure", label: "Customer Credit Exposure", receivables: true },
   { id: "open-items", label: "Largest Open Items", receivables: true },
@@ -61,12 +63,13 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "total-outstanding", label: "Debtors & Total Outstanding", receivables: true },
   { id: "ageing-trend", label: "Ageing Trend", receivables: true },
   { id: "global-ageing", label: "Global Ageing", receivables: true },
-  { id: "finance-presentation", label: "Finance Presentation", profitability: true },
+  { id: "finance-presentation", label: "Finance Presentation", presentation: true },
 ];
 
 export function FinancialsView({
   canViewReceivables,
   canViewProfitability,
+  canViewFinancePresentation,
   initialTab,
   initialCreditStatus,
   receivables,
@@ -83,7 +86,7 @@ export function FinancialsView({
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
   const period = useDashboardStore((state) => state.selectedPeriod);
   const availableTabs = TABS.filter((tab) =>
-    (tab.receivables && canViewReceivables) || (tab.profitability && canViewProfitability),
+    (tab.receivables && canViewReceivables) || (tab.profitability && canViewProfitability) || (tab.presentation && canViewFinancePresentation),
   );
   const initial = initialTab && availableTabs.some((tab) => tab.id === initialTab)
     ? initialTab
