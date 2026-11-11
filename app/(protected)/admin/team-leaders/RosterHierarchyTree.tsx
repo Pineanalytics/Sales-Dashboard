@@ -411,7 +411,7 @@ function HodNodeView({
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
             {directors.length > 0 ? (
-              <form action={updateHodDirectorAction} className="flex items-center gap-1.5">
+              <form action={updateHodDirectorAction} className="flex flex-wrap items-center gap-1.5">
                 <input type="hidden" name="hodId" value={hod.id} />
                 <span className="text-[13px] text-muted">Reports to</span>
                 <select name="directorId" defaultValue={hod.directorId ?? ""} className={inputClass + " py-1 text-xs"}>
@@ -513,7 +513,7 @@ function ManagerNodeView({
       <div className="px-4 pb-4 pl-8 flex flex-col gap-3 border-t border-border/60 pt-3">
         <p className="text-[12px] text-muted">Managers are sourced from the Roster CSV upload, not created here.</p>
         {hods.length > 0 ? (
-          <form action={updateManagerHodAction} className="flex items-center gap-1.5">
+          <form action={updateManagerHodAction} className="flex flex-wrap items-center gap-1.5">
             <input type="hidden" name="managerId" value={manager.id} />
             <span className="text-[13px] text-muted">Reports to</span>
             <select name="hodId" defaultValue={manager.hodId ?? ""} className={inputClass + " py-1 text-xs"}>
@@ -598,7 +598,7 @@ function SupervisorNodeView({
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
             {managers.length > 0 ? (
-              <form action={updateSupervisorManagerAction} className="flex items-center gap-1.5">
+              <form action={updateSupervisorManagerAction} className="flex flex-wrap items-center gap-1.5">
                 <input type="hidden" name="supervisorId" value={supervisor.id} />
                 <span className="text-[13px] text-muted">Reports to</span>
                 <select name="managerId" defaultValue={supervisor.managerId ?? ""} className={inputClass + " py-1 text-xs"}>
@@ -615,7 +615,7 @@ function SupervisorNodeView({
               </form>
             ) : null}
             {hods.length > 0 ? (
-              <form action={updateSupervisorDirectHodAction} className="flex items-center gap-1.5">
+              <form action={updateSupervisorDirectHodAction} className="flex flex-wrap items-center gap-1.5">
                 <input type="hidden" name="supervisorId" value={supervisor.id} />
                 <span className="text-[13px] text-muted">Or reports directly to</span>
                 <select name="directHodId" defaultValue={supervisor.directHodId ?? ""} className={inputClass + " py-1 text-xs"}>
@@ -698,7 +698,7 @@ function SupervisorNodeView({
             Save
           </button>
         </form>
-        <form action={updateSupervisorEmailAction} className="flex items-center gap-1.5">
+        <form action={updateSupervisorEmailAction} className="flex flex-wrap items-center gap-1.5">
           <input type="hidden" name="supervisorId" value={supervisor.id} />
           <span className="text-[13px] text-muted">Email</span>
           <input

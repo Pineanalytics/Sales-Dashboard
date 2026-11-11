@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/ui/KpiGrid";
-import { TableWrap, Thead, Th, Td } from "@/components/ui/Table";
+import { Thead, Th, Td } from "@/components/ui/Table";
 import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturnsButton";
 import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
 import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
@@ -36,7 +36,9 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
         <div><span className="font-semibold text-foreground">Built</span><br />{deployment.builtAt ? new Date(deployment.builtAt).toLocaleString() : "Local / unknown"}</div>
         <div><span className="font-semibold text-foreground">Schema</span><br />{deployment.schemaFingerprint.slice(0, 12)}</div>
       </div>
-      <TableWrap>
+      {/* Own wrapper rather than TableWrap: TableWrap renders its own <table>, and this one needs table-fixed widths. */}
+      <div className="overflow-hidden rounded-2xl bg-surface shadow-[0_1px_3px_rgba(11,61,53,0.06)]">
+        <div className="overflow-x-auto">
         <table className="w-full table-fixed border-collapse text-xs">
           <colgroup>
             <col className="w-[16%]" />
@@ -85,7 +87,8 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
             ))}
           </tbody>
         </table>
-      </TableWrap>
+        </div>
+      </div>
     </SectionCard>
   );
 }

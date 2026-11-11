@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { getProductMappingSuggestions, type ProductMappingSuggestion } from "@/lib/productMappingSuggestions";
 import { findProductPrincipalConflicts } from "@/lib/principalRules";
 import { FocusedPanel } from "@/components/admin/FocusedPanel";
+import { AdminNotices, AdminPage } from "@/components/admin/AdminPage";
 import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction, applyPrefixSuggestionAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -79,43 +80,33 @@ export default async function AdminProductsPage({
   const classifications = Array.from(new Set(classificationRows.map((row) => row.classification?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Product Master</h1>
-        <p className="mt-1 text-sm text-white/70">Item → principal/pack-size reference data used by the SAP sales bridge. Unidentified SAP products remain review-only until mapped here.</p>
-      </div>
-
-      <div className="max-w-7xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+    <AdminPage
+      title="Product Master"
+      description="Item → principal/pack-size reference data used by the SAP sales bridge. Unidentified SAP products remain review-only until mapped here."
+      stats={[
+        { label: "products", value: allProducts.length.toLocaleString("en-KE") },
+        ...(suggestions.length > 0 ? [{ label: "to map", value: suggestions.length, tone: "attention" as const }] : []),
+        ...(prefixConflicts.length > 0 ? [{ label: "prefix conflicts", value: prefixConflicts.length, tone: "attention" as const }] : []),
+      ]}
+    >
         <datalist id="product-classifications">
           {classifications.map((classification) => <option key={classification} value={classification} />)}
         </datalist>
-        {error ? (
-          <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {success}
-          </p>
-        ) : null}
+        <AdminNotices error={error} success={success} />
 
-        <div className="rounded-2xl border border-border bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-surface px-5 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="flex min-w-0 max-w-2xl items-start gap-3">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-blue-soft text-primary-blue">
               <UploadIcon />
             </span>
             <div>
-              <h2 className="text-lg font-semibold text-primary-blue">Update product master</h2>
+              <h2 className="text-base font-semibold text-primary-blue">Update product master</h2>
               <p className="mt-1 text-[13px] text-muted">
                 Download, edit, and re-upload the CSV or Products workbook. Existing Item No. rows update in place; new items and product-principal mappings are added without deleting older rows.
               </p>
             </div>
           </div>
-          <form action={uploadProductsAction} className="mt-4 flex flex-wrap items-center gap-4">
+          <form action={uploadProductsAction} className="flex flex-wrap items-center gap-3">
             <input
               type="file"
               name="file"
@@ -123,7 +114,7 @@ export default async function AdminProductsPage({
               required
               className="min-w-0 text-sm text-foreground file:mr-4 file:rounded-full file:border-0 file:bg-background-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary-blue hover:file:bg-accent-blue-soft"
             />
-            <button type="submit" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+            <button type="submit" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
               <UploadIcon />
               Upload product master
             </button>
@@ -134,7 +125,7 @@ export default async function AdminProductsPage({
         </div>
 
         {prefixConflicts.length > 0 ? <section className="overflow-hidden rounded-2xl border border-secondary-blue/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3 p-6 pb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-blue">Item-prefix rules</p>
               <h2 className="mt-1 text-lg font-semibold text-primary-blue">Products whose principal disagrees with their SAP item series</h2>
@@ -157,7 +148,7 @@ export default async function AdminProductsPage({
         </section> : null}
 
         {suggestions.length > 0 ? <section className="overflow-hidden rounded-2xl border border-accent-amber/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3 p-6 pb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-amber">SAP mapping worklist</p>
               <h2 className="mt-1 text-lg font-semibold text-primary-blue">Unidentified products with sales activity</h2>
@@ -243,7 +234,7 @@ export default async function AdminProductsPage({
         ) : null}
 
         <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4">
             <h2 className="text-lg font-semibold text-primary-blue">
               Products ({q ? `${matchCount.toLocaleString("en-KE")} of ${allProducts.length.toLocaleString("en-KE")}` : allProducts.length.toLocaleString("en-KE")})
             </h2>
@@ -316,8 +307,7 @@ export default async function AdminProductsPage({
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+    </AdminPage>
   );
 }
 

@@ -24,6 +24,7 @@ const destinations: AdminDestination[] = [
   { href: "/admin/upfield-outlets", label: "Upfield outlet list", group: "Reference", keywords: "upfield outlet customer master channel type route fsr dataedge upload", roles: ["ADMIN"] },
   { href: "/admin/stock-brands", label: "Stock brands", group: "Planning", keywords: "stock brand sku mapping rules item name manufacturer", roles: ["ADMIN"] },
   { href: "/admin/stock-cover", label: "Stock cover targets", group: "Planning", keywords: "stock cover days target standard stock reorder overstock principal brand run rate", roles: ["ADMIN"] },
+  { href: "/admin/unilever-kpis", label: "Unilever KPI setup", group: "Planning", keywords: "unilever pjp target assortment sku basket centegy kpi", roles: ["ADMIN"] },
   { href: "/targets-overview", label: "Target workspace", group: "Planning", keywords: "target management weekly projection roster", roles: ["ADMIN", "TEAM_LEADER"] },
   { href: "/weekly-targets", label: "Weekly targets", group: "Planning", keywords: "weekly target plan team leader principal", roles: ["ADMIN", "TEAM_LEADER", "SUPERVISOR"] },
   { href: "/admin/principals", label: "Principals", group: "Reference", keywords: "principal location ownership team leader", roles: ["ADMIN"] },
@@ -59,7 +60,7 @@ export function AdminWorkspaceNav({ role }: { role: Role }) {
 
   return (
     <nav aria-label="Admin workspace" className="sticky top-0 z-30 border-b border-border/70 bg-surface/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-2 px-4 py-3 md:px-8">
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-2 px-4 py-3 md:px-8">
         <div className="flex flex-wrap items-center gap-3">
           <Link href={role === "ADMIN" ? "/admin" : "/dashboard"} className="shrink-0 text-sm font-bold text-primary-blue">
             Admin workspace

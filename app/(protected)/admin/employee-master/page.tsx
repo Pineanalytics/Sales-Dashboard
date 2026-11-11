@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { getKnownPrincipals, getKnownSapSalesReps } from "@/lib/adminReference";
 import { getTimestampRosterSuggestions } from "@/lib/employeeRosterSuggestions";
 import { getUnresolvedEmployeeIdentities } from "@/lib/employeeIdentity";
+import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable } from "@/components/admin/AdminPage";
 import { saveEmployeeMasterAction, toggleEmployeeMasterActiveAction, resolveEmployeeIdentityAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -84,27 +85,21 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
   const rosterPrincipalOptions = isAdmin ? knownPrincipals : ownPrincipals;
   const filtersActive = Boolean(selectedPrincipal || selectedTeamLeader || employeeQuery);
 
-  return <div className="min-h-screen bg-background">
-    <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 py-6 shadow-[0_2px_10px_rgba(11,61,53,0.25)] md:px-8 md:py-7">
-      <Link href={isAdmin ? "/admin" : "/dashboard"} className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-leaf">← {isAdmin ? "Back to Admin" : "Back to dashboard"}</Link>
-      <h1 className="mt-3 text-[26px] font-bold leading-tight text-white md:text-[34px]">Employee Roster</h1>
-      <p className="mt-1 text-sm text-white/70">Maintain Pine and SAP names, absolute principal, sales role, and team ownership. Timestamp suggestions always need a reviewer&apos;s confirmation.</p>
-    </div>
+  const activeCount = employees.filter((employee) => employee.active).length;
 
-    <div className="mx-auto flex max-w-[1500px] flex-col gap-5 p-4 md:p-8">
-      {params.success ? <div className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{params.success}</div> : null}
-      {params.error ? <div className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{params.error}</div> : null}
-
-      <section className="rounded-2xl border border-border bg-surface p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-blue">Roster control</p>
-            <h2 className="mt-1 text-lg font-bold text-brand-navy">{filtersActive ? `${employees.length} matching roster record${employees.length === 1 ? "" : "s"}` : isAdmin ? `${employees.length} employees in the master roster` : `${employees.length} rep${employees.length === 1 ? "" : "s"} in your roster`}</h2>
-            <p className="mt-1 text-sm text-muted">{isAdmin ? "Filter by ownership or search a rep before opening an amendment." : `You can add and amend reps assigned to ${teamLeader!.name}.`}</p>
-          </div>
-          <Link href="/admin/employee-master?add=new" className="rounded-full bg-primary-blue px-4 py-2 text-xs font-semibold text-white hover:bg-secondary-blue">Add employee</Link>
-        </div>
-      </section>
+  return <AdminPage
+    title="Employee Roster"
+    description={isAdmin ? "Maintain Pine and SAP names, absolute principal, sales role, and team ownership. Timestamp suggestions always need a reviewer's confirmation." : `Add and amend the reps assigned to ${teamLeader!.name}.`}
+    back={isAdmin ? { href: "/admin", label: "Back to admin" } : { href: "/dashboard", label: "Back to dashboard" }}
+    stats={[
+      { label: filtersActive ? "matching" : isAdmin ? "employees" : "reps", value: employees.length },
+      { label: "active", value: activeCount },
+      ...(suggestions.length > 0 ? [{ label: "suggestions", value: suggestions.length, tone: "attention" as const }] : []),
+      ...(unresolvedIdentities.length > 0 ? [{ label: "unresolved", value: unresolvedIdentities.length, tone: "attention" as const }] : []),
+    ]}
+    actions={<Link href="/admin/employee-master?add=new" className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">+ Add employee</Link>}
+  >
+      <AdminNotices error={params.error} success={params.success} />
 
       {showForm ? <section className="rounded-2xl border border-secondary-blue/30 bg-surface p-5 shadow-[0_6px_18px_rgba(11,61,53,0.1)]">
         <div className="flex items-start justify-between gap-3">
@@ -128,26 +123,23 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
         </form>
       </section> : null}
 
-      {suggestions.length > 0 ? <section className="rounded-2xl border border-accent-amber/30 bg-surface p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-amber">Timestamp roster suggestions</p><h2 className="mt-1 text-lg font-bold text-brand-navy">New reps seen in productive calls</h2><p className="mt-1 text-sm text-muted">The suggested principal is the most frequent sales cost centre in the last 90 days. It is not applied until you add the rep.</p></div>
-          <span className="rounded-full bg-accent-amber-soft px-2.5 py-1 text-xs font-semibold text-accent-amber">{suggestions.length} to review</span>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{suggestions.map((suggestion) => <div key={suggestion.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-brand-navy">{suggestion.salesRep}</p><p className="text-xs text-muted">{suggestion.employeeCode}</p></div><span className="rounded-full bg-accent-green-soft px-2 py-0.5 text-[10px] font-semibold text-accent-green">{suggestion.productiveCalls} sales</span></div><p className="mt-3 text-xs text-muted">Suggested absolute principal</p><p className="text-sm font-semibold text-secondary-blue">{suggestion.suggestedPrincipal}</p><p className="mt-1 text-[11px] text-muted">Last call {suggestion.latestCallDate.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</p><Link href={`/admin/employee-master?add=${encodeURIComponent(suggestion.employeeCode)}`} className="mt-3 inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover">Review and add</Link></div>)}</div>
-      </section> : null}
+      {suggestions.length > 0 || unresolvedIdentities.length > 0 ? <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      {suggestions.length > 0 ? <AdminDisclosure
+        defaultOpen
+        title="New reps seen in productive calls"
+        badge={<AdminBadge tone="attention">{suggestions.length} to review</AdminBadge>}
+        description="The suggested principal is the most frequent sales cost centre in the last 90 days. It is not applied until you add the rep."
+      >
+        <div className="grid max-h-[460px] gap-3 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">{suggestions.map((suggestion) => <div key={suggestion.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-brand-navy">{suggestion.salesRep}</p><p className="text-xs text-muted">{suggestion.employeeCode}</p></div><span className="rounded-full bg-accent-green-soft px-2 py-0.5 text-[10px] font-semibold text-accent-green">{suggestion.productiveCalls} sales</span></div><p className="mt-3 text-xs text-muted">Suggested absolute principal</p><p className="text-sm font-semibold text-secondary-blue">{suggestion.suggestedPrincipal}</p><p className="mt-1 text-[11px] text-muted">Last call {suggestion.latestCallDate.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</p><Link href={`/admin/employee-master?add=${encodeURIComponent(suggestion.employeeCode)}`} className="mt-3 inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover">Review and add</Link></div>)}</div>
+      </AdminDisclosure> : null}
 
-      {unresolvedIdentities.length > 0 ? <section className="rounded-2xl border border-accent-amber/30 bg-surface p-5 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-amber">Unresolved rep identities</p>
-            <h2 className="mt-1 text-lg font-bold text-brand-navy">Reps with no single home Team Leader</h2>
-            <p className="mt-1 text-sm text-muted">
-              Most reps resolve automatically from their Team Leader assignment(s). These either have none, or genuinely more than one — pick the correct home Team Leader below.
-            </p>
-          </div>
-          <span className="rounded-full bg-accent-amber-soft px-2.5 py-1 text-xs font-semibold text-accent-amber">{unresolvedIdentities.length} to review</span>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {unresolvedIdentities.length > 0 ? <AdminDisclosure
+        defaultOpen
+        title="Reps with no single home Team Leader"
+        badge={<AdminBadge tone="attention">{unresolvedIdentities.length} to review</AdminBadge>}
+        description="Most reps resolve automatically from their Team Leader assignment(s). These have none, or genuinely more than one: pick the correct home Team Leader."
+      >
+        <div className="grid max-h-[460px] gap-3 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">
           {unresolvedIdentities.map((rep) => (
             <div key={rep.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3">
               <p className="font-semibold text-brand-navy">{rep.pineName}</p>
@@ -185,20 +177,21 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
             </div>
           ))}
         </div>
-      </section> : null}
+      </AdminDisclosure> : null}
+      </div> : null}
 
-      <section className="rounded-2xl border border-border bg-surface p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-        <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" action="/admin/employee-master">
+      <AdminCard
+        flush
+        title={<>{filtersActive ? "Matching roster records" : isAdmin ? "Master roster" : "Your roster"} <AdminBadge>{employees.length}</AdminBadge></>}
+        description={isAdmin ? "Filter by ownership or search a rep before opening an amendment." : undefined}
+      >
+        <form className="grid gap-3 border-b border-border/60 px-5 py-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]" action="/admin/employee-master">
           <label className={labelClass}>Find employee<input name="q" defaultValue={employeeQuery} placeholder="Name, SAP name or employee code" className={inputClass} /></label>
           <label className={labelClass}>Principal<select name="principal" defaultValue={selectedPrincipal} className={inputClass}><option value="">All principals</option>{rosterPrincipalOptions.map((principal) => <option key={principal} value={principal}>{principal}</option>)}</select></label>
           {isAdmin ? <label className={labelClass}>Team Leader<select name="teamLeader" defaultValue={selectedTeamLeader} className={inputClass}><option value="">All Team Leaders</option>{teamLeaderOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : <div className="hidden xl:block" />}
           <div className="flex items-end gap-2"><button type="submit" className="rounded-full bg-primary-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-secondary-blue">Apply filters</button>{filtersActive ? <Link href="/admin/employee-master" className="rounded-full border border-border px-4 py-2.5 text-sm font-semibold text-primary-blue hover:bg-surface-hover">Clear</Link> : null}</div>
         </form>
-      </section>
-
-      <section className="overflow-hidden rounded-2xl bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-        <div className="overflow-x-auto"><table className="w-full border-collapse text-sm"><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 text-left font-medium">Pine sales rep</th><th className="px-4 py-3 text-left font-medium">SAP sales rep</th><th className="px-4 py-3 text-left font-medium">Absolute principal</th><th className="px-4 py-3 text-left font-medium">JPA principals</th><th className="px-4 py-3 text-left font-medium">Role</th><th className="px-4 py-3 text-left font-medium">Team leader</th><th className="px-4 py-3 text-left font-medium">Status</th><th className="px-4 py-3 text-right font-medium">Action</th></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-3">{employee.pineName} <span className="text-muted">({employee.employeeCode})</span></td><td className="border-b border-border/60 px-4 py-3">{employee.sapName}</td><td className="border-b border-border/60 px-4 py-3 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-3">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-3">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-3">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-3">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-3 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form></div></td></tr>)}{employees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
-      </section>
-    </div>
-  </div>;
+        <div className="overflow-x-auto"><table className={adminTable.table}><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-2.5 text-left font-medium">Pine sales rep</th><th className="px-4 py-2.5 text-left font-medium">SAP sales rep</th><th className="px-4 py-2.5 text-left font-medium">Absolute principal</th><th className="px-4 py-2.5 text-left font-medium">JPA principals</th><th className="px-4 py-2.5 text-left font-medium">Role</th><th className="px-4 py-2.5 text-left font-medium">Team leader</th><th className="px-4 py-2.5 text-left font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Action</th></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-2.5">{employee.pineName} <span className="text-muted">({employee.employeeCode})</span></td><td className="border-b border-border/60 px-4 py-2.5">{employee.sapName}</td><td className="border-b border-border/60 px-4 py-2.5 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-2.5">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-2.5 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form></div></td></tr>)}{employees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
+      </AdminCard>
+  </AdminPage>;
 }

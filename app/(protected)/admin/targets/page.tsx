@@ -4,6 +4,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { CANONICAL_MONTHS } from "@/lib/timeIntelligence";
 import { getKnownPrincipals, getKnownMainPrincipals } from "@/lib/adminReference";
+import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable, searchText } from "@/components/admin/AdminPage";
+import { AdminTableSearch } from "@/components/admin/AdminTableSearch";
 import { uploadTargetsAction, deleteTargetAction, createTargetAction, updateTargetAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -65,35 +67,19 @@ export default async function AdminTargetsPage({
   const [knownPrincipals, knownMainPrincipals] = await Promise.all([getKnownPrincipals(), getKnownMainPrincipals()]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Targets</h1>
-        <p className="mt-1 text-sm text-white/70">
-          The Value Target is the executive dashboard&apos;s editable full-month mission. Weekly and daily targets, required run rates, and projection are recalculated from it without overwriting this plan.
-        </p>
-      </div>
+    <AdminPage
+      title="Targets"
+      description="The Value Target is the executive dashboard's editable full-month mission. Weekly and daily targets, required run rates, and projection are recalculated from it without overwriting this plan."
+      stats={[
+        { label: `targets in ${year}`, value: targets.length },
+        { label: "principals", value: new Set(targets.map((t) => t.principal)).size },
+      ]}
+    >
+      <AdminNotices error={error} success={success} />
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? (
-          <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {success}
-          </p>
-        ) : null}
-
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Upload targets</h2>
-          <p className="mt-1 text-[13px] text-muted">
-            Expects a "Targets Per Principal"-shaped sheet: Period, Principal, Main Principal, Value/Volume/Coverage/Productivity Target.
-          </p>
-          <form action={uploadTargetsAction} className="mt-4 flex flex-wrap items-center gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <AdminCard title="Upload targets" description={<>Expects a &quot;Targets Per Principal&quot;-shaped sheet: Period, Principal, Main Principal, Value/Volume/Coverage/Productivity Target.</>}>
+          <form action={uploadTargetsAction} className="flex flex-wrap items-center gap-3">
             <input
               type="file"
               name="file"
@@ -103,19 +89,19 @@ export default async function AdminTargetsPage({
             />
             <button
               type="submit"
-              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
             >
               Upload
             </button>
           </form>
-        </div>
+        </AdminCard>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Add a target</h2>
-          <p className="mt-1 text-[13px] text-muted">
-            One row per Principal per Month. This Value Target governs the Executive module&apos;s working-day pacing; change it here rather than editing a derived weekly or daily run rate.
-          </p>
-          <form action={createTargetAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <AdminDisclosure
+          title="Add a target"
+          description="One row per Principal per Month. This Value Target governs the Executive module's working-day pacing; change it here rather than editing a derived weekly or daily run rate."
+          defaultOpen={Boolean(lastPrincipal)}
+        >
+          <form action={createTargetAction} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Year</label>
               <select name="year" required defaultValue={year} className={inputClass}>
@@ -179,21 +165,24 @@ export default async function AdminTargetsPage({
               <label className={labelClass}>Productive Calls Target</label>
               <input name="productivityTarget" type="number" step="any" className={inputClass} />
             </div>
-            <div className="sm:col-span-4">
+            <div className="sm:col-span-2 lg:col-span-3">
               <button
                 type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
                 Add target
               </button>
             </div>
           </form>
-        </div>
+        </AdminDisclosure>
+      </div>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0 flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-lg font-semibold text-primary-blue">Targets ({targets.length})</h2>
+        <AdminCard
+          flush
+          title={<>Targets {year} <AdminBadge>{targets.length}</AdminBadge></>}
+          actions={
             <div className="flex flex-wrap items-center gap-2 text-[13px]">
+              <AdminTableSearch target="targets" placeholder="Search month or principal" />
               <form method="get" className="flex items-center gap-2">
                 <input type="hidden" name="year" value={year} />
                 <label className="sr-only" htmlFor="target-principal-filter">Filter targets by principal</label>
@@ -220,25 +209,26 @@ export default async function AdminTargetsPage({
                 ))
               ) : null}
             </div>
-          </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+          }
+        >
+          <div className="overflow-x-auto" data-filter-root="targets">
+            <table className={adminTable.table}>
+              <thead className={adminTable.head}>
                 <tr>
-                  <th className="px-6 py-3 text-left font-medium">Month</th>
-                  <th className="px-6 py-3 text-left font-medium">Principal</th>
-                  <th className="px-6 py-3 text-right font-medium">Value Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Volume Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Coverage Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Productive Calls Target</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  <th className={adminTable.th}>Month</th>
+                  <th className={adminTable.th}>Principal</th>
+                  <th className={adminTable.thRight}>Value Target</th>
+                  <th className={adminTable.thRight}>Volume Target</th>
+                  <th className={adminTable.thRight}>Coverage Target</th>
+                  <th className={adminTable.thRight}>Productive Calls Target</th>
+                  <th className={adminTable.thRight}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {targets.map((t) =>
                   editing?.id === t.id ? (
                     <tr key={t.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={7} className="px-6 py-4 border-b border-border/60">
+                      <td colSpan={7} className="border-b border-border/60 px-4 py-4">
                         <form action={updateTargetAction} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                           <input type="hidden" name="targetId" value={t.id} />
                           <input type="hidden" name="year" value={year} />
@@ -284,17 +274,17 @@ export default async function AdminTargetsPage({
                       </td>
                     </tr>
                   ) : (
-                    <tr key={t.id}>
-                      <td className="px-6 py-3 border-b border-border/60">{t.month}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{t.principal}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{t.valueTarget ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{t.volumeTarget ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{t.coverageTarget ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right">{t.productivityTarget ?? "—"}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
+                    <tr key={t.id} data-search={searchText(t.month, t.principal, t.mainPrincipal)}>
+                      <td className={adminTable.td}>{t.month}</td>
+                      <td className={adminTable.td}>{t.principal}</td>
+                      <td className={adminTable.tdRight}>{t.valueTarget ?? "—"}</td>
+                      <td className={adminTable.tdRight}>{t.volumeTarget ?? "—"}</td>
+                      <td className={adminTable.tdRight}>{t.coverageTarget ?? "—"}</td>
+                      <td className={adminTable.tdRight}>{t.productivityTarget ?? "—"}</td>
+                      <td className={`${adminTable.tdRight} whitespace-nowrap`}>
                         <Link
                           href={`/admin/targets?year=${encodeURIComponent(year)}&edit=${t.id}${filterPrincipal ? `&filterPrincipal=${encodeURIComponent(filterPrincipal)}` : ""}`}
-                          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
+                          className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300"
                         >
                           Edit
                         </Link>
@@ -304,7 +294,7 @@ export default async function AdminTargetsPage({
                           {filterPrincipal ? <input type="hidden" name="filterPrincipal" value={filterPrincipal} /> : null}
                           <button
                             type="submit"
-                            className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
+                            className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300"
                           >
                             Remove
                           </button>
@@ -315,7 +305,7 @@ export default async function AdminTargetsPage({
                 )}
                 {targets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={7} className={adminTable.empty}>
                       No targets for {year} yet.
                     </td>
                   </tr>
@@ -323,22 +313,22 @@ export default async function AdminTargetsPage({
               </tbody>
             </table>
           </div>
-        </div>
+        </AdminCard>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Recent audit trail</h2>
-            <p className="mt-1 text-[13px] text-muted">Last 25 row-level edits made through the Add/Edit/Remove form above (bulk uploads aren't logged here).</p>
-          </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+        <AdminDisclosure
+          title="Recent audit trail"
+          badge={<AdminBadge>{auditLog.length}</AdminBadge>}
+          description="Last 25 row-level edits made through the Add/Edit/Remove forms (bulk uploads aren't logged here)."
+        >
+          <div className="-mx-5 -mb-5 overflow-x-auto">
+            <table className={adminTable.table}>
+              <thead className={adminTable.head}>
                 <tr>
-                  <th className="px-6 py-3 text-left font-medium">When</th>
-                  <th className="px-6 py-3 text-left font-medium">User</th>
-                  <th className="px-6 py-3 text-left font-medium">Action</th>
-                  <th className="px-6 py-3 text-left font-medium">Month / Principal</th>
-                  <th className="px-6 py-3 text-left font-medium">Changes</th>
+                  <th className={adminTable.th}>When</th>
+                  <th className={adminTable.th}>User</th>
+                  <th className={adminTable.th}>Action</th>
+                  <th className={adminTable.th}>Month / Principal</th>
+                  <th className={adminTable.th}>Changes</th>
                 </tr>
               </thead>
               <tbody>
@@ -346,13 +336,13 @@ export default async function AdminTargetsPage({
                   const changes = a.changes as Record<string, { old: number | null; new: number | null }>;
                   return (
                     <tr key={a.id}>
-                      <td className="px-6 py-3 border-b border-border/60 whitespace-nowrap">{new Date(a.timestamp).toLocaleString()}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{a.userEmail}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{a.action}</td>
-                      <td className="px-6 py-3 border-b border-border/60">
+                      <td className={`${adminTable.td} whitespace-nowrap`}>{new Date(a.timestamp).toLocaleString()}</td>
+                      <td className={adminTable.td}>{a.userEmail}</td>
+                      <td className={adminTable.td}>{a.action}</td>
+                      <td className={adminTable.td}>
                         {a.month} {a.year} — {a.principal}
                       </td>
-                      <td className="px-6 py-3 border-b border-border/60">
+                      <td className={adminTable.td}>
                         <div className="flex flex-col gap-0.5">
                           {Object.entries(changes).map(([field, { old, new: next }]) => (
                             <span key={field} className="text-[13px]">
@@ -366,7 +356,7 @@ export default async function AdminTargetsPage({
                 })}
                 {auditLog.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-muted">
+                    <td colSpan={5} className={adminTable.empty}>
                       No edits logged yet.
                     </td>
                   </tr>
@@ -374,8 +364,7 @@ export default async function AdminTargetsPage({
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
-    </div>
+        </AdminDisclosure>
+    </AdminPage>
   );
 }
