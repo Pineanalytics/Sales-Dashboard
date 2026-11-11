@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { listGpMarginTargetRows } from "@/lib/gpMarginTargets";
 import { GP_MARGIN_DEFAULT_KEY, GP_MARGIN_OVERALL_KEY } from "@/lib/financePresentation";
+import { AdminCard, AdminNotices, AdminPage } from "@/components/admin/AdminPage";
 import { resetGpMarginTargetsAction, saveGpMarginTargetsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -17,25 +18,19 @@ export default async function AdminGpTargetsPage({ searchParams }: { searchParam
   const { rows, defaultRow, overallRow } = await listGpMarginTargetRows();
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">GP margin targets</h1>
-        <p className="mt-1 text-sm text-white/70">Target gross margin by principal brand, used by the Finance Presentation and the Financials Sales Performance tab.</p>
-      </div>
+    <AdminPage
+      title="GP margin targets"
+      description="Target gross margin by principal brand, used by the Finance Presentation and the Financials Sales Performance tab."
+      stats={[
+        { label: "brands", value: rows.length },
+        { label: "edited", value: rows.filter((row) => row.customised).length + (overallRow.customised ? 1 : 0) + (defaultRow.customised ? 1 : 0) },
+      ]}
+    >
+      <AdminNotices error={error} success={success} />
 
-      <div className="max-w-3xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{error}</p> : null}
-        {success ? <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{success}</p> : null}
-
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <AdminCard title="Targets by brand" description="Edit any box and save; the policy default is shown for comparison.">
           <form action={saveGpMarginTargetsAction} className="flex flex-col gap-4">
-            <p className="text-[13px] text-muted">
-              Enter each target as a percentage of revenue (15 means 15%). Locations of a brand share its target: Mars-Nairobi uses Mars, EABL-Nyeri and EABL-Nyahururu both use EABL. These replace the per-month
-              &ldquo;GP margin target&rdquo; on the Targets page for the Finance views.
-            </p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -90,13 +85,27 @@ export default async function AdminGpTargetsPage({ searchParams }: { searchParam
               </button>
             </div>
           </form>
-          <form action={resetGpMarginTargetsAction} className="mt-3">
-            <button type="submit" className="rounded-full px-5 py-2 text-sm font-medium text-muted-strong hover:bg-background-elevated">
+        </AdminCard>
+
+        <AdminCard title="How targets apply" className="xl:sticky xl:top-28">
+          <div className="flex flex-col gap-3 text-[13px] text-muted">
+            <p>Enter each target as a percentage of revenue (15 means 15%).</p>
+            <p>Locations of a brand share its target: Mars-Nairobi uses Mars, EABL-Nyeri and EABL-Nyahururu both use EABL.</p>
+            <p>
+              These replace the per-month &ldquo;GP margin target&rdquo; on the{" "}
+              <Link href="/admin/targets" className="text-primary-blue hover:underline">
+                Targets
+              </Link>{" "}
+              page for the Finance views.
+            </p>
+          </div>
+          <form action={resetGpMarginTargetsAction} className="mt-4 border-t border-border/60 pt-3">
+            <button type="submit" className="rounded-full px-4 py-2 text-sm font-medium text-muted-strong hover:bg-background-elevated">
               Reset everything to the policy defaults
             </button>
           </form>
-        </div>
+        </AdminCard>
       </div>
-    </div>
+    </AdminPage>
   );
 }

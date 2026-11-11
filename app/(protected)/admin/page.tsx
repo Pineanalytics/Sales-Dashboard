@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const dynamic = "force-dynamic";
 
@@ -52,33 +53,30 @@ export default async function AdminLandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to dashboard
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Admin</h1>
-        <p className="mt-1 text-sm text-white/70">Find any control area from the persistent workspace tabs, or start with a connected workstream below.</p>
-      </div>
-
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-8">
+    <AdminPage
+      title="Admin"
+      description="Find any control area from the workspace tabs above, or start with a connected workstream below."
+      back={{ href: "/", label: "Back to dashboard" }}
+      stats={[{ label: "admin areas", value: SECTIONS.reduce((n, section) => n + section.links.length, 0) }]}
+    >
+      <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-3">
         {SECTIONS.map((section) => (
           <section key={section.title} className="rounded-2xl bg-surface p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] md:p-5">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <div className="mb-3">
               <h2 className="text-base font-bold text-primary-blue">{section.title}</h2>
               <p className="text-xs text-muted">{section.description}</p>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-1">
               {section.links.map(({ href, title, description, initials }) => (
                 <Link
                   key={href}
                   href={href}
-                  className="flex min-h-[88px] items-start gap-3 rounded-xl border border-border/70 bg-background p-4 transition-all hover:border-secondary-blue/40 hover:shadow-cyan-glow"
+                  className="flex items-start gap-3 rounded-xl border border-border/70 bg-background px-3 py-2.5 transition-all hover:border-secondary-blue/40 hover:shadow-cyan-glow"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-blue-soft text-[11px] font-bold text-accent-blue">{initials}</span>
-                  <span>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-blue-soft text-[11px] font-bold text-accent-blue">{initials}</span>
+                  <span className="min-w-0">
                     <span className="block text-sm font-semibold text-primary-blue">{title}</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-muted">{description}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">{description}</span>
                   </span>
                 </Link>
               ))}
@@ -86,6 +84,6 @@ export default async function AdminLandingPage() {
           </section>
         ))}
       </div>
-    </div>
+    </AdminPage>
   );
 }

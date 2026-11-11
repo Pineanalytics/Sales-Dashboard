@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { SALES_RETURNS_BRANCH_LABELS } from "@/lib/salesReturnsControl";
+import { AdminBadge, AdminCard, AdminNotices, AdminPage, adminTable } from "@/components/admin/AdminPage";
 import { upsertTargetAction, deleteTargetAction, addAssortmentSkuAction, toggleAssortmentSkuAction, deleteAssortmentSkuAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -37,34 +37,29 @@ export default async function AdminUnileverKpisPage({
   ]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Unilever KPI setup</h1>
-        <p className="mt-1 text-sm text-white/70">
-          Feeds the Unilever Individual Sales Productivity card on Principal KPIs. Sales, LPPC and execution counts are computed live from the synced
-          Centegy data — this page only holds the two inputs that data alone can&apos;t supply: each PJP&apos;s monthly sales target, and the core
-          assortment SKU basket used for Perfect Assortment.
-        </p>
-      </div>
+    <AdminPage
+      title="Unilever KPI setup"
+      description="The two inputs the Unilever Individual Sales Productivity card on Principal KPIs can't get from the synced Centegy data: each PJP's monthly sales target, and the core assortment SKU basket for Perfect Assortment. Sales, LPPC and execution counts are computed live."
+      stats={[
+        { label: `PJP targets for ${month}`, value: targets.length },
+        { label: "active basket SKUs", value: assortmentSkus.filter((row) => row.active).length, tone: assortmentSkus.some((row) => row.active) ? "default" : "attention" },
+      ]}
+    >
+      <AdminNotices error={error} success={success} />
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{error}</p> : null}
-        {success ? <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{success}</p> : null}
-
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-primary-blue">PJP sales targets — {month}</h2>
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <div className="flex flex-col gap-4">
+        <AdminCard
+          title={`PJP sales targets — ${month}`}
+          actions={
             <form method="get" className="flex items-center gap-2">
               <label className="sr-only" htmlFor="month-picker">Month</label>
               <input id="month-picker" type="month" name="month" defaultValue={month} className={inputClass} />
               <button type="submit" className="rounded-full bg-background-elevated px-3 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">Go</button>
             </form>
-          </div>
-
-          <form action={upsertTargetAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+          }
+        >
+          <form action={upsertTargetAction} className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
             <input type="hidden" name="month" value={month} />
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Distributor</label>
@@ -92,39 +87,36 @@ export default async function AdminUnileverKpisPage({
               <label className={labelClass}>Sales Target (KES)</label>
               <input name="salesTarget" type="number" step="any" required className={inputClass} />
             </div>
-            <div className="sm:col-span-4">
-              <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+            <div className="sm:col-span-2">
+              <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
                 Save target
               </button>
             </div>
           </form>
-        </div>
+        </AdminCard>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Targets for {month} ({targets.length})</h2>
-          </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+        <AdminCard flush title={<>Targets for {month} <AdminBadge>{targets.length}</AdminBadge></>}>
+          <div className="overflow-x-auto">
+            <table className={adminTable.table}>
+              <thead className={adminTable.head}>
                 <tr>
-                  <th className="px-6 py-3 text-left font-medium">Branch</th>
-                  <th className="px-6 py-3 text-left font-medium">PJP</th>
-                  <th className="px-6 py-3 text-right font-medium">Sales Target (KES)</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  <th className={adminTable.th}>Branch</th>
+                  <th className={adminTable.th}>PJP</th>
+                  <th className={adminTable.thRight}>Sales Target (KES)</th>
+                  <th className={adminTable.thRight}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {targets.map((t) => (
                   <tr key={t.id}>
-                    <td className="px-6 py-3 border-b border-border/60">{SALES_RETURNS_BRANCH_LABELS[t.distributor] ?? t.distributor}</td>
-                    <td className="px-6 py-3 border-b border-border/60">{t.pjp}</td>
-                    <td className="px-6 py-3 border-b border-border/60 text-right">{t.salesTarget.toLocaleString("en-US")}</td>
-                    <td className="px-6 py-3 border-b border-border/60 text-right">
+                    <td className={adminTable.td}>{SALES_RETURNS_BRANCH_LABELS[t.distributor] ?? t.distributor}</td>
+                    <td className={adminTable.td}>{t.pjp}</td>
+                    <td className={adminTable.tdRight}>{t.salesTarget.toLocaleString("en-US")}</td>
+                    <td className={adminTable.tdRight}>
                       <form action={deleteTargetAction} className="inline">
                         <input type="hidden" name="targetId" value={t.id} />
                         <input type="hidden" name="month" value={month} />
-                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
                           Remove
                         </button>
                       </form>
@@ -133,21 +125,21 @@ export default async function AdminUnileverKpisPage({
                 ))}
                 {targets.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-muted">No targets set for {month} yet.</td>
+                    <td colSpan={4} className={adminTable.empty}>No targets set for {month} yet.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-        </div>
+        </AdminCard>
+      </div>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Core assortment basket</h2>
-          <p className="mt-1 text-[13px] text-muted">
-            Perfect Assortment stays &quot;pending&quot; on the KPI card until this list has at least one active SKU. An outlet counts as perfectly
-            assorted for a month once it has bought every active SKU below at least once.
-          </p>
-          <form action={addAssortmentSkuAction} className="mt-4 flex flex-wrap items-end gap-4">
+        <AdminCard
+          flush
+          title={<>Core assortment basket <AdminBadge>{assortmentSkus.length}</AdminBadge></>}
+          description="Perfect Assortment stays “pending” on the KPI card until this list has at least one active SKU. An outlet counts as perfectly assorted for a month once it has bought every active SKU below at least once."
+        >
+          <form action={addAssortmentSkuAction} className="flex flex-wrap items-end gap-3 px-5 py-4">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>SKU code</label>
               <input name="sku" required className={inputClass} />
@@ -156,40 +148,40 @@ export default async function AdminUnileverKpisPage({
               <label className={labelClass}>Description (optional)</label>
               <input name="skuDesc" className={inputClass} />
             </div>
-            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
               Add SKU
             </button>
           </form>
 
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
+          <div className="overflow-x-auto border-t border-border/60">
+            <table className={adminTable.table}>
+              <thead className={adminTable.head}>
                 <tr>
-                  <th className="px-6 py-3 text-left font-medium">SKU</th>
-                  <th className="px-6 py-3 text-left font-medium">Description</th>
-                  <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
+                  <th className={adminTable.th}>SKU</th>
+                  <th className={adminTable.th}>Description</th>
+                  <th className={adminTable.th}>Status</th>
+                  <th className={adminTable.thRight}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {assortmentSkus.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-6 py-3 border-b border-border/60">{row.sku}</td>
-                    <td className="px-6 py-3 border-b border-border/60">{row.skuDesc ?? "—"}</td>
-                    <td className="px-6 py-3 border-b border-border/60">
+                    <td className={adminTable.td}>{row.sku}</td>
+                    <td className={adminTable.td}>{row.skuDesc ?? "—"}</td>
+                    <td className={adminTable.td}>
                       <span className={row.active ? "text-accent-green" : "text-muted"}>{row.active ? "Active" : "Inactive"}</span>
                     </td>
-                    <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
+                    <td className={`${adminTable.tdRight} whitespace-nowrap`}>
                       <form action={toggleAssortmentSkuAction} className="inline">
                         <input type="hidden" name="skuId" value={row.id} />
                         <input type="hidden" name="active" value={String(row.active)} />
-                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
                           {row.active ? "Deactivate" : "Activate"}
                         </button>
                       </form>
                       <form action={deleteAssortmentSkuAction} className="inline">
                         <input type="hidden" name="skuId" value={row.id} />
-                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
                           Remove
                         </button>
                       </form>
@@ -198,14 +190,14 @@ export default async function AdminUnileverKpisPage({
                 ))}
                 {assortmentSkus.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-muted">No SKUs in the basket yet — Perfect Assortment stays pending until at least one is added.</td>
+                    <td colSpan={4} className={adminTable.empty}>No SKUs in the basket yet — Perfect Assortment stays pending until at least one is added.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-        </div>
+        </AdminCard>
       </div>
-    </div>
+    </AdminPage>
   );
 }

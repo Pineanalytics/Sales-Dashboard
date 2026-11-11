@@ -7,6 +7,7 @@ import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { UserDirectory, type DirectoryUser, type TeamLeaderOption, type SupervisorOption } from "@/components/admin/UserDirectory";
 import { NewUserForm } from "@/components/admin/NewUserForm";
+import { AdminNotices, AdminPage } from "@/components/admin/AdminPage";
 import { roleLabel } from "@/lib/roles";
 import {
   approveUserAction,
@@ -133,34 +134,16 @@ export default async function AdminUsersPage({
   });
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 py-5 shadow-[0_2px_10px_rgba(11,61,53,0.25)] md:px-8">
-        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-end justify-between gap-3">
-          <div>
-            <Link href="/" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 transition-colors hover:text-brand-orange">
-              ← Back to dashboard
-            </Link>
-            <h1 className="mt-2 text-[24px] font-bold leading-tight text-white md:text-[30px]">Manage Users</h1>
-            <p className="mt-1 text-sm text-white/70">Approve requests, and set each login&apos;s role, links, reports and principals in one place.</p>
-          </div>
-          <div className="flex gap-2 text-xs text-white/80">
-            <span className="rounded-full bg-white/10 px-3 py-1">{approved.length} users</span>
-            {pending.length > 0 ? <span className="rounded-full bg-brand-orange/80 px-3 py-1 font-semibold text-white">{pending.length} pending</span> : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-4 md:px-8 md:py-6">
-        {error ? (
-          <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {success}
-          </p>
-        ) : null}
+    <AdminPage
+      title="Manage Users"
+      description="Approve requests, and set each login's role, links, reports and principals in one place."
+      back={{ href: "/", label: "Back to dashboard" }}
+      stats={[
+        { label: "users", value: approved.length },
+        ...(pending.length > 0 ? [{ label: "pending", value: pending.length, tone: "attention" as const }] : []),
+      ]}
+    >
+        <AdminNotices error={error} success={success} />
 
         {pending.length > 0 ? (
           <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -277,7 +260,7 @@ export default async function AdminUsersPage({
           </div>
         ) : null}
 
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <details className="group rounded-2xl bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
             <span>
@@ -386,7 +369,6 @@ export default async function AdminUsersPage({
           currentUserId={session.user.id}
           forceOpenUserId={open ?? null}
         />
-      </div>
-    </div>
+    </AdminPage>
   );
 }

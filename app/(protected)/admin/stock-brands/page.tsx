@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { isEmptiesItem, mapSkuBrand, type BrandRule } from "@/lib/brandMapping";
+import { AdminBadge, AdminCard, AdminNotices, AdminPage, searchText } from "@/components/admin/AdminPage";
+import { AdminTableSearch } from "@/components/admin/AdminTableSearch";
 import { addStockBrandRuleAction, deleteStockBrandRuleAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -44,23 +46,25 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
     principals.set(key, entry);
   }
   const ordered = Array.from(principals.entries()).sort((a, b) => b[1].value - a[1].value);
+  const firstWordBrands = ordered.reduce((n, [, principal]) => n + Array.from(principal.brands.values()).filter((b) => b.auto).length, 0);
   const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : String(Math.round(n)));
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Stock brands</h1>
-        <p className="mt-1 text-sm text-white/70">How each SKU gets its brand on the Stock screens and for the stock cover targets.</p>
-      </div>
+    <AdminPage
+      title="Stock brands"
+      description="How each SKU gets its brand on the Stock screens and for the stock cover targets."
+      stats={[
+        { label: "principals", value: ordered.length },
+        { label: "your rules", value: ruleRows.length },
+        ...(firstWordBrands > 0 ? [{ label: "brands named by first word", value: firstWordBrands, tone: "attention" as const }] : []),
+      ]}
+    >
+      <AdminNotices error={error} success={success} />
 
-      <div className="max-w-4xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{error}</p> : null}
-        {success ? <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">{success}</p> : null}
-
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex flex-col gap-3">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="flex flex-col gap-4">
+        <AdminCard title="Add a brand rule">
+          <div className="flex flex-col gap-3">
           <p className="text-[13px] text-muted">
             SAP has no usable brand (its field is the manufacturer, or &ldquo;-Select Manufacturer-&rdquo;), so a SKU&apos;s brand is worked out from its item name: first your rules below (longest keyword first), then the built-in rules for the known abbreviations,
             then the first word of the name. Brands marked <em>first word</em> have no rule: check them and add a rule where the first word is not the brand. Set the days of cover for each brand on{" "}
@@ -69,10 +73,10 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
             </Link>
             .
           </p>
-          <form action={addStockBrandRuleAction} className="flex flex-wrap items-end gap-2">
+          <form action={addStockBrandRuleAction} className="grid grid-cols-2 items-end gap-2">
             <label className="flex flex-col gap-1 text-[12px] text-muted">
               Principal
-              <select name="principal" className={inputClass} required defaultValue="">
+              <select name="principal" className={`${inputClass} w-full`} required defaultValue="">
                 <option value="" disabled>
                   Choose…
                 </option>
@@ -85,29 +89,30 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
             </label>
             <label className="flex flex-col gap-1 text-[12px] text-muted">
               Item name
-              <select name="mode" className={inputClass} defaultValue="PREFIX">
+              <select name="mode" className={`${inputClass} w-full`} defaultValue="PREFIX">
                 <option value="PREFIX">starts with</option>
                 <option value="CONTAINS">contains</option>
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[12px] text-muted">
               Keyword
-              <input name="keyword" required minLength={2} maxLength={60} placeholder="e.g. blue band" className={`${inputClass} w-44`} />
+              <input name="keyword" required minLength={2} maxLength={60} placeholder="e.g. blue band" className={`${inputClass} w-full`} />
             </label>
             <label className="flex flex-col gap-1 text-[12px] text-muted">
               Brand
-              <input name="brand" required minLength={2} maxLength={60} placeholder="e.g. Blue Band" className={`${inputClass} w-44`} />
+              <input name="brand" required minLength={2} maxLength={60} placeholder="e.g. Blue Band" className={`${inputClass} w-full`} />
             </label>
-            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
+            <button type="submit" className="col-span-2 justify-self-start rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow">
               Add rule
             </button>
           </form>
-        </div>
+          </div>
+        </AdminCard>
 
         {ruleRows.length > 0 ? (
-          <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            <h2 className="text-lg font-semibold text-primary-blue">Your rules</h2>
-            <table className="mt-3 w-full text-sm">
+          <AdminCard title={<>Your rules <AdminBadge>{ruleRows.length}</AdminBadge></>}>
+            <div className="max-h-[50vh] overflow-y-auto">
+            <table className="w-full text-sm">
               <tbody>
                 {ruleRows.map((rule) => (
                   <tr key={rule.id} className="border-t border-border/60">
@@ -128,15 +133,19 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </AdminCard>
         ) : null}
+        </div>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Brands today</h2>
-          <p className="mt-1 text-[13px] text-muted">
+        <AdminCard
+          title="Brands today"
+          actions={<AdminTableSearch target="stock-brands" placeholder="Search principal or brand" />}
+          description={<>
             {empties > 0 ? `${empties} returnable empties SKU${empties === 1 ? "" : "s"} (${compact(emptiesValue)}) are left out: crates and bottles are packaging, not product to cover.` : "No returnable empties in stock."}
-          </p>
-          <div className="mt-3 overflow-x-auto">
+          </>}
+        >
+          <div className="overflow-x-auto" data-filter-root="stock-brands">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[13px] uppercase tracking-wide text-muted">
@@ -149,7 +158,7 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
               <tbody>
                 {ordered.map(([key, principal]) => (
                   <Fragment key={key}>
-                    <tr key={key} className="border-t-2 border-border">
+                    <tr key={key} className="border-t-2 border-border" data-search={searchText(principal.name, ...Array.from(principal.brands.keys()))}>
                       <td className="py-2 pr-4 font-medium text-foreground">{principal.name}</td>
                       <td className="py-2 pr-4 text-right text-muted">{Array.from(principal.brands.values()).reduce((s, b) => s + b.items, 0)}</td>
                       <td className="py-2 pr-4 text-right text-muted">{compact(principal.value)}</td>
@@ -158,7 +167,7 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
                     {Array.from(principal.brands.entries())
                       .sort((a, b) => b[1].value - a[1].value)
                       .map(([brand, info]) => (
-                        <tr key={`${key}-${brand}`} className="border-t border-border/60">
+                        <tr key={`${key}-${brand}`} className="border-t border-border/60" data-search={searchText(principal.name, brand, info.auto ? "first word" : "rule")}>
                           <td className="py-1.5 pl-6 pr-4 text-foreground">{brand}</td>
                           <td className="py-1.5 pr-4 text-right">{info.items}</td>
                           <td className="py-1.5 pr-4 text-right">{compact(info.value)}</td>
@@ -170,8 +179,8 @@ export default async function AdminStockBrandsPage({ searchParams }: { searchPar
               </tbody>
             </table>
           </div>
-        </div>
+        </AdminCard>
       </div>
-    </div>
+    </AdminPage>
   );
 }

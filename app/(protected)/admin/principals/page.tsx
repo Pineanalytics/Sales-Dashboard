@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { canonicalTeamLeaderIdMap } from "@/lib/tlRanking";
+import { AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable, searchText } from "@/components/admin/AdminPage";
+import { AdminTableSearch } from "@/components/admin/AdminTableSearch";
 import { createPrincipalAction, updatePrincipalAction, deletePrincipalAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -54,39 +56,24 @@ export default async function AdminPrincipalsPage({
     rosterByPrincipal.set(a.principal, set);
   }
   const editing = edit ? principals.find((p) => p.id === edit) : undefined;
+  const activeCount = principals.filter((p) => p.status === "Active").length;
+  const dormantCount = principals.filter((p) => p.stockDormant).length;
+  const unownedCount = principals.filter((p) => !p.teamLeaderId).length;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Principals</h1>
-        <p className="mt-1 text-sm text-white/70">
-          Principal → location reference data used by the SQL bridge. &quot;Team Leader (ranking)&quot; credits 100% of that principal&apos;s MTD revenue to one
-          Team Leader for TL Ranking — it is not the real roster. &quot;Roster&quot; shows every Team Leader actually working that principal today (from{" "}
-          <Link href="/admin/team-leaders" className="text-white underline decoration-white/40 hover:decoration-white">
-            Team Leaders
-          </Link>
-          ). Supervisor is independently settable — for a principal a Supervisor manages directly, with no Team Leader recorded — and defaults to the
-          ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it. &quot;Dormant stock&quot; marks a stopped principal that
-          still holds stock (optionally with the date it stopped, which shows as its dormancy period in the extract): its stock is left out of the Stock Balance (and listed under Dormant Stock) even while it still shows sales, and the Stock
-          Balance extract marks it Inactive. It is separate from Status, which also decides whether a principal&apos;s sales are counted.
-        </p>
-      </div>
+    <AdminPage
+      title="Principals"
+      description="Principal → location reference data used by the SQL bridge, with its ranking credit, Supervisor and dormant-stock flags."
+      stats={[
+        { label: "principals", value: principals.length },
+        { label: "active", value: activeCount },
+        ...(dormantCount > 0 ? [{ label: "dormant stock", value: dormantCount }] : []),
+        ...(unownedCount > 0 ? [{ label: "without a ranking Team Leader", value: unownedCount, tone: "attention" as const }] : []),
+      ]}
+    >
+      <AdminNotices error={error} success={success} />
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? (
-          <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {success}
-          </p>
-        ) : null}
-
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-muted-strong shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <strong className="text-accent-amber">&quot;Team Leader (ranking)&quot; and Supervisor below grant no dashboard access.</strong>{" "}
           They only credit MTD revenue to one person for TL Ranking. To actually give a Team Leader or Supervisor visibility into
@@ -97,221 +84,247 @@ export default async function AdminPrincipalsPage({
           (&quot;Assign a Principal to a Team Leader&quot;) instead.
         </div>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Add a principal</h2>
-          <form action={createPrincipalAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Principal (exact, e.g. &quot;EABL-Nyeri&quot;)</label>
-              <input name="principal" required className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Main principal</label>
-              <input name="mainPrincipal" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Location</label>
-              <input name="location" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Location code</label>
-              <input name="locationCode" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Status</label>
-              <select name="status" defaultValue="Active" className={selectClass}>
-                <option value="Active">Active</option>
-                <option value="Past">Past</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Dormant stock</label>
-              <label className="flex items-center gap-2 py-2 text-sm text-foreground">
-                <input type="checkbox" name="stockDormant" className="h-4 w-4" />
-                Stopped principal still holding stock
-              </label>
-              <label className={labelClass}>Dormant since (optional)</label>
-              <input type="date" name="stockDormantSince" className={inputClass} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Team Leader (credited for TL Ranking)</label>
-              <select name="teamLeaderId" defaultValue="" className={selectClass}>
-                <option value="">— none —</option>
-                {teamLeaders.map((tl) => (
-                  <option key={tl.id} value={tl.id}>
-                    {tl.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className={labelClass}>Supervisor</label>
-              <select name="supervisorId" defaultValue="" className={selectClass}>
-                <option value="">— derive from Team Leader, if any —</option>
-                {supervisors.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="sm:col-span-3">
-              <button
-                type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
-              >
-                Add principal
-              </button>
-            </div>
-          </form>
-        </div>
+        <AdminDisclosure tone="note" title="How these columns work">
+          <p className="text-[13px] leading-relaxed text-muted-strong">
+            Principal → location reference data used by the SQL bridge. &quot;Team Leader (ranking)&quot; credits 100% of that principal&apos;s MTD revenue to one
+          Team Leader for TL Ranking — it is not the real roster. &quot;Roster&quot; shows every Team Leader actually working that principal today (from{" "}
+          <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">
+            Team Leaders
+          </Link>
+          ). Supervisor is independently settable — for a principal a Supervisor manages directly, with no Team Leader recorded — and defaults to the
+          ranking Team Leader&apos;s own Supervisor when left blank; Head of Sales is always derived from it. &quot;Dormant stock&quot; marks a stopped principal that
+          still holds stock (optionally with the date it stopped, which shows as its dormancy period in the extract): its stock is left out of the Stock Balance (and listed under Dormant Stock) even while it still shows sales, and the Stock
+          Balance extract marks it Inactive. It is separate from Status, which also decides whether a principal&apos;s sales are counted.
+        </p>
+        </AdminDisclosure>
+      </div>
 
-        <div className="rounded-2xl bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="p-6 pb-0">
-            <h2 className="text-lg font-semibold text-primary-blue">Principals ({principals.length})</h2>
+      <AdminDisclosure title="Add a principal" description="A new principal reference row: location, status, dormant stock and ranking credit.">
+        <form action={createPrincipalAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Principal (exact, e.g. &quot;EABL-Nyeri&quot;)</label>
+            <input name="principal" required className={inputClass} />
           </div>
-          <div className="overflow-x-auto mt-4">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-background-elevated text-[13px] uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-6 py-3 text-left font-medium">Principal</th>
-                  <th className="px-6 py-3 text-left font-medium">Main principal</th>
-                  <th className="px-6 py-3 text-left font-medium">Location</th>
-                  <th className="px-6 py-3 text-left font-medium">Status</th>
-                  <th className="px-6 py-3 text-left font-medium">Stock</th>
-                  <th className="px-6 py-3 text-left font-medium">Supervisor</th>
-                  <th className="px-6 py-3 text-left font-medium">Head of Sales</th>
-                  <th className="px-6 py-3 text-left font-medium">Team Leader (ranking)</th>
-                  <th className="px-6 py-3 text-left font-medium">Roster</th>
-                  <th className="px-6 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {principals.map((p) =>
-                  editing?.id === p.id ? (
-                    <tr key={p.id} className="bg-accent-blue-soft/40">
-                      <td colSpan={10} className="px-6 py-4 border-b border-border/60">
-                        <form action={updatePrincipalAction} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-                          <input type="hidden" name="principalId" value={p.id} />
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Principal</label>
-                            <input value={p.principal} disabled className={inputClass + " opacity-60"} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Main principal</label>
-                            <input name="mainPrincipal" defaultValue={p.mainPrincipal} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Location</label>
-                            <input name="location" defaultValue={p.location} className={inputClass} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Status</label>
-                            <select name="status" defaultValue={p.status} className={selectClass}>
-                              <option value="Active">Active</option>
-                              <option value="Past">Past</option>
-                            </select>
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Dormant stock</label>
-                            <label className="flex items-center gap-2 py-2 text-sm text-foreground">
-                              <input type="checkbox" name="stockDormant" defaultChecked={p.stockDormant} className="h-4 w-4" />
-                              Stopped, still holds stock
-                            </label>
-                            <input type="date" name="stockDormantSince" defaultValue={p.stockDormantSince ? p.stockDormantSince.toISOString().slice(0, 10) : ""} className={inputClass} aria-label="Dormant since" />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Supervisor</label>
-                            <select name="supervisorId" defaultValue={p.supervisorId ?? ""} className={selectClass}>
-                              <option value="">— derive from Team Leader, if any —</option>
-                              {supervisors.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                  {s.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className={labelClass}>Team Leader (ranking)</label>
-                            <select name="teamLeaderId" defaultValue={p.teamLeaderId ?? ""} className={selectClass}>
-                              <option value="">— none —</option>
-                              {teamLeaders.map((tl) => (
-                                <option key={tl.id} value={tl.id}>
-                                  {tl.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex gap-2 sm:col-span-6">
-                            <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
-                              Save
-                            </button>
-                            <Link href="/admin/principals" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
-                              Cancel
-                            </Link>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={p.id}>
-                      <td className="px-6 py-3 border-b border-border/60 font-medium">{p.principal}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{p.mainPrincipal}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{p.location}</td>
-                      <td className="px-6 py-3 border-b border-border/60">{p.status}</td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {p.stockDormant ? <span className="rounded-full bg-accent-amber-soft px-2.5 py-0.5 text-xs font-semibold text-accent-amber">Dormant stock{p.stockDormantSince ? ` since ${p.stockDormantSince.toISOString().slice(0, 10)}` : ""}</span> : <span className="text-muted">Active</span>}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {p.supervisorId ? supervisorNameById.get(p.supervisorId) ?? "—" : <span className="text-muted">—</span>}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {p.supervisorId ? headOfSalesNameBySupervisorId.get(p.supervisorId) ?? <span className="text-muted">—</span> : <span className="text-muted">—</span>}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {p.teamLeaderId ? teamLeaderNameById.get(p.teamLeaderId) ?? "—" : <span className="text-accent-amber">Unowned</span>}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60">
-                        {(() => {
-                          const roster = rosterByPrincipal.get(p.principal);
-                          if (!roster || roster.size === 0) return <span className="text-muted">No active reps</span>;
-                          const names = Array.from(roster).map((id) => teamLeaderNameById.get(id) ?? id).sort();
-                          return (
-                            <Link
-                              href={`/admin/team-leaders?filterPrincipal=${encodeURIComponent(p.principal)}#assignments`}
-                              title={names.join(", ")}
-                              className="text-primary-blue hover:underline"
-                            >
-                              {roster.size} Team Leader{roster.size === 1 ? "" : "s"} →
-                            </Link>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-6 py-3 border-b border-border/60 text-right whitespace-nowrap">
-                        <Link href={`/admin/principals?edit=${p.id}`} className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
-                          Edit
-                        </Link>
-                        <form action={deletePrincipalAction} className="inline">
-                          <input type="hidden" name="principalId" value={p.id} />
-                          <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
-                            Remove
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Main principal</label>
+            <input name="mainPrincipal" className={inputClass} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Location</label>
+            <input name="location" className={inputClass} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Location code</label>
+            <input name="locationCode" className={inputClass} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Status</label>
+            <select name="status" defaultValue="Active" className={selectClass}>
+              <option value="Active">Active</option>
+              <option value="Past">Past</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Dormant stock</label>
+            <label className="flex items-center gap-2 py-2 text-sm text-foreground">
+              <input type="checkbox" name="stockDormant" className="h-4 w-4" />
+              Stopped principal still holding stock
+            </label>
+            <label className={labelClass}>Dormant since (optional)</label>
+            <input type="date" name="stockDormantSince" className={inputClass} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Team Leader (credited for TL Ranking)</label>
+            <select name="teamLeaderId" defaultValue="" className={selectClass}>
+              <option value="">— none —</option>
+              {teamLeaders.map((tl) => (
+                <option key={tl.id} value={tl.id}>
+                  {tl.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className={labelClass}>Supervisor</label>
+            <select name="supervisorId" defaultValue="" className={selectClass}>
+              <option value="">— derive from Team Leader, if any —</option>
+              {supervisors.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <button
+              type="submit"
+              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+            >
+              Add principal
+            </button>
+          </div>
+        </form>
+      </AdminDisclosure>
+
+      <AdminCard
+        flush
+        title={`Principals (${principals.length})`}
+        actions={<AdminTableSearch target="principals" placeholder="Search principal, location, Supervisor or Team Leader" />}
+      >
+        <div className="overflow-x-auto" data-filter-root="principals">
+          <table className={adminTable.table}>
+            <thead className={adminTable.head}>
+              <tr>
+                <th className={adminTable.th}>Principal</th>
+                <th className={adminTable.th}>Main principal</th>
+                <th className={adminTable.th}>Location</th>
+                <th className={adminTable.th}>Status</th>
+                <th className={adminTable.th}>Stock</th>
+                <th className={adminTable.th}>Supervisor</th>
+                <th className={adminTable.th}>Head of Sales</th>
+                <th className={adminTable.th}>Team Leader (ranking)</th>
+                <th className={adminTable.th}>Roster</th>
+                <th className={adminTable.thRight}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {principals.map((p) =>
+                editing?.id === p.id ? (
+                  <tr key={p.id} className="bg-accent-blue-soft/40">
+                    <td colSpan={10} className="border-b border-border/60 px-4 py-4">
+                      <form action={updatePrincipalAction} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+                        <input type="hidden" name="principalId" value={p.id} />
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Principal</label>
+                          <input value={p.principal} disabled className={inputClass + " opacity-60"} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Main principal</label>
+                          <input name="mainPrincipal" defaultValue={p.mainPrincipal} className={inputClass} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Location</label>
+                          <input name="location" defaultValue={p.location} className={inputClass} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Status</label>
+                          <select name="status" defaultValue={p.status} className={selectClass}>
+                            <option value="Active">Active</option>
+                            <option value="Past">Past</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Dormant stock</label>
+                          <label className="flex items-center gap-2 py-2 text-sm text-foreground">
+                            <input type="checkbox" name="stockDormant" defaultChecked={p.stockDormant} className="h-4 w-4" />
+                            Stopped, still holds stock
+                          </label>
+                          <input type="date" name="stockDormantSince" defaultValue={p.stockDormantSince ? p.stockDormantSince.toISOString().slice(0, 10) : ""} className={inputClass} aria-label="Dormant since" />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Supervisor</label>
+                          <select name="supervisorId" defaultValue={p.supervisorId ?? ""} className={selectClass}>
+                            <option value="">— derive from Team Leader, if any —</option>
+                            {supervisors.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className={labelClass}>Team Leader (ranking)</label>
+                          <select name="teamLeaderId" defaultValue={p.teamLeaderId ?? ""} className={selectClass}>
+                            <option value="">— none —</option>
+                            {teamLeaders.map((tl) => (
+                              <option key={tl.id} value={tl.id}>
+                                {tl.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2 sm:col-span-6">
+                          <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-xs font-semibold text-white">
+                            Save
                           </button>
-                        </form>
-                      </td>
-                    </tr>
-                  )
-                )}
-                {principals.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="px-6 py-8 text-center text-muted">
-                      No principals yet.
+                          <Link href="/admin/principals" className="rounded-full px-4 py-2 text-xs font-medium text-muted-strong hover:bg-background-elevated">
+                            Cancel
+                          </Link>
+                        </div>
+                      </form>
                     </td>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+                ) : (
+                  <tr
+                    key={p.id}
+                    data-search={searchText(
+                      p.principal,
+                      p.mainPrincipal,
+                      p.location,
+                      p.status,
+                      p.stockDormant ? "dormant" : null,
+                      p.supervisorId ? supervisorNameById.get(p.supervisorId) : null,
+                      p.supervisorId ? headOfSalesNameBySupervisorId.get(p.supervisorId) : null,
+                      p.teamLeaderId ? teamLeaderNameById.get(p.teamLeaderId) : "unowned"
+                    )}
+                  >
+                    <td className={`${adminTable.td} font-medium`}>{p.principal}</td>
+                    <td className={adminTable.td}>{p.mainPrincipal}</td>
+                    <td className={adminTable.td}>{p.location}</td>
+                    <td className={adminTable.td}>{p.status}</td>
+                    <td className={adminTable.td}>
+                      {p.stockDormant ? <span className="rounded-full bg-accent-amber-soft px-2.5 py-0.5 text-xs font-semibold text-accent-amber">Dormant stock{p.stockDormantSince ? ` since ${p.stockDormantSince.toISOString().slice(0, 10)}` : ""}</span> : <span className="text-muted">Active</span>}
+                    </td>
+                    <td className={adminTable.td}>
+                      {p.supervisorId ? supervisorNameById.get(p.supervisorId) ?? "—" : <span className="text-muted">—</span>}
+                    </td>
+                    <td className={adminTable.td}>
+                      {p.supervisorId ? headOfSalesNameBySupervisorId.get(p.supervisorId) ?? <span className="text-muted">—</span> : <span className="text-muted">—</span>}
+                    </td>
+                    <td className={adminTable.td}>
+                      {p.teamLeaderId ? teamLeaderNameById.get(p.teamLeaderId) ?? "—" : <span className="text-accent-amber">Unowned</span>}
+                    </td>
+                    <td className={adminTable.td}>
+                      {(() => {
+                        const roster = rosterByPrincipal.get(p.principal);
+                        if (!roster || roster.size === 0) return <span className="text-muted">No active reps</span>;
+                        const names = Array.from(roster).map((id) => teamLeaderNameById.get(id) ?? id).sort();
+                        return (
+                          <Link
+                            href={`/admin/team-leaders?filterPrincipal=${encodeURIComponent(p.principal)}#assignments`}
+                            title={names.join(", ")}
+                            className="text-primary-blue hover:underline"
+                          >
+                            {roster.size} Team Leader{roster.size === 1 ? "" : "s"} →
+                          </Link>
+                        );
+                      })()}
+                    </td>
+                    <td className={`${adminTable.tdRight} whitespace-nowrap`}>
+                      <Link href={`/admin/principals?edit=${p.id}`} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft transition-colors duration-300">
+                        Edit
+                      </Link>
+                      <form action={deletePrincipalAction} className="inline">
+                        <input type="hidden" name="principalId" value={p.id} />
+                        <button type="submit" className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft transition-colors duration-300">
+                          Remove
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                )
+              )}
+              {principals.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className={adminTable.empty}>
+                    No principals yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
+      </AdminCard>
+    </AdminPage>
   );
 }

@@ -25,6 +25,7 @@ import { RosterAssignmentsCascade } from "./RosterAssignmentsCascade";
 import { RosterHierarchyTree } from "./RosterHierarchyTree";
 import { RosterTargetsPanel } from "./RosterTargetsPanel";
 import { TeamLeaderOptions } from "@/components/admin/TeamLeaderOptions";
+import { AdminBadge, AdminDisclosure, AdminNotices, AdminPage } from "@/components/admin/AdminPage";
 
 export const dynamic = "force-dynamic";
 
@@ -211,29 +212,24 @@ export default async function AdminTeamLeadersPage({
     };
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/admin" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to admin
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Team Leaders</h1>
-        <p className="mt-1 text-sm text-white/70">
-          The roster is the editable rep/principal allocation and activity source for executive target attribution. Active Primary assignments and Contribution % determine how the full-month mission is allocated to Team Leaders and sales reps.
-        </p>
-      </div>
+  const now = new Date();
+  const activeReliefCount = reliefs.filter((r) => !r.revokedAt && r.startDate <= now && (!r.endDate || r.endDate >= now)).length;
+  const activeAssignmentCount = assignments.filter((a) => a.active).length;
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
-        {error ? (
-          <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {error}
-          </p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border-l-4 border-l-accent-green bg-surface px-4 py-3 text-sm text-accent-green shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            {success}
-          </p>
-        ) : null}
+  return (
+    <AdminPage
+      title="Team Leaders"
+      description="The roster is the editable rep/principal allocation and activity source for executive target attribution. Active Primary assignments and Contribution % determine how the full-month mission is allocated to Team Leaders and sales reps."
+      back={isAdmin ? { href: "/admin", label: "Back to admin" } : { href: "/dashboard", label: "Back to dashboard" }}
+      stats={[
+        { label: "team leaders", value: teamLeaders.length },
+        { label: "supervisors", value: supervisors.length },
+        { label: "active assignments", value: activeAssignmentCount },
+        ...(activeReliefCount > 0 ? [{ label: "active relief", value: activeReliefCount }] : []),
+        ...(contributionWarnings.length > 0 ? [{ label: "contribution warnings", value: contributionWarnings.length, tone: "attention" as const }] : []),
+      ]}
+    >
+        <AdminNotices error={error} success={success} />
 
         {contributionWarnings.length > 0 ? (
           <div className="rounded-xl border-l-4 border-l-accent-amber bg-surface px-4 py-3 text-sm text-accent-amber shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -248,17 +244,15 @@ export default async function AdminTeamLeadersPage({
           </div>
         ) : null}
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <h2 className="text-lg font-semibold text-primary-blue">Upload Roster (CSV)</h2>
-            <a
-              href="/api/team-leaders/export-roster"
-              className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft"
-            >
-              Download current roster (CSV)
-            </a>
-          </div>
-          <p className="mt-1 text-[13px] text-muted">
+        <div className={`grid grid-cols-1 items-start gap-4 ${isAdmin ? "xl:grid-cols-3" : ""}`}>
+        <AdminDisclosure title="Upload Roster (CSV)" description="Bulk-update rep allocation from the workbook's Roster sheet.">
+          <a
+            href="/api/team-leaders/export-roster"
+            className="inline-flex rounded-full border border-border px-4 py-2 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft"
+          >
+            Download current roster (CSV)
+          </a>
+          <p className="mt-3 text-[13px] text-muted">
             Expects the Target_Management_System.xlsm workbook&apos;s own Roster sheet, exported as CSV (a single header row —
             Employee Code, Employee (Sales Edge Name), SAP Name, Channel, Team Leader, Principal, * Contribution %, Active
             (Y/N), and the rest of the reference columns). Every row is upserted; nothing is auto-deactivated. The download
@@ -275,17 +269,16 @@ export default async function AdminTeamLeadersPage({
             />
             <button
               type="submit"
-              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+              className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
             >
               Upload
             </button>
           </form>
-        </div>
+        </AdminDisclosure>
 
         {isAdmin ? (
-          <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            <h2 className="text-lg font-semibold text-primary-blue">Upload Sales Leadership (CSV)</h2>
-            <p className="mt-1 text-[13px] text-muted">
+          <AdminDisclosure title="Upload Sales Leadership (CSV)" description="Create and link Heads of Sales, Supervisors and Team Leaders per principal.">
+            <p className="text-[13px] text-muted">
               A different shape from the Roster upload above — no rep data, one row per Principal × Team Leader:
               Principal, Sales Supervisor, Sales Supervisor Email, Team Leader, Team Leader Email, Head Of Sales, Head
               Of Sales Email. Creates any Head of Sales/Supervisor/Team Leader not yet on file, links each Supervisor
@@ -306,19 +299,19 @@ export default async function AdminTeamLeadersPage({
               />
               <button
                 type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
                 Upload
               </button>
             </form>
-          </div>
+          </AdminDisclosure>
         ) : null}
 
         {isAdmin && (teamLeaders.length > 1 || supervisors.length > 1) ? (
-          <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)] flex flex-col gap-5">
+          <AdminDisclosure title="Merge duplicate names" description="Fold a misspelt duplicate Team Leader or Supervisor into the real one.">
+            <div className="flex flex-col gap-5">
             <div>
-              <h2 className="text-lg font-semibold text-primary-blue">Merge duplicate names</h2>
-              <p className="mt-1 text-[13px] text-muted">
+              <p className="text-[13px] text-muted">
                 When a CSV import spells the same person differently (e.g. &quot;Eve&quot; and &quot;Eve Theuri&quot;), it creates a
                 second row instead of recognizing the same person. Pick the one to keep and the one to merge away —
                 every rep assignment, target, and reporting line moves to the one you keep, then the other is removed.
@@ -344,7 +337,7 @@ export default async function AdminTeamLeadersPage({
                     <TeamLeaderOptions teamLeaders={teamLeaders} includeFormer labelFor={(tl) => labelForName(tl.name, "Team Leader", ambiguousNames)} />
                   </select>
                 </div>
-                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white">
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white">
                   Merge Team Leaders
                 </button>
               </form>
@@ -377,13 +370,15 @@ export default async function AdminTeamLeadersPage({
                     ))}
                   </select>
                 </div>
-                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white">
+                <button type="submit" className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white">
                   Merge Supervisors
                 </button>
               </form>
             ) : null}
-          </div>
+            </div>
+          </AdminDisclosure>
         ) : null}
+        </div>
 
         {isAdmin ? (
           <RosterHierarchyTree
@@ -420,15 +415,20 @@ export default async function AdminTeamLeadersPage({
           />
         ) : null}
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Relief / Holding Fort</h2>
-          <p className="mt-1 text-[13px] text-muted">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+        <AdminDisclosure
+          title="Relief / Holding Fort"
+          badge={activeReliefCount > 0 ? <AdminBadge tone="good">{activeReliefCount} active</AdminBadge> : null}
+          description="Temporary peer-to-peer cover for a Team Leader on leave."
+          defaultOpen={activeReliefCount > 0}
+        >
+          <p className="text-[13px] text-muted">
             Grant one Team Leader temporary access to another&apos;s own scope — principals, reps, coverage —
             while relieving or holding fort for them (e.g. annual leave). This is peer-to-peer, separate from
             the permanent &quot;Reports to&quot; reporting line above. Access takes effect immediately and clears
             automatically once ended or an optional end date passes.
           </p>
-          <form action={createReliefAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+          <form action={createReliefAction} className="mt-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Covering (e.g. Benson)</label>
               <select name="coveringTeamLeaderId" required defaultValue="" className={inputClass}>
@@ -455,14 +455,14 @@ export default async function AdminTeamLeadersPage({
               <label className={labelClass}>End date (optional — indefinite)</label>
               <input name="endDate" type="date" className={inputClass} />
             </div>
-            <div className="flex flex-col gap-2 sm:col-span-3">
+            <div className="flex flex-col gap-2 sm:col-span-2">
               <label className={labelClass}>Notes (optional)</label>
               <input name="notes" placeholder="e.g. Calvince on annual leave" className={inputClass} />
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <button
                 type="submit"
-                className="w-full rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
                 Start relief
               </button>
@@ -471,7 +471,6 @@ export default async function AdminTeamLeadersPage({
 
           <div className="mt-5 flex flex-col gap-2">
             {reliefs.map((r) => {
-              const now = new Date();
               const isActive = !r.revokedAt && r.startDate <= now && (!r.endDate || r.endDate >= now);
               return (
                 <div key={r.id} className={`flex items-center justify-between gap-3 flex-wrap rounded-xl bg-background-elevated px-4 py-2.5 ${isActive ? "" : "opacity-50"}`}>
@@ -507,11 +506,10 @@ export default async function AdminTeamLeadersPage({
             })}
             {reliefs.length === 0 ? <p className="text-sm text-muted">No relief assignments yet.</p> : null}
           </div>
-        </div>
+        </AdminDisclosure>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Assign a Principal to a Team Leader</h2>
-          <p className="mt-1 text-[13px] text-muted">
+        <AdminDisclosure title="Assign a Principal to a Team Leader" description="Grant a Team Leader visibility of every recognized rep on a Principal.">
+          <p className="text-[13px] text-muted">
             The normal way to give a Team Leader (or, once they have reps here, their Supervisor) visibility into a whole
             Principal — this is what actually grants dashboard access, unlike &quot;Team Leader (ranking)&quot; on{" "}
             <Link href="/admin/principals" className="text-primary-blue hover:underline">
@@ -522,7 +520,7 @@ export default async function AdminTeamLeadersPage({
             onboarded onto a Principal a Team Leader already owns — already-visible reps are skipped, hidden ones are
             reactivated.
           </p>
-          <form action={assignPrincipalToTeamLeaderAction} className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+          <form action={assignPrincipalToTeamLeaderAction} className="mt-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Team Leader</label>
               <select name="teamLeaderId" required defaultValue="" className={inputClass}>
@@ -547,25 +545,28 @@ export default async function AdminTeamLeadersPage({
               <label className={labelClass}>Or a new Principal</label>
               <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
             </div>
-            <div className="sm:col-span-3">
+            <div className="sm:col-span-2">
               <button
                 type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
                 Assign every recognized rep &amp; make visible
               </button>
             </div>
           </form>
-        </div>
+        </AdminDisclosure>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Assign a rep to a Team Leader × Principal</h2>
-          <p className="mt-1 text-[13px] text-muted">
+        <AdminDisclosure
+          title="Assign a rep to a Team Leader × Principal"
+          description="One-off: a single rep on a single Principal."
+          defaultOpen={Boolean(lastTeamLeaderId)}
+        >
+          <p className="text-[13px] text-muted">
             For one-off additions — a single rep on a single Principal. Saving creates an active visibility assignment
             immediately. A rep can be shared across multiple Team Leaders and principals; each Team Leader has their
             own visibility assignment.
           </p>
-          <form action={createAssignmentAction} className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+          <form action={createAssignmentAction} className="mt-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <label className={labelClass}>Team Leader</label>
               <select name="teamLeaderId" required defaultValue={lastTeamLeaderId ?? ""} className={inputClass}>
@@ -594,7 +595,7 @@ export default async function AdminTeamLeadersPage({
                 ))}
               </select>
             </div>
-            <div className="flex flex-col gap-2 sm:col-start-4">
+            <div className="flex flex-col gap-2">
               <label className={labelClass}>Or a new Principal</label>
               <input name="newPrincipal" placeholder="Bic-Nairobi" className={inputClass} />
             </div>
@@ -613,10 +614,10 @@ export default async function AdminTeamLeadersPage({
                 <option value="SECONDARY">Secondary</option>
               </select>
             </div>
-            <div className="sm:col-span-4">
+            <div className="sm:col-span-2">
               <button
                 type="submit"
-                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
+                className="rounded-full bg-gradient-to-r from-primary-blue to-secondary-blue px-5 py-2.5 text-sm font-semibold text-white transition-all duration-300 hover:shadow-cyan-glow"
               >
                 Assign &amp; make visible
               </button>
@@ -640,6 +641,7 @@ export default async function AdminTeamLeadersPage({
               <option key={r.employeeCode} value={r.employeeName} />
             ))}
           </datalist>
+        </AdminDisclosure>
         </div>
 
         {targetsPanelData ? <RosterTargetsPanel data={targetsPanelData} inputClass={inputClass} /> : null}
@@ -668,7 +670,6 @@ export default async function AdminTeamLeadersPage({
           inputClass={inputClass}
           labelClass={labelClass}
         />
-      </div>
-    </div>
+    </AdminPage>
   );
 }
