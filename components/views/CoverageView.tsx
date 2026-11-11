@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { useDashboardStore } from "@/lib/store";
+import { useCurrentUser } from "@/components/dashboard/UserContext";
+import { canSeeReport, type PageKey } from "@/lib/pageAccess";
 import { formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
 import {
   CANONICAL_MONTHS,
@@ -33,14 +35,16 @@ const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary
 
 type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade" | "timestamps";
 
-const PANEL_TABS: { key: CoveragePanel; label: string; description: string }[] = [
-  { key: "overview", label: "Overview", description: "Targets, coverage and strike rate" },
-  { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity" },
-  { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal" },
-  { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe" },
-  { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence" },
-  { key: "time-in-trade", label: "Time in Trade", description: "Start/close time and productivity trend by principal module" },
-  { key: "timestamps", label: "Timestamps", description: "Pine, EABL, Upfield and Unilever call/visit systems" },
+// Each tab shows only when its report is granted (lib/pageAccess.ts's Coverage module): the overview and rep tabs are
+// "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps.
+const PANEL_TABS: { key: CoveragePanel; label: string; description: string; pageKey: PageKey }[] = [
+  { key: "overview", label: "Overview", description: "Targets, coverage and strike rate", pageKey: "coverage" },
+  { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity", pageKey: "coverage" },
+  { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal", pageKey: "active-outlets" },
+  { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe", pageKey: "active-outlets" },
+  { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence", pageKey: "jp-adherence" },
+  { key: "time-in-trade", label: "Time in Trade", description: "Start/close time and productivity trend by principal module", pageKey: "timestamps" },
+  { key: "timestamps", label: "Timestamps", description: "Pine, EABL, Upfield and Unilever call/visit systems", pageKey: "timestamps" },
 ];
 
 function isCoveragePanel(value: string | null): value is CoveragePanel {
@@ -60,9 +64,12 @@ interface LeverageMonthlyCoverageRow {
 export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProps) {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
+  const user = useCurrentUser();
+  const visibleTabs = PANEL_TABS.filter((tab) => canSeeReport(user?.role, user?.allowedPages ?? [], tab.pageKey));
   const setCoverageActiveTab = useDashboardStore((s) => s.setCoverageActiveTab);
   const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
-  const [activePanel, setActivePanel] = useState<CoveragePanel>(isCoveragePanel(initialTab) ? initialTab : "overview");
+  const [requestedPanel, setActivePanel] = useState<CoveragePanel>(isCoveragePanel(initialTab) ? initialTab : "overview");
+  const activePanel: CoveragePanel = visibleTabs.some((tab) => tab.key === requestedPanel) ? requestedPanel : visibleTabs[0]?.key ?? "overview";
 
   // GlobalFilterBar (a sibling under AnalyticsShell, not a descendant of this
   // component) needs to know the active tab too, to pick the right export
@@ -239,7 +246,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       </SectionCard>
 
       <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {PANEL_TABS.map(({ key: panel, label, description }) => (
+        {visibleTabs.map(({ key: panel, label, description }) => (
           <button
             key={panel}
             type="button"

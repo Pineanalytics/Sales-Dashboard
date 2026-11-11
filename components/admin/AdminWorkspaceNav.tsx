@@ -4,8 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown20Regular } from "@fluentui/react-icons";
-
-type Role = "ADMIN" | "TEAM_LEADER" | "SUPERVISOR" | "HOD" | "DIRECTOR" | "VIEWER" | "SALES_ADMIN" | "FINANCE_MANAGER" | "ACCOUNTANT" | "LOGISTICS_MANAGER";
+import type { Role } from "@/lib/roles";
 
 type AdminDestination = {
   href: string;

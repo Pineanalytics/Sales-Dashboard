@@ -1,11 +1,10 @@
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { landingPathFor } from "@/lib/pageAccess";
 
-// Every role (including TEAM_LEADER, since createUserAction/approveUserAction
-// already default allowedPages to every page and Sidebar.tsx/AnalyticsShell.tsx
-// already gate dashboard content by allowedPages generically, not VIEWER-only)
-// lands on Executive Summary as the default greeting page — the Sidebar's
-// separate "Targets" section (shown for isAdmin || isTeamLeader, unconditional
-// on allowedPages) still gives Team Leaders one click to Weekly Targets from there.
+// Lands each login on a page they can actually open: Executive Summary for most people, or for a login that doesn't have it
+// (a Sales Rep with one module, a Stores Manager...) their own My Sales or the first module they were given.
 export default async function RootPage() {
-  redirect("/executive-summary");
+  const session = await auth();
+  redirect(landingPathFor(session?.user.role, session?.user.allowedPages ?? [], Boolean(session?.user.employeeCode)));
 }

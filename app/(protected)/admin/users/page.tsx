@@ -7,6 +7,7 @@ import { getKnownPrincipals } from "@/lib/adminReference";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
 import { UserDirectory, type DirectoryUser, type TeamLeaderOption, type SupervisorOption } from "@/components/admin/UserDirectory";
 import { NewUserForm } from "@/components/admin/NewUserForm";
+import { roleLabel } from "@/lib/roles";
 import {
   approveUserAction,
   rejectUserAction,
@@ -49,13 +50,21 @@ export default async function AdminUsersPage({
     select: { teamLeaderId: true, principal: true, employeeCode: true },
   });
   const principalSummaryByTeamLeader = new Map<string, { principal: string; repCount: number }[]>();
+  // A rep's own principals, offered as a one-click principal limit for a login linked to their employee code.
+  const principalsByEmployeeCode = new Map<string, Set<string>>();
   for (const a of activeAssignments) {
     const byPrincipal = principalSummaryByTeamLeader.get(a.teamLeaderId) ?? [];
     const existing = byPrincipal.find((p) => p.principal === a.principal);
     if (existing) existing.repCount += 1;
     else byPrincipal.push({ principal: a.principal, repCount: 1 });
     principalSummaryByTeamLeader.set(a.teamLeaderId, byPrincipal);
+    const own = principalsByEmployeeCode.get(a.employeeCode) ?? new Set<string>();
+    own.add(a.principal);
+    principalsByEmployeeCode.set(a.employeeCode, own);
   }
+  // A Team Leader / Supervisor roster row with visiblePages set replaces its login's own report ticks (auth.ts).
+  const teamLeaderOverride = new Set(teamLeaders.filter((tl) => tl.visiblePages.length > 0).map((tl) => tl.id));
+  const supervisorOverride = new Set(supervisors.filter((s) => s.visiblePages.length > 0).map((s) => s.id));
   const teamLeaderIdsBySupervisor = new Map<string, Set<string>>();
   const supervisorAssignments = await prisma.teamLeaderAssignment.findMany({
     where: { active: true, supervisorId: { not: null } },
@@ -95,8 +104,8 @@ export default async function AdminUsersPage({
   // Supervisor pickers — computed here since teamLeaderOptionLabel/supervisorOptionLabel
   // close over server-only data (userByEmail); the per-row "is this a real team leader"
   // filter itself is a pure function (lib/teamLeaderKind.ts) UserDirectory applies client-side.
-  const teamLeaderOptions: TeamLeaderOption[] = teamLeaders.map((tl) => ({ id: tl.id, label: teamLeaderOptionLabel(tl), kind: tl.kind }));
-  const supervisorOptions: SupervisorOption[] = supervisors.map((s) => ({ id: s.id, label: supervisorOptionLabel(s) }));
+  const teamLeaderOptions: TeamLeaderOption[] = teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, label: teamLeaderOptionLabel(tl), kind: tl.kind }));
+  const supervisorOptions: SupervisorOption[] = supervisors.map((s) => ({ id: s.id, name: s.name, label: supervisorOptionLabel(s) }));
 
   const directoryUsers: DirectoryUser[] = approved.map((u) => {
     const employeeMatch = u.employeeCode ? (employeeByCode.get(u.employeeCode) ?? null) : null;
@@ -116,20 +125,32 @@ export default async function AdminUsersPage({
       employeeMatch: employeeMatch ? { pineName: employeeMatch.pineName, sapName: employeeMatch.sapName } : null,
       teamLeaderSummary: u.teamLeaderId ? (principalSummaryByTeamLeader.get(u.teamLeaderId) ?? []) : null,
       supervisorGroupSize: u.supervisorId ? (teamLeaderIdsBySupervisor.get(u.supervisorId)?.size ?? 0) : null,
+      rosterPagesOverride:
+        (u.role === "TEAM_LEADER" && u.teamLeaderId !== null && teamLeaderOverride.has(u.teamLeaderId)) ||
+        (u.role === "SUPERVISOR" && u.supervisorId !== null && supervisorOverride.has(u.supervisorId)),
+      ownPrincipals: u.employeeCode ? [...(principalsByEmployeeCode.get(u.employeeCode) ?? [])].sort() : [],
     };
   });
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 md:px-8 py-6 md:py-7 shadow-[0_2px_10px_rgba(11,61,53,0.25)]">
-        <Link href="/" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 hover:text-brand-orange transition-colors">
-          ← Back to dashboard
-        </Link>
-        <h1 className="mt-3 text-[26px] md:text-[34px] font-bold text-white leading-tight">Manage Users</h1>
-        <p className="mt-1 text-sm text-white/70">Approve registration requests and control roles, report access and passwords.</p>
+      <div className="bg-gradient-to-br from-dark-navy to-primary-blue px-4 py-5 shadow-[0_2px_10px_rgba(11,61,53,0.25)] md:px-8">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-end justify-between gap-3">
+          <div>
+            <Link href="/" className="inline-flex items-center gap-2 text-xs font-medium text-white/80 transition-colors hover:text-brand-orange">
+              ← Back to dashboard
+            </Link>
+            <h1 className="mt-2 text-[24px] font-bold leading-tight text-white md:text-[30px]">Manage Users</h1>
+            <p className="mt-1 text-sm text-white/70">Approve requests, and set each login&apos;s role, links, reports and principals in one place.</p>
+          </div>
+          <div className="flex gap-2 text-xs text-white/80">
+            <span className="rounded-full bg-white/10 px-3 py-1">{approved.length} users</span>
+            {pending.length > 0 ? <span className="rounded-full bg-brand-orange/80 px-3 py-1 font-semibold text-white">{pending.length} pending</span> : null}
+          </div>
+        </div>
       </div>
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-4 md:px-8 md:py-6">
         {error ? (
           <p className="rounded-xl border-l-4 border-l-accent-red bg-surface px-4 py-3 text-sm text-accent-red shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {error}
@@ -163,7 +184,7 @@ export default async function AdminUsersPage({
                       <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-muted-strong">
-                        {u.requestedRole ? u.requestedRole.replace("_", " ") : "— (pre-dates role requests)"}
+                        {u.requestedRole ? roleLabel(u.requestedRole) : "— (pre-dates role requests)"}
                       </td>
                       <td className="px-6 py-3 border-b border-border/60 text-muted">{u.createdAt.toLocaleDateString()}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">
@@ -221,9 +242,9 @@ export default async function AdminUsersPage({
                     <tr key={u.id}>
                       <td className="px-6 py-3 border-b border-border/60">{u.name || "—"}</td>
                       <td className="px-6 py-3 border-b border-border/60">{u.email}</td>
-                      <td className="px-6 py-3 border-b border-border/60 text-muted">{u.role.replace("_", " ")}</td>
+                      <td className="px-6 py-3 border-b border-border/60 text-muted">{roleLabel(u.role)}</td>
                       <td className="px-6 py-3 border-b border-border/60 text-muted-strong">
-                        {u.proposedRole!.replace("_", " ")}
+                        {roleLabel(u.proposedRole!)}
                         {u.proposedRole === u.role ? <span className="ml-1.5 text-xs text-muted">(no change)</span> : null}
                       </td>
                       <td className="px-6 py-3 border-b border-border/60 text-right">
@@ -256,8 +277,19 @@ export default async function AdminUsersPage({
           </div>
         ) : null}
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Add a new user</h2>
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <details className="group rounded-2xl bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+            <span>
+              <span className="block font-semibold text-primary-blue">Add a new user</span>
+              <span className="block text-xs text-muted">Create a login directly; it starts with its role&apos;s default reports.</span>
+            </span>
+            <span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue group-open:bg-background group-open:text-muted-strong">
+              <span className="group-open:hidden">Open</span>
+              <span className="hidden group-open:inline">Close</span>
+            </span>
+          </summary>
+          <div className="border-t border-border/60 px-5 pb-5">
           <NewUserForm
             teamLeaders={teamLeaders.map((tl) => ({ id: tl.id, name: tl.name, email: tl.email }))}
             supervisors={supervisors.map((s) => ({ id: s.id, name: s.name, email: s.email }))}
@@ -273,13 +305,23 @@ export default async function AdminUsersPage({
               &quot;Sales Supervisor&quot; column is imported on <Link href="/admin/team-leaders" className="text-primary-blue hover:underline">Team Leaders</Link>.
             </p>
           ) : null}
-        </div>
+          </div>
+        </details>
 
-        <div className="rounded-2xl bg-surface p-6 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <h2 className="text-lg font-semibold text-primary-blue">Announcement email</h2>
-          <p className="mt-1 text-sm text-muted-strong">
-            Edit the wording below, then save it, send it to all {approved.length} approved user(s), or reset back to the original. The greeting, sign-in
-            link, and system-generated disclaimer are added automatically — no need to include them.
+        <details className="group rounded-2xl bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+            <span>
+              <span className="block font-semibold text-primary-blue">Announcement email</span>
+              <span className="block text-xs text-muted">Edit, save or send the announcement to all {approved.length} approved users.</span>
+            </span>
+            <span className="rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue group-open:bg-background group-open:text-muted-strong">
+              <span className="group-open:hidden">Open</span>
+              <span className="hidden group-open:inline">Close</span>
+            </span>
+          </summary>
+          <div className="border-t border-border/60 px-5 pb-5 pt-3">
+          <p className="text-sm text-muted-strong">
+            The greeting, sign-in link, and system-generated disclaimer are added automatically — no need to include them.
           </p>
           <form action={saveAnnouncementTemplateAction} className="mt-4 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
@@ -332,6 +374,8 @@ export default async function AdminUsersPage({
               </ConfirmSubmitButton>
             </div>
           </form>
+          </div>
+        </details>
         </div>
 
         <UserDirectory

@@ -54,6 +54,11 @@ enum Role {
   FINANCE_MANAGER
   ACCOUNTANT
   LOGISTICS_MANAGER
+  // Stores — Stock & Operations, Dormant OOS and Order 360 (lib/roles.ts's ROLE_DEFAULT_PAGES).
+  STORES_MANAGER
+  // A field rep: no report until an admin ticks one (and no always-on baseline page either), plus
+  // "My Sales" once User.employeeCode is linked. Principal-restrictable like VIEWER.
+  SALES_REP
 }
 
 enum UserStatus {

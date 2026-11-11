@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { ALL_PAGE_KEYS, isPageKey } from "@/lib/pageAccess";
+import { normalizeAllowedPages } from "@/lib/pageAccess";
+import { ROLE_DEFAULT_PAGES, ROLE_LABELS, isRole, roleUsesSupervisorLink, roleUsesTeamLeaderLink, type Role } from "@/lib/roles";
 import { sendApprovalEmail, sendAnnouncementEmail, ANNOUNCEMENT_TEMPLATE_KEY, DEFAULT_ANNOUNCEMENT_SUBJECT, DEFAULT_ANNOUNCEMENT_BODY } from "@/lib/email";
 
 async function requireAdmin() {
@@ -45,24 +46,21 @@ async function assertNotLastAdminDemotion(userId: string, currentUser: { id: str
   }
 }
 
-type UserRole =
-  | "ADMIN"
-  | "VIEWER"
-  | "TEAM_LEADER"
-  | "SUPERVISOR"
-  | "HOD"
-  | "DIRECTOR"
-  | "SALES_ADMIN"
-  | "FINANCE_MANAGER"
-  | "ACCOUNTANT"
-  | "LOGISTICS_MANAGER";
-
-const ASSIGNABLE_ROLES = ["ADMIN", "TEAM_LEADER", "SUPERVISOR", "HOD", "DIRECTOR", "SALES_ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "LOGISTICS_MANAGER"] as const;
-
-function readRole(formData: FormData): UserRole {
+function readRole(formData: FormData): Role {
   const raw = formData.get("role");
-  if (typeof raw === "string" && (ASSIGNABLE_ROLES as readonly string[]).includes(raw)) return raw as UserRole;
-  return "VIEWER";
+  return isRole(raw) ? raw : "VIEWER";
+}
+
+/** Which of the user's unique links a P2002 (unique constraint) error was about, for a message that says which one clashed. */
+function uniqueConflictMessage(err: unknown): string | null {
+  if (typeof err !== "object" || err === null || (err as { code?: string }).code !== "P2002") return null;
+  const target = (err as { meta?: { target?: unknown } }).meta?.target;
+  const fields = Array.isArray(target) ? target.join(",") : String(target ?? "");
+  if (fields.includes("email")) return "A user with that email already exists.";
+  if (fields.includes("teamLeaderId")) return "That Team Leader is already linked to another login.";
+  if (fields.includes("supervisorId")) return "That Sales Supervisor is already linked to another login.";
+  if (fields.includes("employeeCode")) return "That Employee Code is already linked to another login.";
+  return "That Team Leader, Sales Supervisor or Employee Code is already linked to another login.";
 }
 
 // Optional, role-independent link to EmployeeMaster.employeeCode (the business
@@ -82,8 +80,8 @@ async function readEmployeeCode(formData: FormData, userId?: string): Promise<st
 // TEAM_LEADER logins need a linked TeamLeader row (User.teamLeaderId, unique) so
 // /weekly-targets can scope their reads/writes to just their own team. Any other
 // role clears the link, freeing that TeamLeader row up for someone else later.
-function readTeamLeaderId(formData: FormData, role: UserRole, userId?: string): string | null {
-  if (role !== "TEAM_LEADER") return null;
+function readTeamLeaderId(formData: FormData, role: Role, userId?: string): string | null {
+  if (!roleUsesTeamLeaderLink(role)) return null;
   const id = String(formData.get("teamLeaderId") || "").trim();
   if (!id) {
     redirect("/admin/users?error=" + encodeURIComponent("Pick a Team Leader to link this login to.") + openSuffix(userId));
@@ -93,8 +91,8 @@ function readTeamLeaderId(formData: FormData, role: UserRole, userId?: string): 
 
 // SUPERVISOR logins need a linked Supervisor row (User.supervisorId, unique) —
 // mirrors readTeamLeaderId exactly. See lib/teamLeaderScope.ts's loadSupervisorScope.
-function readSupervisorId(formData: FormData, role: UserRole, userId?: string): string | null {
-  if (role !== "SUPERVISOR") return null;
+function readSupervisorId(formData: FormData, role: Role, userId?: string): string | null {
+  if (!roleUsesSupervisorLink(role)) return null;
   const id = String(formData.get("supervisorId") || "").trim();
   if (!id) {
     redirect("/admin/users?error=" + encodeURIComponent("Pick a Sales Supervisor to link this login to.") + openSuffix(userId));
@@ -122,31 +120,20 @@ export async function createUserAction(formData: FormData) {
   let created;
   try {
     created = await prisma.user.create({
-      data: { email, name: name || null, passwordHash, role, teamLeaderId, supervisorId, employeeCode, status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS] },
+      data: { email, name: name || null, passwordHash, role, teamLeaderId, supervisorId, employeeCode, status: "APPROVED", allowedPages: [...ROLE_DEFAULT_PAGES[role]] },
     });
   } catch (err: unknown) {
-    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
-    const message =
-      code === "P2002"
-        ? teamLeaderId
-          ? "That Team Leader is already linked to another login."
-          : supervisorId
-            ? "That Sales Supervisor is already linked to another login."
-            : employeeCode
-              ? "That Employee Code is already linked to another login."
-              : "A user with that email already exists."
-        : "Failed to create the user.";
-    redirect("/admin/users?error=" + encodeURIComponent(message));
+    redirect("/admin/users?error=" + encodeURIComponent(uniqueConflictMessage(err) ?? "Failed to create the user."));
   }
 
-  redirect("/admin/users?success=" + encodeURIComponent(`Created ${role.toLowerCase()} account for ${email}.`) + openSuffix(created.id));
+  redirect("/admin/users?success=" + encodeURIComponent(`Created ${ROLE_LABELS[role]} account for ${email} with the role's default reports — adjust them below.`) + openSuffix(created.id));
 }
 
 // Shared by approveUserAction and approveRoleConfirmationAction: the same
 // email-match auto-link /admin/users' own dropdowns suggest (see
 // TeamLeader.email/Supervisor.email) so applying a TEAM_LEADER/SUPERVISOR
 // role doesn't leave an already-rostered person unlinked for no reason.
-async function matchRosterLinkByEmail(role: UserRole, email: string): Promise<{ teamLeaderId: string | null; supervisorId: string | null }> {
+async function matchRosterLinkByEmail(role: Role, email: string): Promise<{ teamLeaderId: string | null; supervisorId: string | null }> {
   if (role === "TEAM_LEADER") {
     const match = await prisma.teamLeader.findUnique({ where: { email } });
     return { teamLeaderId: match?.id ?? null, supervisorId: null };
@@ -176,26 +163,26 @@ export async function approveUserAction(formData: FormData) {
   const role = target.requestedRole ?? "VIEWER";
   const { teamLeaderId, supervisorId } = await matchRosterLinkByEmail(role, target.email);
 
+  const allowedPages = [...ROLE_DEFAULT_PAGES[role]];
   try {
     await prisma.user.update({
       where: { id: userId },
-      data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS], role, teamLeaderId, supervisorId },
+      data: { status: "APPROVED", allowedPages, role, teamLeaderId, supervisorId },
     });
   } catch (err: unknown) {
     const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
     if (code !== "P2002") throw err;
     await prisma.user.update({
       where: { id: userId },
-      data: { status: "APPROVED", allowedPages: [...ALL_PAGE_KEYS], role, teamLeaderId: null, supervisorId: null },
+      data: { status: "APPROVED", allowedPages, role, teamLeaderId: null, supervisorId: null },
     });
   }
 
-  const roleLabel = role.replace("_", " ").toLowerCase();
   const linked = teamLeaderId || supervisorId ? ` and linked to their matching roster entry by email` : "";
   const emailResult = await sendApprovalEmail(target.email, target.name);
   const message = emailResult.sent
-    ? `Approved ${target.email} as ${roleLabel}${linked}. Notification email sent.`
-    : `Approved ${target.email} as ${roleLabel}${linked}. Notification email NOT sent (${emailResult.error}).`;
+    ? `Approved ${target.email} as ${ROLE_LABELS[role]}${linked}. Notification email sent.`
+    : `Approved ${target.email} as ${ROLE_LABELS[role]}${linked}. Notification email NOT sent (${emailResult.error}).`;
   redirect("/admin/users?success=" + encodeURIComponent(message) + openSuffix(userId));
 }
 
@@ -242,7 +229,7 @@ export async function approveRoleConfirmationAction(formData: FormData) {
     await prisma.user.update({ where: { id: userId }, data: { role, proposedRole: null } });
   }
 
-  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} confirmed as ${role.replace("_", " ").toLowerCase()}.`) + openSuffix(userId));
+  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} confirmed as ${ROLE_LABELS[role]}.`) + openSuffix(userId));
 }
 
 // Keeps the person's role as-is — the confirmation was reviewed but not
@@ -257,92 +244,46 @@ export async function dismissRoleConfirmationAction(formData: FormData) {
   redirect("/admin/users?success=" + encodeURIComponent(`Dismissed the role confirmation from ${target.email}; their role is unchanged.`) + openSuffix(userId));
 }
 
-export async function updateUserRoleAction(formData: FormData) {
+/** Saves one user's whole profile at once: role, the Team Leader / Sales Supervisor link (kept only for the role it belongs
+ *  to), the Employee Code link (any role — unlocks My Sales), the reports they see and the principals they're limited to.
+ *  The report and principal pickers are only on the form for the roles they apply to (an admin sees everything; principal
+ *  limits only narrow principal-scoped roles, lib/roles.ts), so a picker that wasn't submitted leaves the stored list as it is. */
+export async function updateUserAccessAction(formData: FormData) {
   const currentUser = await requireAdmin();
   const userId = String(formData.get("userId") || "");
   const role = readRole(formData);
   const teamLeaderId = readTeamLeaderId(formData, role, userId);
   const supervisorId = readSupervisorId(formData, role, userId);
+  const employeeCode = await readEmployeeCode(formData, userId);
+  if (role !== "ADMIN") await assertNotLastAdminDemotion(userId, currentUser);
 
-  if (role !== "ADMIN") {
-    await assertNotLastAdminDemotion(userId, currentUser);
-  }
+  const pagesSubmitted = formData.get("pagesSubmitted") === "1";
+  const principalsSubmitted = formData.get("principalsSubmitted") === "1";
+  const allowedPages = normalizeAllowedPages(formData.getAll("pages").map(String));
+  const allowedPrincipals = formData.getAll("principals").map(String).filter((p) => p.trim().length > 0);
 
   let target;
   try {
-    target = await prisma.user.update({ where: { id: userId }, data: { role, teamLeaderId, supervisorId } });
+    target = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role,
+        teamLeaderId,
+        supervisorId,
+        employeeCode,
+        ...(pagesSubmitted ? { allowedPages } : {}),
+        ...(principalsSubmitted ? { allowedPrincipals } : {}),
+      },
+    });
   } catch (err: unknown) {
-    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
-    redirect(
-      "/admin/users?error=" +
-        encodeURIComponent(code === "P2002" ? "That Team Leader or Sales Supervisor is already linked to another login." : "Failed to update the role.") +
-        openSuffix(userId)
-    );
+    redirect("/admin/users?error=" + encodeURIComponent(uniqueConflictMessage(err) ?? "Failed to save the user.") + openSuffix(userId));
   }
 
-  const roleLabel =
-    role === "ADMIN" ? "an administrator" :
-    role === "TEAM_LEADER" ? "a team leader" :
-    role === "SUPERVISOR" ? "a sales supervisor" :
-    role === "HOD" ? "a Head of Sales" :
-    role === "DIRECTOR" ? "a director" :
-    role === "SALES_ADMIN" ? "a Sales Admin" :
-    role === "FINANCE_MANAGER" ? "a Finance Manager" :
-    role === "ACCOUNTANT" ? "an Accountant" :
-    role === "LOGISTICS_MANAGER" ? "a Logistics Manager" :
-    "a viewer";
-  redirect("/admin/users?success=" + encodeURIComponent(`${target.email} is now ${roleLabel}.`) + openSuffix(userId));
-}
-
-// Role-independent — see User.employeeCode. Separate from updateUserRoleAction
-// since the link has nothing to do with which role a login holds.
-export async function updateUserEmployeeCodeAction(formData: FormData) {
-  await requireAdmin();
-  const userId = String(formData.get("userId") || "");
-  const employeeCode = await readEmployeeCode(formData, userId);
-
-  try {
-    await prisma.user.update({ where: { id: userId }, data: { employeeCode } });
-  } catch (err: unknown) {
-    const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
-    redirect(
-      "/admin/users?error=" +
-        encodeURIComponent(code === "P2002" ? "That Employee Code is already linked to another login." : "Failed to update the Employee Code link.") +
-        openSuffix(userId)
-    );
-  }
-
-  redirect(
-    "/admin/users?success=" +
-      encodeURIComponent(employeeCode ? `Linked to Employee Code ${employeeCode} — their "My Sales" module is now unlocked.` : "Cleared the Employee Code link.") +
-      openSuffix(userId)
-  );
-}
-
-export async function updateUserPagesAction(formData: FormData) {
-  await requireAdmin();
-  const userId = String(formData.get("userId") || "");
-  const pages = formData.getAll("pages").map(String).filter(isPageKey);
-
-  const target = await prisma.user.update({ where: { id: userId }, data: { allowedPages: pages } });
-  redirect("/admin/users?success=" + encodeURIComponent(`Updated report access for ${target.email}.`) + openSuffix(userId));
-}
-
-// VIEWER-only: restricts which principals a login can see, everywhere data is served
-// (dataset, every Prisma-backed dashboard/report route, Frost) — see
-// lib/teamLeaderScope.ts's loadViewerPrincipalScope. Empty selection = unrestricted,
-// same "default to full access, narrow explicitly" convention as allowedPages.
-export async function updateUserPrincipalsAction(formData: FormData) {
-  await requireAdmin();
-  const userId = String(formData.get("userId") || "");
-  const principals = formData.getAll("principals").map(String).filter((p) => p.trim().length > 0);
-
-  const target = await prisma.user.update({ where: { id: userId }, data: { allowedPrincipals: principals } });
-  const message =
-    principals.length === 0
-      ? `${target.email} can now see every principal (unrestricted).`
-      : `${target.email} is now restricted to ${principals.length} principal(s).`;
-  redirect("/admin/users?success=" + encodeURIComponent(message) + openSuffix(userId));
+  const parts = [ROLE_LABELS[role]];
+  if (pagesSubmitted) parts.push(`${allowedPages.length} report${allowedPages.length === 1 ? "" : "s"}`);
+  if (principalsSubmitted) parts.push(allowedPrincipals.length === 0 ? "every principal" : `${allowedPrincipals.length} principal${allowedPrincipals.length === 1 ? "" : "s"}`);
+  if (employeeCode) parts.push(`My Sales for ${employeeCode}`);
+  redirect("/admin/users?success=" + encodeURIComponent(`Saved ${target.email}: ${parts.join(" · ")}.`) + openSuffix(userId));
 }
 
 export async function resetPasswordAction(formData: FormData) {
