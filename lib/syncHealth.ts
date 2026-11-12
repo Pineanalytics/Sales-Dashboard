@@ -1,5 +1,7 @@
 import { prisma } from "./db";
 import { SALES_RETURNS_BRANCH_LABELS } from "./salesReturnsControl";
+import { SYNC_JOB_INFO, type SyncJobName } from "./syncJobs";
+import { getLatestSyncRequests, getSyncJobRuns, SYNC_REQUEST_LOST_AFTER_MS, type SyncJobRunView, type SyncRunRequestView } from "./syncRunRequests";
 
 export interface SyncHealthRow {
   key: string;
@@ -10,6 +12,15 @@ export interface SyncHealthRow {
   isStale: boolean;
   expectedBy: Date | null;
   manualOnly?: boolean;
+  /** The worker job behind this row. Set for every row that offers "Refresh now" (POST /api/sync/run). */
+  job?: SyncJobName;
+  heavyWarning?: string;
+  /** A manual refresh already queued or running, so the button reflects it after a page reload. */
+  activeRefresh?: "PENDING" | "RUNNING";
+  /** The worker's own record of its latest run. A failure shows even while the data is still inside its freshness window. */
+  jobRun?: { lastOk: boolean | null; lastError: string | null; lastFinishedAt: Date | null };
+  /** A job that has not completed a run since the run record was introduced: neither fresh nor stale yet. */
+  awaitingFirstRun?: boolean;
   // Set only for rows with a manual "Trigger now" option (currently just
   // Sales & Returns branches) — the distributor code to queue against via
   // POST /api/sales-returns/trigger. See SalesReturnsTriggerRequest's schema
@@ -76,6 +87,18 @@ export interface SyncHealthRow {
  *  cosmetic — an unrecognized distributor code still shows up, just labeled
  *  by its raw code instead of a friendly name. */
 
+/** The new run records are additive; if the schema push for them has not reached this database yet the
+ *  panel must still render, just without "Refresh now" state. */
+async function loadWorkerRunState(): Promise<{ requests: Map<string, SyncRunRequestView>; runs: Map<string, SyncJobRunView> }> {
+  try {
+    const [requests, runs] = await Promise.all([getLatestSyncRequests(), getSyncJobRuns()]);
+    return { requests, runs };
+  } catch (error) {
+    console.error("[sync-health] worker run records unavailable:", error instanceof Error ? error.message : error);
+    return { requests: new Map(), runs: new Map() };
+  }
+}
+
 export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   const [sales, stock, pl, receivables, activeOutletsWatermark, timestampsWatermark, upfieldWatermark, upfieldVisitsWatermark, order360Watermark, salesReturnsBranches, salesReturnsWatermarks, salesReturnsControls, eablExportStatuses, uklTriggerCounts, latestUklTrigger] = await Promise.all([
     prisma.salesRecord.aggregate({ _max: { updatedAt: true } }),
@@ -94,6 +117,31 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.uklSalesExportTriggerRequest.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.uklSalesExportTriggerRequest.findFirst({ where: { status: "COMPLETED" }, orderBy: { completedAt: "desc" }, select: { completedAt: true, resultSummary: true } }),
   ]);
+
+  const { requests: latestRequests, runs: jobRuns } = await loadWorkerRunState();
+
+  /** Adds the worker job behind a row: the Refresh now button, its state, and the last run's outcome. */
+  function withJob(base: SyncHealthRow, job: SyncJobName): SyncHealthRow {
+    const request = latestRequests.get(job);
+    const active = request && (request.status === "PENDING" || request.status === "RUNNING") && Date.now() - request.requestedAt.getTime() < SYNC_REQUEST_LOST_AFTER_MS ? request.status : undefined;
+    const run = jobRuns.get(job);
+    return {
+      ...base,
+      job,
+      heavyWarning: SYNC_JOB_INFO[job].heavyWarning,
+      activeRefresh: active,
+      jobRun: run ? { lastOk: run.lastOk, lastError: run.lastError, lastFinishedAt: run.lastFinishedAt } : undefined,
+    };
+  }
+
+  /** A row for a worker job with no data table to read freshness from: the worker's own last success is the signal. */
+  function jobRow(job: SyncJobName, cadenceLabel: string, staleAfterHours: number): SyncHealthRow {
+    const run = jobRuns.get(job);
+    const base = row(job, SYNC_JOB_INFO[job].label, cadenceLabel, run?.lastSuccessAt ?? null, staleAfterHours);
+    // No success on record: a job that has run and failed is stale; one that has not run yet is just waiting.
+    const neverSucceeded = !run?.lastSuccessAt;
+    return withJob({ ...base, isStale: neverSucceeded ? run?.lastOk === false : base.isStale, awaitingFirstRun: neverSucceeded && !run }, job);
+  }
 
   function row(
     key: string,
@@ -200,12 +248,19 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
   };
 
   return [
-    row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60),
-    row("stock", "Stock (SAP direct, parallel)", "Hourly", stock?.completedAt ?? null, 2),
-    row("pl", "P&L (SAP)", "Twice daily", pl._max.updatedAt, 18),
-    row("receivables", "Receivables (SAP)", "Every 30 minutes", receivables?.completedAt ?? null, 90 / 60),
-    row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3),
-    row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60),
+    withJob(row("sales", "Sales (SAP)", "Every 30 minutes", sales._max.updatedAt, 90 / 60), "sales"),
+    withJob(row("stock", "Stock (SAP direct, parallel)", "Every 30 minutes", stock?.completedAt ?? null, 2), "stock"),
+    withJob(row("pl", "P&L (SAP)", "Every 30 minutes", pl._max.updatedAt, 18), "pl"),
+    withJob(row("receivables", "Receivables (SAP)", "Every 30 minutes", receivables?.completedAt ?? null, 90 / 60), "receivables"),
+    jobRow("sfa-sales", "Every 30 minutes (current + previous month)", 90 / 60),
+    jobRow("purchases", "Every 30 minutes (current + previous month)", 90 / 60),
+    jobRow("performance", "Daily at 03:30 Africa/Nairobi (full year)", 30),
+    withJob(row("activeOutlets", "Active Outlets (Pine)", "Hourly (incremental; full resync ~daily)", activeOutletsWatermark?.updatedAt ?? null, 3), "active-outlets"),
+    withJob(row("timestamps", "Timestamps (Pine)", "Every 5 minutes (rolling 2-day window)", timestampsWatermark?.updatedAt ?? null, 20 / 60), "timestamps"),
+    jobRow("coverage", "Every 30 minutes (current month)", 90 / 60),
+    jobRow("mars-kpis", "Every 30 minutes (full resync ~daily)", 90 / 60),
+    jobRow("eabl", "Every minute", 20 / 60),
+    jobRow("eabl-customers", "Every 6 hours", 8),
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
     // 4 fixed times/day (10:00/12:00/17:00/20:00 Africa/Nairobi); the
     // overnight 20:00->10:00 gap is ~14h, so the threshold allows a 1h buffer
@@ -218,7 +273,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     // cadence plus a buffer for a late-running task before flagging stale;
     // this is the only place that reads the SyncWatermark row run.ts already
     // writes to, so it was previously invisible on this page entirely.
-    row("order360", "Order 360 (Pine)", "Daily at 18:30 Africa/Nairobi", order360Watermark?.updatedAt ?? null, 30),
+    withJob(row("order360", "Order 360 (Pine)", "Daily at 18:30 Africa/Nairobi", order360Watermark?.updatedAt ?? null, 30), "order-360"),
     ...salesReturnsRows,
     uklRow,
     eablRow,

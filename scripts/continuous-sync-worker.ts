@@ -4,8 +4,16 @@
 // If a source is temporarily unavailable, the next interval retries it while
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
+import { claimSyncRequest, failOrphanedSyncRequests, finishSyncRequest, recordSyncJobRun } from "../lib/syncRunRequests";
+import type { SyncJobName } from "../lib/syncJobs";
 
-type JobName = "timestamps" | "coverage" | "eabl" | "eabl-customers" | "active-outlets" | "order-360" | "mars-kpis" | "sales" | "sfa-sales" | "purchases" | "performance" | "pl" | "stock" | "receivables";
+type JobName = SyncJobName;
+
+// How often a worker looks for a "Refresh now" request from Admin > Data & sync. One indexed query.
+const MANUAL_POLL_MS = 10_000;
+// If the queue table is missing (a deploy before the schema push) or the database is briefly
+// unreachable, back off instead of logging every ten seconds.
+const MANUAL_POLL_BACKOFF_MS = 120_000;
 
 interface JobDefinition {
   name: JobName;
@@ -39,19 +47,19 @@ const jobs: Record<JobName, JobDefinition> = {
   // from time-sensitive call feeds.  It performs a full safety refresh daily
   // and small current-period updates between those passes.
   "mars-kpis": { name: "mars-kpis", entry: "scripts/db-bridge/principal-kpis/mars-sync.ts", intervalEnv: "MARS_KPIS_INTERVAL_SECONDS", defaultSeconds: 900, runOnStartEnv: "MARS_KPIS_RUN_ON_START" },
-  sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 300 },
-  // SFA-outlet sales (SalesDocument + SfaCustomerActual), which the Customer analysis ranks. Two months each run, so the
+  sales: { name: "sales", entry: "scripts/db-bridge/sales-sync.ts", intervalEnv: "SALES_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  // SFA-outlet sales (SalesDocument + SfaCustomerActual), which the Customer analysis ranks. Every 30 minutes, two months each run, so the
   // previous month keeps absorbing late SAP postings and a month rollover needs no special case.
-  "sfa-sales": { name: "sfa-sales", entry: "scripts/db-bridge/sfa-sales-sync.ts", intervalEnv: "SFA_SALES_INTERVAL_SECONDS", defaultSeconds: 3600, runOnStartEnv: "SFA_SALES_RUN_ON_START", args: ["--months=2"], nodeOptions: "--max-old-space-size=700" },
-  // Stock receipts (goods receipts, returns and credits) from SAP's stock ledger, for the Purchases report: the current and previous month every hour. Like every job without
+  "sfa-sales": { name: "sfa-sales", entry: "scripts/db-bridge/sfa-sales-sync.ts", intervalEnv: "SFA_SALES_INTERVAL_SECONDS", defaultSeconds: 1800, runOnStartEnv: "SFA_SALES_RUN_ON_START", args: ["--months=2"], nodeOptions: "--max-old-space-size=700" },
+  // Stock receipts (goods receipts, returns and credits) from SAP's stock ledger, for the Purchases report: the current and previous month every 30 minutes. Like every job without
   // a runOnStartEnv it also runs once when the worker starts (a two-month read, about 20 seconds); a history load is a separate, approved manual run.
-  purchases: { name: "purchases", entry: "scripts/db-bridge/purchases-sync.ts", intervalEnv: "PURCHASES_INTERVAL_SECONDS", defaultSeconds: 3600, args: ["--months=2"] },
+  purchases: { name: "purchases", entry: "scripts/db-bridge/purchases-sync.ts", intervalEnv: "PURCHASES_INTERVAL_SECONDS", defaultSeconds: 1800, args: ["--months=2"] },
   // Performance Analysis reads the whole year of SAP document lines (~575k), so it
   // runs once a day in the small hours rather than on the 5-minute sales cadence,
   // and it never runs on start (a deploy must not trigger a year-long SAP read).
   performance: { name: "performance", entry: "scripts/db-bridge/performance-analysis/run.ts", intervalEnv: "PERFORMANCE_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "PERFORMANCE_DAILY_AT", runOnStartEnv: "PERFORMANCE_RUN_ON_START" },
   pl: { name: "pl", entry: "scripts/pl-bridge/run.ts", intervalEnv: "PL_INTERVAL_SECONDS", defaultSeconds: 1800 },
-  stock: { name: "stock", entry: "scripts/db-bridge/stock-sync.ts", intervalEnv: "STOCK_INTERVAL_SECONDS", defaultSeconds: 900 },
+  stock: { name: "stock", entry: "scripts/db-bridge/stock-sync.ts", intervalEnv: "STOCK_INTERVAL_SECONDS", defaultSeconds: 1800 },
   receivables: { name: "receivables", entry: "scripts/db-bridge/receivables/run.ts", intervalEnv: "RECEIVABLES_INTERVAL_SECONDS", defaultSeconds: 1800 },
 };
 
@@ -76,6 +84,32 @@ function nextRunAt(job: JobDefinition, now = new Date()): number {
 
 function runsOnStart(job: JobDefinition): boolean {
   return job.runOnStartEnv ? process.env[job.runOnStartEnv] === "true" : true;
+}
+
+/** Prisma errors span many lines of query echo; the last non-empty line is the cause. */
+function brief(error: unknown): string {
+  const lines = (error instanceof Error ? error.message : String(error)).split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1] ?? "unknown error";
+}
+
+/** Runs a job and records the outcome (scheduled or manual) so Data & sync can show it. Recording is
+ *  best-effort: a database hiccup must never stop the sync loop. */
+async function runTracked(job: JobDefinition): Promise<{ summary: string }> {
+  const startedAt = new Date();
+  let error: unknown = null;
+  try {
+    await run(job);
+  } catch (caught) {
+    error = caught;
+  }
+  const finishedAt = new Date();
+  const ok = error === null;
+  const message = error instanceof Error ? error.message : error === null ? "" : String(error);
+  await recordSyncJobRun(job.name, { startedAt, finishedAt, ok, error: message }).catch((recordError) =>
+    console.error(`[worker] could not record the ${job.name} run: ${brief(recordError)}`)
+  );
+  if (!ok) throw error;
+  return { summary: `Completed in ${Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000)}s.` };
 }
 
 function run(job: JobDefinition): Promise<void> {
@@ -108,20 +142,54 @@ async function main() {
   const nextDue = new Map<JobName, number>(selected.map((job) => [job.name, runsOnStart(job) ? 0 : nextRunAt(job)]));
   console.log(`[worker] supervising ${selected.map((job) => `${job.name}/${job.dailyAtEnv && process.env[job.dailyAtEnv] ? `daily ${process.env[job.dailyAtEnv]}` : `${intervalMs(job) / 1000}s`}`).join(", ")}.`);
 
+  const orphaned = await failOrphanedSyncRequests(selected.map((job) => job.name)).catch(() => 0);
+  if (orphaned > 0) console.log(`[worker] marked ${orphaned} manual run(s) left over from the previous process as failed.`);
+  let nextManualPoll = 0;
+  let manualFailures = 0;
+
   // A single source read per worker makes its CPU/DB impact predictable. The
   // live timestamps worker is isolated from Active Outlets and SAP, so its
   // 30-second lane cannot be held behind a full-year aggregation.
   for (;;) {
     const now = Date.now();
+
+    // A "Refresh now" from Admin > Data & sync goes first, between two scheduled runs (never during one,
+    // so the one-source-read-at-a-time rule above still holds). The job's own schedule restarts from now.
+    if (now >= nextManualPoll) {
+      let claimed: Awaited<ReturnType<typeof claimSyncRequest>> = null;
+      try {
+        claimed = await claimSyncRequest(selected.map((job) => job.name));
+        manualFailures = 0;
+        nextManualPoll = Date.now() + MANUAL_POLL_MS;
+      } catch (error) {
+        manualFailures += 1;
+        if (manualFailures === 1) console.error(`[worker] cannot check for manual refresh requests; will keep retrying quietly: ${brief(error)}`);
+        nextManualPoll = Date.now() + MANUAL_POLL_BACKOFF_MS;
+      }
+      if (claimed) {
+        const job = jobs[claimed.job];
+        console.log(`[worker] manual refresh of ${job.name} requested from Data & sync.`);
+        nextDue.set(job.name, nextRunAt(job));
+        try {
+          const result = await runTracked(job);
+          await finishSyncRequest(claimed.id, true, result.summary).catch(() => undefined);
+        } catch (error) {
+          console.error(`[worker] manual ${job.name} run failed; retaining the prior dashboard snapshot.`, error);
+          await finishSyncRequest(claimed.id, false, error instanceof Error ? error.message : String(error)).catch(() => undefined);
+        }
+        continue;
+      }
+    }
+
     const due = selected.find((job) => now >= (nextDue.get(job.name) ?? 0));
     if (!due) {
-      const soonest = Math.min(...selected.map((job) => nextDue.get(job.name) ?? now + 1000));
+      const soonest = Math.min(nextManualPoll, ...selected.map((job) => nextDue.get(job.name) ?? now + 1000));
       await new Promise((resolve) => setTimeout(resolve, Math.max(250, Math.min(soonest - now, 1000))));
       continue;
     }
     nextDue.set(due.name, nextRunAt(due));
     try {
-      await run(due);
+      await runTracked(due);
     } catch (error) {
       console.error(`[worker] ${due.name} failed; retaining the prior dashboard snapshot and retrying next interval.`, error);
     }
