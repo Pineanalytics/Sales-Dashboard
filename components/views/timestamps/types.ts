@@ -1,5 +1,5 @@
 // The six Timestamp modules, all reachable from inside Coverage &
-// Productivity's single "Timestamps" tab via local state (TimestampsModuleView)
+// Productivity's "Time in Trade" tab via local state (TimestampsModuleView)
 // instead of their old standalone /timestamps/* routes.
 export type TimestampsModule = "pine" | "eabl-calls" | "eabl-dsr" | "upfield-dataedge" | "upfield-visits" | "leverage";
 

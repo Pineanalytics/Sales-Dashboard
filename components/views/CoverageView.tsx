@@ -7,7 +7,6 @@ import type { ViewProps } from "./types";
 import { ActiveOutletsView } from "./ActiveOutletsView";
 import { UniverseAnalysisView } from "./UniverseAnalysisView";
 import { JPAdherenceView } from "./JPAdherenceView";
-import { TimeInTradeView } from "./TimeInTradeView";
 import { TimestampsModuleView } from "./TimestampsModuleView";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
@@ -33,7 +32,7 @@ const TOP_N_REPS = 12;
 
 const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
 
-type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade" | "timestamps";
+type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade";
 
 // Each tab shows only when its report is granted (lib/pageAccess.ts's Coverage module): the overview and rep tabs are
 // "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps.
@@ -43,12 +42,17 @@ const PANEL_TABS: { key: CoveragePanel; label: string; description: string; page
   { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal", pageKey: "active-outlets" },
   { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe", pageKey: "active-outlets" },
   { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence", pageKey: "jp-adherence" },
-  { key: "time-in-trade", label: "Time in Trade", description: "Start/close time and productivity trend by principal module", pageKey: "timestamps" },
-  { key: "timestamps", label: "Timestamps", description: "Pine, EABL, Upfield and Unilever call/visit systems", pageKey: "timestamps" },
+  { key: "time-in-trade", label: "Time in Trade", description: "Timestamps, rep performance and start/close time by system", pageKey: "timestamps" },
 ];
 
 function isCoveragePanel(value: string | null): value is CoveragePanel {
   return value !== null && PANEL_TABS.some((tab) => tab.key === value);
+}
+
+/** The Timestamps tab is now part of Time in Trade; old ?tab=timestamps links land there. */
+function panelFromParam(value: string | null): CoveragePanel | null {
+  if (value === "timestamps") return "time-in-trade";
+  return isCoveragePanel(value) ? value : null;
 }
 
 interface LeverageMonthlyCoverageRow {
@@ -68,7 +72,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
   const visibleTabs = PANEL_TABS.filter((tab) => canSeeReport(user?.role, user?.allowedPages ?? [], tab.pageKey));
   const setCoverageActiveTab = useDashboardStore((s) => s.setCoverageActiveTab);
   const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
-  const [requestedPanel, setActivePanel] = useState<CoveragePanel>(isCoveragePanel(initialTab) ? initialTab : "overview");
+  const [requestedPanel, setActivePanel] = useState<CoveragePanel>(panelFromParam(initialTab) ?? "overview");
   const activePanel: CoveragePanel = visibleTabs.some((tab) => tab.key === requestedPanel) ? requestedPanel : visibleTabs[0]?.key ?? "overview";
 
   // GlobalFilterBar (a sibling under AnalyticsShell, not a descendant of this
@@ -263,8 +267,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       {activePanel === "active-outlets" ? <ActiveOutletsView /> : null}
       {activePanel === "universe-analysis" ? <UniverseAnalysisView /> : null}
       {activePanel === "jp-adherence" ? <JPAdherenceView /> : null}
-      {activePanel === "time-in-trade" ? <TimeInTradeView /> : null}
-      {activePanel === "timestamps" ? <TimestampsModuleView /> : null}
+      {activePanel === "time-in-trade" ? <TimestampsModuleView /> : null}
 
       {activePanel === "overview" || activePanel === "reps" ? (
       <>

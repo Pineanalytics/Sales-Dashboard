@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock20Regular, Dismiss12Regular, PeopleTeam20Regular, ThumbLike20Regular, Warning20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
@@ -13,7 +14,9 @@ import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
-import { SfaReportNavigator } from "@/components/timestamps/SfaReportNavigator";
+import { TimestampSystemSelect } from "@/components/timestamps/SfaReportNavigator";
+import { TimeInTradeView } from "@/components/views/TimeInTradeView";
+import { CANONICAL_MONTHS, type PeriodSelection } from "@/lib/timeIntelligence";
 import { formatCompact, formatNumber, formatPercent, strikeRateTier, tierBarColor } from "@/lib/format";
 import {
   averageMinutes,
@@ -535,6 +538,7 @@ function RepJourneyPanel({ detail, status, onClose }: { detail: RepDetailRespons
 export function TimestampsPineView({ onNavigate }: { onNavigate: (key: TimestampsModule) => void }) {
   const currentUser = useCurrentUser();
   const selectedPrincipalKey = useDashboardStore((state) => state.selectedPrincipalKey);
+  const selectedPrincipalKeys = useDashboardStore((state) => state.selectedPrincipalKeys);
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [summary, setSummary] = useState<TimestampSummaryResponse | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
@@ -547,7 +551,9 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [chartGranularity, setChartGranularity] = useState<"Hourly" | "Daily" | "Weekly">("Hourly");
   const [timeManagementFilter, setTimeManagementFilter] = useState<TimeManagementFilter>("all");
-  const [activeSlide, setActiveSlide] = useState<TimestampSlide>("overview");
+  // ?view=timestamps|reps|overview opens a sub-tab directly (e.g. the executive summary's Time Management tile).
+  const viewParam = useSearchParams().get("view");
+  const [activeSlide, setActiveSlide] = useState<TimestampSlide>(viewParam === "timestamps" || viewParam === "time" ? "time" : viewParam === "reps" ? "reps" : "overview");
   const [drilldownRep, setDrilldownRep] = useState<string | null>(null);
   const [repDetailStatus, setRepDetailStatus] = useState<"loading" | "idle" | "error">("idle");
   const [repDetail, setRepDetail] = useState<RepDetailResponse | null>(null);
@@ -675,21 +681,17 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
   const reportMonthLabel = selectedMonthLabel ?? (availableMonths.length === 1 ? formatMonthLabel(`${availableMonths[0]}-01`) : "available months");
   const reportDateLabel = selectedDate ? formatDateLabel(selectedDate) : `All ${reportMonthLabel}`;
   const reportRoleLabel = roleFilter === "all" ? "All roles" : roleFilter;
+  // Time in Trade by principal follows this report's Month filter (weeks within that month); with
+  // "All months" it shows the current month. (The dashboard's own period bar is hidden on this tab.)
+  const timeInTradeMonth = selectedMonth ?? recentMonthOptions(new Date())[0];
+  const timeInTradePeriod: PeriodSelection = { kind: "MONTH", year: timeInTradeMonth.slice(0, 4), month: CANONICAL_MONTHS[Number(timeInTradeMonth.slice(5, 7)) - 1] };
 
   return (
     <div className="flex flex-col gap-4">
-      <SfaReportNavigator current="pine" onNavigate={(key) => onNavigate(SFA_KEY_TO_MODULE[key])} />
-      <SectionCard
-        title="SalesEdge timestamps"
-        action={
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted">{selectedMonthLabel ?? "Current month"} · weekends/holidays shown; monthly averages stay Mon–Fri, excluding Kenyan holidays</span>
-            <InlineReportExport reportKey="timestamps" repFilter={selectedRep} allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
-          </div>
-        }
-      >
-        <div className="flex flex-wrap items-end gap-3">
-          <PrincipalSelector />
+      <section aria-label="Time in Trade filters" className="rounded-2xl border border-border bg-surface px-4 py-3 shadow-[0_4px_14px_rgba(11,61,53,0.08)]">
+        <div className="flex flex-wrap items-end gap-x-2.5 gap-y-3">
+          <TimestampSystemSelect current="pine" onNavigate={(key) => onNavigate(SFA_KEY_TO_MODULE[key])} />
+          <PrincipalSelector bare />
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Month</span>
             <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
@@ -703,7 +705,7 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
                   setRepQuery("");
                   setSummaryLimit(SUMMARY_PAGE_SIZE);
                 }}
-                className="max-w-[180px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+                className="max-w-[140px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
               >
                 <option value="">All months</option>
                 {availableMonths.map((month) => <option key={month} value={month}>{formatMonthLabel(`${month}-01`)}</option>)}
@@ -730,8 +732,47 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
             </div>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Filter by rep</span>
-            <div className="relative w-56">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Region</span>
+            <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+              <select
+                aria-label="Region"
+                value={selectedRegion ?? ""}
+                onChange={(event) => {
+                  setSelectedRegion(event.target.value || null);
+                  setSelectedRep(null);
+                  setRepQuery("");
+                  setSummaryLimit(SUMMARY_PAGE_SIZE);
+                }}
+                className="max-w-[150px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+              >
+                <option value="">All regions</option>
+                {summary.availableRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Team Leader</span>
+            <div className="flex items-center rounded-full border border-border bg-background-elevated px-3 py-1.5">
+              <select
+                aria-label="Team Leader"
+                value={selectedTeamLeader ?? ""}
+                onChange={(event) => {
+                  // The rep list below narrows to this Team Leader's reps (server-side), so a rep picked for another Team Leader is cleared.
+                  setSelectedTeamLeader(event.target.value || null);
+                  setSelectedRep(null);
+                  setRepQuery("");
+                  setSummaryLimit(SUMMARY_PAGE_SIZE);
+                }}
+                className="max-w-[170px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
+              >
+                <option value="">All Team Leaders</option>
+                {summary.availableTeamLeaders.map((tl) => <option key={tl} value={tl}>{tl}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Rep</span>
+            <div className="relative w-36">
               <input
                 value={selectedRep ? selectedRepName ?? "" : repQuery}
                 onChange={(event) => {
@@ -741,7 +782,7 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
                 }}
                 onFocus={() => setRepDropdownOpen(true)}
                 onBlur={() => setTimeout(() => setRepDropdownOpen(false), 150)}
-                placeholder="Search reps..."
+                placeholder={selectedTeamLeader ? `Reps of ${selectedTeamLeader}…` : "Search reps…"}
                 className="w-full rounded-full border border-border bg-surface px-3.5 py-1.5 pr-8 text-xs text-foreground outline-none focus:border-secondary-blue"
               />
               {selectedRep ? (
@@ -777,27 +818,35 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Sales role</span>
             <RoleToggle value={roleFilter} onChange={(role) => { setRoleFilter(role); setSelectedRep(null); setRepQuery(""); setSelectedRegion(null); setSummaryLimit(SUMMARY_PAGE_SIZE); }} />
           </div>
-          <span className="mb-1 ml-auto text-xs text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatInstantTime12h(summary.syncUpdatedAt)}` : ""}</span>
         </div>
-      </SectionCard>
+      </section>
 
-      <nav aria-label="Timestamps dashboard views" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {([
-          ["overview", "Overview", "Call volume, sales and case quantity"],
-          ["reps", "Rep performance", "Productive days and outlet drill-down"],
-          ["time", "Time management", "Start, finish and in-day productivity"],
-        ] as const).map(([slide, label, description]) => (
-          <button
-            key={slide}
-            type="button"
-            onClick={() => setActiveSlide(slide)}
-            aria-pressed={activeSlide === slide}
-            className={`rounded-xl border px-4 py-3 text-left transition-all ${activeSlide === slide ? "border-primary-blue bg-primary-blue text-white shadow-cyan-glow" : "border-border bg-surface text-brand-navy hover:border-secondary-blue hover:bg-accent-blue-soft"}`}
-          >
-            <span className="block text-sm font-bold">{label}</span>
-            <span className={`mt-0.5 block text-xs ${activeSlide === slide ? "text-white/80" : "text-muted"}`}>{description}</span>
-          </button>
-        ))}
+      <nav aria-label="Time in Trade views" className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-full border border-border bg-surface p-1 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          {([
+            ["overview", "Overview", "Call volume, sales, cases and time in trade by principal"],
+            ["reps", "Rep performance", "Productive days and outlet drill-down"],
+            ["time", "Timestamps", "Start, finish and in-day productivity per rep"],
+          ] as const).map(([slide, label, description]) => (
+            <button
+              key={slide}
+              type="button"
+              title={description}
+              onClick={() => setActiveSlide(slide)}
+              aria-pressed={activeSlide === slide}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${activeSlide === slide ? "bg-primary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted" title="Weekends and holidays are shown; monthly averages stay Mon–Fri, excluding Kenyan holidays.">
+          SalesEdge · {selectedMonthLabel ?? "Current month"} · averages Mon–Fri excl. holidays
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          <span className="text-[11px] text-muted">Live sync: 5 min{summary.syncUpdatedAt ? ` · ${formatInstantTime12h(summary.syncUpdatedAt)}` : ""}</span>
+          <InlineReportExport reportKey="timestamps" repFilter={selectedRep} allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} />
+        </div>
       </nav>
 
       {!hasData ? (
@@ -845,6 +894,7 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
         <p className="mt-3 text-xs text-muted">Cases use the source product UOM (pieces ÷ units per case). A dash means one or more sold products in that selection have not yet supplied a valid UOM.</p>
       </SectionCard>
 
+      <TimeInTradeView embedded period={timeInTradePeriod} role={roleFilter} principals={selectedPrincipalKeys} />
       </> : null}
 
       {activeSlide === "reps" ? <>
@@ -915,43 +965,7 @@ export function TimestampsPineView({ onNavigate }: { onNavigate: (key: Timestamp
         }
       >
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-xs font-semibold text-primary-blue">Time management</span>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-elevated px-3 py-1.5">
-            <label htmlFor="timestamp-region" className="text-[10px] font-semibold uppercase tracking-wide text-muted">Region</label>
-            <select
-              id="timestamp-region"
-              aria-label="Region"
-              value={selectedRegion ?? ""}
-              onChange={(event) => {
-                setSelectedRegion(event.target.value || null);
-                setSelectedRep(null);
-                setRepQuery("");
-                setSummaryLimit(SUMMARY_PAGE_SIZE);
-              }}
-              className="max-w-[150px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
-            >
-              <option value="">All regions</option>
-              {summary.availableRegions.map((region) => <option key={region} value={region}>{region}</option>)}
-            </select>
-          </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-elevated px-3 py-1.5">
-            <label htmlFor="timestamp-team-leader" className="text-[10px] font-semibold uppercase tracking-wide text-muted">Team Leader</label>
-            <select
-              id="timestamp-team-leader"
-              aria-label="Team Leader"
-              value={selectedTeamLeader ?? ""}
-              onChange={(event) => {
-                setSelectedTeamLeader(event.target.value || null);
-                setSelectedRep(null);
-                setRepQuery("");
-                setSummaryLimit(SUMMARY_PAGE_SIZE);
-              }}
-              className="max-w-[160px] bg-transparent text-xs font-semibold text-muted-strong outline-none"
-            >
-              <option value="">All Team Leaders</option>
-              {summary.availableTeamLeaders.map((tl) => <option key={tl} value={tl}>{tl}</option>)}
-            </select>
-          </div>
+          <span className="mr-1 text-xs font-semibold text-primary-blue">Start times</span>
           <button onClick={() => { setTimeManagementFilter("all"); setSummaryLimit(SUMMARY_PAGE_SIZE); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${timeManagementFilter === "all" ? "bg-dark-navy text-white" : "bg-background-elevated text-muted-strong hover:bg-surface-active"}`}>
             All reps
           </button>
