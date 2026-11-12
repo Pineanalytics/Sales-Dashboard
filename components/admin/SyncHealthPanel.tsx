@@ -5,6 +5,7 @@ import { TriggerSalesReturnsButton } from "@/components/admin/TriggerSalesReturn
 import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsControlButton";
 import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
 import { TriggerUklSalesExportButton } from "@/components/admin/TriggerUklSalesExportButton";
+import { RefreshSyncButton } from "@/components/admin/RefreshSyncButton";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -63,6 +64,11 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight">{r.cadenceLabel}</Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.lastUpdated?.toLocaleString()}>
                   {formatLastUpdated(r.lastUpdated)}
+                  {r.jobRun?.lastOk === false && (
+                    <div className="mt-1 text-[10px] leading-tight text-red-600" title={r.jobRun.lastError ?? undefined}>
+                      Last run failed{r.jobRun.lastFinishedAt ? ` ${formatLastUpdated(r.jobRun.lastFinishedAt)}` : ""}{r.jobRun.lastError ? `: ${r.jobRun.lastError.slice(0, 120)}` : ""}
+                    </div>
+                  )}
                   {r.extractionRun && (
                     <div className="mt-1 break-all font-mono text-[10px] text-muted" title={`Window: ${r.extractionRun.windowStart.toLocaleDateString()} to ${r.extractionRun.windowEnd.toLocaleDateString()}`}>
                       {r.extractionRun.serial} · {r.extractionRun.status.toLowerCase()}
@@ -71,7 +77,7 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.expectedBy?.toLocaleString()}>{formatLastUpdated(r.expectedBy)}</Td>
                 <Td align="center" className="!whitespace-normal !px-2 !py-2">
-                  <Badge tier={r.isStale ? "bad" : "good"}>{r.isStale ? "Stale" : r.manualOnly ? "Ready" : "Fresh"}</Badge>
+                  <Badge tier={r.awaitingFirstRun ? "neutral" : r.isStale ? "bad" : "good"}>{r.awaitingFirstRun ? "Awaiting first run" : r.isStale ? "Stale" : r.manualOnly ? "Ready" : "Fresh"}</Badge>
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2">
                   {r.triggerDistributor ? (
@@ -79,6 +85,8 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                       <TriggerSalesReturnsButton distributor={r.triggerDistributor} label={r.label} />
                       <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
                     </div>
+                  ) : r.job ? (
+                    <RefreshSyncButton job={r.job} label={r.label} heavyWarning={r.heavyWarning} initial={r.activeRefresh} />
                   ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : r.triggerUklSalesExport ? <TriggerUklSalesExportButton /> : null}
                   {r.eablSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
                   {r.uklSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">{r.uklSalesExport.claimedCount ? `${r.uklSalesExport.claimedCount} running` : ""}{r.uklSalesExport.claimedCount && r.uklSalesExport.pendingCount ? " · " : ""}{r.uklSalesExport.pendingCount ? `${r.uklSalesExport.pendingCount} queued` : ""}{!r.uklSalesExport.claimedCount && !r.uklSalesExport.pendingCount ? "No month queued." : ""}{r.uklSalesExport.lastSummary ? ` · Last: ${r.uklSalesExport.lastSummary}` : ""}</div>}

@@ -1534,6 +1534,36 @@ model SyncWatermark {
   updatedAt         DateTime  @updatedAt
 }
 
+// "Refresh now" on Admin > Data & sync. The sync workers are separate containers with no HTTP
+// entry point, so an admin's click is queued here and the worker that owns the job claims it
+// within seconds (scripts/continuous-sync-worker.ts) and runs it ahead of its next slot.
+model SyncRunRequest {
+  id            String    @id @default(cuid())
+  job           String // a name from lib/syncJobs.ts
+  status        String    @default("PENDING") // "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
+  requestedBy   String?
+  requestedAt   DateTime  @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  resultSummary String?
+
+  @@index([job, status])
+  @@index([status, requestedAt])
+}
+
+// The latest outcome of every worker job, scheduled or manual, upserted by the worker after each
+// run. It is the freshness signal for jobs that have no data table of their own to read.
+model SyncJobStatus {
+  job            String    @id
+  lastStartedAt  DateTime?
+  lastFinishedAt DateTime?
+  lastOk         Boolean?
+  lastSuccessAt  DateTime?
+  lastError      String?
+  lastDurationMs Int?
+  updatedAt      DateTime  @updatedAt
+}
+
 // Monthly trend for Active Outlets: distinct outlets per Cost Centre, split
 // Primary/Secondary, RE-COUNTED per month — never derived by summing
 // ActiveOutlet rows across months (same "unique not repeated sums" rule
