@@ -1188,6 +1188,18 @@ model CoverageActual {
 // drives operational activity (coverage, productivity, JPA, timestamps), while
 // SAP is the source of truth for transaction value and volume. `absolutePrincipal`
 // is deliberately sourced only from the Employee Roaster sheet.
+// A timestamp roster suggestion (a RepCall employeeCode with no EmployeeMaster
+// row — see lib/employeeRosterSuggestions.ts) that a roster editor dismissed:
+// a test login, a van code, someone who has left. The suggestion stops showing
+// on /admin/employee-master; deleting this row (Restore) brings it back.
+// Additive table, nothing else reads it.
+model RosterSuggestionDismissal {
+  employeeCode String   @id
+  salesRep     String?
+  dismissedBy  String
+  dismissedAt  DateTime @default(now())
+}
+
 model EmployeeMaster {
   id                String   @id @default(cuid())
   employeeCode      String   @unique

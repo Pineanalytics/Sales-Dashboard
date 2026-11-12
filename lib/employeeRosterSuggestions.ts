@@ -14,6 +14,7 @@ export interface TimestampRosterSuggestion {
  * New timestamp reps do not get silently assigned. This worklist only proposes the
  * absolute principal they sold most often over the last 90 days, so a roster editor
  * can review and explicitly accept or amend the mapping before it affects reporting.
+ * A code a roster editor dismissed (RosterSuggestionDismissal) is left out until restored.
  */
 export async function getTimestampRosterSuggestions(principals?: string[]): Promise<TimestampRosterSuggestion[]> {
   const since = new Date();
@@ -33,8 +34,10 @@ export async function getTimestampRosterSuggestions(principals?: string[]): Prom
         ) AS rank
       FROM "RepCall" r
       LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+      LEFT JOIN "RosterSuggestionDismissal" dismissed ON dismissed."employeeCode" = r."employeeCode"
       CROSS JOIN LATERAL unnest(string_to_array(r."costCentresBought", ',')) AS cost_centre("value")
       WHERE em.id IS NULL
+        AND dismissed."employeeCode" IS NULL
         AND r.date >= ${since}
         AND r."callOutcome" = 'Sale'
         AND BTRIM(cost_centre."value") <> ''
@@ -48,4 +51,16 @@ export async function getTimestampRosterSuggestions(principals?: string[]): Prom
 
   const allowed = principals?.length ? new Set(principals) : null;
   return rows.filter((row) => !allowed || allowed.has(row.suggestedPrincipal));
+}
+
+export interface DismissedRosterSuggestion {
+  employeeCode: string;
+  salesRep: string | null;
+  dismissedBy: string;
+  dismissedAt: Date;
+}
+
+/** The suggestions a roster editor dismissed, newest first, so they can be restored. */
+export async function getDismissedRosterSuggestions(): Promise<DismissedRosterSuggestion[]> {
+  return prisma.rosterSuggestionDismissal.findMany({ orderBy: { dismissedAt: "desc" } });
 }
