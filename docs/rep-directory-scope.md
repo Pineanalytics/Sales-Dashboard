@@ -1,7 +1,7 @@
 # Rep directory and roster linking: scope
 
-Status: **scope only, nothing built.** Written 2026-11-12 on branch
-`feat/rep-directory-scope`. Decisions needed from the business are in section 8.
+Status: **phase 1 deployed 2026-11-12 (PR 259); phase 2 built on `feat/rep-directory-phase2`, not yet deployed; phases 3 and 4 not built.**
+Decisions in section 8 were all answered yes on 2026-11-12.
 
 ## 1. What is wanted
 

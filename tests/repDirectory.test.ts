@@ -166,13 +166,26 @@ describe("syncRepDirectory", () => {
 
 describe("rosterMatchesFor", () => {
   const sam = { employeeCode: "1111", name: "Sam Otieno", active: true };
+  const named = { ...sam, linked: false };
   const indexes = { bySapName: new Map([["sam otieno", [sam]]]), byPineName: new Map([["sam otieno", [sam]]]), byCode: new Map([["1111", sam]]) };
 
-  it("matches SAP by SAP name and Pine by user id first, then by Pine name; derived sources never match yet", () => {
-    expect(rosterMatchesFor({ source: "SAP", sourceKey: "9", normalizedName: "sam otieno" }, indexes)).toEqual([sam]);
-    expect(rosterMatchesFor({ source: "PINE", sourceKey: "1111", normalizedName: "someone else" }, indexes)).toEqual([sam]);
-    expect(rosterMatchesFor({ source: "PINE", sourceKey: "5", normalizedName: "sam otieno" }, indexes)).toEqual([sam]);
+  it("matches SAP by SAP name and Pine by user id first, then by Pine name, all marked as name matches", () => {
+    expect(rosterMatchesFor({ source: "SAP", sourceKey: "9", normalizedName: "sam otieno" }, indexes)).toEqual([named]);
+    expect(rosterMatchesFor({ source: "PINE", sourceKey: "1111", normalizedName: "someone else" }, indexes)).toEqual([named]);
+    expect(rosterMatchesFor({ source: "PINE", sourceKey: "5", normalizedName: "sam otieno" }, indexes)).toEqual([named]);
     expect(rosterMatchesFor({ source: "PINE", sourceKey: "5", normalizedName: "nobody" }, indexes)).toEqual([]);
+  });
+
+  it("derived sources match only by an explicit link", () => {
     expect(rosterMatchesFor({ source: "LEVERAGE", sourceKey: "NAIROBI|R1", normalizedName: "sam otieno" }, indexes)).toEqual([]);
+    const linked = new Map([["LEVERAGE|NAIROBI|R1", [sam]]]);
+    expect(rosterMatchesFor({ source: "LEVERAGE", sourceKey: "NAIROBI|R1", normalizedName: "sam otieno" }, { ...indexes, linked })).toEqual([{ ...sam, linked: true }]);
+  });
+
+  it("lists explicit links first and does not repeat an employee who is both linked and a name match", () => {
+    const other = { employeeCode: "2222", name: "Sam Otieno Jr", active: true };
+    const linked = new Map([["SAP|9", [other, sam]]]);
+    const result = rosterMatchesFor({ source: "SAP", sourceKey: "9", normalizedName: "sam otieno" }, { ...indexes, linked });
+    expect(result.map((match) => [match.employeeCode, match.linked])).toEqual([["2222", true], ["1111", true]]);
   });
 });

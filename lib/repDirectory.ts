@@ -123,6 +123,8 @@ export interface RosterMatch {
   employeeCode: string;
   name: string;
   active: boolean;
+  /** True for an explicit link (made on the roster or this page); false for a name match only. */
+  linked?: boolean;
 }
 
 export interface RepDirectoryRow {
@@ -140,7 +142,7 @@ export interface RepDirectoryRow {
   loginName: string | null;
   lastActivityAt: Date | null;
   lastSeenAt: Date;
-  /** Roster employees that look like this identity. Phase 1 matches by name (and the Pine user id); explicit links come in phase 2. */
+  /** Roster employees linked to this identity, then (SAP and Pine) ones that match it by name or Pine user id without a link. */
   roster: RosterMatch[];
 }
 
@@ -165,25 +167,29 @@ function isSource(value: unknown): value is RepSource {
   return typeof value === "string" && (REP_SOURCES as readonly string[]).includes(value);
 }
 
-/** Roster employees that look like this directory identity, by the matching the dashboard does today: SAP by SAP name, Pine by user id
- *  (the roster's employee code) or Pine name. Derived sources have no roster link until phase 2. */
+/** Roster employees for this directory identity: the ones explicitly linked to it, then (SAP and Pine only) any that match it by the
+ *  dashboard's name matching without a link: SAP by SAP name, Pine by user id (the roster's employee code) or Pine name. Derived sources
+ *  match only by link. */
 export function rosterMatchesFor(
   entry: { source: string; sourceKey: string; normalizedName: string },
-  indexes: { bySapName: Map<string, RosterMatch[]>; byPineName: Map<string, RosterMatch[]>; byCode: Map<string, RosterMatch> }
+  indexes: { bySapName: Map<string, RosterMatch[]>; byPineName: Map<string, RosterMatch[]>; byCode: Map<string, RosterMatch>; linked?: Map<string, RosterMatch[]> }
 ): RosterMatch[] {
-  if (entry.source === "SAP") return indexes.bySapName.get(entry.normalizedName) ?? [];
-  if (entry.source === "PINE") {
+  const linked = (indexes.linked?.get(`${entry.source}|${entry.sourceKey}`) ?? []).map((match) => ({ ...match, linked: true }));
+  let byName: RosterMatch[] = [];
+  if (entry.source === "SAP") byName = indexes.bySapName.get(entry.normalizedName) ?? [];
+  else if (entry.source === "PINE") {
     const byCode = indexes.byCode.get(entry.sourceKey);
-    if (byCode) return [byCode];
-    return indexes.byPineName.get(entry.normalizedName) ?? [];
+    byName = byCode ? [byCode] : indexes.byPineName.get(entry.normalizedName) ?? [];
   }
-  return [];
+  const taken = new Set(linked.map((match) => match.employeeCode));
+  return [...linked, ...byName.filter((match) => !taken.has(match.employeeCode)).map((match) => ({ ...match, linked: false }))];
 }
 
 export async function getRepDirectoryOverview(filters: RepDirectoryFilters): Promise<RepDirectoryOverview> {
-  const [employees, summary] = await Promise.all([
+  const [employees, summary, links] = await Promise.all([
     prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, active: true } }),
     prisma.repDirectoryEntry.groupBy({ by: ["source", "isActive"], _count: { _all: true }, _max: { lastSeenAt: true } }),
+    prisma.employeeRepLink.findMany({ select: { employeeCode: true, source: true, sourceKey: true } }),
   ]);
 
   const bySapName = new Map<string, RosterMatch[]>();
@@ -198,7 +204,12 @@ export async function getRepDirectoryOverview(filters: RepDirectoryFilters): Pro
       map.set(key, [...(map.get(key) ?? []), match]);
     }
   }
-  const indexes = { bySapName, byPineName, byCode };
+  const linked = new Map<string, RosterMatch[]>();
+  for (const link of links) {
+    const employee = byCode.get(link.employeeCode);
+    if (employee) linked.set(`${link.source}|${link.sourceKey}`, [...(linked.get(`${link.source}|${link.sourceKey}`) ?? []), employee]);
+  }
+  const indexes = { bySapName, byPineName, byCode, linked };
 
   const q = (filters.q ?? "").trim();
   const normalizedQ = normalizeRepName(q);
@@ -244,7 +255,7 @@ export async function getRepDirectoryOverview(filters: RepDirectoryFilters): Pro
   if (filters.roster === "on") rows = rows.filter((row) => row.roster.length > 0);
   if (filters.roster === "off") rows = rows.filter((row) => row.roster.length === 0);
 
-  // Per-source counts for the header cards. "Off roster" counts active field reps with no roster match, for the two sources the roster can match today.
+  // Per-source counts for the header cards. "Off roster" counts active field reps with no roster link or name match, for SAP and Pine.
   const allActiveField = await prisma.repDirectoryEntry.findMany({
     where: { isActive: true, isFieldRep: true, source: { in: ["SAP", "PINE"] } },
     select: { source: true, sourceKey: true, normalizedName: true },

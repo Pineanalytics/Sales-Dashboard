@@ -1235,7 +1235,14 @@ model EmployeeMaster {
   updatedAt         DateTime @updatedAt
   createdAt         DateTime @default(now())
 
+  // The explicit link to this person's SAP salesperson (OSLP.SlpCode) and Pine user (users.id), set from the roster or the
+  // rep directory (docs/rep-directory-scope.md). Null until linked; sapName and pineName above stay the text the existing
+  // matching reads, and a link rewrites them to the directory's exact spelling.
+  sapSlpCode        Int?
+  pineUserId        Int?
+
   contributions EmployeePrincipalContribution[]
+  repLinks      EmployeeRepLink[]
 
   @@index([absolutePrincipal])
   @@index([active])
@@ -1579,6 +1586,38 @@ model RepDirectoryEntry {
   @@unique([source, sourceKey])
   @@index([normalizedName])
   @@index([source, isActive])
+}
+
+// Which rep-directory identity a roster employee is, per source. One link per employee per source; several employees may
+// point at one identity (a person with more than one roster code), which the roster shows as "shared".
+model EmployeeRepLink {
+  id           String         @id @default(cuid())
+  employeeCode String
+  source       String // a RepDirectoryEntry.source
+  sourceKey    String // that entry's sourceKey
+  linkedBy     String?
+  linkedAt     DateTime       @default(now())
+  employee     EmployeeMaster @relation(fields: [employeeCode], references: [employeeCode], onDelete: Cascade)
+
+  @@unique([employeeCode, source])
+  @@index([source, sourceKey])
+}
+
+// Append-only history of every link change, so a wrong click can be seen and undone. Kept when the employee is deleted.
+model EmployeeRepLinkChange {
+  id           String   @id @default(cuid())
+  employeeCode String
+  source       String
+  action       String // "LINK" | "RELINK" | "UNLINK" | "ACCEPT_PROPOSAL"
+  fromKey      String?
+  fromName     String?
+  toKey        String?
+  toName       String?
+  changedBy    String?
+  changedAt    DateTime @default(now())
+
+  @@index([employeeCode, changedAt])
+  @@index([changedAt])
 }
 
 // The latest outcome of every worker job, scheduled or manual, upserted by the worker after each
