@@ -61,6 +61,11 @@ const jobs: Record<JobName, JobDefinition> = {
   pl: { name: "pl", entry: "scripts/pl-bridge/run.ts", intervalEnv: "PL_INTERVAL_SECONDS", defaultSeconds: 1800 },
   stock: { name: "stock", entry: "scripts/db-bridge/stock-sync.ts", intervalEnv: "STOCK_INTERVAL_SECONDS", defaultSeconds: 1800 },
   receivables: { name: "receivables", entry: "scripts/db-bridge/receivables/run.ts", intervalEnv: "RECEIVABLES_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  // The rep directory (docs/rep-directory-scope.md): SAP's salesperson master and Pine's user list each read in full (a few hundred and
+  // under a thousand rows), and a Postgres-only pass that derives the reps of Leverage, DataEdge and EABL DMS from stored sales rows.
+  "sap-reps": { name: "sap-reps", entry: "scripts/db-bridge/rep-directory/sap-reps.ts", intervalEnv: "SAP_REPS_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  "pine-reps": { name: "pine-reps", entry: "scripts/db-bridge/rep-directory/pine-reps.ts", intervalEnv: "PINE_REPS_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  "rep-directory": { name: "rep-directory", entry: "scripts/db-bridge/rep-directory/derive.ts", intervalEnv: "REP_DIRECTORY_INTERVAL_SECONDS", defaultSeconds: 1800 },
 };
 
 function intervalMs(job: JobDefinition): number {

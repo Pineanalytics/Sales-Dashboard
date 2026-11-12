@@ -17,6 +17,9 @@ export const SYNC_JOB_NAMES = [
   "pl",
   "stock",
   "receivables",
+  "sap-reps",
+  "pine-reps",
+  "rep-directory",
 ] as const;
 
 export type SyncJobName = (typeof SYNC_JOB_NAMES)[number];
@@ -42,6 +45,9 @@ export const SYNC_JOB_INFO: Record<SyncJobName, SyncJobInfo> = {
   pl: { label: "P&L (SAP)" },
   stock: { label: "Stock (SAP)" },
   receivables: { label: "Receivables (SAP)" },
+  "sap-reps": { label: "Rep directory: SAP salespeople" },
+  "pine-reps": { label: "Rep directory: Pine users" },
+  "rep-directory": { label: "Rep directory: Leverage, DataEdge, EABL" },
 };
 
 export function isSyncJobName(value: unknown): value is SyncJobName {
@@ -50,6 +56,6 @@ export function isSyncJobName(value: unknown): value is SyncJobName {
 
 /** The jobs that have no row of their own in Sync Health (their data tables have no usable freshness
  *  column), so the panel adds one for them from the worker's own run record. */
-export const SYNC_JOBS_WITHOUT_HEALTH_ROW: readonly SyncJobName[] = ["sfa-sales", "purchases", "coverage", "mars-kpis", "eabl", "eabl-customers", "performance"];
+export const SYNC_JOBS_WITHOUT_HEALTH_ROW: readonly SyncJobName[] = ["sfa-sales", "purchases", "coverage", "mars-kpis", "eabl", "eabl-customers", "performance", "sap-reps", "pine-reps", "rep-directory"];
 
 export type SyncRunState = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";

@@ -19,6 +19,7 @@ const destinations: AdminDestination[] = [
   { href: "/admin/users", label: "Users & access", group: "People", keywords: "users accounts permissions approvals roles access", roles: ["ADMIN"] },
   { href: "/admin/team-leaders", label: "Team hierarchy", group: "People", keywords: "team leader supervisor manager roster assignment reps", roles: ["ADMIN", "SUPERVISOR"] },
   { href: "/admin/employee-master", label: "Employee roster", group: "People", keywords: "employee rep pine sap people roster", roles: ["ADMIN", "TEAM_LEADER"] },
+  { href: "/admin/rep-directory", label: "Rep directory", group: "People", keywords: "rep directory sap pine sfa leverage dataedge eabl salesperson names search link", roles: ["ADMIN"] },
   { href: "/admin/targets", label: "Monthly targets", group: "Planning", keywords: "monthly target principal value volume coverage productivity", roles: ["ADMIN"] },
   { href: "/admin/gp-targets", label: "GP margin targets", group: "Planning", keywords: "gross profit margin target principal brand finance", roles: ["ADMIN"] },
   { href: "/admin/upfield-outlets", label: "Upfield outlet list", group: "Reference", keywords: "upfield outlet customer master channel type route fsr dataedge upload", roles: ["ADMIN"] },

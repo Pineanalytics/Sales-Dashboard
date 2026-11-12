@@ -261,6 +261,9 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     jobRow("mars-kpis", "Every 30 minutes (full resync ~daily)", 90 / 60),
     jobRow("eabl", "Every minute", 20 / 60),
     jobRow("eabl-customers", "Every 6 hours", 8),
+    jobRow("sap-reps", "Every 30 minutes (SAP salesperson list)", 90 / 60),
+    jobRow("pine-reps", "Every 30 minutes (Pine user list)", 90 / 60),
+    jobRow("rep-directory", "Every 30 minutes (from stored sales rows)", 90 / 60),
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
     // 4 fixed times/day (10:00/12:00/17:00/20:00 Africa/Nairobi); the
     // overnight 20:00->10:00 gap is ~14h, so the threshold allows a 1h buffer
