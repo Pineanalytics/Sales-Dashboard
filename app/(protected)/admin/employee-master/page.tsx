@@ -3,10 +3,18 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getKnownPrincipals, getKnownSapSalesReps } from "@/lib/adminReference";
-import { getTimestampRosterSuggestions } from "@/lib/employeeRosterSuggestions";
+import { getDismissedRosterSuggestions, getTimestampRosterSuggestions } from "@/lib/employeeRosterSuggestions";
 import { getUnresolvedEmployeeIdentities } from "@/lib/employeeIdentity";
 import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable } from "@/components/admin/AdminPage";
-import { saveEmployeeMasterAction, toggleEmployeeMasterActiveAction, resolveEmployeeIdentityAction } from "./actions";
+import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
+import {
+  saveEmployeeMasterAction,
+  toggleEmployeeMasterActiveAction,
+  resolveEmployeeIdentityAction,
+  deleteEmployeeMasterAction,
+  dismissRosterSuggestionAction,
+  restoreRosterSuggestionAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +69,7 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
       : {}),
   };
 
-  const [employees, suggestions, knownPrincipals, sapSalesRepOptions, unresolvedIdentities] = await Promise.all([
+  const [employees, suggestions, knownPrincipals, sapSalesRepOptions, unresolvedIdentities, allDismissedSuggestions] = await Promise.all([
     prisma.employeeMaster.findMany({
       where: rosterWhere,
       include: { contributions: { orderBy: { principal: "asc" } } },
@@ -71,7 +79,18 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
     getKnownPrincipals(),
     getKnownSapSalesReps(),
     isAdmin ? getUnresolvedEmployeeIdentities() : Promise.resolve([]),
+    getDismissedRosterSuggestions(),
   ]);
+  // A Team Leader sees (and can restore) only what they dismissed; an admin sees every dismissal.
+  const dismissedSuggestions = isAdmin ? allDismissedSuggestions : allDismissedSuggestions.filter((row) => row.dismissedBy === session.user.email);
+  // How many Team Leader assignments a Delete would take with it, for the confirmation (admin only — only admins can delete).
+  const assignmentCountByCode = new Map(
+    isAdmin
+      ? (await prisma.teamLeaderAssignment.groupBy({ by: ["employeeCode"], where: { employeeCode: { in: [...employees.map((e) => e.employeeCode), ...unresolvedIdentities.map((rep) => rep.employeeCode)] } }, _count: { _all: true } })).map((row) => [row.employeeCode, row._count._all])
+      : []
+  );
+  const deleteMessage = (name: string, code: string, assignmentCount: number) =>
+    `Permanently delete ${name} (${code}) from the roster${assignmentCount > 0 ? ` together with ${assignmentCount} Team Leader assignment${assignmentCount === 1 ? "" : "s"}` : ""}? This can't be undone — Deactivate keeps the record instead.`;
 
   const teamLeaderNameById = new Map(teamLeaders.map((leader) => [leader.id, leader.name]));
   const editing = params.edit ? employees.find((employee) => employee.employeeCode === params.edit) : undefined;
@@ -123,14 +142,14 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
         </form>
       </section> : null}
 
-      {suggestions.length > 0 || unresolvedIdentities.length > 0 ? <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      {suggestions.length > 0 || unresolvedIdentities.length > 0 || dismissedSuggestions.length > 0 ? <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
       {suggestions.length > 0 ? <AdminDisclosure
         defaultOpen
         title="New reps seen in productive calls"
         badge={<AdminBadge tone="attention">{suggestions.length} to review</AdminBadge>}
         description="The suggested principal is the most frequent sales cost centre in the last 90 days. It is not applied until you add the rep."
       >
-        <div className="grid max-h-[460px] gap-3 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">{suggestions.map((suggestion) => <div key={suggestion.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-brand-navy">{suggestion.salesRep}</p><p className="text-xs text-muted">{suggestion.employeeCode}</p></div><span className="rounded-full bg-accent-green-soft px-2 py-0.5 text-[10px] font-semibold text-accent-green">{suggestion.productiveCalls} sales</span></div><p className="mt-3 text-xs text-muted">Suggested absolute principal</p><p className="text-sm font-semibold text-secondary-blue">{suggestion.suggestedPrincipal}</p><p className="mt-1 text-[11px] text-muted">Last call {suggestion.latestCallDate.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</p><Link href={`/admin/employee-master?add=${encodeURIComponent(suggestion.employeeCode)}`} className="mt-3 inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover">Review and add</Link></div>)}</div>
+        <div className="grid max-h-[460px] gap-3 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">{suggestions.map((suggestion) => <div key={suggestion.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-brand-navy">{suggestion.salesRep}</p><p className="text-xs text-muted">{suggestion.employeeCode}</p></div><span className="rounded-full bg-accent-green-soft px-2 py-0.5 text-[10px] font-semibold text-accent-green">{suggestion.productiveCalls} sales</span></div><p className="mt-3 text-xs text-muted">Suggested absolute principal</p><p className="text-sm font-semibold text-secondary-blue">{suggestion.suggestedPrincipal}</p><p className="mt-1 text-[11px] text-muted">Last call {suggestion.latestCallDate.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}</p><div className="mt-3 flex flex-wrap items-center gap-2"><Link href={`/admin/employee-master?add=${encodeURIComponent(suggestion.employeeCode)}`} className="inline-flex rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-surface-hover">Review and add</Link><form action={dismissRosterSuggestionAction}><input type="hidden" name="employeeCode" value={suggestion.employeeCode} /><input type="hidden" name="salesRep" value={suggestion.salesRep} /><button type="submit" title="Not a rep to add (a test login, a van code, someone who has left). You can restore it below." className="rounded-full px-3 py-1.5 text-xs font-medium text-muted-strong hover:bg-background-elevated">Dismiss</button></form></div></div>)}</div>
       </AdminDisclosure> : null}
 
       {unresolvedIdentities.length > 0 ? <AdminDisclosure
@@ -141,10 +160,38 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
       >
         <div className="grid max-h-[460px] gap-3 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">
           {unresolvedIdentities.map((rep) => (
-            <div key={rep.employeeCode} className="rounded-xl border border-border bg-background-elevated/35 p-3">
+            <div key={rep.employeeCode} className="flex flex-col rounded-xl border border-border bg-background-elevated/35 p-3">
               <p className="font-semibold text-brand-navy">{rep.pineName}</p>
-              <p className="text-xs text-muted">{rep.employeeCode}</p>
-              {rep.candidates.length === 0 ? (
+              <p className="text-xs text-muted">Code: {rep.employeeCode} · {rep.recentCalls > 0 ? `${rep.recentCalls} call${rep.recentCalls === 1 ? "" : "s"} under this code in 90 days` : "no calls under this code in 90 days"}</p>
+              {rep.codeLooksLikeName || rep.sameNameMatches.length > 0 ? (
+                <div className="mt-2 rounded-lg border border-accent-amber/30 bg-accent-amber-soft/50 px-2.5 py-2 text-[11px] leading-snug text-muted-strong">
+                  {rep.codeLooksLikeName ? <p><strong className="text-accent-amber">The code is a name, not a roster code</strong> — this record was probably created by mistake.</p> : null}
+                  {rep.sameNameMatches.slice(0, 2).map((match) => (
+                    <p key={match.employeeCode} className={rep.codeLooksLikeName ? "mt-1" : undefined}>
+                      Same name as <strong>{match.pineName} ({match.employeeCode})</strong>
+                      {match.teamLeaderName ? <>, home Team Leader <strong>{match.teamLeaderName}</strong></> : ", who has no home Team Leader either"}.
+                    </p>
+                  ))}
+                  {rep.sameNameMatches.length > 0 ? <p className="mt-1">{rep.recentCalls > 0 ? "Calls still arrive under this code: link it to that Team Leader to keep them attributed." : "Nothing current uses this code: deleting the duplicate is safe."}</p> : null}
+                </div>
+              ) : null}
+              {rep.sameNameMatches.filter((match) => match.teamLeaderId && match.teamLeaderName).slice(0, 1).map((match) => (
+                <form key={match.employeeCode} action={resolveEmployeeIdentityAction} className="mt-2">
+                  <input type="hidden" name="employeeCode" value={rep.employeeCode} />
+                  <input type="hidden" name="teamLeaderId" value={match.teamLeaderId!} />
+                  <button
+                    type="submit"
+                    className={
+                      rep.recentCalls > 0
+                        ? "rounded-full bg-primary-blue px-3 py-1.5 text-xs font-semibold text-white hover:bg-secondary-blue"
+                        : "rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft"
+                    }
+                  >
+                    Link to {match.teamLeaderName} (same as {match.employeeCode})
+                  </button>
+                </form>
+              ))}
+              {rep.candidates.length === 0 && rep.sameNameMatches.length > 0 ? null : rep.candidates.length === 0 ? (
                 <div className="mt-3 flex flex-col gap-2">
                   <p className="text-xs text-muted">No active Team Leader assignment yet — nothing to resolve until this rep is assigned on Team Leaders.</p>
                   {isAdmin ? (
@@ -174,9 +221,51 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
                   </button>
                 </form>
               )}
+              <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
+                <form action={toggleEmployeeMasterActiveAction}>
+                  <input type="hidden" name="employeeCode" value={rep.employeeCode} />
+                  <button type="submit" title="Keeps the record but takes it off this list and out of the roster." className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">
+                    Deactivate
+                  </button>
+                </form>
+                <form action={deleteEmployeeMasterAction}>
+                  <input type="hidden" name="employeeCode" value={rep.employeeCode} />
+                  <ConfirmSubmitButton
+                    confirmMessage={deleteMessage(rep.pineName, rep.employeeCode, assignmentCountByCode.get(rep.employeeCode) ?? 0)}
+                    className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft"
+                  >
+                    Delete record
+                  </ConfirmSubmitButton>
+                </form>
+              </div>
             </div>
           ))}
         </div>
+      </AdminDisclosure> : null}
+
+      {dismissedSuggestions.length > 0 ? <AdminDisclosure
+        tone="note"
+        title="Dismissed suggestions"
+        badge={<AdminBadge>{dismissedSuggestions.length}</AdminBadge>}
+        description="Timestamp codes you chose not to add. Restore one to see it as a suggestion again."
+        className="xl:col-span-2"
+      >
+        <ul className="flex max-h-[260px] flex-col divide-y divide-border/60 overflow-y-auto">
+          {dismissedSuggestions.map((row) => (
+            <li key={row.employeeCode} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span>
+                <span className="font-medium text-foreground">{row.salesRep ?? row.employeeCode}</span>
+                <span className="ml-2 text-xs text-muted">
+                  {row.employeeCode} · dismissed {row.dismissedAt.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })} by {row.dismissedBy}
+                </span>
+              </span>
+              <form action={restoreRosterSuggestionAction}>
+                <input type="hidden" name="employeeCode" value={row.employeeCode} />
+                <button type="submit" className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Restore</button>
+              </form>
+            </li>
+          ))}
+        </ul>
       </AdminDisclosure> : null}
       </div> : null}
 
@@ -191,7 +280,7 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
           {isAdmin ? <label className={labelClass}>Team Leader<select name="teamLeader" defaultValue={selectedTeamLeader} className={inputClass}><option value="">All Team Leaders</option>{teamLeaderOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : <div className="hidden xl:block" />}
           <div className="flex items-end gap-2"><button type="submit" className="rounded-full bg-primary-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-secondary-blue">Apply filters</button>{filtersActive ? <Link href="/admin/employee-master" className="rounded-full border border-border px-4 py-2.5 text-sm font-semibold text-primary-blue hover:bg-surface-hover">Clear</Link> : null}</div>
         </form>
-        <div className="overflow-x-auto"><table className={adminTable.table}><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-2.5 text-left font-medium">Pine sales rep</th><th className="px-4 py-2.5 text-left font-medium">SAP sales rep</th><th className="px-4 py-2.5 text-left font-medium">Absolute principal</th><th className="px-4 py-2.5 text-left font-medium">JPA principals</th><th className="px-4 py-2.5 text-left font-medium">Role</th><th className="px-4 py-2.5 text-left font-medium">Team leader</th><th className="px-4 py-2.5 text-left font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Action</th></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-2.5">{employee.pineName} <span className="text-muted">({employee.employeeCode})</span></td><td className="border-b border-border/60 px-4 py-2.5">{employee.sapName}</td><td className="border-b border-border/60 px-4 py-2.5 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-2.5">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-2.5 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form></div></td></tr>)}{employees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
+        <div className="overflow-x-auto"><table className={adminTable.table}><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-2.5 text-left font-medium">Pine sales rep</th><th className="px-4 py-2.5 text-left font-medium">SAP sales rep</th><th className="px-4 py-2.5 text-left font-medium">Absolute principal</th><th className="px-4 py-2.5 text-left font-medium">JPA principals</th><th className="px-4 py-2.5 text-left font-medium">Role</th><th className="px-4 py-2.5 text-left font-medium">Team leader</th><th className="px-4 py-2.5 text-left font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Action</th></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-2.5">{employee.pineName} <span className="text-muted">({employee.employeeCode})</span></td><td className="border-b border-border/60 px-4 py-2.5">{employee.sapName}</td><td className="border-b border-border/60 px-4 py-2.5 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-2.5">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-2.5 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form>{isAdmin ? <form action={deleteEmployeeMasterAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><ConfirmSubmitButton confirmMessage={deleteMessage(employee.pineName, employee.employeeCode, assignmentCountByCode.get(employee.employeeCode) ?? 0)} className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft">Delete</ConfirmSubmitButton></form> : null}</div></td></tr>)}{employees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
       </AdminCard>
   </AdminPage>;
 }

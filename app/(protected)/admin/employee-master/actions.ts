@@ -136,3 +136,77 @@ export async function resolveEmployeeIdentityAction(formData: FormData) {
   });
   redirect(`${PAGE}?success=${encodeURIComponent("Identity resolved.")}`);
 }
+
+/** Admin-only: permanently removes one roster record — for a stray duplicate
+ *  (e.g. a record whose "code" is really a name) or someone who should never
+ *  have been added. Its Team Leader assignments go with it, each written to
+ *  the assignment audit log as a DELETE like the Team Leaders page's own
+ *  Delete; its principal contributions cascade. Refused while a login is
+ *  linked to the code (unlink it on Users & access first), so no account is
+ *  left pointing at a record that no longer exists. Deactivate is the
+ *  reversible alternative. */
+export async function deleteEmployeeMasterAction(formData: FormData) {
+  const session = await auth();
+  if (!session?.user || session.user.role !== "ADMIN") redirect("/");
+  const employeeCode = value(formData, "employeeCode");
+  if (!employeeCode) redirect(`${PAGE}?error=Missing%20employee%20code.`);
+
+  const [employee, linkedUser, assignments] = await Promise.all([
+    prisma.employeeMaster.findUnique({ where: { employeeCode } }),
+    prisma.user.findUnique({ where: { employeeCode }, select: { email: true } }),
+    prisma.teamLeaderAssignment.findMany({ where: { employeeCode } }),
+  ]);
+  if (!employee) redirect(`${PAGE}?error=Employee%20not%20found.`);
+  if (linkedUser) {
+    redirect(`${PAGE}?error=${encodeURIComponent(`${employee.pineName} (${employeeCode}) is linked to the login ${linkedUser.email}. Unlink it on Users & access before deleting.`)}`);
+  }
+
+  const supervisorIds = new Map(
+    (await prisma.teamLeader.findMany({ where: { id: { in: assignments.map((a) => a.teamLeaderId) } }, select: { id: true, supervisorId: true } })).map((tl) => [tl.id, tl.supervisorId])
+  );
+  await prisma.$transaction([
+    prisma.teamLeaderAssignment.deleteMany({ where: { employeeCode } }),
+    prisma.employeeMaster.delete({ where: { employeeCode } }),
+    ...assignments.map((a) =>
+      prisma.teamLeaderAssignmentAuditLog.create({
+        data: {
+          userEmail: session.user.email!,
+          action: "DELETE",
+          teamLeaderId: a.teamLeaderId,
+          supervisorId: supervisorIds.get(a.teamLeaderId) ?? null,
+          principal: a.principal,
+          employeeCode,
+          changes: { reason: { old: null, new: "Roster record deleted on Employee Roster" }, active: { old: a.active, new: false } },
+        },
+      })
+    ),
+  ]);
+  await recomputeDerived();
+  const removed = assignments.length > 0 ? ` and ${assignments.length} Team Leader assignment${assignments.length === 1 ? "" : "s"}` : "";
+  redirect(`${PAGE}?success=${encodeURIComponent(`Deleted ${employee.pineName} (${employeeCode})${removed}.`)}`);
+}
+
+/** Hides one timestamp roster suggestion (a test login, a van code, someone
+ *  who has left) until it is restored. Any roster editor can dismiss what
+ *  they can see. */
+export async function dismissRosterSuggestionAction(formData: FormData) {
+  const editor = await requireRosterEditor();
+  const employeeCode = value(formData, "employeeCode");
+  const salesRep = value(formData, "salesRep") || null;
+  if (!employeeCode) redirect(`${PAGE}?error=Missing%20employee%20code.`);
+  await prisma.rosterSuggestionDismissal.upsert({
+    where: { employeeCode },
+    create: { employeeCode, salesRep, dismissedBy: editor.user.email ?? "unknown" },
+    update: { salesRep, dismissedBy: editor.user.email ?? "unknown", dismissedAt: new Date() },
+  });
+  redirect(`${PAGE}?success=${encodeURIComponent(`Dismissed the suggestion for ${salesRep ?? employeeCode}.`)}`);
+}
+
+/** Brings a dismissed suggestion back (it shows again while its calls are within the 90-day window). */
+export async function restoreRosterSuggestionAction(formData: FormData) {
+  await requireRosterEditor();
+  const employeeCode = value(formData, "employeeCode");
+  if (!employeeCode) redirect(`${PAGE}?error=Missing%20employee%20code.`);
+  await prisma.rosterSuggestionDismissal.deleteMany({ where: { employeeCode } });
+  redirect(`${PAGE}?success=${encodeURIComponent(`Restored the suggestion for ${employeeCode}.`)}`);
+}
