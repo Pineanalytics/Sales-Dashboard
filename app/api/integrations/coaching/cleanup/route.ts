@@ -7,9 +7,11 @@ import * as open from "@/app/api/outlet-cleanup/open/route";
 import * as outlet from "@/app/api/outlet-cleanup/outlet/route";
 import * as progress from "@/app/api/outlet-cleanup/progress/route";
 import * as queue from "@/app/api/outlet-cleanup/queue/route";
+import * as report from "@/app/api/outlet-cleanup/report/route";
 import * as review from "@/app/api/outlet-cleanup/review/route";
 import * as routes from "@/app/api/outlet-cleanup/routes/route";
 import * as summary from "@/app/api/outlet-cleanup/summary/route";
+import * as tracker from "@/app/api/outlet-cleanup/tracker/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +29,7 @@ export const dynamic = "force-dynamic";
 
 type Handler = { GET?: (req: NextRequest) => Promise<Response> | Response; POST?: (req: NextRequest) => Promise<Response> | Response };
 
-const HANDLERS: Record<string, Handler> = { disown, filters, open, outlet, progress, queue, review, routes, summary };
+const HANDLERS: Record<string, Handler> = { disown, filters, open, outlet, progress, queue, report, review, routes, summary, tracker };
 
 /** What a sales rep may do: look at the outlets they sell and save their own details, location and routes. Everything else belongs to team leaders and supervisors. */
 const REP_OUTLET_ACTIONS = new Set(["save", "geo", "reps", "draft", "discardDraft", "final"]);
@@ -76,5 +78,9 @@ export async function POST(request: NextRequest) {
   });
 
   const response = await runAsBridgeActor(access.actor, async () => handler[method]!(inner));
-  return new NextResponse(await response.text(), { status: response.status, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+  // Passed through as bytes with the handler's own type, so the report extract's Excel and CSV files arrive intact (everything else is JSON).
+  const headers: Record<string, string> = { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "private, no-store" };
+  const disposition = response.headers.get("content-disposition");
+  if (disposition) headers["content-disposition"] = disposition;
+  return new NextResponse(await response.arrayBuffer(), { status: response.status, headers });
 }

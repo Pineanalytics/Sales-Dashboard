@@ -16,9 +16,10 @@ import { ProgressDashboard } from "./ProgressDashboard";
 import { ReportExtract } from "./ReportExtract";
 import { ReviewPanel } from "./ReviewPanel";
 import { RoutesPanel } from "./RoutesPanel";
+import { TrackerPanel } from "./TrackerPanel";
 import { TargetsPanel } from "./TargetsPanel";
 
-type Section = "progress" | "outlets" | "routes" | "open" | "review" | "targets";
+type Section = "progress" | "tracker" | "outlets" | "routes" | "open" | "review" | "targets";
 
 interface QueuePayload {
   rows: QueueRow[];
@@ -51,6 +52,7 @@ const STATE_TIER: Record<ReviewState, "good" | "warn" | "bad" | "neutral"> = { U
 
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "progress", label: "Progress" },
+  { value: "tracker", label: "Tracker" },
   { value: "outlets", label: "My outlets" },
   { value: "routes", label: "Routes" },
   { value: "open", label: "Marked open outlets" },
@@ -244,6 +246,7 @@ export function CleanupModule({ initialSection }: { initialSection?: Section }) 
           }}
         />
       ) : null}
+      {section === "tracker" ? <TrackerPanel /> : null}
       {section === "routes" ? <RoutesPanel /> : null}
       {section === "open" ? <OpenOutlets onChanged={refresh} /> : null}
       {section === "review" && reviewer ? (
