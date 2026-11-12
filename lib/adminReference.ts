@@ -26,14 +26,14 @@ export async function getKnownPrincipals(): Promise<string[]> {
 }
 
 /**
- * Selectable SAP salesperson names. The rep-actual tables are populated by the
- * direct SAP bridge, so this list follows the names SAP is currently sending
- * rather than relying on manually typed roster values. Existing roster and
- * assignment values remain as a fallback for a historical rep whose SAP rows
- * have aged out of the retained actuals window.
+ * Selectable SAP salesperson names: every salesperson in the rep directory (SAP's own
+ * salesperson list, so a rep with no sales yet can be picked), plus the names the direct SAP
+ * bridge has sent on sales rows. Existing roster and assignment values remain as a fallback
+ * for a historical rep whose SAP rows have aged out of the retained actuals window.
  */
 export async function getKnownSapSalesReps(): Promise<string[]> {
-  const [dailyReps, monthlyReps, dailyCustomerReps, customerReps, masterReps, assignedReps] = await Promise.all([
+  const [directoryReps, dailyReps, monthlyReps, dailyCustomerReps, customerReps, masterReps, assignedReps] = await Promise.all([
+    prisma.repDirectoryEntry.findMany({ where: { source: "SAP" }, select: { displayName: true } }),
     prisma.dailySalesRepActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
     prisma.salesRepActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
     prisma.dailyBrandCustomerActual.findMany({ select: { sapName: true }, distinct: ["sapName"] }),
@@ -44,6 +44,7 @@ export async function getKnownSapSalesReps(): Promise<string[]> {
 
   return Array.from(
     new Set([
+      ...directoryReps.map((row) => row.displayName),
       ...dailyReps.map((row) => row.sapName),
       ...monthlyReps.map((row) => row.sapName),
       ...dailyCustomerReps.map((row) => row.sapName),

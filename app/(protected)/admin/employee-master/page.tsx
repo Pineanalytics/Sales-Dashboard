@@ -7,6 +7,8 @@ import { getDismissedRosterSuggestions, getTimestampRosterSuggestions } from "@/
 import { getUnresolvedEmployeeIdentities } from "@/lib/employeeIdentity";
 import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable } from "@/components/admin/AdminPage";
 import { ConfirmSubmitButton } from "@/components/ui/ConfirmSubmitButton";
+import { RepLinkCell } from "@/components/admin/RepLinkCell";
+import { getEmployeeCells } from "@/lib/repLinks";
 import {
   saveEmployeeMasterAction,
   toggleEmployeeMasterActiveAction,
@@ -29,6 +31,7 @@ type RosterSearchParams = {
   principal?: string;
   teamLeader?: string;
   q?: string;
+  link?: string;
 };
 
 export default async function EmployeeMasterPage({ searchParams }: { searchParams: Promise<RosterSearchParams> }) {
@@ -81,6 +84,34 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
     isAdmin ? getUnresolvedEmployeeIdentities() : Promise.resolve([]),
     getDismissedRosterSuggestions(),
   ]);
+  // The SAP and Pine link of every row, and the optional filter on them (No SAP link, No Pine link, Name only, Shared).
+  const cells = await getEmployeeCells(employees.map((e) => ({ employeeCode: e.employeeCode, pineName: e.pineName, sapName: e.sapName })));
+  const linkFilter = ["no-sap", "no-pine", "name-only", "shared"].includes(params.link ?? "") ? (params.link as string) : "";
+  const linkCounts = {
+    "no-sap": employees.filter((e) => cells.get(e.employeeCode)?.sap.state !== "linked").length,
+    "no-pine": employees.filter((e) => cells.get(e.employeeCode)?.pine.state !== "linked").length,
+    "name-only": employees.filter((e) => cells.get(e.employeeCode)?.sap.state === "name-only" || cells.get(e.employeeCode)?.pine.state === "name-only").length,
+    shared: employees.filter((e) => (cells.get(e.employeeCode)?.sap.sharedWith.length ?? 0) > 0 || (cells.get(e.employeeCode)?.pine.sharedWith.length ?? 0) > 0).length,
+  };
+  const visibleEmployees = linkFilter
+    ? employees.filter((e) => {
+        const c = cells.get(e.employeeCode);
+        if (!c) return false;
+        if (linkFilter === "no-sap") return c.sap.state !== "linked";
+        if (linkFilter === "no-pine") return c.pine.state !== "linked";
+        if (linkFilter === "name-only") return c.sap.state === "name-only" || c.pine.state === "name-only";
+        return c.sap.sharedWith.length > 0 || c.pine.sharedWith.length > 0;
+      })
+    : employees;
+  const chipHref = (value: string) => {
+    const search = new URLSearchParams();
+    if (employeeQuery) search.set("q", employeeQuery);
+    if (selectedPrincipal) search.set("principal", selectedPrincipal);
+    if (selectedTeamLeader) search.set("teamLeader", selectedTeamLeader);
+    if (value && value !== linkFilter) search.set("link", value);
+    const text = search.toString();
+    return text ? `/admin/employee-master?${text}` : "/admin/employee-master";
+  };
   // A Team Leader sees (and can restore) only what they dismissed; an admin sees every dismissal.
   const dismissedSuggestions = isAdmin ? allDismissedSuggestions : allDismissedSuggestions.filter((row) => row.dismissedBy === session.user.email);
   // How many Team Leader assignments a Delete would take with it, for the confirmation (admin only — only admins can delete).
@@ -116,7 +147,7 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
       ...(suggestions.length > 0 ? [{ label: "suggestions", value: suggestions.length, tone: "attention" as const }] : []),
       ...(unresolvedIdentities.length > 0 ? [{ label: "unresolved", value: unresolvedIdentities.length, tone: "attention" as const }] : []),
     ]}
-    actions={<Link href="/admin/employee-master?add=new" className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">+ Add employee</Link>}
+    actions={<><Link href="/admin/employee-master/links" className="rounded-full border border-white/60 px-4 py-1.5 text-xs font-semibold text-white hover:bg-white/10">Review links</Link><Link href="/admin/employee-master?add=new" className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">+ Add employee</Link></>}
   >
       <AdminNotices error={params.error} success={params.success} />
 
@@ -271,8 +302,8 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
 
       <AdminCard
         flush
-        title={<>{filtersActive ? "Matching roster records" : isAdmin ? "Master roster" : "Your roster"} <AdminBadge>{employees.length}</AdminBadge></>}
-        description={isAdmin ? "Filter by ownership or search a rep before opening an amendment." : undefined}
+        title={<>{filtersActive ? "Matching roster records" : isAdmin ? "Master roster" : "Your roster"} <AdminBadge>{visibleEmployees.length}</AdminBadge></>}
+        description={isAdmin ? "Filter by ownership or search a rep before opening an amendment. The SFA (Pine) and SAP columns are edit points: find the rep by typing and the link saves at once." : "The SFA (Pine) and SAP columns are edit points: find the rep by typing and the link saves at once."}
       >
         <form className="grid gap-3 border-b border-border/60 px-5 py-3 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]" action="/admin/employee-master">
           <label className={labelClass}>Find employee<input name="q" defaultValue={employeeQuery} placeholder="Name, SAP name or employee code" className={inputClass} /></label>
@@ -280,7 +311,16 @@ export default async function EmployeeMasterPage({ searchParams }: { searchParam
           {isAdmin ? <label className={labelClass}>Team Leader<select name="teamLeader" defaultValue={selectedTeamLeader} className={inputClass}><option value="">All Team Leaders</option>{teamLeaderOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : <div className="hidden xl:block" />}
           <div className="flex items-end gap-2"><button type="submit" className="rounded-full bg-primary-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-secondary-blue">Apply filters</button>{filtersActive ? <Link href="/admin/employee-master" className="rounded-full border border-border px-4 py-2.5 text-sm font-semibold text-primary-blue hover:bg-surface-hover">Clear</Link> : null}</div>
         </form>
-        <div className="overflow-x-auto"><table className={adminTable.table}><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-2.5 text-left font-medium">Pine sales rep</th><th className="px-4 py-2.5 text-left font-medium">SAP sales rep</th><th className="px-4 py-2.5 text-left font-medium">Absolute principal</th><th className="px-4 py-2.5 text-left font-medium">JPA principals</th><th className="px-4 py-2.5 text-left font-medium">Role</th><th className="px-4 py-2.5 text-left font-medium">Team leader</th><th className="px-4 py-2.5 text-left font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Action</th></tr></thead><tbody>{employees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-2.5">{employee.pineName} <span className="text-muted">({employee.employeeCode})</span></td><td className="border-b border-border/60 px-4 py-2.5">{employee.sapName}</td><td className="border-b border-border/60 px-4 py-2.5 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-2.5">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-2.5 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form>{isAdmin ? <form action={deleteEmployeeMasterAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><ConfirmSubmitButton confirmMessage={deleteMessage(employee.pineName, employee.employeeCode, assignmentCountByCode.get(employee.employeeCode) ?? 0)} className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft">Delete</ConfirmSubmitButton></form> : null}</div></td></tr>)}{employees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-5 py-2.5 text-xs">
+          <span className="font-semibold text-muted">Links</span>
+          {([["no-sap", "No SAP link"], ["no-pine", "No Pine link"], ["name-only", "Name only"], ["shared", "Shared"]] as const).map(([value, label]) => (
+            <Link key={value} href={chipHref(value)} aria-current={linkFilter === value ? "true" : undefined} className={`rounded-full px-3 py-1 font-semibold ${linkFilter === value ? "bg-primary-blue text-white" : "bg-background-elevated text-muted-strong hover:bg-accent-blue-soft hover:text-primary-blue"}`}>
+              {label} <span className="font-normal opacity-80">{linkCounts[value]}</span>
+            </Link>
+          ))}
+          {linkFilter ? <Link href={chipHref("")} className="text-secondary-blue underline">Clear</Link> : null}
+        </div>
+        <div className="overflow-x-auto"><table className={adminTable.table}><thead className="bg-background-elevated text-[12px] uppercase tracking-wide text-muted"><tr><th className="px-4 py-2.5 text-left font-medium">SFA (Pine) rep</th><th className="px-4 py-2.5 text-left font-medium">SAP rep</th><th className="px-4 py-2.5 text-left font-medium">Absolute principal</th><th className="px-4 py-2.5 text-left font-medium">JPA principals</th><th className="px-4 py-2.5 text-left font-medium">Role</th><th className="px-4 py-2.5 text-left font-medium">Team leader</th><th className="px-4 py-2.5 text-left font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Action</th></tr></thead><tbody>{visibleEmployees.map((employee) => <tr key={employee.id} className={employee.active ? undefined : "opacity-50"}><td className="border-b border-border/60 px-4 py-2.5 align-top">{cells.get(employee.employeeCode) ? <RepLinkCell employeeCode={employee.employeeCode} source="PINE" initial={cells.get(employee.employeeCode)!.pine} canEdit /> : employee.pineName}<p className="mt-0.5 text-[11px] text-muted">Code {employee.employeeCode}</p></td><td className="border-b border-border/60 px-4 py-2.5 align-top">{cells.get(employee.employeeCode) ? <RepLinkCell employeeCode={employee.employeeCode} source="SAP" initial={cells.get(employee.employeeCode)!.sap} canEdit /> : employee.sapName}</td><td className="border-b border-border/60 px-4 py-2.5 font-medium">{employee.absolutePrincipal}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.contributions.map((row) => row.principal).join(", ") || "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.salesRole}</td><td className="border-b border-border/60 px-4 py-2.5">{isAdmin ? (employee.teamLeaderId ? teamLeaderNameById.get(employee.teamLeaderId) ?? employee.teamLeaderId : <span className="text-accent-amber">Unresolved</span>) : employee.teamLeader ?? "—"}</td><td className="border-b border-border/60 px-4 py-2.5">{employee.active ? <span className="text-accent-green">Active</span> : <span className="text-accent-red">Inactive</span>}</td><td className="border-b border-border/60 px-4 py-2.5 text-right"><div className="inline-flex items-center gap-1"><Link href={`/admin/employee-master?edit=${encodeURIComponent(employee.employeeCode)}`} className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">Edit</Link><form action={toggleEmployeeMasterActiveAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><button className="rounded-full px-3 py-1.5 text-xs font-medium text-primary-blue hover:bg-accent-blue-soft">{employee.active ? "Deactivate" : "Activate"}</button></form>{isAdmin ? <form action={deleteEmployeeMasterAction}><input type="hidden" name="employeeCode" value={employee.employeeCode} /><ConfirmSubmitButton confirmMessage={deleteMessage(employee.pineName, employee.employeeCode, assignmentCountByCode.get(employee.employeeCode) ?? 0)} className="rounded-full px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red-soft">Delete</ConfirmSubmitButton></form> : null}</div></td></tr>)}{visibleEmployees.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No roster records match these filters.</td></tr> : null}</tbody></table></div>
       </AdminCard>
   </AdminPage>;
 }

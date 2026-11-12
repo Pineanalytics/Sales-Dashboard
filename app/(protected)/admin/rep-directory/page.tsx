@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AdminBadge, AdminCard, AdminPage, adminTable } from "@/components/admin/AdminPage";
 import { RefreshSyncButton } from "@/components/admin/RefreshSyncButton";
+import { RosterLinkPicker } from "@/components/admin/RosterLinkPicker";
 import { getRepDirectoryOverview, REP_DIRECTORY_PAGE_SIZE } from "@/lib/repDirectory";
 import { REP_SOURCES, REP_SOURCE_LABELS, type RepSource } from "@/lib/repDirectoryBuild";
 import { SYNC_JOB_INFO, type SyncJobName } from "@/lib/syncJobs";
@@ -72,7 +73,7 @@ export default async function RepDirectoryPage({ searchParams }: { searchParams:
                 {row.offRoster > 0 ? <Link href={href(params, { source: row.source, roster: "off", status: "active", field: "1" })} className="font-semibold text-secondary-blue hover:underline">{row.offRoster.toLocaleString()} active field reps not on the roster</Link> : "Every active field rep is on the roster."}
               </p>
             ) : (
-              <p className="mt-1 text-xs text-muted">Roster links for this source arrive with the next phase.</p>
+              <p className="mt-1 text-xs text-muted">Match each rep to a roster employee in the last column.</p>
             )}
             <p className="mt-1 text-[11px] text-muted">Last synced {whenTime(row.lastSeenAt)}</p>
             <div className="mt-2"><RefreshSyncButton job={SOURCE_JOBS[row.source]} label={SYNC_JOB_INFO[SOURCE_JOBS[row.source]].label} /></div>
@@ -147,18 +148,23 @@ export default async function RepDirectoryPage({ searchParams }: { searchParams:
                     </div>
                   </td>
                   <td className={adminTable.td}>
-                    {row.roster.length === 0 ? (
-                      row.source === "SAP" || row.source === "PINE" ? <span className="text-xs text-muted">Not on the roster</span> : <span className="text-xs text-muted">Not linked yet</span>
+                    {row.source === "SAP" || row.source === "PINE" ? (
+                      row.roster.length === 0 ? (
+                        <span className="text-xs text-muted">Not on the roster</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {row.roster.map((match) => (
+                            <p key={match.employeeCode} className="text-xs">
+                              <Link href={`/admin/employee-master?q=${encodeURIComponent(match.employeeCode)}`} className="font-semibold text-secondary-blue hover:underline">{match.name}</Link>
+                              <span className="text-muted"> ({match.employeeCode}){match.active ? "" : " · inactive"}</span>
+                              {match.linked ? null : <span className="ml-1 text-[10px] text-accent-amber">name only</span>}
+                            </p>
+                          ))}
+                          {row.roster.length > 1 ? <AdminBadge tone="attention">Shared by {row.roster.length}</AdminBadge> : null}
+                        </div>
+                      )
                     ) : (
-                      <div className="space-y-0.5">
-                        {row.roster.map((match) => (
-                          <p key={match.employeeCode} className="text-xs">
-                            <Link href={`/admin/employee-master?q=${encodeURIComponent(match.employeeCode)}`} className="font-semibold text-secondary-blue hover:underline">{match.name}</Link>
-                            <span className="text-muted"> ({match.employeeCode}){match.active ? "" : " · inactive"}</span>
-                          </p>
-                        ))}
-                        {row.roster.length > 1 ? <AdminBadge tone="attention">Shared by {row.roster.length}</AdminBadge> : null}
-                      </div>
+                      <RosterLinkPicker source={row.source} sourceKey={row.sourceKey} identityName={row.displayName} initialLinked={row.roster.filter((m) => m.linked).map((m) => ({ employeeCode: m.employeeCode, name: m.name }))} />
                     )}
                   </td>
                 </tr>
