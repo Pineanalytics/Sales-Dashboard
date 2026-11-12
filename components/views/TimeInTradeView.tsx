@@ -10,6 +10,8 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { TableWrap, Td, Th, Thead, TotalRow } from "@/components/ui/Table";
 import { RoleToggle, type RoleFilter } from "@/components/ui/RoleToggle";
 import { formatNumber } from "@/lib/format";
+import { normalizePrincipalKey } from "@/lib/normalize";
+import type { PeriodSelection } from "@/lib/timeIntelligence";
 import { Clock20Regular } from "@fluentui/react-icons";
 
 // Mirrors lib/timeInTrade.ts's own shapes, kept as a local, independent copy
@@ -61,12 +63,17 @@ function summarizePrincipal(rows: TimeInTradeRow[], principalKey: string) {
   return { source, principal, visits, repDays, productivityPct };
 }
 
-export function TimeInTradeView() {
+/** Embedded under Time in Trade › Overview, the report's own filter row drives
+ *  it: `period` (the chosen month, else the dashboard period), `role`, and
+ *  `principals` (names; empty = all). Standalone it keeps its own role toggle. */
+export function TimeInTradeView({ period: periodOverride, role, principals, embedded = false }: { period?: PeriodSelection; role?: RoleFilter; principals?: string[]; embedded?: boolean } = {}) {
   const currentUser = useCurrentUser();
-  const period = useDashboardStore((s) => s.selectedPeriod);
+  const storePeriod = useDashboardStore((s) => s.selectedPeriod);
+  const period = periodOverride ?? storePeriod;
   const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
   const [data, setData] = useState<TimeInTradeResponse | null>(null);
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const [ownRoleFilter, setRoleFilter] = useState<RoleFilter>("all");
+  const roleFilter = role ?? ownRoleFilter;
 
   useEffect(() => {
     let cancelled = false;
@@ -101,14 +108,17 @@ export function TimeInTradeView() {
     return <EmptyState icon={<Clock20Regular className="h-10 w-10" />} title="Select a Month, Quarter, or Year filter" description="Time in Trade trends by week within a month, by month within a quarter, or by quarter within a year — pick one of those periods above to see a trend." />;
   }
 
-  const principalKeys = Array.from(new Set(data.rows.map((r) => r.principalKey)));
-  const principalSummaries = principalKeys.map((key) => summarizePrincipal(data.rows, key)).sort((a, b) => b.visits - a.visits);
+  // The report's Principal filter holds principal names ("Suntory-Nairobi"); these rows are per brand key ("suntory").
+  const principalFilter = principals && principals.length > 0 ? new Set(principals.map(normalizePrincipalKey)) : null;
+  const rows = principalFilter ? data.rows.filter((r) => principalFilter.has(r.principalKey)) : data.rows;
+  const principalKeys = Array.from(new Set(rows.map((r) => r.principalKey)));
+  const principalSummaries = principalKeys.map((key) => summarizePrincipal(rows, key)).sort((a, b) => b.visits - a.visits);
   const totalVisits = principalSummaries.reduce((sum, p) => sum + p.visits, 0);
   const totalRepDays = principalSummaries.reduce((sum, p) => sum + p.repDays, 0);
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionCard
+      {embedded ? null : <SectionCard
         accent="navy"
         title="Time in Trade"
         action={
@@ -129,9 +139,19 @@ export function TimeInTradeView() {
           <RoleToggle value={roleFilter} onChange={setRoleFilter} />
           <span className="text-xs text-muted">Only narrows Pine — EABL, Upfield and Unilever have no Primary/Secondary role of their own</span>
         </div>
-      </SectionCard>
+      </SectionCard>}
 
-      <SectionCard title="By Principal" action={<span className="text-xs text-muted">Totals across {data.buckets.length} period(s) in the current filter</span>}>
+      <SectionCard
+        title={embedded ? "Time in Trade by principal" : "By Principal"}
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted">
+              {embedded ? "Every Timestamp system · " : ""}Totals across {data.buckets.length} period(s) in the current filter
+            </span>
+            {embedded ? <InlineReportExport reportKey="time-in-trade" allowedPages={currentUser?.allowedPages ?? []} isAdmin={currentUser?.role === "ADMIN"} /> : null}
+          </div>
+        }
+      >
         <TableWrap>
           <Thead>
             <Th>Principal</Th>
@@ -161,6 +181,55 @@ export function TimeInTradeView() {
         </TableWrap>
       </SectionCard>
 
+      {embedded ? (
+        <details className="group rounded-2xl border border-border bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3.5 [&::-webkit-details-marker]:hidden">
+            <span>
+              <span className="block text-sm font-semibold text-brand-navy">Trend by principal</span>
+              <span className="block text-xs text-muted">{data.buckets.map((b) => b.label).join(" · ")} · start/close time, hours in trade, productivity and new outlets</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-accent-blue-soft px-3 py-1 text-xs font-semibold text-primary-blue">
+              <span className="group-open:hidden">Show</span>
+              <span className="hidden group-open:inline">Hide</span>
+            </span>
+          </summary>
+          <div className="border-t border-border/60 p-4">
+        <TableWrap>
+          <Thead>
+            <Th>Period</Th>
+            <Th>Principal</Th>
+            <Th align="right">Rep-Days</Th>
+            <Th align="right">Visits</Th>
+            <Th align="center">Avg Start</Th>
+            <Th align="center">Avg Close</Th>
+            <Th align="right">Hours in Trade</Th>
+            <Th align="center">Productivity %</Th>
+            <Th align="right">New Outlets</Th>
+          </Thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.bucketKey}|${row.principalKey}`}>
+                <Td>{row.bucketLabel}</Td>
+                <Td>{row.principal}</Td>
+                <Td align="right">{formatNumber(row.repDays)}</Td>
+                <Td align="right">{formatNumber(row.visits)}</Td>
+                <Td align="center">{row.avgStartTime ?? "—"}</Td>
+                <Td align="center">{row.avgCloseTime ?? "—"}</Td>
+                <Td align="right">{row.avgHoursInTrade ?? "—"}</Td>
+                <Td align="center">{row.productivityPct !== null ? `${row.productivityPct}%` : "—"}</Td>
+                <Td align="right">{row.newOutlets ?? "—"}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+        <p className="mt-3 text-xs text-muted">
+          &quot;—&quot; for Productivity % means the source has no unproductive-visit concept (Upfield/Unilever count only
+          real transactions/visits); &quot;—&quot; for New Outlets means the source has no per-outlet identity to compare
+          (Unilever) or this is the trend&apos;s first period (nothing prior to compare against).
+        </p>
+          </div>
+        </details>
+      ) : (
       <SectionCard title="Trend by Principal" action={<span className="text-xs text-muted">{data.buckets.map((b) => b.label).join(" · ")}</span>}>
         <TableWrap>
           <Thead>
@@ -175,7 +244,7 @@ export function TimeInTradeView() {
             <Th align="right">New Outlets</Th>
           </Thead>
           <tbody>
-            {data.rows.map((row) => (
+            {rows.map((row) => (
               <tr key={`${row.bucketKey}|${row.principalKey}`}>
                 <Td>{row.bucketLabel}</Td>
                 <Td>{row.principal}</Td>
@@ -196,6 +265,7 @@ export function TimeInTradeView() {
           (Unilever) or this is the trend&apos;s first period (nothing prior to compare against).
         </p>
       </SectionCard>
+      )}
     </div>
   );
 }

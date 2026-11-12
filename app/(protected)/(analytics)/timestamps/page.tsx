@@ -4,5 +4,5 @@ import { redirect } from "next/navigation";
 // & Productivity, reached entirely through client-side module state rather
 // than its own routes.
 export default function TimestampsPage() {
-  redirect("/coverage?tab=timestamps");
+  redirect("/coverage?tab=time-in-trade");
 }
