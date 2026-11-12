@@ -110,11 +110,14 @@ services:
       # Next server under concurrent worker writes.
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       EABL_CALL_APP_URL: https://pinefrostdb.com
-      CONTINUOUS_SYNC_JOBS: timestamps,coverage,eabl,eabl-customers
+      CONTINUOUS_SYNC_JOBS: timestamps,coverage,eabl,eabl-customers,pine-reps,rep-directory
       TIMESTAMPS_INTERVAL_SECONDS: 30
       TIMESTAMPS_BATCH_SIZE: 250
       COVERAGE_INTERVAL_SECONDS: 1800
       EABL_INTERVAL_SECONDS: 60
+      # Rep directory: Pine's user list, and the reps of Leverage, DataEdge and EABL DMS derived from stored rows (a few seconds each).
+      PINE_REPS_INTERVAL_SECONDS: 1800
+      REP_DIRECTORY_INTERVAL_SECONDS: 1800
     cpus: 0.75
     mem_limit: 512m
 
@@ -234,7 +237,7 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables
+      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables,sap-reps
       # Every SAP job runs every 30 minutes (stock was 15, sales 10, SFA sales and purchases 60): each pass reads from SAP
       # for 20-60 seconds at over 100% CPU on the shared 4-core VPS, and the jobs run one at a time. Admin > Data & sync has
       # a "Refresh now" button on every row for a catch-up between slots (the worker polls for those every 10 seconds).
@@ -252,6 +255,8 @@ services:
       PL_INTERVAL_SECONDS: 1800
       STOCK_INTERVAL_SECONDS: 1800
       RECEIVABLES_INTERVAL_SECONDS: 1800
+      # Rep directory: SAP's salesperson master (OSLP, a few hundred rows).
+      SAP_REPS_INTERVAL_SECONDS: 1800
     cpus: 0.75
     mem_limit: 1024m
 

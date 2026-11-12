@@ -1551,6 +1551,36 @@ model SyncRunRequest {
   @@index([status, requestedAt])
 }
 
+// Every rep identity each system knows, in one searchable place (docs/rep-directory-scope.md).
+// SAP (OSLP) and Pine (users) are read from their own rep tables; Leverage, Upfield DataEdge and
+// EABL DMS have none, so their reps are derived from the sales and visit rows already stored.
+// Rows are never deleted: an identity the source stops sending is marked inactive. No phone, email,
+// username or credential is ever stored.
+model RepDirectoryEntry {
+  id             String    @id @default(cuid())
+  source         String // "SAP" | "PINE" | "LEVERAGE" | "DATAEDGE" | "EABL_DMS"
+  sourceKey      String // SAP SlpCode; Pine users.id; Leverage "branch|repCode"; DataEdge FSR as sent; EABL salesman as sent
+  displayName    String // the spelling the source sends
+  normalizedName String // lower-case letters and digits, single-spaced, for search and matching
+  origin         String // "TABLE" (the system's own rep table) | "DERIVED" (from its sales or visit rows)
+  isActive       Boolean   @default(true)
+  isFieldRep     Boolean   @default(true)
+  groupLabel     String? // Pine sales group; SAP sales unit
+  region         String?
+  principalHint  String? // SAP U_Principle
+  branch         String? // SAP U_Branch; Leverage branch
+  loginName      String? // DataEdge FSR login, from the Upfield outlet list
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime
+  lastActivityAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([source, sourceKey])
+  @@index([normalizedName])
+  @@index([source, isActive])
+}
+
 // The latest outcome of every worker job, scheduled or manual, upserted by the worker after each
 // run. It is the freshness signal for jobs that have no data table of their own to read.
 model SyncJobStatus {
