@@ -3,7 +3,8 @@
 import { Presenter20Regular, PresenterOff20Regular } from "@fluentui/react-icons";
 import { useDashboardStore } from "@/lib/store";
 import { summarizeSalesByPrincipal, type PeriodSelection } from "@/lib/timeIntelligence";
-import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, computeOverstock, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, isOverstocked, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import { summarizeStockItems } from "@/lib/stockItemView";
 import { achievementTier } from "@/lib/format";
 import { ExceptionsStrip } from "./ExceptionsStrip";
 import { SalesSummaryPanel } from "./SalesSummaryPanel";
@@ -44,7 +45,8 @@ export function ExecutiveSummaryClient({
   const allStockRollups = aggregateStockByPrincipal(dataset);
   const { dormantKeys } = classifyDormantPrincipals(dataset, allStockRollups.map((r) => r.key));
   const activeStockTotal = sumStockRollups(allStockRollups.filter((r) => !dormantKeys.has(r.key)));
-  const overstock = computeOverstock(dataset, null, OVERSTOCK_DAYS_THRESHOLD);
+  // Counted over active principals' SKUs exactly as Stock Balance's Overstocked chip lists them (dormant principals excluded).
+  const overstock = summarizeStockItems(dataset.stockItems.filter((item) => !dormantKeys.has(item.key) && isOverstocked(item, OVERSTOCK_DAYS_THRESHOLD)));
 
   const todayLabel = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 

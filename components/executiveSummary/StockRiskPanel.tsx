@@ -4,7 +4,8 @@ import Link from "next/link";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { formatCompact, formatNumber } from "@/lib/format";
-import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, computeOverstock, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import { aggregateStockByPrincipal, classifyDormantPrincipals, sumStockRollups, isOverstocked, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import { summarizeStockItems } from "@/lib/stockItemView";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import type { Dataset } from "@/lib/types";
 
@@ -28,7 +29,10 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
 
   const scopedRollups = normalizedKey ? activeRollups.filter((r) => r.key === normalizedKey) : activeRollups;
   const total = sumStockRollups(scopedRollups);
-  const overstock = computeOverstock(dataset, normalizedKey);
+  // The same SKUs Stock Balance's Overstocked chip lists: active principals only, in the selected principal's scope.
+  const overstock = summarizeStockItems(
+    dataset.stockItems.filter((item) => !dormantKeys.has(item.key) && (!normalizedKey || item.key === normalizedKey) && isOverstocked(item, OVERSTOCK_DAYS_THRESHOLD))
+  );
 
   return (
     <div id="stock-risk" className="@container h-full">
@@ -57,14 +61,23 @@ export function StockRiskPanel({ dataset, selectedPrincipalKey }: { dataset: Dat
               </Link>
             }
           />
-          <KpiCard accent="growth" label="Running Out" value={formatNumber(total.runningOutCount)} />
+          <KpiCard
+            accent="growth"
+            label="Running Out"
+            value={formatNumber(total.runningOutCount)}
+            sublabel={
+              <Link href="/stock?status=runningOut" className={DRILLDOWN_LINK_CLASS}>
+                View SKUs →
+              </Link>
+            }
+          />
           <KpiCard
             accent="quarter"
             label="Overstocked"
             value={formatNumber(overstock.itemCount)}
             sublabel={
               <Link href="/stock?status=overstocked" className={DRILLDOWN_LINK_CLASS}>
-                {formatCompact(overstock.value)} tied up · cover &gt; {OVERSTOCK_DAYS_THRESHOLD}d — View SKUs →
+                {formatCompact(overstock.value)} tied up · past each SKU&apos;s overstock days — View SKUs →
               </Link>
             }
           />

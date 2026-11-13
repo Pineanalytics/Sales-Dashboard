@@ -8,45 +8,45 @@ import type { ViewProps } from "./types";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard } from "@/components/ui/KpiGrid";
 import { StockStatusPill } from "@/components/ui/StockPill";
+import { Badge } from "@/components/ui/Badge";
 import { AnimatedValue } from "@/components/ui/AnimatedValue";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatCompact, formatNumber, stockActionTier, tierBarColor } from "@/lib/format";
-import { aggregateStockByPrincipal, aggregateStockByBrand, classifyDormantPrincipals, sumStockRollups, isOverstocked, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import { aggregateStockByPrincipal, classifyDormantPrincipals, isOverstocked, OVERSTOCK_DAYS_THRESHOLD } from "@/lib/stock";
+import {
+  STOCK_STATUS_TABS,
+  isStockStatusFilter,
+  matchesStockStatus,
+  searchStockItems,
+  stockStatusCounts,
+  summarizeStockItems,
+  summarizeStockItemsByPrincipal,
+  type StockStatusFilter,
+} from "@/lib/stockItemView";
 import { normalizePrincipalKey } from "@/lib/normalize";
 import { CHART_GRID_COLOR, CHART_AXIS_COLOR, tooltipContentStyle, tooltipLabelStyle } from "@/components/charts/theme";
 
-type StatusFilter = "all" | "runningOut" | "outOfStock" | "overstocked" | "noData";
+const ITEM_PAGE_SIZE = 100;
 
-const STATUS_TABS: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "All Stock" },
-  { key: "runningOut", label: "Running Out" },
-  { key: "outOfStock", label: "Out of Stock" },
-  { key: "overstocked", label: "Overstocked" },
-  { key: "noData", label: "No Sales Data" },
-];
+const STATUS_DESCRIPTIONS: Record<StockStatusFilter, string> = {
+  all: "every active SKU",
+  runningOut: "SKUs with less cover than their reorder days",
+  outOfStock: "SKUs with no stock, or under 2 days of cover",
+  overstocked: `SKUs with more cover than their overstock days (default ${OVERSTOCK_DAYS_THRESHOLD})`,
+  noData: "SKUs with no sales to work out cover from",
+};
 
-function isValidStatusFilter(value: string | null): value is StatusFilter {
-  return value !== null && STATUS_TABS.some((tab) => tab.key === value);
-}
-
-// Same emoji-marker convention lib/format.ts's stockActionTier already uses for
-// the first three tiers — filters which already-computed rows are displayed,
-// never recomputes them. "overstocked" is a different axis (excess cover, not
-// shortage — see lib/stock.ts's isOverstocked), so it's checked separately
-// rather than folded into the action-emoji string.
-function matchesStatus(row: { action: string; rrWeekValue: number; daysCover: number }, filter: StatusFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "runningOut") return row.action.includes("🟡");
-  if (filter === "outOfStock") return row.action.includes("🔴");
-  if (filter === "overstocked") return isOverstocked(row, OVERSTOCK_DAYS_THRESHOLD);
-  // "noData": neither Out of Stock, Running Out, nor OK
-  return !row.action.includes("🔴") && !row.action.includes("🟡") && !row.action.includes("🟢");
-}
-
+/** Stock Balance, at SKU level. The status chips (and ?status= deep links from
+ *  the Executive Summary) filter the SKUs themselves, and every figure, the
+ *  chart and both tables describe exactly the SKUs listed, for the selected
+ *  principal(s) or all active principals. Brands are not used: SAP's brand
+ *  field is mostly the manufacturer, so a brand rollup was misleading. */
 export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get("status");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(isValidStatusFilter(initialStatus) ? initialStatus : "all");
+  const [statusFilter, setStatusFilter] = useState<StockStatusFilter>(isStockStatusFilter(initialStatus) ? initialStatus : "all");
+  const [query, setQuery] = useState("");
+  const [itemLimit, setItemLimit] = useState(ITEM_PAGE_SIZE);
 
   const allRollups = aggregateStockByPrincipal(dataset);
   // Principals with no Sales revenue in the most recent three months move to
@@ -56,97 +56,34 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
   const { dormantKeys, flaggedKeys, noticeKeys } = classifyDormantPrincipals(dataset, allRollups.map((r) => r.key));
   const rollups = allRollups.filter((r) => !dormantKeys.has(r.key));
   const dormantRollups = allRollups.filter((r) => dormantKeys.has(r.key));
-  // Principals on the Active principals list stay in the balance even with no recent sales; they carry a notice instead.
   const noticeRollups = rollups.filter((r) => noticeKeys.has(r.key));
-  // The portfolio ("all principals") baseline must exclude dormant stock too —
-  // dataset.stockTotal is a raw, unfiltered dataset-wide fact used elsewhere
-  // (e.g. Overview) and must keep its own meaning, so this page recomputes
-  // its own active-only total instead of reusing it directly.
-  const activeStockTotal = sumStockRollups(rollups);
 
-  // selectedPrincipalKey is the raw Principal string (e.g. "EABL-Nyeri") — Stock has no
-  // location split in its source sheet, so it always rolls up by normalized brand key.
+  // selectedPrincipalKey is the raw Principal string (e.g. "EABL-Nyeri"); stock keys by normalized brand key.
   const normalizedSelectedKey = selectedPrincipalKey ? normalizePrincipalKey(selectedPrincipalKey) : null;
   const selectedRollup = normalizedSelectedKey ? rollups.find((r) => r.key === normalizedSelectedKey) ?? null : null;
   const selectedIsDormant = normalizedSelectedKey !== null && dormantKeys.has(normalizedSelectedKey);
   const selectedDormantRollup = selectedIsDormant ? dormantRollups.find((r) => r.key === normalizedSelectedKey) ?? null : null;
 
-  const stockValue = selectedRollup ? selectedRollup.value : activeStockTotal.value;
-  const daysStock = selectedRollup ? selectedRollup.daysStock : activeStockTotal.daysStock;
-  const outOfStockCount = selectedRollup ? selectedRollup.outOfStockCount : activeStockTotal.outOfStockCount;
-  const runningOutCount = selectedRollup ? selectedRollup.runningOutCount : activeStockTotal.runningOutCount;
-  const noDataCount = selectedRollup ? selectedRollup.noDataCount : activeStockTotal.noDataCount;
-  const action = selectedRollup ? selectedRollup.action : activeStockTotal.action;
+  // The SKUs in scope: the selected principal's, else every active principal's (the dataset is already narrowed to a multi-principal selection).
+  const scopeItems = dataset.stockItems.filter((item) => !dormantKeys.has(item.key) && (!normalizedSelectedKey || item.key === normalizedSelectedKey));
+  const counts = stockStatusCounts(scopeItems);
+  const statusItems = scopeItems.filter((item) => matchesStockStatus(item, statusFilter)).sort((a, b) => b.openingValue - a.openingValue);
+  const listedItems = searchStockItems(statusItems, query);
+  const summary = summarizeStockItems(listedItems);
+  const principalRows = selectedRollup ? [] : summarizeStockItemsByPrincipal(listedItems);
+  const scopeLabel = selectedRollup ? selectedRollup.name : "all active principals";
+  const statusLabel = STOCK_STATUS_TABS.find((tab) => tab.key === statusFilter)?.label ?? "All Stock";
 
-  const principalItemsAll = selectedRollup
-    ? [...dataset.stockItems.filter((i) => i.key === selectedRollup.key)].sort((a, b) => b.openingValue - a.openingValue)
-    : [];
-  const principalItems = principalItemsAll.filter((i) => matchesStatus(i, statusFilter));
+  const chartData = listedItems.slice(0, 18).map((item) => ({
+    name: item.item.length > 22 ? `${item.item.slice(0, 21)}…` : item.item,
+    value: item.openingValue,
+    fill: tierBarColor[stockActionTier(item.action).tier],
+  }));
 
-  const filteredRollups = rollups.filter((r) => matchesStatus({ action: r.action, rrWeekValue: r.rrWeekValue, daysCover: r.daysStock }, statusFilter));
-
-  // Product/item-level listing across every active principal at once — the
-  // "all principals" view previously stopped at Stock by Principal, with no
-  // item/product name visible anywhere until a specific principal was
-  // selected first.
-  const activeItems = selectedRollup
-    ? []
-    : dataset.stockItems.filter((i) => !dormantKeys.has(i.key) && matchesStatus(i, statusFilter));
-  const allItemsSorted = [...activeItems].sort((a, b) => b.openingValue - a.openingValue);
-  const ALL_ITEMS_LIMIT = 150;
-
-  const brandRollups = [...aggregateStockByBrand(dataset, selectedRollup?.key ?? null)]
-    .filter((b) => !dormantKeys.has(b.principalKey))
-    .sort((a, b) => b.value - a.value);
-
-  // "Item Count" reflects the active tab's filtered rows — every other KPI stays a
-  // portfolio/selected-principal fact from activeStockTotal / selectedRollup, never
-  // recomputed from a filtered subset.
-  const itemCount =
-    statusFilter === "all"
-      ? selectedRollup
-        ? selectedRollup.itemCount
-        : activeStockTotal.itemCount
-      : selectedRollup
-        ? principalItems.length
-        : filteredRollups.reduce((sum, r) => sum + r.itemCount, 0);
-
-  const chartData = selectedRollup
-    ? principalItems.slice(0, 15).map((i) => ({ name: i.item.slice(0, 18), value: i.openingValue, fill: tierBarColor[stockActionTier(i.action).tier] }))
-    : [...filteredRollups]
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 18)
-        .map((r) => ({ name: r.name, value: r.value, fill: tierBarColor[stockActionTier(r.action).tier] }));
-
-  // A table's own total row should sum only the rows it's actually showing — unlike
-  // the KPI cards above (legitimately portfolio-wide facts), a filtered tab's table
-  // total must match what's visible in that same table, not the unfiltered whole.
-  const itemTotal =
-    statusFilter === "all"
-      ? null
-      : principalItems.reduce(
-          (acc, i) => ({
-            value: acc.value + i.openingValue,
-            volume: acc.volume + i.openingVolume,
-            pcs: acc.pcs + i.openingPcs,
-          }),
-          { value: 0, volume: 0, pcs: 0 }
-        );
-  const principalTotal =
-    statusFilter === "all"
-      ? null
-      : filteredRollups.reduce(
-          (acc, r) => ({
-            value: acc.value + r.value,
-            volume: acc.volume + r.volume,
-            pcs: acc.pcs + r.pcs,
-            itemCount: acc.itemCount + r.itemCount,
-            outOfStockCount: acc.outOfStockCount + r.outOfStockCount,
-            runningOutCount: acc.runningOutCount + r.runningOutCount,
-            noDataCount: acc.noDataCount + r.noDataCount,
-          }),
-          { value: 0, volume: 0, pcs: 0, itemCount: 0, outOfStockCount: 0, runningOutCount: 0, noDataCount: 0 }
-        );
+  function chooseStatus(next: StockStatusFilter) {
+    setStatusFilter(next);
+    setItemLimit(ITEM_PAGE_SIZE);
+  }
 
   if (selectedIsDormant) {
     return (
@@ -166,7 +103,7 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
     <div className="flex flex-col gap-6">
       {dataset.stockSource?.kind === "sap-direct" && (
         <SectionCard title="Live SAP Stock" action={<span className="text-xs font-semibold text-emerald-700">Direct feed</span>}>
-          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module. Stock with no movement in three months is dormant too. Cover and status use the standard run rate (the median of the 4-week, 13-week and year-to-date run rates), so a one-off spike or slump does not mark sufficient stock as out or running out.
+          <p className="p-1 text-sm text-muted">Operational stock from SAP as at {new Date(dataset.stockSource.sourceDate).toLocaleDateString()}. {formatNumber(dataset.stockSource.itemCount)} active items are shown; dormant zero-piece items with no sales in three months are in the Dormant OOS module. Stock with no movement in three months is dormant too. Cover and status are worked out per SKU from the standard run rate (the median of the 4-week, 13-week and year-to-date run rates), so a one-off spike or slump does not mark sufficient stock as out or running out.
           {(dataset.emptiesStockItems?.length ?? 0) > 0 && (
             <> Returnable empties ({formatNumber(dataset.emptiesStockItems?.length ?? 0)} SKUs, {formatCompact((dataset.emptiesStockItems ?? []).reduce((sum, item) => sum + item.openingValue, 0))}) are packaging, not product, and are excluded from these figures.</>
           )}
@@ -190,231 +127,195 @@ export function StockView({ dataset, selectedPrincipalKey }: ViewProps) {
           </p>
         </SectionCard>
       )}
-      <div className="flex flex-wrap rounded-full bg-background-elevated p-0.5 w-fit">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setStatusFilter(tab.key)}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
-              statusFilter === tab.key
-                ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow"
-                : "text-muted-strong hover:text-primary-blue"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex w-fit flex-wrap rounded-full bg-background-elevated p-0.5" role="tablist" aria-label="Stock status">
+          {STOCK_STATUS_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              role="tab"
+              aria-selected={statusFilter === tab.key}
+              onClick={() => chooseStatus(tab.key)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-300 ${
+                statusFilter === tab.key ? "bg-gradient-to-r from-primary-blue to-secondary-blue text-white shadow-cyan-glow" : "text-muted-strong hover:text-primary-blue"
+              }`}
+            >
+              {tab.label} <span className={statusFilter === tab.key ? "text-white/80" : "text-muted"}>({formatNumber(counts[tab.key])})</span>
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted">
+          {statusLabel}: {STATUS_DESCRIPTIONS[statusFilter]} · {scopeLabel}
+        </span>
       </div>
 
       <KpiGrid>
-        <KpiCard accent="revenue" label="Stock Value" value={<AnimatedValue value={stockValue} format={formatCompact} />} />
-        <KpiCard accent="quarter" label="Item Count" value={<AnimatedValue value={itemCount} format={formatNumber} />} />
-        <KpiCard accent="quarter" label="Days Cover" value={<AnimatedValue value={daysStock} format={(n) => n.toFixed(1)} />} />
-        <KpiCard accent="growth" label="Out of Stock" value={<AnimatedValue value={outOfStockCount} format={formatNumber} />} />
-        <KpiCard accent="growth" label="Running Out" value={<AnimatedValue value={runningOutCount} format={formatNumber} />} />
-        <KpiCard accent="quarter" label="No Sales Data" value={<AnimatedValue value={noDataCount} format={formatNumber} />} />
-        <KpiCard accent="growth" size="md" label="Status" value={stockActionTier(action).label} />
+        <KpiCard accent="revenue" label="Stock Value" value={<AnimatedValue value={summary.value} format={formatCompact} />} />
+        <KpiCard accent="quarter" label="SKUs" value={<AnimatedValue value={summary.itemCount} format={formatNumber} />} />
+        <KpiCard accent="quarter" label="Days Cover" value={<AnimatedValue value={summary.daysCover} format={(n) => n.toFixed(1)} />} />
+        <KpiCard accent="revenue" label="Standard Stock" value={<AnimatedValue value={summary.standardValue} format={formatCompact} />} />
+        <KpiCard accent="growth" label="vs Standard" value={summary.vsStandardPct === null ? "—" : `${summary.vsStandardPct.toFixed(0)}%`} />
+        <KpiCard accent="growth" label="Weekly Run Rate" value={<AnimatedValue value={summary.rrWeekValue} format={formatCompact} />} />
+        <KpiCard accent="growth" size="md" label="Status" value={statusFilter === "overstocked" && summary.itemCount > 0 ? "Overstocked" : stockActionTier(summary.action).label} />
       </KpiGrid>
 
-      <SectionCard title={selectedRollup ? `${selectedRollup.name} — Top Items by Stock Value` : "Stock Value by Principal (Top 18)"}>
-        <ResponsiveContainer width="100%" height={340}>
-          <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 44 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
-            <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={0} angle={-40} textAnchor="end" height={80} />
-            <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
-            <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
-            <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-              {chartData.map((d, i) => (
-                <Cell key={i} fill={d.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <SectionCard title={`Top SKUs by Stock Value — ${statusLabel}, ${scopeLabel}`}>
+        {chartData.length === 0 ? (
+          <p className="px-3 py-10 text-center text-sm text-muted">No SKUs match this status{query ? " and search" : ""}.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 44 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} vertical={false} />
+              <XAxis dataKey="name" stroke={CHART_AXIS_COLOR} fontSize={10} interval={0} angle={-40} textAnchor="end" height={90} />
+              <YAxis stroke={CHART_AXIS_COLOR} fontSize={11} tickFormatter={(v) => formatCompact(v)} />
+              <Tooltip contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} formatter={(v) => formatCompact(Number(v))} />
+              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                {chartData.map((d, i) => (
+                  <Cell key={i} fill={d.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </SectionCard>
 
       <SectionCard
-        title={selectedRollup ? `${selectedRollup.name} — Stock by Brand` : "Stock by Brand (all principals)"}
-        action={<span className="text-xs text-muted">{brandRollups.length} brand{brandRollups.length === 1 ? "" : "s"} · SAP brand, else Product Master&apos;s Series · targets set on Admin → Stock cover</span>}
+        title={`Stock by Item — ${statusLabel} (${formatNumber(listedItems.length)} SKU${listedItems.length === 1 ? "" : "s"}, ${scopeLabel})`}
+        action={
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setItemLimit(ITEM_PAGE_SIZE);
+              }}
+              placeholder="Search item, code or principal"
+              aria-label="Search items"
+              className="w-56 rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs text-foreground outline-none focus:border-secondary-blue"
+            />
+          </div>
+        }
       >
         <TableWrap>
           <Thead>
+            <Th>Item</Th>
             {!selectedRollup && <Th>Principal</Th>}
-            <Th>Brand</Th>
             <Th align="right">Stock Value</Th>
-            <Th align="right">Volume</Th>
             <Th align="right">Pcs</Th>
-            <Th align="right">Items</Th>
-            <Th align="right">Cover Days</Th>
-            <Th align="right">Target Days</Th>
+            <Th align="right">RR/Week</Th>
+            <Th align="right">Days Cover</Th>
+            <Th align="right">Cover Days (R · T · O)</Th>
             <Th align="right">Standard Stock</Th>
-            <Th align="right">vs Standard</Th>
             <Th align="center">Status</Th>
           </Thead>
           <tbody>
-            {brandRollups.slice(0, 60).map((b) => (
-              <tr key={`${b.principalKey}-${b.brand}`}>
-                {!selectedRollup && <Td>{b.principalName}</Td>}
-                <Td>{b.brand}</Td>
-                <Td align="right">{formatCompact(b.value)}</Td>
-                <Td align="right">{formatNumber(b.volume)}</Td>
-                <Td align="right">{formatNumber(b.pcs)}</Td>
-                <Td align="right">{formatNumber(b.itemCount)}</Td>
-                <Td align="right">{b.daysStock.toFixed(1)}</Td>
-                <Td align="right">{b.targetDays}</Td>
-                <Td align="right">{formatCompact(b.standardValue)}</Td>
-                <Td align="right">{b.vsStandardPct === null ? "—" : `${b.vsStandardPct.toFixed(0)}%`}</Td>
-                <Td align="center"><StockStatusPill action={b.action} /></Td>
+            {listedItems.slice(0, itemLimit).map((item, idx) => (
+              <tr key={`${item.key}-${item.itemCode ?? item.item}-${idx}`}>
+                <Td className="max-w-[300px]" title={item.item}>
+                  <span className="block truncate font-medium text-brand-navy">{item.item}</span>
+                  {item.itemCode ? <span className="block text-[11px] text-muted">{item.itemCode}</span> : null}
+                </Td>
+                {!selectedRollup && <Td>{item.principal}</Td>}
+                <Td align="right">{formatCompact(item.openingValue)}</Td>
+                <Td align="right">{formatNumber(item.openingPcs)}</Td>
+                <Td align="right">{formatCompact(item.rrWeekValue)}</Td>
+                <Td align="right">{item.rrWeekValue > 0 ? item.daysCover.toFixed(1) : "—"}</Td>
+                <Td align="right" className="whitespace-nowrap text-muted-strong" title="Reorder · Target · Overstock days in force for this SKU">
+                  {item.reorderDays ?? "—"} · {item.targetDays ?? "—"} · {item.overstockDays ?? OVERSTOCK_DAYS_THRESHOLD}
+                </Td>
+                <Td align="right">{item.standardValue !== undefined ? formatCompact(item.standardValue) : "—"}</Td>
+                <Td align="center">
+                  {/* Overstock is excess cover, a separate axis from the shortage action, so it replaces a plain "OK". */}
+                  {isOverstocked(item, OVERSTOCK_DAYS_THRESHOLD) && !item.action.includes("🔴") && !item.action.includes("🟡") ? <Badge tier="warn">Overstocked</Badge> : <StockStatusPill action={item.action} />}
+                </Td>
               </tr>
             ))}
-            {brandRollups.length === 0 && (
-              <tr><td colSpan={selectedRollup ? 9 : 10} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
+            {listedItems.length === 0 ? (
+              <tr>
+                <td colSpan={selectedRollup ? 8 : 9} className="px-3 py-8 text-center text-muted">
+                  No SKUs match this status{query ? " and search" : ""} for {scopeLabel}.
+                </td>
+              </tr>
+            ) : (
+              <TotalRow>
+                <Td>Total ({formatNumber(listedItems.length)} SKUs)</Td>
+                {!selectedRollup && <Td>{null}</Td>}
+                <Td align="right">{formatCompact(summary.value)}</Td>
+                <Td align="right">{formatNumber(summary.pcs)}</Td>
+                <Td align="right">{formatCompact(summary.rrWeekValue)}</Td>
+                <Td align="right">{summary.daysCover.toFixed(1)}</Td>
+                <Td align="right">—</Td>
+                <Td align="right">{formatCompact(summary.standardValue)}</Td>
+                <Td align="center"><StockStatusPill action={summary.action} /></Td>
+              </TotalRow>
             )}
           </tbody>
         </TableWrap>
+        {listedItems.length > itemLimit ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+            <span>Showing {formatNumber(itemLimit)} of {formatNumber(listedItems.length)} SKUs, largest stock value first.</span>
+            <span className="flex gap-2">
+              <button type="button" onClick={() => setItemLimit((n) => n + ITEM_PAGE_SIZE)} className="rounded-full border border-border px-3 py-1.5 font-semibold text-primary-blue hover:bg-accent-blue-soft">
+                Show {formatNumber(Math.min(ITEM_PAGE_SIZE, listedItems.length - itemLimit))} more
+              </button>
+              <button type="button" onClick={() => setItemLimit(listedItems.length)} className="rounded-full border border-border px-3 py-1.5 font-semibold text-primary-blue hover:bg-accent-blue-soft">
+                Show all
+              </button>
+            </span>
+          </div>
+        ) : null}
       </SectionCard>
 
-      {!selectedRollup && (
-        <SectionCard
-          title={`Stock by Item (top ${Math.min(ALL_ITEMS_LIMIT, allItemsSorted.length)} of ${allItemsSorted.length} by value, all principals)`}
-          action={<span className="text-xs text-muted">Select a principal above to see its full item list</span>}
-        >
-          <TableWrap>
-            <Thead>
-              <Th>Item</Th>
-              <Th>Principal</Th>
-              <Th>Brand</Th>
-              <Th align="right">Stock Value</Th>
-              <Th align="right">Volume</Th>
-              <Th align="right">Pcs</Th>
-              <Th align="right">Days Cover</Th>
-              <Th align="center">Status</Th>
-            </Thead>
-            <tbody>
-              {allItemsSorted.slice(0, ALL_ITEMS_LIMIT).map((i, idx) => (
-                <tr key={`${i.key}-${i.item}-${idx}`}>
-                  <Td className="max-w-[220px] truncate" title={i.item}>{i.item}</Td>
-                  <Td>{i.principal}</Td>
-                  <Td>{i.brand?.trim() || "Unspecified"}</Td>
-                  <Td align="right">{formatCompact(i.openingValue)}</Td>
-                  <Td align="right">{formatNumber(i.openingVolume)}</Td>
-                  <Td align="right">{formatNumber(i.openingPcs)}</Td>
-                  <Td align="right">{i.daysCover.toFixed(1)}</Td>
-                  <Td align="center"><StockStatusPill action={i.action} /></Td>
-                </tr>
-              ))}
-              {allItemsSorted.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-muted">No stock items in this scope.</td></tr>
-              )}
-            </tbody>
-          </TableWrap>
-        </SectionCard>
-      )}
-
-      {selectedRollup ? (
-        <SectionCard title={`${selectedRollup.name} — Item Detail (top ${Math.min(80, principalItems.length)} of ${principalItems.length})`}>
-          <TableWrap>
-            <Thead>
-              <Th>Item</Th>
-              <Th>Brand</Th>
-              <Th align="right">Stock Value</Th>
-              <Th align="right">Volume</Th>
-              <Th align="right">Pcs</Th>
-              <Th align="right">Days Cover</Th>
-              <Th align="right">RR/Week</Th>
-              <Th align="center">Status</Th>
-            </Thead>
-            <tbody>
-              {principalItems.slice(0, 80).map((i, idx) => (
-                <tr key={`${i.item}-${idx}`}>
-                  <Td className="max-w-[220px] truncate" title={i.item}>
-                    {i.item}
-                  </Td>
-                  <Td>{i.brand?.trim() || "Unspecified"}</Td>
-                  <Td align="right">{formatCompact(i.openingValue)}</Td>
-                  <Td align="right">{formatNumber(i.openingVolume)}</Td>
-                  <Td align="right">{formatNumber(i.openingPcs)}</Td>
-                  <Td align="right">{i.daysCover.toFixed(1)}</Td>
-                  <Td align="right">{formatCompact(i.rrWeekValue)}</Td>
-                  <Td align="center">
-                    <StockStatusPill action={i.action} />
-                  </Td>
-                </tr>
-              ))}
-              <TotalRow>
-                <Td>Total ({principalItems.length} items)</Td>
-                <Td>{null}</Td>
-                <Td align="right">{formatCompact(itemTotal ? itemTotal.value : selectedRollup.value)}</Td>
-                <Td align="right">{formatNumber(itemTotal ? itemTotal.volume : selectedRollup.volume)}</Td>
-                <Td align="right">{formatNumber(itemTotal ? itemTotal.pcs : selectedRollup.pcs)}</Td>
-                <Td align="right">{itemTotal ? "—" : selectedRollup.daysStock.toFixed(1)}</Td>
-                <Td align="right">{itemTotal ? "—" : formatCompact(selectedRollup.rrWeekValue)}</Td>
-                <Td align="center">{itemTotal ? "—" : <StockStatusPill action={selectedRollup.action} />}</Td>
-              </TotalRow>
-            </tbody>
-          </TableWrap>
-        </SectionCard>
-      ) : (
-        <SectionCard title="Stock by Principal">
+      {!selectedRollup && principalRows.length > 0 ? (
+        <SectionCard title={`Stock by Principal — ${statusLabel}`} action={<span className="text-xs text-muted">Summed from the SKUs listed above</span>}>
           <TableWrap>
             <Thead>
               <Th>Principal</Th>
+              <Th align="right">SKUs</Th>
               <Th align="right">Stock Value</Th>
-              <Th align="right">Volume</Th>
-              <Th align="right">Pcs</Th>
-              <Th align="right">Items</Th>
-              <Th align="right">Out of Stock</Th>
-              <Th align="right">Running Out</Th>
-              <Th align="right">No Data</Th>
-              <Th align="right">Cover Days</Th>
-              <Th align="right">RR/Week</Th>
-              <Th align="right">Target Days</Th>
+              <Th align="right">Days Cover</Th>
               <Th align="right">Standard Stock</Th>
               <Th align="right">vs Standard</Th>
+              <Th align="right">Out of Stock</Th>
+              <Th align="right">Running Out</Th>
+              <Th align="right">Overstocked</Th>
+              <Th align="right">No Sales Data</Th>
               <Th align="center">Status</Th>
             </Thead>
             <tbody>
-              {[...filteredRollups]
-                .sort((a, b) => b.value - a.value)
-                .map((r) => (
-                  <tr key={r.key}>
-                    <Td>{r.name}</Td>
-                    <Td align="right">{formatCompact(r.value)}</Td>
-                    <Td align="right">{formatNumber(r.volume)}</Td>
-                    <Td align="right">{formatNumber(r.pcs)}</Td>
-                    <Td align="right">{formatNumber(r.itemCount)}</Td>
-                    <Td align="right">{formatNumber(r.outOfStockCount)}</Td>
-                    <Td align="right">{formatNumber(r.runningOutCount)}</Td>
-                    <Td align="right">{formatNumber(r.noDataCount)}</Td>
-                    <Td align="right">{r.daysStock.toFixed(1)}</Td>
-                    <Td align="right">{formatCompact(r.rrWeekValue)}</Td>
-                    <Td align="right">{r.targetDays}</Td>
-                    <Td align="right">{formatCompact(r.standardValue)}</Td>
-                    <Td align="right">{r.vsStandardPct === null ? "—" : `${r.vsStandardPct.toFixed(0)}%`}</Td>
-                    <Td align="center">
-                      <StockStatusPill action={r.action} />
-                    </Td>
-                  </tr>
-                ))}
+              {principalRows.map((row) => (
+                <tr key={row.key}>
+                  <Td className="font-medium">{row.principal}</Td>
+                  <Td align="right">{formatNumber(row.itemCount)}</Td>
+                  <Td align="right">{formatCompact(row.value)}</Td>
+                  <Td align="right">{row.daysCover.toFixed(1)}</Td>
+                  <Td align="right">{formatCompact(row.standardValue)}</Td>
+                  <Td align="right">{row.vsStandardPct === null ? "—" : `${row.vsStandardPct.toFixed(0)}%`}</Td>
+                  <Td align="right">{formatNumber(row.outOfStockCount)}</Td>
+                  <Td align="right">{formatNumber(row.runningOutCount)}</Td>
+                  <Td align="right">{formatNumber(row.overstockedCount)}</Td>
+                  <Td align="right">{formatNumber(row.noDataCount)}</Td>
+                  <Td align="center"><StockStatusPill action={row.action} /></Td>
+                </tr>
+              ))}
               <TotalRow>
                 <Td>Total</Td>
-                <Td align="right">{formatCompact(principalTotal ? principalTotal.value : activeStockTotal.value)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.volume : activeStockTotal.volume)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.pcs : activeStockTotal.pcs)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.itemCount : activeStockTotal.itemCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.outOfStockCount : activeStockTotal.outOfStockCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.runningOutCount : activeStockTotal.runningOutCount)}</Td>
-                <Td align="right">{formatNumber(principalTotal ? principalTotal.noDataCount : activeStockTotal.noDataCount)}</Td>
-                <Td align="right">{principalTotal ? "—" : activeStockTotal.daysStock.toFixed(1)}</Td>
-                <Td align="right">{principalTotal ? "—" : formatCompact(activeStockTotal.rrWeekValue)}</Td>
-                <Td align="right">—</Td>
-                <Td align="right">{formatCompact(filteredRollups.reduce((sum, r) => sum + r.standardValue, 0))}</Td>
-                <Td align="right">—</Td>
-                <Td align="center">{principalTotal ? "—" : <StockStatusPill action={activeStockTotal.action} />}</Td>
+                <Td align="right">{formatNumber(summary.itemCount)}</Td>
+                <Td align="right">{formatCompact(summary.value)}</Td>
+                <Td align="right">{summary.daysCover.toFixed(1)}</Td>
+                <Td align="right">{formatCompact(summary.standardValue)}</Td>
+                <Td align="right">{summary.vsStandardPct === null ? "—" : `${summary.vsStandardPct.toFixed(0)}%`}</Td>
+                <Td align="right">{formatNumber(summary.outOfStockCount)}</Td>
+                <Td align="right">{formatNumber(summary.runningOutCount)}</Td>
+                <Td align="right">{formatNumber(summary.overstockedCount)}</Td>
+                <Td align="right">{formatNumber(summary.noDataCount)}</Td>
+                <Td align="center"><StockStatusPill action={summary.action} /></Td>
               </TotalRow>
             </tbody>
           </TableWrap>
         </SectionCard>
-      )}
+      ) : null}
     </div>
   );
 }
