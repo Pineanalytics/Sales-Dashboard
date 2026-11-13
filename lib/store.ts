@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Dataset, DatasetSnapshotSummary } from "./types";
 import { getDefaultPeriod, type PeriodSelection } from "./timeIntelligence";
+import type { SalesDateRange } from "./salesRange";
 import { filterDatasetToPrincipals } from "./datasetFilters";
 import { normalizePrincipalKey } from "./normalize";
 
@@ -36,6 +37,8 @@ interface DashboardState {
   // since "filter out every day" isn't a meaningful state to be in.
   selectedDayNames: Set<string>;
   salesSection: "cockpit" | "executive" | "time" | "reps" | "customers";
+  /** Sales Performance's "Date range" view (SAP daily feed); null = the usual reporting-period view. */
+  salesRange: SalesDateRange | null;
   // Mirrors CoverageView's internal tab state so GlobalFilterBar (a sibling
   // under AnalyticsShell, not a child of CoverageView) can pick the right
   // export reportKey / suppress its own button without needing a Suspense-
@@ -50,6 +53,7 @@ interface DashboardState {
   toggleDayName: (day: string) => void;
   setDayNames: (days: string[]) => void;
   setSalesSection: (section: DashboardState["salesSection"]) => void;
+  setSalesRange: (range: SalesDateRange | null) => void;
   clearAllFilters: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -98,6 +102,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   history: [],
   selectedDayNames: new Set(ALL_DAY_NAMES),
   salesSection: "cockpit",
+  salesRange: null,
   coverageActiveTab: "overview",
 
   setDataset: (dataset) =>
@@ -136,6 +141,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set({ selectedDayNames: new Set(valid.length > 0 ? valid : ALL_DAY_NAMES) });
   },
   setSalesSection: (salesSection) => set({ salesSection }),
+  setSalesRange: (salesRange) => set({ salesRange }),
   clearAllFilters: () => {
     const { dataset } = get();
     set({

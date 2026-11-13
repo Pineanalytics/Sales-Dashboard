@@ -39,7 +39,7 @@ export function SalesSectionNav({ active, onSelect }: { active: SalesSection; on
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-blue">Commercial analysis</p>
           <h1 className="mt-0.5 text-xl font-bold tracking-tight text-foreground">Sales Performance</h1>
-          <p className="mt-0.5 text-xs text-muted">Global period and principal filters apply to every view.</p>
+          <p className="mt-0.5 text-xs text-muted">The principal filter, and the reporting period or date range below, apply to every view.</p>
         </div>
         <nav aria-label="Sales analysis sections" className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
           {availableSections.map(({ id, label, description, Icon }) => (
