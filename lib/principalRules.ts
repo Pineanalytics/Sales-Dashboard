@@ -40,6 +40,7 @@ export const DEFAULT_PRINCIPAL_RULES: PrincipalRule[] = [
   { principal: "Weetabix", field: "code", prefix: "WEET" },
   { principal: "Bennet", field: "code", prefix: "BNT" },
   { principal: "Milly Fruits", field: "code", prefix: "PIC" },
+  { principal: "Highchem", field: "code", prefix: "HCM" },
 ];
 
 export const UNALLOCATED_PRINCIPAL = "Unallocated";

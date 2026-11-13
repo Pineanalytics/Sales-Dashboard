@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { canonicalTeamLeaderIdMap } from "@/lib/tlRanking";
-import { AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable, searchText } from "@/components/admin/AdminPage";
+import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable, searchText } from "@/components/admin/AdminPage";
+import { checkPrincipalSalesMapping, type PrincipalMappingIssue } from "@/lib/principalSalesMapping";
 import { AdminTableSearch } from "@/components/admin/AdminTableSearch";
 import { createPrincipalAction, updatePrincipalAction, deletePrincipalAction } from "./actions";
 
@@ -37,6 +38,21 @@ export default async function AdminPrincipalsPage({
     // working it instead of just the one credited for TL Ranking.
     prisma.teamLeaderAssignment.findMany({ where: { active: true }, select: { principal: true, teamLeaderId: true } }),
   ]);
+  // Why an Active principal might show no SAP sales (lib/principalSalesMapping.ts): its Product Master
+  // mapping, the "-<Location>" name the sales sync matches, and unidentified SAP items that look like it.
+  const [mappingProducts, unmappedSales, salesPrincipals] = await Promise.all([
+    prisma.product.findMany({ select: { itemNo: true, principal: true } }),
+    prisma.unmappedProductSale.groupBy({ by: ["itemNo", "itemDescription"], _sum: { revenue: true } }),
+    prisma.salesRecord.findMany({ distinct: ["principal"], select: { principal: true } }),
+  ]);
+  const salesMapping = checkPrincipalSalesMapping({
+    principals: principals.map((p) => ({ principal: p.principal, location: p.location, status: p.status })),
+    products: mappingProducts,
+    unmapped: unmappedSales.map((row) => ({ itemNo: row.itemNo, itemDescription: row.itemDescription, revenue: row._sum.revenue ?? 0 })),
+    principalsWithSales: new Set(salesPrincipals.map((row) => row.principal)),
+  });
+  const mappingProblems = salesMapping.principals.filter((row) => row.issues.length > 0);
+  const mappingIssueCount = mappingProblems.length + salesMapping.orphanProductPrincipals.length;
   const canonicalTeamLeaderIds = canonicalTeamLeaderIdMap(allTeamLeaders, supervisors);
   const teamLeaders = allTeamLeaders.filter((teamLeader) => canonicalTeamLeaderIds.get(teamLeader.id) === teamLeader.id);
   const teamLeaderNameById = new Map(teamLeaders.map((tl) => [tl.id, tl.name]));
@@ -98,6 +114,52 @@ export default async function AdminPrincipalsPage({
         </p>
         </AdminDisclosure>
       </div>
+
+      {mappingIssueCount > 0 ? (
+        <AdminDisclosure
+          defaultOpen
+          title="SAP sales mapping check"
+          badge={<AdminBadge tone="attention">{mappingIssueCount} to fix</AdminBadge>}
+          description="A SAP sale reaches a principal only when its item is in the Product Master under that principal's exact name, and “Name-Location” matches an Active row here. Otherwise it is skipped."
+        >
+          <ul className="flex max-h-[420px] flex-col divide-y divide-border/60 overflow-y-auto text-sm">
+            {mappingProblems.map((row) => (
+              <li key={row.principal} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="font-semibold text-brand-navy">
+                    {row.principal}{" "}
+                    <span className={`ml-1 text-xs font-medium ${row.hasSales ? "text-accent-green" : "text-accent-red"}`}>{row.hasSales ? "has SAP sales" : "no SAP sales yet"}</span>
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-0.5 text-[13px] text-muted-strong">
+                    {row.issues.map((issue, index) => (
+                      <li key={index}>{mappingIssueText(issue, row.productName)}</li>
+                    ))}
+                  </ul>
+                </div>
+                {row.issues.some((issue) => issue.kind === "unmapped-items" || issue.kind === "no-products") ? (
+                  <Link href="/admin/products" className="shrink-0 rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">
+                    Map items on Product master →
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+            {salesMapping.orphanProductPrincipals.map((orphan) => (
+              <li key={orphan.productPrincipal} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="font-semibold text-brand-navy">Product Master principal “{orphan.productPrincipal}”</p>
+                  <p className="mt-1 text-[13px] text-muted-strong">
+                    {orphan.productCount} item{orphan.productCount === 1 ? " is" : "s are"} mapped to it, but no principal row is named “{orphan.productPrincipal}-&lt;Location&gt;”, so their sales are skipped.
+                    {orphan.closestPrincipal ? ` Did you mean ${orphan.closestPrincipal}? The spelling must match exactly.` : " Add the principal below, or remap the items."}
+                  </p>
+                </div>
+                <Link href={`/admin/products?q=${encodeURIComponent(orphan.productPrincipal)}`} className="shrink-0 rounded-full border border-secondary-blue/30 bg-surface px-3 py-1.5 text-xs font-semibold text-primary-blue hover:bg-accent-blue-soft">
+                  Show its items →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </AdminDisclosure>
+      ) : null}
 
       <AdminDisclosure title="Add a principal" description="A new principal reference row: location, status, dormant stock and ranking credit.">
         <form action={createPrincipalAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -327,4 +389,17 @@ export default async function AdminPrincipalsPage({
       </AdminCard>
     </AdminPage>
   );
+}
+
+function mappingIssueText(issue: PrincipalMappingIssue, productName: string | null): string {
+  switch (issue.kind) {
+    case "missing-location":
+      return `The name has no location, so no SAP sale can match it. SAP sales are matched as “Name-Location”: rename it to ${issue.expectedExample}.`;
+    case "no-products":
+      return `No Product Master items are mapped to “${productName}”, so its SAP sales are skipped.`;
+    case "name-mismatch":
+      return `${issue.productCount} item${issue.productCount === 1 ? " is" : "s are"} mapped as “${issue.productPrincipal}”, which differs from “${productName}” only in case or punctuation. The spelling must match exactly.`;
+    case "unmapped-items":
+      return `${issue.itemCount} unidentified SAP item${issue.itemCount === 1 ? "" : "s"} (KES ${Math.round(issue.revenue).toLocaleString("en-KE")}) look like this principal by item code, e.g. ${issue.examples.join(", ")}: map them on Product master.`;
+  }
 }
