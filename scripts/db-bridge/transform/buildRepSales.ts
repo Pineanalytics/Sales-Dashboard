@@ -43,18 +43,22 @@ interface ResolvedRep {
   employeeName: string | null;
 }
 
-function resolveRepBySapName(employees: EmployeeMasterReferenceRow[]): (sapName: string) => ResolvedRep {
-  const bySapName = new Map<string, ResolvedRep | null>();
+/** Resolves a SAP salesperson name to one roster employee. A name held by several roster rows is only settled when exactly one of
+ *  them is active: that is how a recreated Pine profile (old code deactivated, new code live, same SAP name) keeps its sales. Two
+ *  or more active rows still stay unmatched, because guessing would put one person's sales on another. */
+export function resolveRepBySapName(employees: EmployeeMasterReferenceRow[]): (sapName: string) => ResolvedRep {
+  const byName = new Map<string, EmployeeMasterReferenceRow[]>();
   for (const employee of employees) {
     const key = normalizeName(employee.sapName);
     if (!key) continue;
-    if (bySapName.has(key)) {
-      // A duplicate SAP name is not safe to guess. Keep the sales row, flagged
-      // as unmatched, until the Employee Roaster resolves the duplicate.
-      bySapName.set(key, null);
-    } else {
-      bySapName.set(key, { employeeCode: employee.employeeCode, employeeName: employee.pineName });
-    }
+    const list = byName.get(key);
+    if (list) list.push(employee);
+    else byName.set(key, [employee]);
+  }
+  const bySapName = new Map<string, ResolvedRep>();
+  for (const [key, list] of byName) {
+    const candidates = list.length === 1 ? list : list.filter((employee) => employee.active);
+    if (candidates.length === 1) bySapName.set(key, { employeeCode: candidates[0].employeeCode, employeeName: candidates[0].pineName });
   }
   return (sapName) => bySapName.get(normalizeName(sapName)) ?? { employeeCode: null, employeeName: null };
 }
