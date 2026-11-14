@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
-import { kenyaWorkingDayClause, principalScopedSalesRole, timestampPrincipalKey } from "@/lib/timestampSummary";
+import { kenyaWorkingDayClause, principalScopedSalesRole, teamLeaderPrincipalMatchClause, timestampPrincipalKey } from "@/lib/timestampSummary";
 
 describe("principalScopedSalesRole", () => {
   it("uses the same normalized key as the global principal selector", () => {
@@ -51,5 +51,15 @@ describe("kenyaWorkingDayClause", () => {
 
     expect(clause.strings.join(" ")).toContain("NOT IN");
     expect(clause.values).toContain("2026-03-20");
+  });
+});
+
+describe("teamLeaderPrincipalMatchClause", () => {
+  it("reads the principal through the Team Leader's active assignments, using the selector's normalized key", () => {
+    const clause = teamLeaderPrincipalMatchClause("Milly Fruits-Nairobi");
+    expect(clause.sql).toContain('"TeamLeaderAssignment"');
+    expect(clause.sql).toContain("tla.active");
+    expect(clause.sql).toContain('tl.id = em."teamLeaderId" OR tl.name = em."teamLeader"');
+    expect(clause.values).toEqual(["millyfruits"]);
   });
 });

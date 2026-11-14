@@ -181,13 +181,31 @@ export function timestampPrincipalKey(principalKey: string): string {
 }
 
 /** Tests the canonical absolute principal from Employee Roaster. Timestamps
- * are an operational Pine report, so a rep's complete day belongs to the one
- * absolute principal rather than being reassigned according to a call's sale
- * cost-centre or their multi-principal JPA contribution allocation. */
+ * are an operational Pine report, so a rep's complete day is never reassigned
+ * according to a call's sale cost-centre or their multi-principal JPA
+ * contribution allocation. */
 function absolutePrincipalMatchClause(principalKey: string, absolutePrincipal: Prisma.Sql): Prisma.Sql {
   const selectorKey = timestampPrincipalKey(principalKey);
   return Prisma.sql`
     lower(regexp_replace(split_part(BTRIM(${absolutePrincipal}), '-', 1), '[^a-zA-Z0-9]', '', 'g')) = ${selectorKey}
+  `;
+}
+
+/** The selected principal, read through the Team Leader. A Team Leader's reps sell more than one principal (one team can carry EFL,
+ * Bidco, Bennet, Highchem and Milly Fruits), but the roster holds a single absolute principal per rep, so filtering on that alone
+ * hid most of a team's day whenever a principal was chosen. A rep now matches when their Team Leader has an active assignment on
+ * the principal, and the rep's whole day is then shown. Exported for tests. */
+export function teamLeaderPrincipalMatchClause(principalKey: string): Prisma.Sql {
+  const selectorKey = timestampPrincipalKey(principalKey);
+  return Prisma.sql`
+    EXISTS (
+      SELECT 1
+      FROM "TeamLeaderAssignment" tla
+      JOIN "TeamLeader" tl ON tl.id = tla."teamLeaderId"
+      WHERE tla.active
+        AND (tl.id = em."teamLeaderId" OR tl.name = em."teamLeader")
+        AND lower(regexp_replace(split_part(BTRIM(tla.principal), '-', 1), '[^a-zA-Z0-9]', '', 'g')) = ${selectorKey}
+    )
   `;
 }
 
@@ -268,18 +286,17 @@ function sourceQuery(
     };
   }
 
-  // Principal-scoped Timestamps always use the roster's absolute principal
-  // (a rep's complete day belongs to one absolute principal, not reassigned
-  // per call's sale cost-centre). A rep with no roster row — hence no
-  // absolute principal to read at all — correctly falls out of any one
-  // specific-principal filter (genuinely unknown, not guessable), but stays
-  // visible in the unfiltered view above and in the General Team Leader
-  // bucket below.
+  // Principal-scoped Timestamps follow the Team Leader: a rep is in when their own roster principal is the selected one, or when
+  // their Team Leader has an active assignment on it, and then the rep's complete day is shown (never trimmed per call's sale
+  // cost-centre, so a first call with no sale stays). A rep with no roster row, hence no principal or Team Leader to read,
+  // correctly falls out of any one specific-principal filter (genuinely unknown, not guessable), but stays visible in the
+  // unfiltered view above and in the General Team Leader bucket below.
   const absolutePrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`);
+  const teamLeaderMatch = teamLeaderPrincipalMatchClause(principalKey);
   const inferredPrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`);
   return {
     from,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR ${teamLeaderMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
     salesRole,
   };
 }
