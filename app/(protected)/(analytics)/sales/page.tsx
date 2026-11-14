@@ -20,6 +20,8 @@ import DashboardPage from "../dashboard/page";
 import TimeIntelligencePage from "../time-intelligence/page";
 import RepsPage from "../reps/page";
 import CustomersPage from "../customers/page";
+import { SalesRangeBar } from "@/components/sales/SalesRangeBar";
+import { SalesRangeView } from "@/components/sales/SalesRangeView";
 
 function month3(month: string): string {
   return month.slice(0, 3);
@@ -29,15 +31,21 @@ export default function SalesPage() {
   const active = useDashboardStore((state) => state.salesSection);
   const setActive = useDashboardStore((state) => state.setSalesSection);
   const availableSections = useAvailableSalesSections();
+  const salesRange = useDashboardStore((state) => state.salesRange);
   const current: SalesSection = availableSections.some((section) => section.id === active) ? active : availableSections[0]?.id ?? "cockpit";
   return (
     <div className="flex flex-col gap-3 md:gap-4">
       <SalesSectionNav active={current} onSelect={setActive} />
+      <SalesRangeBar />
+      {/* A date range (SAP daily feed) replaces every section's reporting-period view. */}
+      {salesRange ? <SalesRangeView section={current} range={salesRange} /> : null}
+      {salesRange ? null : <>
       {current === "cockpit" ? <SalesCockpit /> : null}
       {current === "executive" ? <DashboardPage embedded /> : null}
       {current === "time" ? <TimeIntelligencePage /> : null}
       {current === "reps" ? <RepsPage /> : null}
       {current === "customers" ? <CustomersPage /> : null}
+      </>}
     </div>
   );
 }

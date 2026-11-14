@@ -26,6 +26,8 @@ export function GlobalFilterBar() {
   const clearAllFilters = useDashboardStore((s) => s.clearAllFilters);
   const salesSection = useDashboardStore((s) => s.salesSection);
   const coverageActiveTab = useDashboardStore((s) => s.coverageActiveTab);
+  // Sales Performance in "Date range" mode picks its own dates (SalesRangeBar); the reporting period does not apply there.
+  const salesRangeActive = useDashboardStore((s) => s.salesRange !== null) && pathname === "/sales";
   const selectedDayNames = useDashboardStore((s) => s.selectedDayNames);
   const hasDayFilter = selectedDayNames.size !== ALL_DAY_NAMES.length;
   const showExecutiveControls = pathname === "/dashboard" || (pathname === "/sales" && salesSection === "executive");
@@ -43,9 +45,9 @@ export function GlobalFilterBar() {
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <PeriodSelector />
+        {salesRangeActive ? null : <PeriodSelector />}
         <PrincipalSelector />
-        {canFilterExecutiveDays ? <DayNameSelector /> : null}
+        {canFilterExecutiveDays && !salesRangeActive ? <DayNameSelector /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {/* Active Outlets and Time in Trade (Coverage's "active-outlets" and
@@ -53,7 +55,7 @@ export function GlobalFilterBar() {
             InlineReportExport instead of this generic bar. JP Adherence (now
             Coverage's "jp-adherence" tab) keeps using this shared bar, same
             as it did on its old standalone route. */}
-        {pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "universe-analysis" || coverageActiveTab === "time-in-trade") ? null : (
+        {salesRangeActive || (pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "universe-analysis" || coverageActiveTab === "time-in-trade")) ? null : (
           <InlineReportExport
             reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}
