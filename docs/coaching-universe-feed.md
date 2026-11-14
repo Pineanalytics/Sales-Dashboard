@@ -115,3 +115,7 @@ About 67,000 universe rows is about 68 pages of 1,000 (walked in about 15 second
 
 On 20 October 2026 the business decided the Coaching app should receive the full universe including sales values and tiers, principal by principal, for buying
 trends and rep association. Target values, credentials and dashboard-user authorization data are still never shared. Outlet contact details are not held here.
+
+## Rep timestamps (`resource=rep-timestamps&codes=<code,...>&from=YYYY-MM-DD&to=YYYY-MM-DD`)
+
+The Coaching app's timestamp report: when a rep was in trade, from `RepCall` (`lib/coachingRepTimestamps.ts`). Per code and day: first and last call (the call records' own Nairobi wall-clock times, as the Timestamps page shows them), hours between them, calls, productive calls and the average gap between calls; plus totals (days worked, average start, finish and hours). For windows of 31 days or less (`callsIncluded: true`) each day also carries every call: time, outlet ID and name, outcome, no-sale reason and the gap since the previous call. No sales value per call. Same limits as `rep-activity` (up to 8 codes, 400 days).

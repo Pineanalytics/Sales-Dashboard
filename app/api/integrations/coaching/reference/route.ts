@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { loadCoachingPerformance } from "@/lib/coachingPerformanceQuery";
 import { loadRepActivity, MAX_ACTIVITY_CODES, MAX_ACTIVITY_DAYS } from "@/lib/coachingRepActivityQuery";
+import { loadRepTimestamps, MAX_TIMESTAMP_CALL_DAYS } from "@/lib/coachingRepTimestamps";
 import { getUnifiedLocations } from "@/lib/locationUnify/source";
 import { historySnapshot, paginate, universeSnapshot } from "@/lib/universeFeed";
 
@@ -121,6 +122,21 @@ export async function GET(request: NextRequest) {
     }
     const reps = await loadRepActivity(unique, start, endExclusive);
     return NextResponse.json({ syncedAt: new Date().toISOString(), from, to, reps }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (resource === "rep-timestamps") {
+    // When a rep was in trade, day by day (first and last call, hours, calls), with every call for windows up to a month: the Coaching app's timestamp report.
+    const codes = [...new Set((url.searchParams.get("codes") ?? "").split(",").map((c) => c.trim()).filter((c) => /^[A-Za-z0-9._-]{1,30}$/.test(c)))].slice(0, MAX_ACTIVITY_CODES);
+    const from = url.searchParams.get("from") ?? "";
+    const to = url.searchParams.get("to") ?? "";
+    if (codes.length === 0) return NextResponse.json({ error: "codes is required." }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return NextResponse.json({ error: "from and to must be YYYY-MM-DD." }, { status: 400 });
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const endExclusive = new Date(Date.parse(`${to}T00:00:00.000Z`) + 24 * 3600 * 1000);
+    const days = (endExclusive.getTime() - start.getTime()) / (24 * 3600 * 1000);
+    if (!Number.isFinite(days) || days < 1 || days > MAX_ACTIVITY_DAYS) return NextResponse.json({ error: `The window must be 1 to ${MAX_ACTIVITY_DAYS} days.` }, { status: 400 });
+    const reps = await loadRepTimestamps(codes, start, endExclusive);
+    return NextResponse.json({ syncedAt: new Date().toISOString(), from, to, callsIncluded: days <= MAX_TIMESTAMP_CALL_DAYS, reps }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (resource === "performance") {
