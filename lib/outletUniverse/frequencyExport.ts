@@ -85,6 +85,14 @@ function cell(value: string | number): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+/** The raw rows as CSV, limited to `columns` (headers of OUTLET_COLUMNS, in the order given; unknown names are skipped). For the live data feed. */
+export function frequencyCsvColumns(outlets: FrequencyOutlet[], columns: string[]): string {
+  const chosen = columns.map((name) => OUTLET_COLUMNS.find((c) => c.header === name)).filter((c): c is Column => Boolean(c));
+  const lines = [chosen.map((c) => cell(c.header)).join(",")];
+  for (const outlet of outlets) lines.push(chosen.map((c) => cell(c.value(outlet))).join(","));
+  return lines.join("\r\n");
+}
+
 export function frequencyCsv(outlets: FrequencyOutlet[]): string {
   const lines = [OUTLET_COLUMNS.map((c) => cell(c.header)).join(",")];
   for (const outlet of outlets) lines.push(OUTLET_COLUMNS.map((c) => cell(c.value(outlet))).join(","));
@@ -93,6 +101,7 @@ export function frequencyCsv(outlets: FrequencyOutlet[]): string {
 
 export function frequencyFileStem(report: FrequencyReport): string {
   const { kind, year, quarter, month, week } = report.period;
+  if (kind === "last6") return `coverage-frequency-last-6-months-${report.period.end.toISOString().slice(0, 10)}`;
   if (kind === "week") return `coverage-frequency-${year}-W${String(week).padStart(2, "0")}`;
   if (kind === "month") return `coverage-frequency-${year}-${String(month).padStart(2, "0")}`;
   if (kind === "quarter") return `coverage-frequency-${year}-Q${quarter}`;

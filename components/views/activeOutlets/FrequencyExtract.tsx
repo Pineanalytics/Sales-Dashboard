@@ -107,10 +107,13 @@ export function FrequencyExtract({ baseParams, minYear = 2026 }: { baseParams: s
           <option value="quarter">Quarterly</option>
           <option value="month">Monthly</option>
           <option value="week">Weekly</option>
+          <option value="last6">Last 6 months (rolling)</option>
         </select>
-        <select aria-label="Year" className={select} value={year} onChange={(e) => { setYear(Number(e.target.value)); stale(); }}>
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
+        {kind === "last6" ? null : (
+          <select aria-label="Year" className={select} value={year} onChange={(e) => { setYear(Number(e.target.value)); stale(); }}>
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        )}
         {kind === "quarter" ? (
           <select aria-label="Quarter" className={select} value={quarter} onChange={(e) => { setQuarter(Number(e.target.value)); stale(); }}>
             {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}

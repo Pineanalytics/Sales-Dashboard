@@ -1200,6 +1200,23 @@ model RosterSuggestionDismissal {
   dismissedAt  DateTime @default(now())
 }
 
+// A key that lets an outside tool (an Excel / Power Query workbook on
+// SharePoint) read one read-only data feed without a dashboard login — see
+// lib/dataFeeds.ts and app/api/feeds/[feed]/route.ts. Only the key's SHA-256
+// hash is stored; the key itself is shown once, when an admin creates it.
+// Revoking sets revokedAt, and the key stops working at once. Additive table.
+model DataFeedKey {
+  id         String    @id @default(cuid())
+  name       String // what the key is for, e.g. "SharePoint Outlet Master"
+  feed       String // a feed id from lib/dataFeeds.ts, e.g. "outlet-master"
+  keyHash    String    @unique
+  keyPrefix  String // the key's first characters, to tell keys apart in the list
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+}
+
 model EmployeeMaster {
   id                String   @id @default(cuid())
   employeeCode      String   @unique
