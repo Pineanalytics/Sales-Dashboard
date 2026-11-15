@@ -46,8 +46,17 @@ jobs:
           HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
         run: |
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$HOSTINGER_SSH_KEY" > ~/.ssh/pinefrost_hostinger
-          chmod 600 ~/.ssh/pinefrost_hostinger
+          key=~/.ssh/pinefrost_hostinger
+          # The secret is the same key the deploy machine uses. Normalize how it was pasted, never the key itself:
+          # Windows line endings (CR) and literal "\n" escapes both make OpenSSH fail with "error in libcrypto".
+          printf '%s\n' "$HOSTINGER_SSH_KEY" | sed 's/\\n/\n/g' | tr -d '\r' | sed '/^[[:space:]]*$/d' > "$key"
+          chmod 600 "$key"
+          # Fail here, with a hint, if the key still cannot be read (it is never printed).
+          if ! ssh-keygen -y -f "$key" > /dev/null 2>&1; then
+            echo "::error::HOSTINGER_SSH_KEY cannot be read as a private key ($(wc -l < "$key") lines; BEGIN line $(grep -q '^-----BEGIN .*PRIVATE KEY-----$' "$key" && echo found || echo missing); END line $(grep -q '^-----END .*PRIVATE KEY-----$' "$key" && echo found || echo missing)). It must be the full OpenSSH/PEM private key, BEGIN and END lines included, without a passphrase."
+            exit 1
+          fi
+          echo "Key OK: $(ssh-keygen -l -f "$key" | awk '{print $1, $2, $4}')"
           ssh-keyscan -H 187.77.80.216 >> ~/.ssh/known_hosts
 
       - name: Deploy immutable master build
