@@ -1,7 +1,8 @@
 // The period and cadence rules of the coverage frequency extract, kept free of server code so the Active Outlets screen can use them too.
 import { nairobiToday } from "@/lib/financePresentation";
 
-export type FrequencyPeriodKind = "year" | "quarter" | "month" | "week";
+/** "last6" is a rolling window: the same date six months ago up to and including today (Nairobi). */
+export type FrequencyPeriodKind = "year" | "quarter" | "month" | "week" | "last6";
 
 /** Column order of the example summary. */
 export const CADENCES = ["Once per Year", "Once in 6 Months", "Once in 3 Months", "Once Per Month"] as const;
@@ -53,7 +54,7 @@ export function resolveFrequencyPeriod(params: URLSearchParams, now: Date = new 
   const today = nairobiToday(now);
   const todayMs = Date.UTC(today.year, today.monthIndex, today.day);
   const rawKind = params.get("kind");
-  const kind: FrequencyPeriodKind = rawKind === "quarter" || rawKind === "month" || rawKind === "week" ? rawKind : "year";
+  const kind: FrequencyPeriodKind = rawKind === "quarter" || rawKind === "month" || rawKind === "week" || rawKind === "last6" ? rawKind : "year";
   const todayWeek = isoWeekOf(new Date(todayMs));
   const year = int(params.get("year"), 2000, 2100) ?? (kind === "week" ? todayWeek.year : today.year);
 
@@ -63,7 +64,19 @@ export function resolveFrequencyPeriod(params: URLSearchParams, now: Date = new 
   let quarter: number | null = null;
   let month: number | null = null;
   let week: number | null = null;
-  if (kind === "week") {
+  if (kind === "last6") {
+    // Rolling: from the same day six months back (the month's last day when that day does not exist) through today.
+    const back = new Date(Date.UTC(today.year, today.monthIndex - 6, 1));
+    const lastDay = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth() + 1, 0)).getUTCDate();
+    start = new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth(), Math.min(today.day, lastDay)));
+    end = new Date(todayMs + DAY_MS);
+    label = `Last 6 months (${fmtDay(start)} ${start.getUTCFullYear()} to ${fmtDay(new Date(todayMs))} ${today.year})`;
+    const startedMonths: number[] = [];
+    for (let cursor = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1); cursor <= todayMs; cursor = Date.UTC(new Date(cursor).getUTCFullYear(), new Date(cursor).getUTCMonth() + 1, 1)) {
+      startedMonths.push(new Date(cursor).getUTCMonth());
+    }
+    return { kind, year: today.year, quarter: null, month: null, week: null, start, end, label, startedMonths };
+  } else if (kind === "week") {
     week = int(params.get("week"), 1, isoWeeksInYear(year)) ?? (year === todayWeek.year ? todayWeek.week : 1);
     start = isoWeekStart(year, week);
     end = new Date(start.getTime() + 7 * DAY_MS);
