@@ -3,9 +3,9 @@ import { buildCustomerRepResolver, buildGlobalAgeingReport, NO_REP, type RepReso
 
 const emp = (employeeCode: string, pineName: string, sapName: string, active = true, sapSlpCode: number | null = null): RepResolverEmployee => ({ employeeCode, pineName, sapName, active, sapSlpCode });
 const SAP_REPS = [
-  { slpCode: 281, name: "Florence Ouma" },
-  { slpCode: 21, name: "SHARON MUTINDI" },
-  { slpCode: 52, name: "DO NOT USE" },
+  { slpCode: 281, name: "Florence Ouma", active: true },
+  { slpCode: 21, name: "SHARON MUTINDI", active: true },
+  { slpCode: 52, name: "DO NOT USE", active: false },
 ];
 
 describe("buildCustomerRepResolver", () => {
@@ -18,7 +18,7 @@ describe("buildCustomerRepResolver", () => {
 
   it("uses an explicit link, and shows the roster employee's code and name", () => {
     const resolve = buildCustomerRepResolver(SAP_REPS, [{ employeeCode: "1221", slpCode: 281 }], [emp("1221", "Florence Ouma", "Florence Ouma"), emp("1114", "Florence Ouma", "Florence Ouma", false)]);
-    expect(resolve(281)).toEqual({ assignedRep: "Florence Ouma", employeeCode: "1221", employeeName: "Florence Ouma", employeeLink: "Linked" });
+    expect(resolve(281)).toEqual({ assignedRep: "Florence Ouma", employeeCode: "1221", employeeName: "Florence Ouma", employeeLink: "Linked", sapStatus: "Active" });
   });
 
   it("also reads the roster's own SAP code, and shows only the active rows when one rep is several roster codes", () => {
@@ -29,7 +29,7 @@ describe("buildCustomerRepResolver", () => {
 
   it("falls back to an exact, unique SAP-name match when nothing is linked", () => {
     const resolve = buildCustomerRepResolver(SAP_REPS, [], [emp("1500", "Sharon M", "sharon  mutindi")]);
-    expect(resolve(21)).toEqual({ assignedRep: "SHARON MUTINDI", employeeCode: "1500", employeeName: "Sharon M", employeeLink: "Name match" });
+    expect(resolve(21)).toEqual({ assignedRep: "SHARON MUTINDI", employeeCode: "1500", employeeName: "Sharon M", employeeLink: "Name match", sapStatus: "Active" });
   });
 
   it("does not guess between two active roster rows with the same SAP name", () => {
@@ -39,8 +39,14 @@ describe("buildCustomerRepResolver", () => {
 
   it("names the SAP rep even when the roster has no one, and handles a code the directory does not know", () => {
     const resolve = buildCustomerRepResolver(SAP_REPS, [], []);
-    expect(resolve(52)).toEqual({ assignedRep: "DO NOT USE", employeeCode: "", employeeName: "", employeeLink: "Not on roster" });
-    expect(resolve(999)).toMatchObject({ assignedRep: "SlpCode 999", employeeLink: "Not on roster" });
+    expect(resolve(52)).toEqual({ assignedRep: "DO NOT USE", employeeCode: "", employeeName: "", employeeLink: "Not on roster", sapStatus: "Inactive" });
+    expect(resolve(999)).toMatchObject({ assignedRep: "SlpCode 999", employeeLink: "Not on roster", sapStatus: "Unknown" });
+  });
+
+  it("flags an SAP-inactive rep even when a roster employee is linked, and leaves the status blank with no rep", () => {
+    const resolve = buildCustomerRepResolver(SAP_REPS, [{ employeeCode: "1", slpCode: 52 }], [emp("1", "Someone", "Someone")]);
+    expect(resolve(52)).toMatchObject({ employeeLink: "Linked", sapStatus: "Inactive" });
+    expect(resolve(null).sapStatus).toBe("");
   });
 });
 

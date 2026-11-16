@@ -63,14 +63,14 @@ export async function GET(request: NextRequest) {
 
   const customerSheet: ExtractSheet = {
     name: "Customer Detail",
-    columns: ["BP Code", "Principal", "Principal Source", "BP Name", "Assigned Rep (SAP)", "Employee Code", "Employee Name", "Employee Link", ...baseColumns],
-    rows: report.byCustomer.map((row) => [row.customerCode, row.principal, row.principalSource, row.customerName, row.rep.assignedRep, row.rep.employeeCode, row.rep.employeeName, row.rep.employeeLink, row.totalDebts, row.pdqCheques, row.balanceDue, ...bucketCells(row.buckets)]),
+    columns: ["BP Code", "Principal", "Principal Source", "BP Name", "Assigned Rep (SAP)", "SAP Rep Status", "Employee Code", "Employee Name", "Employee Link", ...baseColumns],
+    rows: report.byCustomer.map((row) => [row.customerCode, row.principal, row.principalSource, row.customerName, row.rep.assignedRep, row.rep.sapStatus, row.rep.employeeCode, row.rep.employeeName, row.rep.employeeLink, row.totalDebts, row.pdqCheques, row.balanceDue, ...bucketCells(row.buckets)]),
   };
 
   const chequeSheet: ExtractSheet = {
     name: "PDQ Cheques",
-    columns: ["BP Code", "Principal", "BP Name", "Assigned Rep (SAP)", "Employee Code", "Employee Name", "Payment No", "Cheque No", "Bank", "Due Date", "Amount"],
-    rows: report.cheques.map((row) => [row.customerCode, row.principal, row.customerName, row.rep.assignedRep, row.rep.employeeCode, row.rep.employeeName, row.paymentNo, row.chequeNumber ?? "", row.bankCode ?? "", row.dueDate, row.amount]),
+    columns: ["BP Code", "Principal", "BP Name", "Assigned Rep (SAP)", "SAP Rep Status", "Employee Code", "Employee Name", "Payment No", "Cheque No", "Bank", "Due Date", "Amount"],
+    rows: report.cheques.map((row) => [row.customerCode, row.principal, row.customerName, row.rep.assignedRep, row.rep.sapStatus, row.rep.employeeCode, row.rep.employeeName, row.paymentNo, row.chequeNumber ?? "", row.bankCode ?? "", row.dueDate, row.amount]),
   };
 
   const buffer = extractToXlsxBuffer([coverSheet, principalSheet, customerSheet, chequeSheet]);

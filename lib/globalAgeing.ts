@@ -32,9 +32,12 @@ export interface CustomerRep {
   employeeName: string;
   /** How the roster employee was found: an explicit link, an exact SAP-name match, or not on the roster. Blank when no rep is assigned. */
   employeeLink: "Linked" | "Name match" | "Not on roster" | "";
+  /** Whether the SAP salesperson is still active: "Inactive" when SAP has them switched off or locked (those customers need reassigning),
+   *  "Unknown" when the rep directory does not have the code, blank when no rep is assigned. */
+  sapStatus: "Active" | "Inactive" | "Unknown" | "";
 }
 
-export const NO_REP: CustomerRep = { assignedRep: "", employeeCode: "", employeeName: "", employeeLink: "" };
+export const NO_REP: CustomerRep = { assignedRep: "", employeeCode: "", employeeName: "", employeeLink: "", sapStatus: "" };
 
 export interface RepResolverEmployee {
   employeeCode: string;
@@ -48,11 +51,12 @@ export interface RepResolverEmployee {
  *  EmployeeMaster.sapSlpCode in step) wins; failing that an exact, unique SAP-name match; otherwise "Not on roster". When one SAP rep
  *  is several roster rows, the active ones are shown, and all of them only if none is active. Pure, so it is directly testable. */
 export function buildCustomerRepResolver(
-  sapReps: { slpCode: number; name: string }[],
+  sapReps: { slpCode: number; name: string; active: boolean }[],
   links: { employeeCode: string; slpCode: number }[],
   employees: RepResolverEmployee[]
 ): (slpCode: number | null | undefined) => CustomerRep {
   const nameBySlp = new Map(sapReps.map((r) => [r.slpCode, r.name.trim()]));
+  const activeBySlp = new Map(sapReps.map((r) => [r.slpCode, r.active]));
   const employeeByCode = new Map(employees.map((e) => [e.employeeCode, e]));
   const linkedBySlp = new Map<number, Set<string>>();
   const addLink = (slpCode: number, employeeCode: string) => {
@@ -80,12 +84,13 @@ export function buildCustomerRepResolver(
   return (slpCode) => {
     if (slpCode === null || slpCode === undefined || slpCode <= 0) return NO_REP;
     const name = nameBySlp.get(slpCode) || `SlpCode ${slpCode}`;
+    const sapStatus = activeBySlp.has(slpCode) ? (activeBySlp.get(slpCode) ? "Active" : "Inactive") : "Unknown";
     const linked = linkedBySlp.get(slpCode);
-    if (linked && linked.size > 0) return { assignedRep: name, ...show(Array.from(linked).map((code) => employeeByCode.get(code)!)), employeeLink: "Linked" };
+    if (linked && linked.size > 0) return { assignedRep: name, ...show(Array.from(linked).map((code) => employeeByCode.get(code)!)), employeeLink: "Linked", sapStatus };
     const matches = nameBySlp.has(slpCode) ? bySapName.get(normalizeRepName(name)) ?? [] : [];
     const activeMatches = matches.filter((e) => e.active);
-    if (matches.length > 0 && (activeMatches.length === 1 || matches.length === 1)) return { assignedRep: name, ...show(matches), employeeLink: "Name match" };
-    return { assignedRep: name, employeeCode: "", employeeName: "", employeeLink: "Not on roster" };
+    if (matches.length > 0 && (activeMatches.length === 1 || matches.length === 1)) return { assignedRep: name, ...show(matches), employeeLink: "Name match", sapStatus };
+    return { assignedRep: name, employeeCode: "", employeeName: "", employeeLink: "Not on roster", sapStatus };
   };
 }
 
@@ -442,12 +447,12 @@ export async function getGlobalAgeingReport(filters: GlobalAgeingFilters = NO_FI
     // What each customer buys, to place the ones SAP has no Property for (see lib/ageingPrincipalFallback.ts).
     prisma.salesDocument.groupBy({ by: ["cardCode", "principal"], where: { docDate: { gte: salesSince } }, _sum: { netSales: true } }),
     // Who each customer's assigned SAP rep is on the roster (see lib/repLinks.ts for how the link is made).
-    prisma.repDirectoryEntry.findMany({ where: { source: "SAP" }, select: { sourceKey: true, displayName: true } }),
+    prisma.repDirectoryEntry.findMany({ where: { source: "SAP" }, select: { sourceKey: true, displayName: true, isActive: true } }),
     prisma.employeeRepLink.findMany({ where: { source: "SAP" }, select: { employeeCode: true, sourceKey: true } }),
     prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, active: true, sapSlpCode: true } }),
   ]);
   const repOf = buildCustomerRepResolver(
-    sapReps.map((r) => ({ slpCode: Number(r.sourceKey), name: r.displayName })).filter((r) => Number.isInteger(r.slpCode)),
+    sapReps.map((r) => ({ slpCode: Number(r.sourceKey), name: r.displayName, active: r.isActive })).filter((r) => Number.isInteger(r.slpCode)),
     repLinks.map((l) => ({ employeeCode: l.employeeCode, slpCode: Number(l.sourceKey) })).filter((l) => Number.isInteger(l.slpCode)),
     employees
   );
