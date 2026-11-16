@@ -54,7 +54,13 @@ export type CoachingSnapshot = {
   visits: CoachingVisit[];
   actions: CoachingAction[];
   photos: CoachingPhoto[];
+  /** The team leaders with records in the viewer's scope and dates, for the filter (before the team leader filter is applied). */
+  teamLeaders: string[];
 };
+
+export type CoachingFilters = { from: string; to: string; principal?: string; teamLeader?: string };
+
+const fold = (name: string) => name.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 /** A principal's name without its location: "Mars-Nairobi" -> "mars" (the Coaching app's mainPrincipalName, folded). */
 export function mainPrincipalKey(name: string | null | undefined): string {
@@ -105,14 +111,17 @@ type CachedSnapshotPayload = {
  * per-user filtering app/api/integrations/analytics/coaching/route.ts used to
  * do server-side on every live pull).
  */
-function filterSnapshot(payload: CachedSnapshotPayload, scope: CoachingScope, filters: { from: string; to: string; principal?: string }) {
+export function filterSnapshot(payload: CachedSnapshotPayload, scope: CoachingScope, filters: CoachingFilters) {
   const leaderNames = new Set(scope.leaderNames.map((name) => name.trim().toLocaleLowerCase()));
   const inScope = (item: CoachingAccompaniment) =>
     (scope.allLeaders || leaderNames.has(item.teamLeaderName.trim().toLocaleLowerCase())) &&
     item.date >= filters.from &&
     item.date <= filters.to;
 
-  const scoped = payload.accompaniments.filter(inScope);
+  const inRange = payload.accompaniments.filter(inScope);
+  const teamLeaders = [...new Set(inRange.map((item) => item.teamLeaderName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  // The key filter: one team leader (as the Coaching app names them), within what the viewer may see.
+  const scoped = filters.teamLeader ? inRange.filter((item) => fold(item.teamLeaderName) === fold(filters.teamLeader as string)) : inRange;
   const scopedIds = new Set(scoped.map((item) => item.id));
   const scopedVisits = payload.visits.filter((visit) => scopedIds.has(visit.accompaniment_id));
 
@@ -130,18 +139,19 @@ function filterSnapshot(payload: CachedSnapshotPayload, scope: CoachingScope, fi
     visits: scopedVisits.filter((visit) => includedIds.has(visit.accompaniment_id)),
     actions: payload.actions.filter((action) => includedIds.has(action.accompaniment_id)),
     photos: (payload.photos ?? []).filter((photo) => includedIds.has(photo.accompaniment_id)),
+    teamLeaders,
   };
 }
 
-export async function loadCoachingSnapshot(scope: CoachingScope, filters: { from: string; to: string; principal?: string }) {
+export async function loadCoachingSnapshot(scope: CoachingScope, filters: CoachingFilters): Promise<CoachingSnapshot> {
   const cached = await prisma.coachingSnapshotCache.findUnique({ where: { formId: COACHING_FORM_ID } });
   if (!cached) {
     // No push has landed yet (e.g. right after a fresh deploy, before the
     // nightly job has first run) - fall back to the old live pull so the
     // page isn't empty.
-    const payload = await bridgeRequest({ ...scope, ...filters });
-    const live = payload as unknown as CoachingSnapshot;
-    return { ...live, photos: live.photos ?? [] };
+    const { teamLeader, ...rest } = filters;
+    const live = (await bridgeRequest({ ...scope, ...rest })) as unknown as CoachingSnapshot;
+    return { generatedAt: live.generatedAt, ...filterSnapshot({ ...live, photos: live.photos ?? [] }, { allLeaders: true, leaderNames: [] }, { from: filters.from, to: filters.to, teamLeader }) };
   }
   const filtered = filterSnapshot(cached.payload as unknown as CachedSnapshotPayload, scope, filters);
   return { generatedAt: cached.generatedAt.toISOString(), ...filtered } satisfies CoachingSnapshot;
