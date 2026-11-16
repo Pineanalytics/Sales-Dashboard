@@ -19,6 +19,9 @@ export type CoachingAccompaniment = {
   activityType?: "accompaniment" | "outlet_visitation";
   salesRepCode?: string | null;
   routeName?: string;
+  /** When the session was started and ended on the phone (ISO); sent since the Operations Report (older snapshots lack them). */
+  start_time?: string | null;
+  end_time?: string | null;
 };
 export type CoachingVisit = {
   id: string;
@@ -33,6 +36,10 @@ export type CoachingVisit = {
   visitPrincipal?: string | null;
   arrival_at?: string | null;
   departure_at?: string | null;
+  /** The outlet's code and place, and how far the phone was from it at check-in (sent since the Operations Report). */
+  outletCode?: string | null;
+  place?: string | null;
+  distance_from_outlet_m?: number | string | null;
 };
 export type CoachingAction = {
   id: string;
