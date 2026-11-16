@@ -17,6 +17,8 @@ export interface SapCustomerCreditRow {
   // The Global Ageing report's "Property" (lib/globalAgeing.ts) — see the
   // query below's propertyResult for how this is resolved.
   principal: string | null;
+  /** OCRD.SlpCode, the customer's assigned sales employee; null when none (SAP stores -1). */
+  slpCode: number | null;
 }
 
 export interface SapReceivableOpenItemRow {
@@ -77,7 +79,7 @@ export async function fetchReceivables(pool: sql.ConnectionPool): Promise<{
       FROM OCTG
     `),
     pool.request().query(`
-      SELECT CardCode, CardName, ValidFor, CreditLine, Balance, GroupNum
+      SELECT CardCode, CardName, ValidFor, CreditLine, Balance, GroupNum, SlpCode
       FROM OCRD
       WHERE CardType = 'C'
     `),
@@ -138,6 +140,7 @@ export async function fetchReceivables(pool: sql.ConnectionPool): Promise<{
         masterBalance: Number(row.Balance || 0),
         termGroupNum: row.GroupNum === null || row.GroupNum === undefined ? null : Number(row.GroupNum),
         principal: principalByCustomer.get(customerCode) ?? null,
+        slpCode: row.SlpCode !== null && row.SlpCode !== undefined && Number(row.SlpCode) > 0 ? Number(row.SlpCode) : null,
       };
     }),
     openItems: openItemResult.recordset.map((row) => ({
