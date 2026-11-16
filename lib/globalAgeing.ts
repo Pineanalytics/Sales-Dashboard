@@ -21,6 +21,73 @@
 // relative to the sync date.
 import { prisma } from "@/lib/db";
 import { inferPrincipals, type CustomerSales, type PrincipalSource } from "@/lib/ageingPrincipalFallback";
+import { normalizeRepName } from "@/lib/repDirectoryBuild";
+
+/** The customer's assigned sales employee in SAP (OCRD.SlpCode) and the roster employee(s) that person is. */
+export interface CustomerRep {
+  /** The SAP salesperson's name, or "SlpCode n" when the rep directory has no name for it. Blank when no rep is assigned. */
+  assignedRep: string;
+  /** Roster employee code(s) and name(s); several are joined with " / " (one SAP rep can be more than one roster code). */
+  employeeCode: string;
+  employeeName: string;
+  /** How the roster employee was found: an explicit link, an exact SAP-name match, or not on the roster. Blank when no rep is assigned. */
+  employeeLink: "Linked" | "Name match" | "Not on roster" | "";
+}
+
+export const NO_REP: CustomerRep = { assignedRep: "", employeeCode: "", employeeName: "", employeeLink: "" };
+
+export interface RepResolverEmployee {
+  employeeCode: string;
+  pineName: string;
+  sapName: string;
+  active: boolean;
+  sapSlpCode: number | null;
+}
+
+/** Turns an SAP SlpCode into the assigned rep and roster employee(s). An explicit link (the roster's SAP link, which also keeps
+ *  EmployeeMaster.sapSlpCode in step) wins; failing that an exact, unique SAP-name match; otherwise "Not on roster". When one SAP rep
+ *  is several roster rows, the active ones are shown, and all of them only if none is active. Pure, so it is directly testable. */
+export function buildCustomerRepResolver(
+  sapReps: { slpCode: number; name: string }[],
+  links: { employeeCode: string; slpCode: number }[],
+  employees: RepResolverEmployee[]
+): (slpCode: number | null | undefined) => CustomerRep {
+  const nameBySlp = new Map(sapReps.map((r) => [r.slpCode, r.name.trim()]));
+  const employeeByCode = new Map(employees.map((e) => [e.employeeCode, e]));
+  const linkedBySlp = new Map<number, Set<string>>();
+  const addLink = (slpCode: number, employeeCode: string) => {
+    if (!employeeByCode.has(employeeCode)) return;
+    const set = linkedBySlp.get(slpCode) ?? new Set<string>();
+    set.add(employeeCode);
+    linkedBySlp.set(slpCode, set);
+  };
+  for (const link of links) addLink(link.slpCode, link.employeeCode);
+  for (const employee of employees) if (employee.sapSlpCode !== null) addLink(employee.sapSlpCode, employee.employeeCode);
+
+  const bySapName = new Map<string, RepResolverEmployee[]>();
+  for (const employee of employees) {
+    const key = normalizeRepName(employee.sapName);
+    if (!key) continue;
+    bySapName.set(key, [...(bySapName.get(key) ?? []), employee]);
+  }
+
+  const show = (list: RepResolverEmployee[]) => {
+    const active = list.filter((e) => e.active);
+    const chosen = (active.length > 0 ? active : list).slice().sort((a, b) => a.employeeCode.localeCompare(b.employeeCode, undefined, { numeric: true }));
+    return { employeeCode: chosen.map((e) => e.employeeCode).join(" / "), employeeName: chosen.map((e) => e.pineName).join(" / ") };
+  };
+
+  return (slpCode) => {
+    if (slpCode === null || slpCode === undefined || slpCode <= 0) return NO_REP;
+    const name = nameBySlp.get(slpCode) || `SlpCode ${slpCode}`;
+    const linked = linkedBySlp.get(slpCode);
+    if (linked && linked.size > 0) return { assignedRep: name, ...show(Array.from(linked).map((code) => employeeByCode.get(code)!)), employeeLink: "Linked" };
+    const matches = nameBySlp.has(slpCode) ? bySapName.get(normalizeRepName(name)) ?? [] : [];
+    const activeMatches = matches.filter((e) => e.active);
+    if (matches.length > 0 && (activeMatches.length === 1 || matches.length === 1)) return { assignedRep: name, ...show(matches), employeeLink: "Name match" };
+    return { assignedRep: name, employeeCode: "", employeeName: "", employeeLink: "Not on roster" };
+  };
+}
 
 export interface GlobalAgeingBuckets {
   future: number;
@@ -43,6 +110,8 @@ export interface GlobalAgeingCustomerRow extends GlobalAgeingRow {
   principal: string;
   /** Where the principal came from: SAP's Property flag, inferred from what the customer buys, or still unclassified. */
   principalSource: PrincipalSource;
+  /** The customer's assigned sales employee in SAP, and the roster employee(s) that person is. Blank when none. */
+  rep: CustomerRep;
 }
 
 export interface GlobalAgeingPrincipalRow extends GlobalAgeingRow {
@@ -53,6 +122,7 @@ export interface GlobalAgeingChequeRow {
   customerCode: string;
   customerName: string;
   principal: string;
+  rep: CustomerRep;
   paymentNo: number;
   chequeNumber: number | null;
   bankCode: string | null;
@@ -157,6 +227,8 @@ export interface GlobalAgeingCustomerInput {
   principal: string | null;
   /** Set when the principal was inferred from sales rather than read from SAP's Property flags. */
   principalSource?: PrincipalSource;
+  /** OCRD.SlpCode, the customer's assigned sales employee in SAP. */
+  slpCode?: number | null;
 }
 export interface GlobalAgeingChequeInput {
   customerCode: string;
@@ -184,7 +256,8 @@ export function buildGlobalAgeingReport(
   openItems: GlobalAgeingOpenItemInput[],
   customers: GlobalAgeingCustomerInput[],
   cheques: GlobalAgeingChequeInput[],
-  filters: GlobalAgeingFilters = NO_FILTERS
+  filters: GlobalAgeingFilters = NO_FILTERS,
+  repOf: (slpCode: number | null | undefined) => CustomerRep = () => NO_REP
 ): GlobalAgeingReport {
   const customerByCode = new Map(customers.map((c) => [c.customerCode, c]));
   const principalOf = (code: string) => customerByCode.get(code)?.principal?.trim() || UNCLASSIFIED_PRINCIPAL;
@@ -218,6 +291,7 @@ export function buildGlobalAgeingReport(
       customerCode: cheque.customerCode,
       customerName: customerByCode.get(cheque.customerCode)?.customerName ?? cheque.customerCode,
       principal: principalOf(cheque.customerCode),
+      rep: repOf(customerByCode.get(cheque.customerCode)?.slpCode),
       paymentNo: cheque.paymentNo,
       chequeNumber: cheque.chequeNumber,
       bankCode: cheque.bankCode,
@@ -240,6 +314,7 @@ export function buildGlobalAgeingReport(
       customerName: customer?.customerName ?? code,
       principal: principalOf(code),
       principalSource: customer?.principalSource ?? (customer?.principal?.trim() ? "SAP Property" : "Unclassified"),
+      rep: repOf(customer?.slpCode),
       totalDebts: balanceDue + pdqCheques,
       pdqCheques,
       balanceDue,
@@ -360,13 +435,22 @@ export async function getGlobalAgeingReport(filters: GlobalAgeingFilters = NO_FI
   if (!latestRun) return null;
 
   const salesSince = new Date(latestRun.sourceDate.getTime() - 548 * 86_400_000);
-  const [openItems, profiles, cheques, salesRows] = await Promise.all([
+  const [openItems, profiles, cheques, salesRows, sapReps, repLinks, employees] = await Promise.all([
     prisma.receivableOpenItem.findMany({ select: { customerCode: true, taxDate: true, postingDate: true, openBalance: true } }),
-    prisma.customerCreditProfile.findMany({ select: { customerCode: true, customerName: true, principal: true } }),
+    prisma.customerCreditProfile.findMany({ select: { customerCode: true, customerName: true, principal: true, slpCode: true } }),
     prisma.receivablesPostDatedCheque.findMany({ select: { customerCode: true, paymentNo: true, chequeNumber: true, bankCode: true, dueDate: true, amount: true } }),
     // What each customer buys, to place the ones SAP has no Property for (see lib/ageingPrincipalFallback.ts).
     prisma.salesDocument.groupBy({ by: ["cardCode", "principal"], where: { docDate: { gte: salesSince } }, _sum: { netSales: true } }),
+    // Who each customer's assigned SAP rep is on the roster (see lib/repLinks.ts for how the link is made).
+    prisma.repDirectoryEntry.findMany({ where: { source: "SAP" }, select: { sourceKey: true, displayName: true } }),
+    prisma.employeeRepLink.findMany({ where: { source: "SAP" }, select: { employeeCode: true, sourceKey: true } }),
+    prisma.employeeMaster.findMany({ select: { employeeCode: true, pineName: true, sapName: true, active: true, sapSlpCode: true } }),
   ]);
+  const repOf = buildCustomerRepResolver(
+    sapReps.map((r) => ({ slpCode: Number(r.sourceKey), name: r.displayName })).filter((r) => Number.isInteger(r.slpCode)),
+    repLinks.map((l) => ({ employeeCode: l.employeeCode, slpCode: Number(l.sourceKey) })).filter((l) => Number.isInteger(l.slpCode)),
+    employees
+  );
   const sales: CustomerSales[] = salesRows.map((r) => ({ cardCode: r.cardCode, principal: r.principal, netSales: r._sum.netSales ?? 0 }));
   const inferred = inferPrincipals(profiles.map((p) => ({ customerCode: p.customerCode, principal: p.principal })), sales);
   const customers: GlobalAgeingCustomerInput[] = profiles.map((p) => {
@@ -374,5 +458,5 @@ export async function getGlobalAgeingReport(filters: GlobalAgeingFilters = NO_FI
     return guess ? { ...p, principal: guess.principal, principalSource: guess.source } : p;
   });
 
-  return buildGlobalAgeingReport(latestRun.sourceDate, openItems, customers, cheques, filters);
+  return buildGlobalAgeingReport(latestRun.sourceDate, openItems, customers, cheques, filters, repOf);
 }

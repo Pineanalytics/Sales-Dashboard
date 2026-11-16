@@ -1021,6 +1021,9 @@ model CustomerCreditProfile {
   // the business's own ageing query uses. Null when a customer matches none of the 64
   // flags; the report buckets those under "Unclassified" rather than dropping them.
   principal     String?
+  // The customer's assigned sales employee in SAP (OCRD.SlpCode, joins to OSLP and the rep directory); null when none is assigned (SAP's -1).
+  // The Global Ageing report reads it to show who looks after the customer and which roster employee that is.
+  slpCode       Int?
   updatedAt     DateTime    @updatedAt
 
   @@index([termGroupNum])

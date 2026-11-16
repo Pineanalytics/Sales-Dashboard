@@ -6,7 +6,7 @@ import { upsertAgeingSnapshot } from "@/lib/receivablesAgeing";
 export const runtime = "nodejs";
 
 type CreditTermRow = { groupNum: number; name: string; extraDays: number; extraMonths: number };
-type CustomerRow = { customerCode: string; customerName: string; active: boolean; creditLimit: number; masterBalance: number; termGroupNum: number | null; principal: string | null };
+type CustomerRow = { customerCode: string; customerName: string; active: boolean; creditLimit: number; masterBalance: number; termGroupNum: number | null; principal: string | null; slpCode?: number | null };
 type OpenItemRow = { id: string; customerCode: string; documentRef: string | null; transactionType: number; postingDate: string; dueDate: string; taxDate: string | null; openBalance: number };
 
 type PostDatedChequeRow = { customerCode: string; paymentNo: number; chequeNumber: number | null; bankCode: string | null; dueDate: string; amount: number };
@@ -30,7 +30,7 @@ function validTerm(row: unknown): row is CreditTermRow {
 
 function validCustomer(row: unknown): row is CustomerRow {
   const r = row as Record<string, unknown>;
-  return !!r && typeof r.customerCode === "string" && typeof r.customerName === "string" && typeof r.active === "boolean" && isFiniteNumber(r.creditLimit) && isFiniteNumber(r.masterBalance) && (r.termGroupNum === null || isFiniteNumber(r.termGroupNum)) && (r.principal === null || typeof r.principal === "string");
+  return !!r && typeof r.customerCode === "string" && typeof r.customerName === "string" && typeof r.active === "boolean" && isFiniteNumber(r.creditLimit) && isFiniteNumber(r.masterBalance) && (r.termGroupNum === null || isFiniteNumber(r.termGroupNum)) && (r.principal === null || typeof r.principal === "string") && (r.slpCode === undefined || r.slpCode === null || isFiniteNumber(r.slpCode));
 }
 
 function validOpenItem(row: unknown): row is OpenItemRow {
