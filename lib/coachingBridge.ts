@@ -15,16 +15,51 @@ export type CoachingAccompaniment = {
   status: "draft" | "submitted" | "sales_rep_acknowledged" | "supervisor_reviewed" | "approved";
   overall_score: number | null;
   supervisor_comments: string | null;
+  /** Sent by the Coaching app since Nov 2026 (older snapshots lack them). */
+  activityType?: "accompaniment" | "outlet_visitation";
+  salesRepCode?: string | null;
+  routeName?: string;
 };
-export type CoachingVisit = { id: string; accompaniment_id: string; outlet_id: string; outletName: string; principalName: string; planned: boolean; geofence_status: string | null };
-export type CoachingAction = { id: string; accompaniment_id: string; issue: string; coaching_area: string | null; priority: string; target_date: string | null; status: string };
+export type CoachingVisit = {
+  id: string;
+  accompaniment_id: string;
+  outlet_id: string;
+  outletName: string;
+  /** The outlet's principal in the Coaching app (e.g. "Mars-Nairobi"). */
+  principalName: string;
+  planned: boolean;
+  geofence_status: string | null;
+  /** The principal the visit was coached on (the main principal, e.g. "Mars"). */
+  visitPrincipal?: string | null;
+  arrival_at?: string | null;
+  departure_at?: string | null;
+};
+export type CoachingAction = {
+  id: string;
+  accompaniment_id: string;
+  issue: string;
+  coaching_area: string | null;
+  priority: string;
+  target_date: string | null;
+  status: string;
+  required_action?: string | null;
+  ownerName?: string | null;
+  completed_at?: string | null;
+};
+export type CoachingPhoto = { url: string; accompaniment_id: string; outletName: string; takenAt: string | null; date: string; latitude: number | null; longitude: number | null };
 export type CoachingSnapshot = {
   generatedAt: string;
   principals: { id: string; name: string }[];
   accompaniments: CoachingAccompaniment[];
   visits: CoachingVisit[];
   actions: CoachingAction[];
+  photos: CoachingPhoto[];
 };
+
+/** A principal's name without its location: "Mars-Nairobi" -> "mars" (the Coaching app's mainPrincipalName, folded). */
+export function mainPrincipalKey(name: string | null | undefined): string {
+  return (name ?? "").trim().replace(/-(Nairobi|Nyeri|Nyahururu|General)$/i, "").trim().toLocaleLowerCase();
+}
 
 function bridgeUrl() {
   return `${(process.env.COACHING_APP_URL ?? "https://app.pinefrostdb.com").replace(/\/$/, "")}/api/integrations/analytics/coaching`;
@@ -61,6 +96,7 @@ type CachedSnapshotPayload = {
   accompaniments: CoachingAccompaniment[];
   visits: CoachingVisit[];
   actions: CoachingAction[];
+  photos?: CoachingPhoto[];
 };
 
 /**
@@ -80,16 +116,20 @@ function filterSnapshot(payload: CachedSnapshotPayload, scope: CoachingScope, fi
   const scopedIds = new Set(scoped.map((item) => item.id));
   const scopedVisits = payload.visits.filter((visit) => scopedIds.has(visit.accompaniment_id));
 
+  // A visit is coached on a main principal ("Mars") while the filter lists each location ("Mars-Nairobi"): match on the main principal, using the
+  // principal the visit was coached on when the snapshot has it (the outlet's own principal can be another one).
   const principalName = filters.principal ? payload.principals.find((item) => item.id === filters.principal)?.name : undefined;
+  const wanted = mainPrincipalKey(principalName);
   const includedIds = !filters.principal
     ? scopedIds
-    : new Set(scopedVisits.filter((visit) => visit.principalName === principalName).map((visit) => visit.accompaniment_id));
+    : new Set(scopedVisits.filter((visit) => mainPrincipalKey(visit.visitPrincipal || visit.principalName) === wanted).map((visit) => visit.accompaniment_id));
 
   return {
     principals: payload.principals,
     accompaniments: scoped.filter((item) => includedIds.has(item.id)),
     visits: scopedVisits.filter((visit) => includedIds.has(visit.accompaniment_id)),
     actions: payload.actions.filter((action) => includedIds.has(action.accompaniment_id)),
+    photos: (payload.photos ?? []).filter((photo) => includedIds.has(photo.accompaniment_id)),
   };
 }
 
@@ -100,7 +140,8 @@ export async function loadCoachingSnapshot(scope: CoachingScope, filters: { from
     // nightly job has first run) - fall back to the old live pull so the
     // page isn't empty.
     const payload = await bridgeRequest({ ...scope, ...filters });
-    return payload as unknown as CoachingSnapshot;
+    const live = payload as unknown as CoachingSnapshot;
+    return { ...live, photos: live.photos ?? [] };
   }
   const filtered = filterSnapshot(cached.payload as unknown as CachedSnapshotPayload, scope, filters);
   return { generatedAt: cached.generatedAt.toISOString(), ...filtered } satisfies CoachingSnapshot;

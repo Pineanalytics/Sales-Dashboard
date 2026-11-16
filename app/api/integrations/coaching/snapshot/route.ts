@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
@@ -21,6 +22,7 @@ type SnapshotPushBody = {
   accompaniments?: unknown;
   visits?: unknown;
   actions?: unknown;
+  photos?: unknown;
 };
 
 /**
@@ -53,6 +55,8 @@ export async function POST(request: NextRequest) {
     accompaniments: body.accompaniments,
     visits: Array.isArray(body.visits) ? body.visits : [],
     actions: Array.isArray(body.actions) ? body.actions : [],
+    // Visit photo links (the files stay on the Coaching server), for the Photos module.
+    photos: Array.isArray(body.photos) ? (body.photos as Prisma.InputJsonObject[]).filter((photo) => typeof photo?.url === "string" && /^https?:\/\//i.test(String(photo.url))) : [],
   };
 
   try {
