@@ -45,3 +45,31 @@ describe("coaching modules", () => {
     expect(mainPrincipalKey("Milly Fruits-Nairobi")).toBe("milly fruits");
   });
 });
+
+import { filterSnapshot } from "@/lib/coachingBridge";
+
+describe("the team leader filter", () => {
+  const payload = {
+    principals: [],
+    accompaniments: [acc("a1"), acc("a2", { teamLeaderName: "Lewis Muthomi" }), acc("a3", { teamLeaderName: "zachary  Mwangi", date: "2026-10-01" })],
+    visits: [visit("v1", "a1"), visit("v2", "a2")],
+    actions: [],
+    photos: [{ url: "https://x/1.jpg", accompaniment_id: "a2", outletName: "Duka", takenAt: null, date: "2026-11-03", latitude: null, longitude: null }],
+  };
+
+  it("narrows to one team leader (ignoring case and spacing) and lists the leaders in scope and dates", () => {
+    const all = filterSnapshot(payload, { allLeaders: true, leaderNames: [] }, { from: "2026-11-01", to: "2026-11-16" });
+    expect(all.teamLeaders).toEqual(["Benson Mbivi", "Lewis Muthomi"]);
+    const lewis = filterSnapshot(payload, { allLeaders: true, leaderNames: [] }, { from: "2026-11-01", to: "2026-11-16", teamLeader: "lewis muthomi" });
+    expect(lewis.accompaniments.map((a) => a.id)).toEqual(["a2"]);
+    expect(lewis.visits.map((v) => v.id)).toEqual(["v2"]);
+    expect(lewis.photos).toHaveLength(1);
+    expect(lewis.teamLeaders).toEqual(["Benson Mbivi", "Lewis Muthomi"]);
+  });
+
+  it("never reaches past the viewer's own scope", () => {
+    const own = filterSnapshot(payload, { allLeaders: false, leaderNames: ["Benson Mbivi"] }, { from: "2026-11-01", to: "2026-11-16", teamLeader: "Lewis Muthomi" });
+    expect(own.accompaniments).toEqual([]);
+    expect(own.teamLeaders).toEqual(["Benson Mbivi"]);
+  });
+});

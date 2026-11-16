@@ -5,9 +5,9 @@ import { coachingScopeForUser, loadCoachingSnapshot } from "@/lib/coachingBridge
 import { STATUS_LABELS, countBy, dailyCounts, groupRows, isOverdue, kpis, scoreBuckets, type Count, type GroupRow } from "@/lib/coachingModules";
 
 // The Coaching app's own admin dashboard, module by module (Overview, Team Leaders & Reps, Routes, Action Plans, Accompaniments, Photos), from the snapshot the
-// Coaching app pushes every 15 minutes. Same scope, dates and principal filter as the Workspace and Reporting pages.
+// Coaching app pushes every 15 minutes. Same scope, dates and team leader filter as the Workspace and Reporting pages.
 
-type SearchParams = { from?: string; to?: string; principal?: string; tab?: string; tl?: string; rep?: string; status?: string; page?: string };
+type SearchParams = { from?: string; to?: string; leader?: string; tab?: string; rep?: string; status?: string; page?: string };
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -81,11 +81,11 @@ export default async function CoachingInsightsPage({ searchParams }: { searchPar
   const from = validDate(q.from, `${today.slice(0, 8)}01`);
   const to = validDate(q.to, today);
   const tab: TabId = (TABS.find((t) => t.id === q.tab)?.id ?? "overview") as TabId;
-  const snapshot = await loadCoachingSnapshot(scope, { from, to, principal: q.principal });
+  const snapshot = await loadCoachingSnapshot(scope, { from, to, teamLeader: q.leader });
   const k = kpis(snapshot, today);
 
   const base = new URLSearchParams({ from, to });
-  if (q.principal) base.set("principal", q.principal);
+  if (q.leader) base.set("leader", q.leader);
   const hrefFor = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams(base);
     for (const [key, value] of Object.entries(extra)) if (value) p.set(key, value);
@@ -114,7 +114,7 @@ export default async function CoachingInsightsPage({ searchParams }: { searchPar
           <input type="hidden" name="tab" value={tab} />
           <label className="text-xs font-medium text-muted">From<input name="from" type="date" defaultValue={from} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground" /></label>
           <label className="text-xs font-medium text-muted">To<input name="to" type="date" defaultValue={to} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground" /></label>
-          <label className="text-xs font-medium text-muted">Principal<select name="principal" defaultValue={q.principal ?? ""} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"><option value="">All principals</option>{snapshot.principals.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label className="text-xs font-medium text-muted">Team leader<select name="leader" defaultValue={q.leader ?? ""} className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"><option value="">All team leaders</option>{snapshot.teamLeaders.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
           <div className="flex items-end"><button className="w-full rounded-lg bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-sm font-semibold text-white shadow-cyan-glow">Apply filters</button></div>
         </form>
       </section>
@@ -224,19 +224,17 @@ function Actions({ snapshot, today }: { snapshot: Snap; today: string }) {
 function Records({ snapshot, q, hrefFor }: { snapshot: Snap; q: SearchParams; hrefFor: (extra: Record<string, string | undefined>) => string }) {
   const visitsByAcc = new Map<string, number>();
   for (const v of snapshot.visits) visitsByAcc.set(v.accompaniment_id, (visitsByAcc.get(v.accompaniment_id) ?? 0) + 1);
-  const leaders = [...new Set(snapshot.accompaniments.map((a) => a.teamLeaderName))].sort();
   const reps = [...new Set(snapshot.accompaniments.map((a) => a.salesRepName))].sort();
-  const rows = snapshot.accompaniments.filter((a) => (!q.tl || a.teamLeaderName === q.tl) && (!q.rep || a.salesRepName === q.rep) && (!q.status || a.status === q.status));
+  const rows = snapshot.accompaniments.filter((a) => (!q.rep || a.salesRepName === q.rep) && (!q.status || a.status === q.status));
   return (
     <article className={card}>
       <form method="get" action="/coaching/insights" className="mb-4 flex flex-wrap items-end gap-2">
         <input type="hidden" name="tab" value="records" />
-        {(["from", "to", "principal"] as const).map((key) => (q[key] ? <input key={key} type="hidden" name={key} value={q[key]} /> : null))}
-        <select name="tl" defaultValue={q.tl ?? ""} className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"><option value="">All team leaders</option>{leaders.map((n) => <option key={n} value={n}>{n}</option>)}</select>
+        {(["from", "to", "leader"] as const).map((key) => (q[key] ? <input key={key} type="hidden" name={key} value={q[key]} /> : null))}
         <select name="rep" defaultValue={q.rep ?? ""} className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"><option value="">All sales reps</option>{reps.map((n) => <option key={n} value={n}>{n}</option>)}</select>
         <select name="status" defaultValue={q.status ?? ""} className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"><option value="">Every status</option>{Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         <button className="rounded-lg bg-gradient-to-r from-primary-blue to-secondary-blue px-4 py-2 text-sm font-semibold text-white">Filter</button>
-        {q.tl || q.rep || q.status ? <Link href={hrefFor({ tab: "records" })} className="px-2 py-2 text-sm text-primary-blue">Clear</Link> : null}
+        {q.rep || q.status ? <Link href={hrefFor({ tab: "records" })} className="px-2 py-2 text-sm text-primary-blue">Clear</Link> : null}
         <span className="ml-auto text-sm text-muted">{rows.length} record(s)</span>
       </form>
       {rows.length === 0 ? <p className="py-6 text-sm text-muted">No records match.</p> : (
