@@ -48,6 +48,8 @@ describe("the Product Master feed", () => {
   it("writes a script with no period, the supplier inputs requested and the prefix list embedded", () => {
     const script = powerQueryScript({ baseUrl: "https://pinefrostdb.com", feed: PRODUCT_MASTER_FEED, key: "pfk_abc" });
     expect(script).not.toContain("Period");
+    expect(script).toContain("Raw = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),");
+    expect(script).toContain('Promoted = Table.TransformColumnNames(Raw, each Text.Trim(Text.Replace(_, Character.FromNumber(65279), ""))),');
     expect(script).toContain('RelativePath = "api/feeds/product-master",');
     expect(script).toContain('Query = [columns = Text.Combine(Requested, "|")],');
     expect(script).toContain('Requested = List.Distinct(List.RemoveItems(Columns, {"Supplier Code", "Supplier", "Supplier Code Source"}) & {"Item Code", "Preferred Supplier Code"');

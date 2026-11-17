@@ -8,6 +8,9 @@ import { parseOutletFilters } from "@/lib/outletUniverse/query";
 import { loadProductMasterData, productMasterCsv, type ProductMasterData } from "@/lib/productMasterFeed";
 
 export const runtime = "nodejs";
+
+// The CSV is sent without a byte-order mark: Power Query reads it as UTF-8 (the script says so), and a BOM could stay glued to the first
+// column name, hiding that column (the Product Master's Item Code).
 export const dynamic = "force-dynamic";
 
 /** How long a built report is reused, so several workbooks refreshing together build it once. */
@@ -59,7 +62,7 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
     if (feed.id === OUTLET_MASTER_FEED.id) {
       const columns = parseFeedColumns(params.get("columns"), OUTLET_COLUMNS.map((column) => column.header), feed.defaultColumns);
       const report = await outletMasterReport(period);
-      return new NextResponse(`﻿${frequencyCsvColumns(report.outlets, columns)}`, {
+      return new NextResponse(frequencyCsvColumns(report.outlets, columns), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Cache-Control": "private, no-store",
@@ -77,7 +80,7 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
       if (data.items.length === 0) {
         return NextResponse.json({ error: "The SAP item master has not been synced yet (sap-items job). Try again after its first run." }, { status: 503 });
       }
-      return new NextResponse(`\uFEFF${productMasterCsv(data, columns)}`, {
+      return new NextResponse(productMasterCsv(data, columns), {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Cache-Control": "private, no-store",
