@@ -264,6 +264,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     jobRow("sap-reps", "Every 30 minutes (SAP salesperson list)", 90 / 60),
     jobRow("pine-reps", "Every 30 minutes (Pine user list)", 90 / 60),
     jobRow("rep-directory", "Every 30 minutes (from stored sales rows)", 90 / 60),
+    jobRow("sap-items", "Every 30 minutes (SAP item master, for the Product Master feed)", 90 / 60),
     row("upfieldTimestamps", "Timestamp & Coverage (Upfield DataEdge)", "Every 5 minutes", upfieldWatermark?.updatedAt ?? null, 20 / 60),
     // 4 fixed times/day (10:00/12:00/17:00/20:00 Africa/Nairobi); the
     // overnight 20:00->10:00 gap is ~14h, so the threshold allows a 1h buffer

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dataFeedById, OUTLET_MASTER_FEED, parseFeedColumns } from "@/lib/dataFeedScript";
+import { dataFeedById, OUTLET_MASTER_FEED, parseFeedColumns, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_COLUMNS } from "@/lib/dataFeedScript";
 import { verifyFeedKey } from "@/lib/dataFeeds";
 import { oneAtATime } from "@/lib/outletUniverse/exportQueue";
 import { loadFrequencyReport, resolveFrequencyPeriod, type FrequencyReport } from "@/lib/outletUniverse/frequency";
 import { frequencyCsvColumns, OUTLET_COLUMNS } from "@/lib/outletUniverse/frequencyExport";
 import { parseOutletFilters } from "@/lib/outletUniverse/query";
+import { loadProductMasterData, productMasterCsv, type ProductMasterData } from "@/lib/productMasterFeed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,10 +24,21 @@ async function outletMasterReport(periodKind: string): Promise<FrequencyReport> 
   return report;
 }
 
+let productCache: { at: number; data: ProductMasterData } | null = null;
+
+async function productMasterData(): Promise<ProductMasterData> {
+  if (productCache && Date.now() - productCache.at < CACHE_MS) return productCache.data;
+  const data = await oneAtATime(loadProductMasterData);
+  productCache = { at: Date.now(), data };
+  return data;
+}
+
 /** A read-only data feed for an outside workbook (Power Query on SharePoint), authenticated by a feed key (X-Feed-Key header, or ?key=) that an
- *  admin creates on Admin > Data & sync — not by a dashboard login. The outlet-master feed is the Active Outlets coverage-frequency extract for the
- *  whole company (one row per shop that bought in the period), as CSV, limited to the columns asked for (?columns=A|B|C, default: the Outlet
- *  Master Data columns) for ?period=last6 (rolling six months, the default) or year (year to date). */
+ *  admin creates on Admin > Data & sync — not by a dashboard login. Each feed is CSV, limited to the columns asked for (?columns=A|B|C, default:
+ *  the feed's default columns).
+ *  - outlet-master: the Active Outlets coverage-frequency extract for the whole company (one row per shop that bought in the period), for
+ *    ?period=last6 (rolling six months, the default) or year (year to date).
+ *  - product-master: SAP's item master (SapItem, refreshed by the sap-items job every 30 minutes), one row per item, no period. */
 export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[feed]">) {
   const { feed: feedId } = await context.params;
   const feed = dataFeedById(feedId);
@@ -38,7 +50,7 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
   if (!holder) return NextResponse.json({ error: "A valid feed key is required (X-Feed-Key header)." }, { status: 401 });
 
   const period = params.get("period") ?? feed.defaultPeriod;
-  if (!feed.periods.some((option) => option.value === period)) {
+  if (feed.periods.length > 0 && !feed.periods.some((option) => option.value === period)) {
     return NextResponse.json({ error: `period must be one of: ${feed.periods.map((option) => option.value).join(", ")}.` }, { status: 400 });
   }
 
@@ -53,6 +65,23 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
           "X-Feed-Period": report.period.label,
           "X-Feed-Generated-At": report.generatedAt,
           "X-Feed-Rows": String(report.outlets.length),
+        },
+      });
+    }
+    if (feed.id === PRODUCT_MASTER_FEED.id) {
+      // The supplier columns are made by the workbook's script, so they are not served.
+      const defaults = feed.defaultColumns.filter((column) => !PRODUCT_SUPPLIER_COLUMNS.includes(column));
+      const columns = parseFeedColumns(params.get("columns"), PRODUCT_FEED_COLUMNS, defaults);
+      const data = await productMasterData();
+      if (data.items.length === 0) {
+        return NextResponse.json({ error: "The SAP item master has not been synced yet (sap-items job). Try again after its first run." }, { status: 503 });
+      }
+      return new NextResponse(`\uFEFF${productMasterCsv(data, columns)}`, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "private, no-store",
+          "X-Feed-Generated-At": (data.syncedAt ?? new Date()).toISOString(),
+          "X-Feed-Rows": String(data.items.length),
         },
       });
     }

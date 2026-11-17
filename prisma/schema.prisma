@@ -784,6 +784,40 @@ model Warehouse {
 // the org roster (the Erick/Richard EABL-Nyeri/Nyahururu case). teamLeaderId
 // is id-by-convention, same non-@relation pattern as
 // TeamLeaderAssignment.teamLeaderId/supervisorId/managerId.
+/// SAP's item master (OITM, with item group, manufacturer, preferred vendor and the Selling / Purchase price lists), copied every 30 minutes
+/// by the sap-sync-worker's sap-items job (scripts/db-bridge/sap-items/sync.ts). Read-only mirror: it feeds the Product Master data feed
+/// (/api/feeds/product-master) and is replaced as a whole on each run.
+model SapItem {
+  itemCode              String    @id
+  itemName              String?
+  foreignName           String?
+  itemGroupCode         Int?
+  itemGroup             String?
+  manufacturerCode      Int?
+  manufacturer          String?
+  inventoryUom          String?
+  salesUom              String?
+  purchaseUom           String?
+  unitsPerSalesUnit     Float?
+  unitsPerPurchaseUnit  Float?
+  onHand                Float?
+  committed             Float?
+  onOrder               Float?
+  averageCost           Float?
+  lastPurchasePrice     Float?
+  preferredSupplierCode String?
+  preferredSupplier     String?
+  active                Boolean?
+  frozen                Boolean?
+  sapCreatedAt          DateTime? @db.Date
+  sapUpdatedAt          DateTime? @db.Date
+  sellingPrice          Float?
+  sellingCurrency       String?
+  purchasePrice         Float?
+  purchaseCurrency      String?
+  syncedAt              DateTime
+}
+
 model Principal {
   id            String   @id @default(cuid())
   principal     String   @unique

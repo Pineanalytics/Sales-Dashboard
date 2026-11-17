@@ -79,7 +79,8 @@ const col = (name: string) => {
 };
 
 /** CSV cells that start with = + - @ are neutralised so a spreadsheet never runs an outlet name as a formula. */
-function cell(value: string | number): string {
+/** One CSV cell: text that a spreadsheet would read as a formula gets a leading apostrophe; quoted when it holds a comma, quote or line break. */
+export function csvCell(value: string | number): string {
   let text = String(value);
   if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -88,14 +89,14 @@ function cell(value: string | number): string {
 /** The raw rows as CSV, limited to `columns` (headers of OUTLET_COLUMNS, in the order given; unknown names are skipped). For the live data feed. */
 export function frequencyCsvColumns(outlets: FrequencyOutlet[], columns: string[]): string {
   const chosen = columns.map((name) => OUTLET_COLUMNS.find((c) => c.header === name)).filter((c): c is Column => Boolean(c));
-  const lines = [chosen.map((c) => cell(c.header)).join(",")];
-  for (const outlet of outlets) lines.push(chosen.map((c) => cell(c.value(outlet))).join(","));
+  const lines = [chosen.map((c) => csvCell(c.header)).join(",")];
+  for (const outlet of outlets) lines.push(chosen.map((c) => csvCell(c.value(outlet))).join(","));
   return lines.join("\r\n");
 }
 
 export function frequencyCsv(outlets: FrequencyOutlet[]): string {
-  const lines = [OUTLET_COLUMNS.map((c) => cell(c.header)).join(",")];
-  for (const outlet of outlets) lines.push(OUTLET_COLUMNS.map((c) => cell(c.value(outlet))).join(","));
+  const lines = [OUTLET_COLUMNS.map((c) => csvCell(c.header)).join(",")];
+  for (const outlet of outlets) lines.push(OUTLET_COLUMNS.map((c) => csvCell(c.value(outlet))).join(","));
   return lines.join("\r\n");
 }
 

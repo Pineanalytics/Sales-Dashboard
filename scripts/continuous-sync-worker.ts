@@ -66,6 +66,8 @@ const jobs: Record<JobName, JobDefinition> = {
   "sap-reps": { name: "sap-reps", entry: "scripts/db-bridge/rep-directory/sap-reps.ts", intervalEnv: "SAP_REPS_INTERVAL_SECONDS", defaultSeconds: 1800 },
   "pine-reps": { name: "pine-reps", entry: "scripts/db-bridge/rep-directory/pine-reps.ts", intervalEnv: "PINE_REPS_INTERVAL_SECONDS", defaultSeconds: 1800 },
   "rep-directory": { name: "rep-directory", entry: "scripts/db-bridge/rep-directory/derive.ts", intervalEnv: "REP_DIRECTORY_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  // SAP's item master (a few thousand OITM rows, one short read) mirrored into SapItem for the Product Master data feed.
+  "sap-items": { name: "sap-items", entry: "scripts/db-bridge/sap-items/sync.ts", intervalEnv: "SAP_ITEMS_INTERVAL_SECONDS", defaultSeconds: 1800 },
 };
 
 function intervalMs(job: JobDefinition): number {
