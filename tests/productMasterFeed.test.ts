@@ -51,12 +51,14 @@ describe("the Product Master feed", () => {
     expect(script).toContain('RelativePath = "api/feeds/product-master",');
     expect(script).toContain('Query = [columns = Text.Combine(Requested, "|")],');
     expect(script).toContain('Requested = List.Distinct(List.RemoveItems(Columns, {"Supplier Code", "Supplier", "Supplier Code Source"}) & {"Item Code", "Preferred Supplier Code"');
-    expect(script).toContain('{"UP", "S-0046", "Upfield"}');
-    expect(script).toContain('{"HCM", "S-0230", "Highchem"}');
-    for (const row of ['{"TR", "S-0229", "Trade Roots"}', '{"WEET", "S-0099", "Weetabix"}', '{"MEGA", "S-0079", "Mega Wholesalers"}', '{"UDV", "S-0074", "UDV (Kenya)"}']) expect(script).toContain(row);
-    expect(script.match(/\{"[A-Z]+", "S-\d{4}", "[^"]+"\}/g)).toHaveLength(PRODUCT_SUPPLIER_PREFIXES.length);
-    // Order: preferred supplier, then the prefix list, then the last goods receipt (a receipt can be a freight vendor).
-    const order = ['Source = "SAP preferred supplier"', 'Source = "Prefix list"', 'Source = "SAP last goods receipt"', 'Source = "Not found"'].map((s) => script.indexOf(s));
+    expect(script).toContain('{"UP", "S-0046", "Upfield", true}');
+    expect(script).toContain('{"HCM", "S-0230", "Highchem", false}');
+    for (const row of ['{"TR", "S-0229", "Trade Roots", false}', '{"WEET", "S-0099", "Weetabix", false}', '{"MEGA", "S-0079", "Mega Wholesalers", false}', '{"UDV", "S-0074", "UDV (Kenya)", false}']) expect(script).toContain(row);
+    expect(script.match(/\{"[A-Z]+", "S-\d{4}", "[^"]+", (true|false)\}/g)).toHaveLength(PRODUCT_SUPPLIER_PREFIXES.length);
+    expect(PRODUCT_SUPPLIER_PREFIXES.filter((p) => p.overridesSap).map((p) => p.prefix).sort()).toEqual(["GDJ", "MOV", "SUN", "UP"]);
+    expect(script).toContain('{"MOV", "S-0092", "Movit", true}');
+    // Order: the prefix rows that override SAP, SAP's preferred supplier, the prefix list, then the last goods receipt (a receipt can be a freight vendor).
+    const order = ['Source = "Prefix list (overrides SAP)"', 'Source = "SAP preferred supplier"', 'Source = "Prefix list"]', 'Source = "SAP last goods receipt"', 'Source = "Not found"'].map((s) => script.indexOf(s));
     expect(order.every((i) => i > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(script).toContain("Selected = Table.SelectColumns(Suppliers, Columns, MissingField.UseNull),");

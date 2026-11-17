@@ -29,6 +29,8 @@ export interface PrefixSupplier {
   prefix: string;
   supplierCode: string;
   supplier: string;
+  /** True when the sheet's supplier replaces SAP's preferred supplier for these items (SAP's differs from the Suplier_Code sheet). */
+  overridesSap?: boolean;
 }
 
 /** The Outlet Master: the Active Outlets coverage-frequency extract (one row per shop that bought in the period), cut to the columns of the
@@ -74,7 +76,7 @@ const PRODUCT_SUPPLIER_INPUTS = ["Item Code", "Preferred Supplier Code", "Prefer
 export const PRODUCT_SUPPLIER_PREFIXES: PrefixSupplier[] = [
   { prefix: "BNT", supplierCode: "S-0222", supplier: "Bennet" },
   { prefix: "BIC", supplierCode: "S-0156", supplier: "Bic" },
-  { prefix: "SUN", supplierCode: "S-0135", supplier: "Bidco / Suntory" },
+  { prefix: "SUN", supplierCode: "S-0135", supplier: "Bidco / Suntory", overridesSap: true },
   { prefix: "DEL", supplierCode: "S-0054", supplier: "Delmonte" },
   { prefix: "DKT", supplierCode: "S-0014", supplier: "DKT" },
   { prefix: "DUREX", supplierCode: "S-0077", supplier: "Durex" },
@@ -82,11 +84,11 @@ export const PRODUCT_SUPPLIER_PREFIXES: PrefixSupplier[] = [
   { prefix: "CEY", supplierCode: "S-0176", supplier: "EFL" },
   { prefix: "ELX", supplierCode: "S-0038", supplier: "Elex" },
   { prefix: "EPL", supplierCode: "S-0188", supplier: "Energia" },
-  { prefix: "GDJ", supplierCode: "S-0011", supplier: "Godrej" },
+  { prefix: "GDJ", supplierCode: "S-0011", supplier: "Godrej", overridesSap: true },
   { prefix: "JMR", supplierCode: "S-0152", supplier: "Jumra" },
   { prefix: "MARS", supplierCode: "S-0124", supplier: "Mars" },
   { prefix: "PIC", supplierCode: "S-0220", supplier: "Milly Fruits" },
-  { prefix: "MOV", supplierCode: "S-0092", supplier: "Movit" },
+  { prefix: "MOV", supplierCode: "S-0092", supplier: "Movit", overridesSap: true },
   { prefix: "NES", supplierCode: "S-0058", supplier: "Nestle" },
   { prefix: "PREM", supplierCode: "S-0080", supplier: "Premier" },
   { prefix: "PROM", supplierCode: "S-0160", supplier: "Promasidor" },
@@ -96,7 +98,7 @@ export const PRODUCT_SUPPLIER_PREFIXES: PrefixSupplier[] = [
   { prefix: "CER", supplierCode: "S-0099", supplier: "Weetabix" },
   { prefix: "HCM", supplierCode: "S-0230", supplier: "Highchem" },
   { prefix: "UKL", supplierCode: "S-0141", supplier: "Unilever" },
-  { prefix: "UP", supplierCode: "S-0046", supplier: "Upfield" },
+  { prefix: "UP", supplierCode: "S-0046", supplier: "Upfield", overridesSap: true },
   // Added from SAP's own receipts and AP invoices (every item of the prefix that SAP has a supplier for came from this one code), Nov 2026.
   { prefix: "TR", supplierCode: "S-0229", supplier: "Trade Roots" },
   { prefix: "WEET", supplierCode: "S-0099", supplier: "Weetabix" },
@@ -220,17 +222,19 @@ function mColumnType(feed: DataFeedDefinition, column: string): string {
   return "type text";
 }
 
-/** The steps that make Supplier Code / Supplier / Supplier Code Source: SAP's preferred supplier (a deliberate master-data choice), else the
- *  longest item-code prefix in SupplierCodes (a whole prefix: UP matches UP00012, not UPLIFT01), else the supplier of the item's last goods
+/** The steps that make Supplier Code / Supplier / Supplier Code Source: the prefix list first for the prefixes marked "Overrides SAP" (MOV, GDJ,
+ *  SUN, UP: SAP's preferred supplier differs from the Suplier_Code sheet and the sheet is right), else SAP's preferred supplier (a deliberate
+ *  master-data choice), else the longest item-code prefix in SupplierCodes (a whole prefix: UP matches UP00012, not UPLIFT01), else the supplier of the item's last goods
  *  receipt. The receipt comes last because it is the weakest evidence: it can be a freight or trading vendor (CEY items arrive via Expolanka
  *  Freight, S-0191), which would hide the principal's own supplier. */
 function supplierSteps(prefixes: PrefixSupplier[]): string[] {
   return [
-    `    // The supplier columns. First SAP's preferred supplier for the item; else SupplierCodes: add or change rows to set the supplier of a`,
-    `    // whole range of item codes (the longest matching prefix wins, matched whole: UP matches UP00012, not UPLIFT01); else the supplier of`,
-    `    // the item's last goods receipt (can be a freight vendor, so it only fills what the two above leave blank).`,
-    `    SupplierCodes = #table(type table [Prefix = text, #"Supplier Code" = text, Supplier = text], {`,
-    prefixes.map((p) => `        {${mText(p.prefix)}, ${mText(p.supplierCode)}, ${mText(p.supplier)}}`).join(",\n"),
+    `    // The supplier columns. SupplierCodes: add or change rows to set the supplier of a whole range of item codes (the longest matching`,
+    `    // prefix wins, matched whole: UP matches UP00012, not UPLIFT01). A row with Overrides SAP = true beats SAP's preferred supplier; any`,
+    `    // other row only fills items SAP gives no preferred supplier. Last, the supplier of the item's last goods receipt (it can be a freight`,
+    `    // vendor, so it only fills what the above leave blank).`,
+    `    SupplierCodes = #table(type table [Prefix = text, #"Supplier Code" = text, Supplier = text, #"Overrides SAP" = logical], {`,
+    prefixes.map((p) => `        {${mText(p.prefix)}, ${mText(p.supplierCode)}, ${mText(p.supplier)}, ${p.overridesSap ? "true" : "false"}}`).join(",\n"),
     `    }),`,
     `    Prefixes = List.Sort(Table.ToRecords(SupplierCodes), (a, b) => Value.Compare(Text.Length(b[Prefix]), Text.Length(a[Prefix]))),`,
     `    PrefixMatch = (code as nullable text) as nullable record =>`,
@@ -241,9 +245,10 @@ function supplierSteps(prefixes: PrefixSupplier[]): string[] {
     `            List.First(hits, null),`,
     `    IsBlank = (value) => value = null or Text.Trim(Text.From(value)) = "",`,
     `    WithSupplier = Table.AddColumn(Promoted, "Supplier Match", each`,
-    `        if not IsBlank([Preferred Supplier Code]) then [Code = [Preferred Supplier Code], Name = [Preferred Supplier], Source = "SAP preferred supplier"]`,
-    `        else let match = PrefixMatch([Item Code]) in`,
-    `            if match <> null then [Code = match[Supplier Code], Name = match[Supplier], Source = "Prefix list"]`,
+    `        let match = PrefixMatch([Item Code]) in`,
+    `            if match <> null and match[Overrides SAP] then [Code = match[Supplier Code], Name = match[Supplier], Source = "Prefix list (overrides SAP)"]`,
+    `            else if not IsBlank([Preferred Supplier Code]) then [Code = [Preferred Supplier Code], Name = [Preferred Supplier], Source = "SAP preferred supplier"]`,
+    `            else if match <> null then [Code = match[Supplier Code], Name = match[Supplier], Source = "Prefix list"]`,
     `            else if not IsBlank([Last Received Supplier Code]) then [Code = [Last Received Supplier Code], Name = [Last Received Supplier], Source = "SAP last goods receipt"]`,
     `            else [Code = null, Name = null, Source = "Not found"]),`,
     `    Suppliers = Table.ExpandRecordColumn(WithSupplier, "Supplier Match", {"Code", "Name", "Source"}, {"Supplier Code", "Supplier", "Supplier Code Source"}),`,
