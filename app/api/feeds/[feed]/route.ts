@@ -29,7 +29,8 @@ let productCache: { at: number; data: ProductMasterData } | null = null;
 async function productMasterData(): Promise<ProductMasterData> {
   if (productCache && Date.now() - productCache.at < CACHE_MS) return productCache.data;
   const data = await oneAtATime(loadProductMasterData);
-  productCache = { at: Date.now(), data };
+  // An empty item list means the sap-items job has not run yet: do not hold it for ten minutes once the first sync lands.
+  if (data.items.length > 0) productCache = { at: Date.now(), data };
   return data;
 }
 

@@ -55,6 +55,10 @@ describe("the Product Master feed", () => {
     expect(script).toContain('{"HCM", "S-0230", "Highchem"}');
     for (const row of ['{"TR", "S-0229", "Trade Roots"}', '{"WEET", "S-0099", "Weetabix"}', '{"MEGA", "S-0079", "Mega Wholesalers"}', '{"UDV", "S-0074", "UDV (Kenya)"}']) expect(script).toContain(row);
     expect(script.match(/\{"[A-Z]+", "S-\d{4}", "[^"]+"\}/g)).toHaveLength(PRODUCT_SUPPLIER_PREFIXES.length);
+    // Order: preferred supplier, then the prefix list, then the last goods receipt (a receipt can be a freight vendor).
+    const order = ['Source = "SAP preferred supplier"', 'Source = "Prefix list"', 'Source = "SAP last goods receipt"', 'Source = "Not found"'].map((s) => script.indexOf(s));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(script).toContain("Selected = Table.SelectColumns(Suppliers, Columns, MissingField.UseNull),");
     expect(script).toContain("Renamed = Table.RenameColumns(Selected, Renames, MissingField.Ignore),");
     expect(script).toContain('Blanks = Table.ReplaceValue(Renamed, "", null, Replacer.ReplaceValue, {"Item Group Code", "Manufacturer Code",');

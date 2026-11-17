@@ -20,7 +20,7 @@ export interface DataFeedDefinition {
   /** Every column the server can serve, when the list is client-safe (the outlet feed's lives with its extract). */
   servedColumns?: string[];
   /** Product Master only: supplier codes by item-code prefix, written into the script as an editable table. The script works out
-   *  Supplier Code / Supplier / Supplier Code Source from SAP first and this table second; those three columns are made in the
+   *  Supplier Code / Supplier / Supplier Code Source from SAP's preferred supplier, then this table, then the last goods receipt; those three columns are made in the
    *  workbook, not served. */
   prefixSuppliers?: PrefixSupplier[];
 }
@@ -69,7 +69,7 @@ export const PRODUCT_SUPPLIER_COLUMNS = ["Supplier Code", "Supplier", "Supplier 
 /** What the script needs from the server to make the supplier columns, whatever columns were chosen. */
 const PRODUCT_SUPPLIER_INPUTS = ["Item Code", "Preferred Supplier Code", "Preferred Supplier", "Last Received Supplier Code", "Last Received Supplier"];
 
-/** Supplier codes by item-code prefix (Suplier_Code.xlsx, Nov 2026), for items SAP gives no supplier for. SUN is listed once for both
+/** Supplier codes by item-code prefix (Suplier_Code.xlsx, Nov 2026), for items SAP gives no preferred supplier for. SUN is listed once for both
  *  Bidco and Suntory (one code, S-0135); the sheet's HCM row says "Unallocated", which is Highchem. */
 export const PRODUCT_SUPPLIER_PREFIXES: PrefixSupplier[] = [
   { prefix: "BNT", supplierCode: "S-0222", supplier: "Bennet" },
@@ -145,7 +145,7 @@ export const PRODUCT_MASTER_FEED: DataFeedDefinition = {
   id: "product-master",
   label: "Product Master",
   description:
-    "Every SAP item with its group, manufacturer, units, stock, costs and prices (SAP item master, refreshed every 30 minutes), plus the dashboard principal and a supplier code: SAP's preferred supplier, else the supplier of its last goods receipt, else the item-code prefix list in the script.",
+    "Every SAP item with its group, manufacturer, units, stock, costs and prices (SAP item master, refreshed every 30 minutes), plus the dashboard principal and a supplier code: SAP's preferred supplier, else the item-code prefix list in the script, else the supplier of its last goods receipt.",
   defaultColumns: [
     "Item Code",
     "Item Name",
@@ -220,12 +220,15 @@ function mColumnType(feed: DataFeedDefinition, column: string): string {
   return "type text";
 }
 
-/** The steps that make Supplier Code / Supplier / Supplier Code Source: SAP's preferred supplier, else the supplier of the item's last
- *  goods receipt, else the longest item-code prefix in SupplierCodes (a whole prefix: UP matches UP00012, not UPLIFT01). */
+/** The steps that make Supplier Code / Supplier / Supplier Code Source: SAP's preferred supplier (a deliberate master-data choice), else the
+ *  longest item-code prefix in SupplierCodes (a whole prefix: UP matches UP00012, not UPLIFT01), else the supplier of the item's last goods
+ *  receipt. The receipt comes last because it is the weakest evidence: it can be a freight or trading vendor (CEY items arrive via Expolanka
+ *  Freight, S-0191), which would hide the principal's own supplier. */
 function supplierSteps(prefixes: PrefixSupplier[]): string[] {
   return [
-    `    // The supplier columns. SAP first: the item's preferred supplier, else the supplier of its last goods receipt. Then SupplierCodes:`,
-    `    // add or change rows to cover items SAP has no supplier for. The longest matching prefix wins, matched whole (UP matches UP00012, not UPLIFT01).`,
+    `    // The supplier columns. First SAP's preferred supplier for the item; else SupplierCodes: add or change rows to set the supplier of a`,
+    `    // whole range of item codes (the longest matching prefix wins, matched whole: UP matches UP00012, not UPLIFT01); else the supplier of`,
+    `    // the item's last goods receipt (can be a freight vendor, so it only fills what the two above leave blank).`,
     `    SupplierCodes = #table(type table [Prefix = text, #"Supplier Code" = text, Supplier = text], {`,
     prefixes.map((p) => `        {${mText(p.prefix)}, ${mText(p.supplierCode)}, ${mText(p.supplier)}}`).join(",\n"),
     `    }),`,
@@ -239,9 +242,10 @@ function supplierSteps(prefixes: PrefixSupplier[]): string[] {
     `    IsBlank = (value) => value = null or Text.Trim(Text.From(value)) = "",`,
     `    WithSupplier = Table.AddColumn(Promoted, "Supplier Match", each`,
     `        if not IsBlank([Preferred Supplier Code]) then [Code = [Preferred Supplier Code], Name = [Preferred Supplier], Source = "SAP preferred supplier"]`,
-    `        else if not IsBlank([Last Received Supplier Code]) then [Code = [Last Received Supplier Code], Name = [Last Received Supplier], Source = "SAP last goods receipt"]`,
     `        else let match = PrefixMatch([Item Code]) in`,
-    `            if match = null then [Code = null, Name = null, Source = "Not found"] else [Code = match[Supplier Code], Name = match[Supplier], Source = "Prefix list"]),`,
+    `            if match <> null then [Code = match[Supplier Code], Name = match[Supplier], Source = "Prefix list"]`,
+    `            else if not IsBlank([Last Received Supplier Code]) then [Code = [Last Received Supplier Code], Name = [Last Received Supplier], Source = "SAP last goods receipt"]`,
+    `            else [Code = null, Name = null, Source = "Not found"]),`,
     `    Suppliers = Table.ExpandRecordColumn(WithSupplier, "Supplier Match", {"Code", "Name", "Source"}, {"Supplier Code", "Supplier", "Supplier Code Source"}),`,
     `    Selected = Table.SelectColumns(Suppliers, Columns, MissingField.UseNull),`,
   ];
