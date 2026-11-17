@@ -237,7 +237,7 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables,sap-reps
+      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables,sap-reps,sap-items
       # Every SAP job runs every 30 minutes (stock was 15, sales 10, SFA sales and purchases 60): each pass reads from SAP
       # for 20-60 seconds at over 100% CPU on the shared 4-core VPS, and the jobs run one at a time. Admin > Data & sync has
       # a "Refresh now" button on every row for a catch-up between slots (the worker polls for those every 10 seconds).

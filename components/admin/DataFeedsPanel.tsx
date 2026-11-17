@@ -22,7 +22,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-KE",
 /** Live data feeds: keys that let an Excel workbook (Power Query, e.g. on SharePoint) pull a feed straight from the dashboard, and the ready-made
  *  script for each. A key is shown once, when it is made. */
 export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
-  const [name, setName] = useState("SharePoint Outlet Master");
+  const [name, setName] = useState(`SharePoint ${DATA_FEEDS[0].label}`);
   const [feedId, setFeedId] = useState(DATA_FEEDS[0].id);
   const feed = DATA_FEEDS.find((item) => item.id === feedId) ?? DATA_FEEDS[0];
   const [period, setPeriod] = useState(feed.defaultPeriod);
@@ -56,7 +56,7 @@ export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
   return (
     <AdminCard
       title={<>Live data feeds <AdminBadge>{active.length} active key{active.length === 1 ? "" : "s"}</AdminBadge></>}
-      description="Let an Excel workbook (for example the Outlet Master on SharePoint) pull data straight from the dashboard and refresh itself. Each key works for one feed; revoke it and every workbook using it stops refreshing."
+      description="Let an Excel workbook (for example the Outlet Master or the Product Master on SharePoint) pull data straight from the dashboard and refresh itself. Each key works for one feed; revoke it and every workbook using it stops refreshing."
     >
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <div className="flex flex-col gap-3">
@@ -67,16 +67,29 @@ export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
             </label>
             <label className="flex flex-col gap-1 text-[12px] font-semibold text-muted sm:col-span-2">
               Feed
-              <select value={feedId} onChange={(event) => { setFeedId(event.target.value); setPeriod(DATA_FEEDS.find((item) => item.id === event.target.value)?.defaultPeriod ?? period); }} className={input}>
+              <select
+                value={feedId}
+                onChange={(event) => {
+                  const next = DATA_FEEDS.find((item) => item.id === event.target.value) ?? DATA_FEEDS[0];
+                  if (name === `SharePoint ${feed.label}`) setName(`SharePoint ${next.label}`);
+                  setFeedId(next.id);
+                  setPeriod(next.defaultPeriod);
+                }}
+                className={input}
+              >
                 {DATA_FEEDS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-muted">
-              Default period
-              <select value={period} onChange={(event) => setPeriod(event.target.value)} className={input}>
-                {feed.periods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
+            {feed.periods.length > 0 ? (
+              <label className="flex flex-col gap-1 text-[12px] font-semibold text-muted">
+                Default period
+                <select value={period} onChange={(event) => setPeriod(event.target.value)} className={input}>
+                  {feed.periods.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            ) : (
+              <p className="self-end pb-2 text-[12px] text-muted">No period: always the whole list, as of the last SAP sync.</p>
+            )}
           </div>
           <p className="text-xs text-muted">{feed.description} Columns: {feed.defaultColumns.map((column) => feed.defaultRenames[column] ?? column).join(", ")}.</p>
           <div>
@@ -153,10 +166,13 @@ export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
             <ol className="mt-2 list-decimal space-y-1 pl-4">
               <li>In Excel (desktop): <strong>Data → Get Data → From Other Sources → Blank Query</strong>.</li>
               <li>In the Power Query editor: <strong>Advanced Editor</strong>, select everything, paste the script, <strong>Done</strong>. If asked how to connect, choose <strong>Anonymous</strong> and <strong>Connect</strong> (the key travels in the script&apos;s header).</li>
-              <li>Name the query (e.g. <em>Outlet Master Data</em>), then <strong>Close &amp; Load</strong>: the rows land in a table on a new sheet.</li>
+              <li>Name the query (e.g. <em>{feed.label}</em>), then <strong>Close &amp; Load</strong>: the rows land in a table on a new sheet.</li>
               <li><strong>Data → Queries &amp; Connections</strong>, right-click the query, <strong>Properties</strong>: tick <strong>Refresh data when opening the file</strong> and <strong>Refresh every 60 minutes</strong>.</li>
               <li>Save the workbook to the SharePoint folder and share it as before. Opened in desktop Excel, it pulls the latest data on open and every hour.</li>
-              <li>To change the period, columns or names: <strong>Advanced Editor</strong>, edit <code>Period</code>, <code>Columns</code> or <code>Renames</code> at the top.</li>
+              <li>
+                To change what comes in: <strong>Advanced Editor</strong>, edit {feed.periods.length > 0 ? <><code>Period</code>, </> : null}<code>Columns</code> or <code>Renames</code> at the top
+                {feed.prefixSuppliers ? <>, and <code>SupplierCodes</code> for the supplier code of items SAP has no supplier for</> : null}.
+              </li>
             </ol>
           </details>
         </div>
