@@ -5,7 +5,7 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { SectionCard } from "@/components/ui/KpiGrid";
 import { TableWrap, Thead, Th, Td, TotalRow } from "@/components/ui/Table";
 import { formatNumber } from "@/lib/format";
-import type { GlobalAgeingSummary } from "@/lib/globalAgeing";
+import type { GlobalAgeingSummary, RepStatusFilter } from "@/lib/globalAgeing";
 
 type PeriodMode = "all" | "month" | "range";
 
@@ -30,6 +30,7 @@ export function GlobalAgeingTab() {
   const [month, setMonth] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [repStatus, setRepStatus] = useState<RepStatusFilter | "">("");
   const principalMenu = useRef<HTMLDetailsElement>(null);
 
   // The filters as a query string: the screen and the Excel report read the same one.
@@ -41,8 +42,9 @@ export function GlobalAgeingTab() {
       if (from) params.set("from", from);
       if (to) params.set("to", to);
     }
+    if (repStatus) params.set("repStatus", repStatus);
     return params.toString();
-  }, [principals, mode, month, from, to]);
+  }, [principals, mode, month, from, to, repStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +93,7 @@ export function GlobalAgeingTab() {
     setMonth("");
     setFrom("");
     setTo("");
+    setRepStatus("");
   }
 
   if (loading) {
@@ -112,7 +115,7 @@ export function GlobalAgeingTab() {
   if (!summary) return null;
 
   const monthCols = [summary.currentMonthLabel, ...summary.monthLabels];
-  const filtered = principals.length > 0 || mode !== "all";
+  const filtered = principals.length > 0 || mode !== "all" || repStatus !== "";
   const principalLabel = principals.length === 0 ? "All principals" : principals.length === 1 ? principals[0] : `${principals.length} principals`;
 
   return (
@@ -154,6 +157,12 @@ export function GlobalAgeingTab() {
             <option value="all">All dates</option>
             <option value="month">Month</option>
             <option value="range">From - to date</option>
+          </select>
+          <select value={repStatus} onChange={(e) => setRepStatus(e.target.value as RepStatusFilter | "")} className={controlClass} aria-label="SAP rep status">
+            <option value="">All SAP rep statuses</option>
+            <option value="active">Active SAP reps</option>
+            <option value="inactive">Inactive SAP reps</option>
+            <option value="none">No rep in SAP</option>
           </select>
           {mode === "month" ? <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className={controlClass} aria-label="Month" /> : null}
           {mode === "range" ? (
@@ -205,6 +214,7 @@ export function GlobalAgeingTab() {
               <Th align="right">Total Debts</Th>
               <Th align="right">PDQ Cheques</Th>
               <Th align="right">Balance Due</Th>
+              <Th align="right">With Inactive Rep</Th>
               <Th align="right">Future</Th>
               {monthCols.map((label) => <Th key={label} align="right">{label}</Th>)}
               <Th align="right">Over 12 Mth Ago</Th>
@@ -216,6 +226,7 @@ export function GlobalAgeingTab() {
                   <Td align="right">{kes(row.totalDebts)}</Td>
                   <Td align="right">{kes(row.pdqCheques)}</Td>
                   <Td align="right">{kes(row.balanceDue)}</Td>
+                  <Td align="right"><span className={row.inactiveRepDebts > 0 ? "text-accent-red" : undefined}>{kes(row.inactiveRepDebts)}</span></Td>
                   <Td align="right">{kes(row.buckets.future)}</Td>
                   <Td align="right">{kes(row.buckets.currentMonth)}</Td>
                   {row.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
@@ -223,7 +234,7 @@ export function GlobalAgeingTab() {
                 </tr>
               ))}
               {summary.byPrincipal.length === 0 ? (
-                <tr><td colSpan={monthCols.length + 5} className="px-3 py-6 text-center text-muted">No balances or post-dated cheques for this selection.</td></tr>
+                <tr><td colSpan={monthCols.length + 6} className="px-3 py-6 text-center text-muted">No balances or post-dated cheques for this selection.</td></tr>
               ) : null}
             </tbody>
             {summary.byPrincipal.length > 0 ? (
@@ -233,6 +244,7 @@ export function GlobalAgeingTab() {
                   <Td align="right">{kes(summary.grandTotal.totalDebts)}</Td>
                   <Td align="right">{kes(summary.grandTotal.pdqCheques)}</Td>
                   <Td align="right">{kes(summary.grandTotal.balanceDue)}</Td>
+                  <Td align="right">{kes(summary.byPrincipal.reduce((sum, row) => sum + row.inactiveRepDebts, 0))}</Td>
                   <Td align="right">{kes(summary.grandTotal.buckets.future)}</Td>
                   <Td align="right">{kes(summary.grandTotal.buckets.currentMonth)}</Td>
                   {summary.grandTotal.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
@@ -242,6 +254,43 @@ export function GlobalAgeingTab() {
             ) : null}
           </TableWrap>
         </div>
+
+        {/* The same ageing grouped by the status of each customer's assigned SAP rep. */}
+        {summary.byRepStatus.length > 0 ? (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-foreground">Ageing by SAP Rep Status</h3>
+              <span className="text-xs text-muted">Status of the sales employee assigned to each customer in SAP</span>
+            </div>
+            <TableWrap>
+              <Thead>
+                <Th>SAP Rep Status</Th>
+                <Th align="right">Customers</Th>
+                <Th align="right">Total Debts</Th>
+                <Th align="right">PDQ Cheques</Th>
+                <Th align="right">Balance Due</Th>
+                <Th align="right">Future</Th>
+                {monthCols.map((label) => <Th key={label} align="right">{label}</Th>)}
+                <Th align="right">Over 12 Mth Ago</Th>
+              </Thead>
+              <tbody>
+                {summary.byRepStatus.map((row) => (
+                  <tr key={row.status}>
+                    <Td><span className={`font-medium ${row.status === "Inactive" ? "text-accent-red" : ""}`}>{row.status === "Unassigned" ? "No rep in SAP" : row.status}</span></Td>
+                    <Td align="right">{formatNumber(row.customers)}</Td>
+                    <Td align="right">{kes(row.totalDebts)}</Td>
+                    <Td align="right">{kes(row.pdqCheques)}</Td>
+                    <Td align="right">{kes(row.balanceDue)}</Td>
+                    <Td align="right">{kes(row.buckets.future)}</Td>
+                    <Td align="right">{kes(row.buckets.currentMonth)}</Td>
+                    {row.buckets.monthsAgo.map((v, i) => <Td key={i} align="right">{kes(v)}</Td>)}
+                    <Td align="right">{kes(row.buckets.over12)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          </div>
+        ) : null}
       </div>
     </SectionCard>
   );

@@ -74,7 +74,33 @@ export interface GlobalAgeingCustomerRow extends GlobalAgeingRow {
 
 export interface GlobalAgeingPrincipalRow extends GlobalAgeingRow {
   principal: string;
+  /** Total debts of this principal's customers whose assigned SAP rep is inactive. */
+  inactiveRepDebts: number;
 }
+
+/** How the SAP rep status is grouped on screen and in the filter. "Unassigned" is no rep in SAP, "Unknown" a rep code SAP's list lacks. */
+export type RepStatusGroup = "Active" | "Inactive" | "Unknown" | "Unassigned";
+
+export interface GlobalAgeingRepStatusRow extends GlobalAgeingRow {
+  status: RepStatusGroup;
+  customers: number;
+}
+
+export function repStatusGroup(rep: CustomerRep): RepStatusGroup {
+  return rep.sapStatus === "" ? "Unassigned" : rep.sapStatus;
+}
+
+/** The status filter's values: the rep's SAP status, or `none` for a customer with no usable rep (unassigned or unknown code). */
+export type RepStatusFilter = "active" | "inactive" | "none";
+const REP_STATUS_FILTERS: RepStatusFilter[] = ["active", "inactive", "none"];
+
+function repMatchesFilter(rep: CustomerRep, filter: RepStatusFilter): boolean {
+  if (filter === "active") return rep.sapStatus === "Active";
+  if (filter === "inactive") return rep.sapStatus === "Inactive";
+  return rep.sapStatus === "" || rep.sapStatus === "Unknown";
+}
+
+const REP_STATUS_LABEL: Record<RepStatusFilter, string> = { active: "Active reps", inactive: "Inactive reps", none: "No rep in SAP" };
 
 export interface GlobalAgeingChequeRow {
   customerCode: string;
@@ -94,6 +120,8 @@ export interface GlobalAgeingFilters {
   principals: string[];
   from: Date | null;
   to: Date | null;
+  /** Narrow to customers whose assigned SAP rep has this status. Unset = all. */
+  repStatus?: RepStatusFilter | null;
 }
 
 export const NO_FILTERS: GlobalAgeingFilters = { principals: [], from: null, to: null };
@@ -104,12 +132,14 @@ export interface GlobalAgeingReport {
   monthLabels: string[];
   currentMonthLabel: string;
   byPrincipal: GlobalAgeingPrincipalRow[];
+  /** The same totals grouped by the customers' SAP rep status, for the filters applied. */
+  byRepStatus: GlobalAgeingRepStatusRow[];
   byCustomer: GlobalAgeingCustomerRow[];
   cheques: GlobalAgeingChequeRow[];
   grandTotal: GlobalAgeingRow;
   /** Every principal that has a balance or a cheque, whatever the filters, for the filter's options. */
   availablePrincipals: string[];
-  filters: { principals: string[]; from: string | null; to: string | null };
+  filters: { principals: string[]; from: string | null; to: string | null; repStatus: RepStatusFilter | null };
 }
 
 /** What the screen needs: the pivot and totals, without the thousands of customer and cheque rows (those go in the Excel report). */
@@ -118,6 +148,7 @@ export interface GlobalAgeingSummary {
   monthLabels: string[];
   currentMonthLabel: string;
   byPrincipal: GlobalAgeingPrincipalRow[];
+  byRepStatus: GlobalAgeingRepStatusRow[];
   grandTotal: GlobalAgeingRow;
   availablePrincipals: string[];
   filters: GlobalAgeingReport["filters"];
@@ -220,7 +251,10 @@ export function buildGlobalAgeingReport(
   const customerByCode = new Map(customers.map((c) => [c.customerCode, c]));
   const principalOf = (code: string) => customerByCode.get(code)?.principal?.trim() || UNCLASSIFIED_PRINCIPAL;
   const wanted = new Set(filters.principals.map((p) => p.trim().toLowerCase()).filter(Boolean));
-  const principalAllowed = (code: string) => wanted.size === 0 || wanted.has(principalOf(code).toLowerCase());
+  const repStatusFilter = filters.repStatus ?? null;
+  const principalAllowed = (code: string) =>
+    (wanted.size === 0 || wanted.has(principalOf(code).toLowerCase())) &&
+    (repStatusFilter === null || repMatchesFilter(repOf(customerByCode.get(code)?.slpCode), repStatusFilter));
 
   // Every principal that has anything, before any filter, so the filter always offers the full list.
   const withActivity = new Set<string>([...openItems.map((i) => i.customerCode), ...cheques.map((c) => c.customerCode)]);
@@ -285,9 +319,10 @@ export function buildGlobalAgeingReport(
   for (const row of byCustomer) {
     let principalRow = principalMap.get(row.principal);
     if (!principalRow) {
-      principalRow = { principal: row.principal, totalDebts: 0, pdqCheques: 0, balanceDue: 0, buckets: emptyBuckets() };
+      principalRow = { principal: row.principal, totalDebts: 0, pdqCheques: 0, balanceDue: 0, inactiveRepDebts: 0, buckets: emptyBuckets() };
       principalMap.set(row.principal, principalRow);
     }
+    if (row.rep.sapStatus === "Inactive") principalRow.inactiveRepDebts += row.totalDebts;
     principalRow.totalDebts += row.totalDebts;
     principalRow.pdqCheques += row.pdqCheques;
     principalRow.balanceDue += row.balanceDue;
@@ -303,16 +338,34 @@ export function buildGlobalAgeingReport(
     addBuckets(grandTotal.buckets, row.buckets);
   }
 
+  const statusMap = new Map<RepStatusGroup, GlobalAgeingRepStatusRow>();
+  for (const row of byCustomer) {
+    const status = repStatusGroup(row.rep);
+    let statusRow = statusMap.get(status);
+    if (!statusRow) {
+      statusRow = { status, customers: 0, totalDebts: 0, pdqCheques: 0, balanceDue: 0, buckets: emptyBuckets() };
+      statusMap.set(status, statusRow);
+    }
+    statusRow.customers += 1;
+    statusRow.totalDebts += row.totalDebts;
+    statusRow.pdqCheques += row.pdqCheques;
+    statusRow.balanceDue += row.balanceDue;
+    addBuckets(statusRow.buckets, row.buckets);
+  }
+  const STATUS_ORDER: RepStatusGroup[] = ["Active", "Inactive", "Unknown", "Unassigned"];
+  const byRepStatus = STATUS_ORDER.map((s) => statusMap.get(s)).filter((r): r is GlobalAgeingRepStatusRow => Boolean(r));
+
   return {
     asOf: asOf.toISOString(),
     monthLabels: monthLabels(asOf),
     currentMonthLabel: currentMonthLabel(asOf),
     byPrincipal,
+    byRepStatus,
     byCustomer,
     cheques: chequeRows,
     grandTotal,
     availablePrincipals,
-    filters: { principals: [...filters.principals], from: filters.from ? isoDay(filters.from) : null, to: filters.to ? isoDay(filters.to) : null },
+    filters: { principals: [...filters.principals], from: filters.from ? isoDay(filters.from) : null, to: filters.to ? isoDay(filters.to) : null, repStatus: filters.repStatus ?? null },
   };
 }
 
@@ -323,6 +376,7 @@ export function toSummary(report: GlobalAgeingReport): GlobalAgeingSummary {
     monthLabels: report.monthLabels,
     currentMonthLabel: report.currentMonthLabel,
     byPrincipal: report.byPrincipal,
+    byRepStatus: report.byRepStatus,
     grandTotal: report.grandTotal,
     availablePrincipals: report.availablePrincipals,
     filters: report.filters,
@@ -371,17 +425,24 @@ export function parseGlobalAgeingFilters(params: URLSearchParams): { filters: Gl
     }
     if (from && to && from.getTime() > to.getTime()) return { filters: NO_FILTERS, error: "The from date is after the to date." };
   }
-  return { filters: { principals, from, to }, error: null };
+  const repStatusText = (params.get("repStatus") ?? "").trim().toLowerCase();
+  let repStatus: RepStatusFilter | undefined;
+  if (repStatusText) {
+    if (!(REP_STATUS_FILTERS as string[]).includes(repStatusText)) return { filters: NO_FILTERS, error: "The rep status must be active, inactive or none." };
+    repStatus = repStatusText as RepStatusFilter;
+  }
+  return { filters: repStatus ? { principals, from, to, repStatus } : { principals, from, to }, error: null };
 }
 
 /** The filters in words, for the Excel report's cover sheet and the file name. */
-export function describeFilters(filters: GlobalAgeingFilters): { principals: string; period: string; slug: string } {
+export function describeFilters(filters: GlobalAgeingFilters): { principals: string; period: string; repStatus: string; slug: string } {
   const principals = filters.principals.length === 0 ? "All principals" : filters.principals.join(", ");
   const period = filters.from && filters.to ? `${isoDay(filters.from)} to ${isoDay(filters.to)}` : filters.from ? `From ${isoDay(filters.from)}` : filters.to ? `Up to ${isoDay(filters.to)}` : "All dates";
   const parts: string[] = [];
   if (filters.principals.length > 0) parts.push(filters.principals.length === 1 ? filters.principals[0].toLowerCase().replace(/[^a-z0-9]+/g, "-") : `${filters.principals.length}-principals`);
   if (filters.from || filters.to) parts.push(`${filters.from ? isoDay(filters.from) : "start"}_${filters.to ? isoDay(filters.to) : "end"}`);
-  return { principals, period, slug: parts.join("-") };
+  if (filters.repStatus) parts.push(`${filters.repStatus}-reps`);
+  return { principals, period, repStatus: filters.repStatus ? REP_STATUS_LABEL[filters.repStatus] : "All", slug: parts.join("-") };
 }
 
 /** The live report is always "as of" the latest receivables sync - there is

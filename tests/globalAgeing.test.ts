@@ -196,8 +196,8 @@ describe("parseGlobalAgeingFilters", () => {
 
 describe("describeFilters and toSummary", () => {
   it("describes the filters for the cover sheet and the file name", () => {
-    expect(describeFilters({ principals: [], from: null, to: null })).toEqual({ principals: "All principals", period: "All dates", slug: "" });
-    expect(describeFilters({ principals: ["Mars"], from: day(2026, 9, 1), to: day(2026, 9, 30) })).toEqual({ principals: "Mars", period: "2026-09-01 to 2026-09-30", slug: "mars-2026-09-01_2026-09-30" });
+    expect(describeFilters({ principals: [], from: null, to: null })).toEqual({ principals: "All principals", period: "All dates", repStatus: "All", slug: "" });
+    expect(describeFilters({ principals: ["Mars"], from: day(2026, 9, 1), to: day(2026, 9, 30) })).toEqual({ principals: "Mars", period: "2026-09-01 to 2026-09-30", repStatus: "All", slug: "mars-2026-09-01_2026-09-30" });
     expect(describeFilters({ principals: ["A", "B"], from: null, to: day(2026, 9, 30) }).slug).toBe("2-principals-start_2026-09-30");
   });
 

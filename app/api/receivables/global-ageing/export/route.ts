@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       ["As of (latest SAP receivables sync)", report.asOf.slice(0, 10)],
       ["Principals", described.principals],
       ["Period", described.period],
+      ["SAP rep status", described.repStatus],
       ["Period applies to", "Open items by tax (document) date; post-dated cheques by cheque due date. Month columns stay relative to the as-of date."],
       ["Customers with a balance or cheque", report.byCustomer.length],
       ["Post-dated cheques held", report.cheques.length],
