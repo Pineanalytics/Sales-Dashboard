@@ -97,6 +97,11 @@ export const PRODUCT_SUPPLIER_PREFIXES: PrefixSupplier[] = [
   { prefix: "HCM", supplierCode: "S-0230", supplier: "Highchem" },
   { prefix: "UKL", supplierCode: "S-0141", supplier: "Unilever" },
   { prefix: "UP", supplierCode: "S-0046", supplier: "Upfield" },
+  // Added from SAP's own receipts and AP invoices (every item of the prefix that SAP has a supplier for came from this one code), Nov 2026.
+  { prefix: "TR", supplierCode: "S-0229", supplier: "Trade Roots" },
+  { prefix: "WEET", supplierCode: "S-0099", supplier: "Weetabix" },
+  { prefix: "MEGA", supplierCode: "S-0079", supplier: "Mega Wholesalers" },
+  { prefix: "UDV", supplierCode: "S-0074", supplier: "UDV (Kenya)" },
 ];
 
 /** Every column the Product Master feed serves (app/api/feeds/[feed]/route.ts builds them from SapItem). */

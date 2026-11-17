@@ -53,6 +53,7 @@ describe("the Product Master feed", () => {
     expect(script).toContain('Requested = List.Distinct(List.RemoveItems(Columns, {"Supplier Code", "Supplier", "Supplier Code Source"}) & {"Item Code", "Preferred Supplier Code"');
     expect(script).toContain('{"UP", "S-0046", "Upfield"}');
     expect(script).toContain('{"HCM", "S-0230", "Highchem"}');
+    for (const row of ['{"TR", "S-0229", "Trade Roots"}', '{"WEET", "S-0099", "Weetabix"}', '{"MEGA", "S-0079", "Mega Wholesalers"}', '{"UDV", "S-0074", "UDV (Kenya)"}']) expect(script).toContain(row);
     expect(script.match(/\{"[A-Z]+", "S-\d{4}", "[^"]+"\}/g)).toHaveLength(PRODUCT_SUPPLIER_PREFIXES.length);
     expect(script).toContain("Selected = Table.SelectColumns(Suppliers, Columns, MissingField.UseNull),");
     expect(script).toContain("Renamed = Table.RenameColumns(Selected, Renames, MissingField.Ignore),");
