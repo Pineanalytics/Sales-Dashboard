@@ -1,5 +1,12 @@
 const ALLOWED_ROOTS = new Set(["dsr", "sales-analytics"]);
 
+const DEFAULT_UPSTREAM = "http://172.18.0.1:8000";
+
+/** Where the DSR service listens (EABL_DSR_REVIEW_URL), shared by the proxy and the full extract. */
+export function eablDsrUpstreamBase(): string {
+  return process.env.EABL_DSR_REVIEW_URL?.trim() || DEFAULT_UPSTREAM;
+}
+
 const CHART_THEME_REPLACEMENTS = [
   ["#2563EB", "#24754F"],
   ["#D97706", "#A87022"],

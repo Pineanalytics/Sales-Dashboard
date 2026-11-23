@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dataFeedById, OUTLET_MASTER_FEED, parseFeedColumns, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_COLUMNS } from "@/lib/dataFeedScript";
+import { dataFeedById, EABL_TIMESTAMP_COLUMNS, EABL_TIMESTAMPS_FEED, OUTLET_MASTER_FEED, parseFeedColumns, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_COLUMNS } from "@/lib/dataFeedScript";
+import { eablTimestampCsv, loadEablTimestampRows, resolveEablTimestampPeriod } from "@/lib/eablTimestampFeed";
 import { verifyFeedKey } from "@/lib/dataFeeds";
 import { oneAtATime } from "@/lib/outletUniverse/exportQueue";
 import { loadFrequencyReport, resolveFrequencyPeriod, type FrequencyReport } from "@/lib/outletUniverse/frequency";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 
 /** How long a built report is reused, so several workbooks refreshing together build it once. */
 const CACHE_MS = 10 * 60_000;
+/** Calls arrive through the day, so their feed is reused for less. */
+const TIMESTAMP_CACHE_MS = 3 * 60_000;
 const cache = new Map<string, { at: number; report: FrequencyReport }>();
 
 async function outletMasterReport(periodKind: string): Promise<FrequencyReport> {
@@ -25,6 +28,19 @@ async function outletMasterReport(periodKind: string): Promise<FrequencyReport> 
   );
   cache.set(periodKind, { at: Date.now(), report });
   return report;
+}
+
+const timestampCache = new Map<string, { at: number; day: string; data: Awaited<ReturnType<typeof loadEablTimestampRows>> }>();
+
+/** The EABL calls for a period, reused for a few minutes so several workbooks refreshing together read the table once. The Nairobi day is part of
+ *  the cache key's check, so a period that rolls with the date is never served from yesterday. */
+async function eablTimestampData(period: ReturnType<typeof resolveEablTimestampPeriod>) {
+  const day = period.endExclusive.toISOString().slice(0, 10);
+  const hit = timestampCache.get(period.value);
+  if (hit && hit.day === day && Date.now() - hit.at < TIMESTAMP_CACHE_MS) return hit.data;
+  const data = await loadEablTimestampRows(period);
+  timestampCache.set(period.value, { at: Date.now(), day, data });
+  return data;
 }
 
 let productCache: { at: number; data: ProductMasterData } | null = null;
@@ -42,7 +58,8 @@ async function productMasterData(): Promise<ProductMasterData> {
  *  the feed's default columns).
  *  - outlet-master: the Active Outlets coverage-frequency extract for the whole company (one row per shop that bought in the period), for
  *    ?period=last6 (rolling six months, the default) or year (year to date).
- *  - product-master: SAP's item master (SapItem, refreshed by the sap-items job every 30 minutes), one row per item, no period. */
+ *  - product-master: SAP's item master (SapItem, refreshed by the sap-items job every 30 minutes), one row per item, no period.
+ *  - eabl-timestamps: every EABL DMS call (EablCall) in ?period=last30 (default), month, last90 or ytd, one row per customer visit with check-in/out. */
 export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[feed]">) {
   const { feed: feedId } = await context.params;
   const feed = dataFeedById(feedId);
@@ -86,6 +103,20 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
           "Cache-Control": "private, no-store",
           "X-Feed-Generated-At": (data.syncedAt ?? new Date()).toISOString(),
           "X-Feed-Rows": String(data.items.length),
+        },
+      });
+    }
+    if (feed.id === EABL_TIMESTAMPS_FEED.id) {
+      const columns = parseFeedColumns(params.get("columns"), EABL_TIMESTAMP_COLUMNS, feed.defaultColumns);
+      const resolved = resolveEablTimestampPeriod(period);
+      const data = await eablTimestampData(resolved);
+      return new NextResponse(eablTimestampCsv(data.rows, columns), {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "private, no-store",
+          "X-Feed-Period": resolved.label,
+          "X-Feed-Generated-At": (data.syncedAt ?? new Date()).toISOString(),
+          "X-Feed-Rows": String(data.rows.length),
         },
       });
     }
