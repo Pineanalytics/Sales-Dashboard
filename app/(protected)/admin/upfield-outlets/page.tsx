@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { getUpfieldOutletMasterStatus } from "@/lib/upfieldOutletMasterStore";
 import { AdminCard, AdminNotices, AdminPage } from "@/components/admin/AdminPage";
 import { uploadUpfieldOutletMasterAction } from "./actions";
+import { UploadFormatGuide } from "@/components/admin/UploadFormatGuide";
+import { loadExampleTable } from "@/lib/uploadExamplesServer";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +43,7 @@ export default async function AdminUpfieldOutletsPage({ searchParams }: { search
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/");
   const { error, success } = await searchParams;
-  const status = await getUpfieldOutletMasterStatus();
+  const [status, uploadExample] = await Promise.all([getUpfieldOutletMasterStatus(), loadExampleTable("upfield-outlets")]);
 
   return (
     <AdminPage
@@ -64,6 +66,7 @@ export default async function AdminUpfieldOutletsPage({ searchParams }: { search
                 Upload as customer master
               </button>
             </form>
+            <UploadFormatGuide kind="upfield-outlets" example={uploadExample} />
           </div>
         </AdminCard>
 
