@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
   // fields at runtime even though these two builders only know about the base
   // TlRankingRow shape.
   const supervisorRanking = buildSupervisorRanking(compositeRankings, teamLeaders, supervisors);
-  // The top tier is Head of Sales (Angela Sitati, Alexander Muhoro): the response key stays `managerRanking` for its consumers.
+  // The top tier is Head of Sales (Mburu Kinyanjui, Alexander Muhoro): the response key stays `managerRanking` for its consumers.
   const managerRanking = buildHodRanking(supervisorRanking.rankings, supervisors, managers, hods);
 
   if (scope?.supervisorId) {
