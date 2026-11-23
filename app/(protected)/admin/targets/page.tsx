@@ -7,6 +7,8 @@ import { getKnownPrincipals, getKnownMainPrincipals } from "@/lib/adminReference
 import { AdminBadge, AdminCard, AdminDisclosure, AdminNotices, AdminPage, adminTable, searchText } from "@/components/admin/AdminPage";
 import { AdminTableSearch } from "@/components/admin/AdminTableSearch";
 import { uploadTargetsAction, deleteTargetAction, createTargetAction, updateTargetAction } from "./actions";
+import { UploadFormatGuide } from "@/components/admin/UploadFormatGuide";
+import { loadExampleTable } from "@/lib/uploadExamplesServer";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +67,7 @@ export default async function AdminTargetsPage({
   });
 
   const [knownPrincipals, knownMainPrincipals] = await Promise.all([getKnownPrincipals(), getKnownMainPrincipals()]);
+  const uploadExample = await loadExampleTable("targets");
 
   return (
     <AdminPage
@@ -94,6 +97,7 @@ export default async function AdminTargetsPage({
               Upload
             </button>
           </form>
+          <UploadFormatGuide kind="targets" example={uploadExample} />
         </AdminCard>
 
         <AdminDisclosure

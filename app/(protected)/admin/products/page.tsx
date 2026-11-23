@@ -6,6 +6,8 @@ import { getProductMappingSuggestions, type ProductMappingSuggestion } from "@/l
 import { findProductPrincipalConflicts } from "@/lib/principalRules";
 import { FocusedPanel } from "@/components/admin/FocusedPanel";
 import { AdminNotices, AdminPage } from "@/components/admin/AdminPage";
+import { UploadFormatGuide } from "@/components/admin/UploadFormatGuide";
+import { loadExampleTable } from "@/lib/uploadExamplesServer";
 import { createProductAction, updateProductAction, deleteProductAction, uploadProductsAction, applyPrefixSuggestionAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -45,12 +47,13 @@ export default async function AdminProductsPage({
   const where = q
     ? { OR: [{ itemNo: { contains: q, mode: "insensitive" as const } }, { itemDescription: { contains: q, mode: "insensitive" as const } }, { principal: { contains: q, mode: "insensitive" as const } }] }
     : {};
-  const [allProducts, matchCount, classificationRows, suggestions, editing] = await Promise.all([
+  const [allProducts, matchCount, classificationRows, suggestions, editing, uploadExample] = await Promise.all([
     prisma.product.findMany({ select: { itemNo: true, itemDescription: true, principal: true } }),
     prisma.product.count({ where }),
     prisma.product.findMany({ where: { classification: { not: null } }, distinct: ["classification"], select: { classification: true } }),
     getProductMappingSuggestions(),
     edit ? prisma.product.findUnique({ where: { id: edit } }) : Promise.resolve(null),
+    loadExampleTable("products"),
   ]);
   const pageCount = Math.max(1, Math.ceil(matchCount / PAGE_SIZE));
   const page = Math.min(requestedPage, pageCount);
@@ -123,6 +126,7 @@ export default async function AdminProductsPage({
             </a>
           </form>
         </div>
+        <UploadFormatGuide kind="products" example={uploadExample} />
 
         {prefixConflicts.length > 0 ? <section className="overflow-hidden rounded-2xl border border-secondary-blue/30 bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">

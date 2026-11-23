@@ -26,6 +26,8 @@ import { RosterHierarchyTree } from "./RosterHierarchyTree";
 import { RosterTargetsPanel } from "./RosterTargetsPanel";
 import { TeamLeaderOptions } from "@/components/admin/TeamLeaderOptions";
 import { AdminBadge, AdminDisclosure, AdminNotices, AdminPage } from "@/components/admin/AdminPage";
+import { UploadFormatGuide } from "@/components/admin/UploadFormatGuide";
+import { loadExampleTable } from "@/lib/uploadExamplesServer";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +76,11 @@ export default async function AdminTeamLeadersPage({
     filterEmployee,
     filterPrincipal,
   } = await searchParams;
+
+  const [rosterExample, leadershipExample] = await Promise.all([
+    loadExampleTable("roster", scope ? { teamLeaderIds: scope.teamLeaderIds } : null),
+    isAdmin ? loadExampleTable("sales-leadership") : Promise.resolve(null),
+  ]);
 
   const [teamLeaders, assignments, knownReps, knownPrincipals, supervisors, managers, hods, directors, reliefs] = await Promise.all([
     prisma.teamLeader.findMany({ where: scope ? { id: { in: scope.teamLeaderIds } } : {}, orderBy: { name: "asc" } }),
@@ -274,6 +281,7 @@ export default async function AdminTeamLeadersPage({
               Upload
             </button>
           </form>
+          <UploadFormatGuide kind="roster" example={rosterExample} />
         </AdminDisclosure>
 
         {isAdmin ? (
@@ -304,6 +312,7 @@ export default async function AdminTeamLeadersPage({
                 Upload
               </button>
             </form>
+            <UploadFormatGuide kind="sales-leadership" example={leadershipExample} />
           </AdminDisclosure>
         ) : null}
 
