@@ -434,8 +434,8 @@ export interface SupervisorHierarchyInput {
 }
 
 /** Rolls Supervisor-level rows up to Manager level — one tier further up (a Manager
- *  can span several Supervisors and even several principals, e.g. Angela Sitati
- *  over Lucy Githinji's Mars-Nairobi group plus Suntory/Upfield/Tropikal/Weetabix).
+ *  can span several Supervisors and even several principals, e.g. Mburu Kinyanjui
+ *  (Head of Sales for the Nairobi teams, who took over from Angela Sitati) over Lucy Githinji's Mars-Nairobi group plus Suntory/Upfield/Tropikal/Weetabix).
  *  Reporting/ranking dimension only — no Manager login. */
 export function buildManagerRanking(supervisorRanking: SupervisorRankingRow[], supervisorHierarchy: SupervisorHierarchyInput[], managers: HierarchyEntity[]): ManagerRankingResult {
   const managerIdBySupervisor = new Map(supervisorHierarchy.map((s) => [s.id, s.managerId]));
@@ -481,7 +481,7 @@ export interface HodHierarchyInput {
   directHodId: string | null;
 }
 
-/** Rolls Supervisor-level rows up to Head of Sales: Angela Sitati and Alexander Muhoro are the heads, the supervisors
+/** Rolls Supervisor-level rows up to Head of Sales: Mburu Kinyanjui (Nairobi teams) and Alexander Muhoro are the heads, the supervisors
  *  (and, below them, the team leaders) report to them. A supervisor's Head of Sales is Supervisor.directHodId, or the
  *  Head of Sales of their Manager (Manager.hodId) when only that is set. The result reuses the Manager-level shape
  *  (managerId / managerName hold the Head of Sales' id and name) so every consumer keeps working; supervisors with no

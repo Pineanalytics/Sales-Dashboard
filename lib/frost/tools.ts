@@ -280,7 +280,7 @@ function makeManagerRankingTool(scope: TeamLeaderScope | null) {
   return betaTool({
     name: "get_manager_ranking",
     description:
-      "MTD Target vs MTD Revenue achievement per Head of Sales (Angela Sitati, Alexander Muhoro), for the current calendar month, ranked from best to poorest — the tier above Sales Supervisor (a Head of Sales has several Supervisors and principals). In the result, managerName is the Head of Sales' name. Reporting dimension only, admin/unrestricted view.",
+      "MTD Target vs MTD Revenue achievement per Head of Sales (Mburu Kinyanjui for the Nairobi teams, Alexander Muhoro), for the current calendar month, ranked from best to poorest — the tier above Sales Supervisor (a Head of Sales has several Supervisors and principals). In the result, managerName is the Head of Sales' name. Reporting dimension only, admin/unrestricted view.",
     inputSchema: {
       type: "object",
       properties: {
