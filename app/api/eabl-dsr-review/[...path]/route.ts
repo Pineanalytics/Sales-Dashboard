@@ -1,10 +1,9 @@
 import { auth } from "@/auth";
-import { rewriteEablDsrDashboardHtml, validateEablDsrProxyPath } from "@/lib/eablDsrProxy";
+import { eablDsrUpstreamBase, rewriteEablDsrDashboardHtml, validateEablDsrProxyPath } from "@/lib/eablDsrProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_UPSTREAM = "http://172.18.0.1:8000";
 const HTML_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
@@ -26,7 +25,7 @@ async function proxy(request: Request, context: RouteContext<"/api/eabl-dsr-revi
   const safePath = validateEablDsrProxyPath(path);
   if (!safePath) return Response.json({ error: "Unsupported EABL DSR path." }, { status: 404 });
 
-  const upstreamBase = process.env.EABL_DSR_REVIEW_URL?.trim() || DEFAULT_UPSTREAM;
+  const upstreamBase = eablDsrUpstreamBase();
   const incomingUrl = new URL(request.url);
   const upstreamUrl = new URL(safePath, upstreamBase);
   upstreamUrl.search = incomingUrl.search;

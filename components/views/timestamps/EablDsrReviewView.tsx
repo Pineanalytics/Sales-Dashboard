@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft20Regular, ShieldCheckmark16Regular } from "@fluentui/react-icons";
+import { EablDsrExtractMenu } from "@/components/timestamps/EablDsrExtractMenu";
 import { EablReportTabs } from "@/components/timestamps/EablReportTabs";
 import type { TimestampsModule } from "./types";
 
@@ -16,6 +17,7 @@ export function EablDsrReviewView({ onNavigate }: { onNavigate: (key: Timestamps
         <p className="truncate text-[11px] leading-tight text-muted">Daily DSR KPIs, field reports, sign-off workflow and EABL sales analytics</p>
       </div>
       <span className="hidden items-center gap-1 rounded-full bg-accent-blue-soft px-2.5 py-1 text-[11px] font-semibold text-primary-blue lg:inline-flex" title="Served through Sales Dashboard; sign-in and access follow your dashboard session"><ShieldCheckmark16Regular className="h-3.5 w-3.5" /> Protected</span>
+      <EablDsrExtractMenu />
       <EablReportTabs current="dsr" onNavigate={(key) => onNavigate(key === "calls" ? "eabl-calls" : "eabl-dsr")} />
     </div>
     <section className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-background shadow-[0_4px_16px_rgba(11,61,53,0.08)]">

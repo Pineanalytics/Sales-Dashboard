@@ -15,7 +15,7 @@ const PERCENT = "0.0";
 /** Number format for a column, by its header. Percent columns hold the percentage itself (8.1 means 8.1%). */
 function formatFor(header: string): string | null {
   if (header.includes("%")) return PERCENT;
-  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue)/.test(header)) return MONEY;
+  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue|Total Sales|Net Sales|Sales Per Call|Discounts)/.test(header)) return MONEY;
   if (header.startsWith("Cases")) return VOLUME;
   return null;
 }

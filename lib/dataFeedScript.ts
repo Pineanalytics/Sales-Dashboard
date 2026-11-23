@@ -13,6 +13,8 @@ export interface DataFeedDefinition {
   numberColumns: string[];
   /** Columns the script reads as dates (served as yyyy-mm-dd). */
   dateColumns?: string[];
+  /** Columns the script reads as times of day (served as hh:mm:ss). */
+  timeColumns?: string[];
   /** The feed's default period; "" for a feed with no period (a master-data snapshot). */
   defaultPeriod: string;
   /** Empty for a feed with no period. */
@@ -200,7 +202,67 @@ export const PRODUCT_MASTER_FEED: DataFeedDefinition = {
   prefixSuppliers: PRODUCT_SUPPLIER_PREFIXES,
 };
 
-export const DATA_FEEDS: DataFeedDefinition[] = [OUTLET_MASTER_FEED, PRODUCT_MASTER_FEED];
+/** Every column the EABL timestamp feed serves, in its default order (the server builds them in lib/eablTimestampFeed.ts). */
+export const EABL_TIMESTAMP_COLUMNS = [
+  "Call Date",
+  "Salesman",
+  "Agent",
+  "Customer Code",
+  "Customer",
+  "Customer Type",
+  "Segment",
+  "Call No",
+  "Time In",
+  "Time Out",
+  "Duration (Min)",
+  "Gap From Previous Call (Min)",
+  "First Call Of Day",
+  "Last Call Of Day",
+  "Calls In Day",
+  "Productive Calls In Day",
+  "Day Strike Rate %",
+  "Productive",
+  "Cash Sales",
+  "Credit Sales",
+  "Discounts",
+  "Net Sales",
+];
+
+export const EABL_TIMESTAMP_PERIODS = [
+  { value: "last30", label: "Last 30 days" },
+  { value: "month", label: "This month" },
+  { value: "last90", label: "Last 90 days" },
+  { value: "ytd", label: "Year to date" },
+];
+
+/** The EABL DMS timestamp report as a feed: one row per customer call, with check-in and check-out, for the period. */
+export const EABL_TIMESTAMPS_FEED: DataFeedDefinition = {
+  id: "eabl-timestamps",
+  label: "EABL DMS Timestamps",
+  description:
+    "Every EABL DMS call in the period, one row per customer visit: salesman, customer, check-in and check-out, duration, the call's number in the day and the gap since the previous call, the day's first and last call and strike rate, and the call's sales.",
+  defaultColumns: EABL_TIMESTAMP_COLUMNS,
+  defaultRenames: {},
+  numberColumns: [
+    "Call No",
+    "Duration (Min)",
+    "Gap From Previous Call (Min)",
+    "Calls In Day",
+    "Productive Calls In Day",
+    "Day Strike Rate %",
+    "Cash Sales",
+    "Credit Sales",
+    "Discounts",
+    "Net Sales",
+  ],
+  dateColumns: ["Call Date"],
+  timeColumns: ["Time In", "Time Out", "First Call Of Day", "Last Call Of Day"],
+  defaultPeriod: "last30",
+  periods: EABL_TIMESTAMP_PERIODS,
+  servedColumns: EABL_TIMESTAMP_COLUMNS,
+};
+
+export const DATA_FEEDS: DataFeedDefinition[] = [OUTLET_MASTER_FEED, PRODUCT_MASTER_FEED, EABL_TIMESTAMPS_FEED];
 
 export function dataFeedById(id: string): DataFeedDefinition | null {
   return DATA_FEEDS.find((feed) => feed.id === id) ?? null;
@@ -219,6 +281,7 @@ function mField(name: string): string {
 function mColumnType(feed: DataFeedDefinition, column: string): string {
   if (feed.numberColumns.includes(column)) return "type number";
   if (feed.dateColumns?.includes(column)) return "type date";
+  if (feed.timeColumns?.includes(column)) return "type time";
   return "type text";
 }
 
