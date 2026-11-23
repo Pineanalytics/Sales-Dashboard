@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { useSearchParams } from "next/navigation";
+import { BuildingShop20Regular, CalendarCheckmark20Regular, DataBarVertical20Regular, DataTrending20Regular, PeopleTeam20Regular, Timer20Regular } from "@fluentui/react-icons";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import type { ViewProps } from "./types";
 import { ActiveOutletsView } from "./ActiveOutletsView";
@@ -35,14 +36,15 @@ const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary
 type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade";
 
 // Each tab shows only when its report is granted (lib/pageAccess.ts's Coverage module): the overview and rep tabs are
-// "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps.
-const PANEL_TABS: { key: CoveragePanel; label: string; description: string; pageKey: PageKey }[] = [
-  { key: "overview", label: "Overview", description: "Targets, coverage and strike rate", pageKey: "coverage" },
-  { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity", pageKey: "coverage" },
-  { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal", pageKey: "active-outlets" },
-  { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe", pageKey: "active-outlets" },
-  { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence", pageKey: "jp-adherence" },
-  { key: "time-in-trade", label: "Time in Trade", description: "Timestamps, rep performance and start/close time by system", pageKey: "timestamps" },
+// "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps. The description
+// is the tab's hover/screen-reader text: the bar itself stays one line so the report below keeps the screen.
+const PANEL_TABS: { key: CoveragePanel; label: string; description: string; pageKey: PageKey; icon: ComponentType<{ className?: string }> }[] = [
+  { key: "overview", label: "Overview", description: "Targets, coverage and strike rate", pageKey: "coverage", icon: DataBarVertical20Regular },
+  { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity", pageKey: "coverage", icon: PeopleTeam20Regular },
+  { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal", pageKey: "active-outlets", icon: BuildingShop20Regular },
+  { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe", pageKey: "active-outlets", icon: DataTrending20Regular },
+  { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence", pageKey: "jp-adherence", icon: CalendarCheckmark20Regular },
+  { key: "time-in-trade", label: "Time in Trade", description: "Timestamps, rep performance and start/close time by system", pageKey: "timestamps", icon: Timer20Regular },
 ];
 
 function isCoveragePanel(value: string | null): value is CoveragePanel {
@@ -241,28 +243,29 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionCard
-        accent="navy"
-        title="Coverage & Productivity"
-        action={<span className="text-xs text-muted">Timestamp call data · Primary targets only</span>}
-      >
-        <p className="text-sm text-muted-strong">Coverage, rep performance, active outlets and journey-plan adherence in one place.</p>
-      </SectionCard>
-
-      <nav aria-label="Coverage dashboard views" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {visibleTabs.map(({ key: panel, label, description }) => (
-          <button
-            key={panel}
-            type="button"
-            onClick={() => setActivePanel(panel)}
-            aria-pressed={activePanel === panel}
-            className={`rounded-xl border px-4 py-3 text-left transition-all ${activePanel === panel ? "border-primary-blue bg-primary-blue text-white shadow-cyan-glow" : "border-border bg-surface text-brand-navy hover:border-secondary-blue hover:bg-accent-blue-soft"}`}
-          >
-            <span className="block text-sm font-bold">{label}</span>
-            <span className={`mt-0.5 block text-xs ${activePanel === panel ? "text-white/80" : "text-muted"}`}>{description}</span>
-          </button>
-        ))}
-      </nav>
+      {/* One slim bar: the module name, then the views as icon tabs (a scrolling row on narrow screens, never wrapping onto a
+          second line). It replaces a title card plus six description cards that took ~250px before any report started. */}
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-1.5 shadow-[0_2px_8px_rgba(11,61,53,0.08)]">
+        <div className="hidden shrink-0 border-r border-border px-3 xl:block">
+          <h2 className="text-sm font-bold leading-tight text-brand-navy">Coverage &amp; Productivity</h2>
+          <p className="text-[11px] leading-tight text-muted">Timestamp call data · Primary targets only</p>
+        </div>
+        <nav aria-label="Coverage dashboard views" className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {visibleTabs.map(({ key: panel, label, description, icon: Icon }) => (
+            <button
+              key={panel}
+              type="button"
+              onClick={() => setActivePanel(panel)}
+              aria-pressed={activePanel === panel}
+              title={description}
+              className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors xl:flex-1 xl:justify-center ${activePanel === panel ? "bg-primary-blue text-white shadow-cyan-glow" : "text-brand-navy hover:bg-accent-blue-soft"}`}
+            >
+              <Icon className="h-[18px] w-[18px] shrink-0" />
+              {label}
+            </button>
+          ))}
+        </nav>
+      </div>
 
       {activePanel === "active-outlets" ? <ActiveOutletsView /> : null}
       {activePanel === "universe-analysis" ? <UniverseAnalysisView /> : null}
