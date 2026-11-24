@@ -44,75 +44,36 @@ export async function fetchPLByCostCentre(pool: sql.ConnectionPool, startDate: D
     .input("StartDate", sql.Date, start)
     .input("EndDate", sql.Date, end)
     .query<PLRecord>(`
+      -- One pass over the journal lines for the year. This used to be four UNION ALL branches (revenue, COGS, expense,
+      -- other income), each re-reading OJDT/JDT1 for the whole year, so every 30-minute run scanned the SAP general ledger
+      -- four times. The prefixes below do not overlap, so each line belongs to exactly one branch and the rows are the same.
       WITH Base AS (
-
-          -- REVENUE from JOURNAL ENTRIES
           SELECT
               T0.TransId      AS DocNum,
               'JE'            AS DocType,
               'N'             AS CANCELED,
               T0.Memo         AS CardName,
-              (T1.Credit - T1.Debit) AS DocTotal,
+              CASE WHEN T1.Account LIKE '401%' OR T1.Account LIKE '41%'
+                   THEN (T1.Credit - T1.Debit)
+                   ELSE (T1.Debit - T1.Credit)
+              END             AS DocTotal,
               T0.TransId      AS DocEntry,
               T1.LineMemo     AS Dscription,
               T0.RefDate      AS DocDate,
               ISNULL(T1.ProfitCode,'Unassigned') AS CostCenter,
               T1.Account      AS AccountCode,
               ISNULL(Ac1.AcctName,'') AS AccountName,
-              'REVENUE'       AS TYPE
+              CASE
+                  WHEN T1.Account LIKE '401%' THEN 'REVENUE'
+                  WHEN T1.Account LIKE '5%'   THEN 'COGS'
+                  WHEN T1.Account LIKE '41%'  THEN 'OTHER INCOME'
+                  ELSE 'EXPENSE'
+              END             AS TYPE
           FROM OJDT T0
           INNER JOIN JDT1 T1 ON T0.TransId = T1.TransId
           LEFT JOIN OACT Ac1 ON T1.Account = Ac1.AcctCode
           WHERE T0.RefDate BETWEEN @StartDate AND @EndDate
-            AND T1.Account LIKE '401%'
-
-          UNION ALL
-
-          -- COGS from JOURNAL ENTRIES
-          SELECT
-              T0.TransId, 'JE', 'N', T0.Memo,
-              (T1.Debit - T1.Credit),
-              T0.TransId, T1.LineMemo, T0.RefDate,
-              ISNULL(T1.ProfitCode,'Unassigned'),
-              T1.Account, ISNULL(Ac1.AcctName,''),
-              'COGS'
-          FROM OJDT T0
-          INNER JOIN JDT1 T1 ON T0.TransId = T1.TransId
-          LEFT JOIN OACT Ac1 ON T1.Account = Ac1.AcctCode
-          WHERE T0.RefDate BETWEEN @StartDate AND @EndDate
-            AND T1.Account LIKE '5%'
-
-          UNION ALL
-
-          -- EXPENSES from JOURNAL ENTRIES
-          SELECT
-              T0.TransId, 'JE', 'N', T0.Memo,
-              (T1.Debit - T1.Credit),
-              T0.TransId, T1.LineMemo, T0.RefDate,
-              ISNULL(T1.ProfitCode,'Unassigned'),
-              T1.Account, ISNULL(Ac1.AcctName,''),
-              'EXPENSE'
-          FROM OJDT T0
-          INNER JOIN JDT1 T1 ON T0.TransId = T1.TransId
-          LEFT JOIN OACT Ac1 ON T1.Account = Ac1.AcctCode
-          WHERE T0.RefDate BETWEEN @StartDate AND @EndDate
-            AND (T1.Account LIKE '6%' OR T1.Account LIKE '7%')
-
-          UNION ALL
-
-          -- OTHER INCOME from JOURNAL ENTRIES
-          SELECT
-              T0.TransId, 'JE', 'N', T0.Memo,
-              (T1.Credit - T1.Debit),
-              T0.TransId, T1.LineMemo, T0.RefDate,
-              ISNULL(T1.ProfitCode,'Unassigned'),
-              T1.Account, ISNULL(Ac1.AcctName,''),
-              'OTHER INCOME'
-          FROM OJDT T0
-          INNER JOIN JDT1 T1 ON T0.TransId = T1.TransId
-          LEFT JOIN OACT Ac1 ON T1.Account = Ac1.AcctCode
-          WHERE T0.RefDate BETWEEN @StartDate AND @EndDate
-            AND T1.Account LIKE '41%'
+            AND (T1.Account LIKE '401%' OR T1.Account LIKE '5%' OR T1.Account LIKE '6%' OR T1.Account LIKE '7%' OR T1.Account LIKE '41%')
       )
 
       SELECT

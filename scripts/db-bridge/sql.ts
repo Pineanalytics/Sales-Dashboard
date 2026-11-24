@@ -2,6 +2,7 @@
 // function in this tree only ever issues SELECT — there is no insert/update/exec
 // helper anywhere in this module, so there is no code path capable of writing even
 // if misused, on top of the SQL login itself being provisioned read-only.
+import path from "node:path";
 import sql from "mssql";
 
 export interface BridgeConfig {
@@ -36,11 +37,31 @@ export function loadConfigFromEnv(): BridgeConfig {
   };
 }
 
-export async function withConnection<T>(
-  config: BridgeConfig,
-  fn: (pool: sql.ConnectionPool) => Promise<T>
-): Promise<T> {
-  const pool = await new sql.ConnectionPool({
+/** tedious' ISOLATION_LEVEL.READ_UNCOMMITTED. tedious is mssql's driver; the constant is spelled out so this file does not import a transitive dependency. */
+const READ_UNCOMMITTED = 0x01;
+
+/**
+ * The name this process shows in SQL Server (sys.dm_exec_sessions.program_name), e.g. "pinefrost-sync:stock-sync" or
+ * "pinefrost-sync:receivables/run". It used to be mssql's default, "node-mssql", which told a DBA nothing about which job
+ * was holding a session on the SAP server.
+ */
+export function sapAppName(entry: string | undefined = process.argv[1]): string {
+  if (!entry) return "pinefrost-sync";
+  const parsed = path.parse(entry);
+  const parent = path.basename(parsed.dir);
+  const label = parsed.name === "run" || parsed.name === "sync" ? `${parent}/${parsed.name}` : parsed.name;
+  return `pinefrost-sync:${label}`.slice(0, 120);
+}
+
+/**
+ * Connection settings for the SAP server. Every query in this tree is a read-only report over SAP's own tables, and SAP
+ * users are posting invoices and receipts on the same server, so these sessions read with READ UNCOMMITTED: a report
+ * never takes shared locks that make a user's document wait, and is never made to wait for a user's open transaction. The
+ * trade-off is that a document SAP is half way through posting can be read before it commits; the sync re-reads the
+ * current period every 30 minutes, so a rolled-back document does not last.
+ */
+export function sapPoolConfig(config: BridgeConfig, appName: string = sapAppName()): sql.config {
+  return {
     server: config.server,
     port: config.port,
     database: config.database,
@@ -56,8 +77,17 @@ export async function withConnection<T>(
     options: {
       encrypt: config.encrypt,
       trustServerCertificate: config.trustServerCertificate,
-    },
-  }).connect();
+      appName,
+      connectionIsolationLevel: READ_UNCOMMITTED,
+    } as sql.config["options"],
+  };
+}
+
+export async function withConnection<T>(
+  config: BridgeConfig,
+  fn: (pool: sql.ConnectionPool) => Promise<T>
+): Promise<T> {
+  const pool = await new sql.ConnectionPool(sapPoolConfig(config)).connect();
 
   try {
     return await fn(pool);

@@ -34,12 +34,13 @@ async function main() {
   const quarterStart = new Date(Date.UTC(asOfDate.getUTCFullYear(), asOfDate.getUTCMonth(), asOfDate.getUTCDate() - 90));
   const [{ stockRows, demandRows, recentSalesRows, lastSaleRows, recentDemandRows }, products, warehouses, principals] = await Promise.all([
     withConnection(config, async (pool) => {
-      const [stockRows, demandRows, recentSalesRows, lastSaleRows] = await Promise.all([
-        fetchStockBalance(pool, asOfDate),
-        fetchStandardStockDemand(pool, yearStart, asOfDate),
-        fetchRecentActiveSales(pool, activeSalesStart, asOfDate),
-        fetchLastSaleByItem(pool),
-      ]);
+      // One query at a time. These four used to be fired together with Promise.all, so every 30-minute run put the
+      // whole stock-movement history scan (OINM), the year's invoice lines and a full-history invoice scan on the SAP
+      // server at the same moment. Run in turn, the job takes a little longer end to end but SAP only ever sees one.
+      const stockRows = await fetchStockBalance(pool, asOfDate);
+      const demandRows = await fetchStandardStockDemand(pool, yearStart, asOfDate);
+      const recentSalesRows = await fetchRecentActiveSales(pool, activeSalesStart, asOfDate);
+      const lastSaleRows = await fetchLastSaleByItem(pool);
       // The 4-week and 13-week run rates for the standard run rate. A failure here must not stop the stock refresh: the
       // snapshot is then built without them and the standard run rate falls back to year to date.
       let recentDemandRows: Awaited<ReturnType<typeof fetchRecentDemand>> | null = null;
