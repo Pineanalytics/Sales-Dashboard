@@ -7,6 +7,7 @@ import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, 
 import { Growth, Note, Panel, Rich, SortableTable, compact, count, kes, monthShort, pct, type Column } from "@/components/performanceAnalysis/shared";
 import { formatCompact, formatNumber } from "@/lib/format";
 import type { CreditNotesPayload, CreditPrincipalRow } from "@/lib/creditNotes/types";
+import { totalFooter } from "./footers";
 import type { CreditNotesTab } from "./CreditNotesView";
 
 /** A rate above this share of invoicing is drawn in the warning colour. */
@@ -97,7 +98,7 @@ export function OverviewSection({ report, onOpen }: { report: CreditNotesPayload
             </button>
           }
         >
-          <SortableTable columns={principalColumns} rows={report.principals.slice(0, 8)} rowKey={(row) => row.p} />
+          <SortableTable columns={principalColumns} rows={report.principals.slice(0, 8)} rowKey={(row) => row.p} footer={totalFooter({ rows: report.principals.slice(0, 8), kpi: report.kpi, itemLabel: "principals", listedOf: report.principals.length })} />
         </Panel>
 
         <Panel
@@ -120,6 +121,7 @@ export function OverviewSection({ report, onOpen }: { report: CreditNotesPayload
             }
             rows={report.customers.slice(0, 8)}
             rowKey={(row) => row.code}
+            footer={totalFooter({ rows: report.customers.slice(0, 8), kpi: report.kpi, itemLabel: "customers", listedOf: report.customerCount })}
           />
         </Panel>
       </div>
