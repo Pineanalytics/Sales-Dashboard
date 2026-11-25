@@ -6,6 +6,7 @@ import { CHART_AXIS_COLOR, CHART_COLORS, CHART_GRID_COLOR, tooltipContentStyle, 
 import { Growth, Note, Panel, SectionHeading, SortableTable, Spark, compact, count, pct, type Column } from "@/components/performanceAnalysis/shared";
 import { formatCompact } from "@/lib/format";
 import type { CreditCustomerRow, CreditItemRow, CreditLineRow, CreditNotesPayload, CreditPrincipalRow, CreditRepRow, CreditWarehouseRow } from "@/lib/creditNotes/types";
+import { totalFooter } from "./footers";
 import type { CreditNotesTab } from "./CreditNotesView";
 
 const HIGH_RATE_PCT = 5;
@@ -72,7 +73,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
           </Panel>
         ) : null}
         <Panel title={`All principals (${report.principals.length})`}>
-          <SortableTable columns={columns} rows={report.principals} rowKey={(row) => row.p} />
+          <SortableTable columns={columns} rows={report.principals} rowKey={(row) => row.p} footer={totalFooter({ rows: report.principals, kpi: report.kpi, itemLabel: "principals" })} />
         </Panel>
       </section>
     );
@@ -95,7 +96,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
       <section className="flex flex-col gap-4">
         <SectionHeading id="items" title="Credit notes by item" lede="The items customers send back or are credited for most. Click an item to see who it was credited to." />
         <Panel title={`Top ${report.items.length} of ${count(report.itemCount)} credited items`}>
-          <SortableTable columns={columns} rows={report.items.map((row, i) => ({ ...row, rank: i + 1 }))} rowKey={(row) => row.code} maxHeight={640} />
+          <SortableTable columns={columns} rows={report.items.map((row, i) => ({ ...row, rank: i + 1 }))} rowKey={(row) => row.code} maxHeight={640} footer={totalFooter({ rows: report.items, kpi: report.kpi, itemLabel: "items", listedOf: report.itemCount, labelColumn: "item" })} />
           {report.kpi.itemsCreditedAboveInvoiced > 0 ? (
             <Note>{count(report.kpi.itemsCreditedAboveInvoiced)} items were credited for more than was invoiced in this period; their rate shows above 100%. That usually means returns of sales from an earlier period.</Note>
           ) : null}
@@ -121,7 +122,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
       <section className="flex flex-col gap-4">
         <SectionHeading id="customers" title="Credit notes by customer" lede="Customers ranked by the credit notes they received, with the rate against what they were invoiced. Click a customer to filter the whole module to it." />
         <Panel title={`Top ${report.customers.length} of ${count(report.customerCount)} credited customers`} hint={report.kpi.top10CustomerShare !== null ? `the ten largest carry ${pct(report.kpi.top10CustomerShare, 0)}` : undefined}>
-          <SortableTable columns={columns} rows={report.customers} rowKey={(row) => row.code} maxHeight={640} />
+          <SortableTable columns={columns} rows={report.customers} rowKey={(row) => row.code} maxHeight={640} footer={totalFooter({ rows: report.customers, kpi: report.kpi, itemLabel: "customers", listedOf: report.customerCount, labelColumn: "customer" })} />
         </Panel>
       </section>
     );
@@ -144,7 +145,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
       <section className="flex flex-col gap-4">
         <SectionHeading id="reps" title="Credit notes by sales rep" lede="The SAP sales employee on each credit note. A high rate on a rep with real volume is the one to look into; very small accounts can swing widely." />
         <Panel title={`All sales reps (${report.reps.length})`}>
-          <SortableTable columns={columns} rows={report.reps.map((row, i) => ({ ...row, rank: i + 1 }))} rowKey={(row) => row.n} maxHeight={640} />
+          <SortableTable columns={columns} rows={report.reps.map((row, i) => ({ ...row, rank: i + 1 }))} rowKey={(row) => row.n} maxHeight={640} footer={totalFooter({ rows: report.reps, kpi: report.kpi, itemLabel: "reps", labelColumn: "rep" })} />
         </Panel>
       </section>
     );
@@ -164,7 +165,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
       <section className="flex flex-col gap-4">
         <SectionHeading id="branches" title="Credit notes by warehouse and van" lede="Where the credited stock was booked from." />
         <Panel title={`All warehouses (${report.warehouses.length})`}>
-          <SortableTable columns={columns} rows={report.warehouses} rowKey={(row) => row.n} />
+          <SortableTable columns={columns} rows={report.warehouses} rowKey={(row) => row.n} footer={totalFooter({ rows: report.warehouses, kpi: report.kpi, itemLabel: "warehouses" })} />
         </Panel>
       </section>
     );
@@ -185,7 +186,7 @@ export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditN
     <section className="flex flex-col gap-4">
       <SectionHeading id="lines" title="Largest credit-note lines" lede="The biggest single credit lines of the period (a line is one customer, item, branch and rep in a month). The Excel export carries more." />
       <Panel title={`Top ${report.topLines.length} lines`}>
-        <SortableTable columns={columns} rows={report.topLines.map((row, i) => ({ ...row, key: `${row.month}|${row.customerCode}|${row.itemCode}|${row.warehouse}|${row.rep}|${i}` }))} rowKey={(row) => row.key} maxHeight={640} />
+        <SortableTable columns={columns} rows={report.topLines.map((row, i) => ({ ...row, key: `${row.month}|${row.customerCode}|${row.itemCode}|${row.warehouse}|${row.rep}|${i}` }))} rowKey={(row) => row.key} maxHeight={640} footer={totalFooter({ rows: report.topLines.map((row) => ({ ...row, invoiced: 0 })), kpi: report.kpi, itemLabel: "lines", listedOf: report.kpi.creditLines })} />
       </Panel>
     </section>
   );

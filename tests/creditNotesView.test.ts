@@ -76,6 +76,26 @@ describe("the Credit Notes & Returns page", () => {
     expect(reps).toContain(report.reps[0].n);
   });
 
+  it("puts a total row under every list that matches the headline figures", () => {
+    const principals = renderToString(createElement(EntitySections, { tab: "principals", report, onFilter: () => undefined }));
+    expect(principals).toContain(`Total (${report.principals.length} principals)`);
+    const items = renderToString(createElement(EntitySections, { tab: "items", report, onFilter: () => undefined }));
+    expect(items).toContain(`Total (${report.itemCount} items)`);
+    expect(items).not.toContain("shown");
+    // A list cut to its top rows shows a subtotal of the rows listed, then the total of everything.
+    const many = aggregateCreditNotes(
+      Array.from({ length: 80 }, (_, i): PerfLine => ({ month: "2026-10", doc: "credit", customerCode: `K${i}`, customerName: `K ${i}`, rep: "R", principal: "Mars", itemCode: `T${i}`, itemName: `Item ${i}`, warehouse: "W", cases: -1, sales: -(i + 1) * 100, gp: -10 })),
+      { asOf: "2026-10-20", scopeMonths: ["2026-10"] },
+    );
+    const cut = renderToString(createElement(EntitySections, { tab: "items", report: many, onFilter: () => undefined }));
+    expect(cut).toContain("Top 50 shown");
+    expect(cut).toContain("Total, all 80 items");
+    for (const tab of ["customers", "reps", "branches", "lines"] as const) {
+      expect(renderToString(createElement(EntitySections, { tab, report, onFilter: () => undefined }))).toContain("<tfoot");
+    }
+    expect(renderToString(createElement(OverviewSection, { report, onOpen: () => undefined }))).toContain("<tfoot");
+  });
+
   it("renders the page shell, with a loading state before the report arrives", () => {
     const html = renderToString(createElement(CreditNotesView));
     expect(html).toContain("Credit notes &amp; returns");

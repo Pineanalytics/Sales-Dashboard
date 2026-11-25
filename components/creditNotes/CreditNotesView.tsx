@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useDashboardStore } from "@/lib/store";
 import { normalizePrincipalKey } from "@/lib/normalize";
-import { CANONICAL_MONTHS, resolvePeriodMonths, type PeriodSelection } from "@/lib/timeIntelligence";
+import { resolvePeriodMonths } from "@/lib/timeIntelligence";
 import { periodLabelFor, triggerDownload } from "@/lib/reports/download";
 import type { CreditNotesResponse } from "@/lib/creditNotes/types";
 import { Panel } from "@/components/performanceAnalysis/shared";
@@ -27,13 +27,6 @@ const TABS = [
 
 export type CreditNotesTab = (typeof TABS)[number]["id"];
 
-/** Until the viewer touches the period filter the page shows the whole year to the latest month, the same
- *  convention Performance Analysis and the Overview use (the filter's own default is just the current month). */
-function effectivePeriod(selected: PeriodSelection, userChose: boolean): PeriodSelection {
-  if (userChose) return selected;
-  return { kind: "YTD", year: selected.year, month: selected.month ?? CANONICAL_MONTHS[new Date().getUTCMonth()] };
-}
-
 const monthKey = (year: string, monthIndex: number) => `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
 
 interface LoadState {
@@ -46,7 +39,6 @@ interface LoadState {
  *  figure here is cut exactly as it is on Sales Performance; the search box narrows further to one customer, item, rep or branch. */
 export function CreditNotesView() {
   const selectedPeriod = useDashboardStore((s) => s.selectedPeriod);
-  const hasUserSelectedPeriod = useDashboardStore((s) => s.hasUserSelectedPeriod);
   const selectedPrincipalKeys = useDashboardStore((s) => s.selectedPrincipalKeys);
   const [tab, setTab] = useState<CreditNotesTab>("overview");
   const [state, setState] = useState<LoadState>({ key: "" });
@@ -60,7 +52,7 @@ export function CreditNotesView() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const period = effectivePeriod(selectedPeriod, hasUserSelectedPeriod);
+  const period = selectedPeriod;
   const months = useMemo(() => (period.year ? resolvePeriodMonths(period).map((m) => monthKey(m.year, m.monthIndex)) : []), [period]);
   const query = useMemo(() => {
     if (months.length === 0) return "";
@@ -179,7 +171,7 @@ export function CreditNotesView() {
           </label>
         ) : null}
       </div>
-      {needsReport && !hasUserSelectedPeriod ? <p className="-mt-2 text-xs text-muted">Showing the year to date. Choose a period above to narrow it.</p> : null}
+            {needsReport ? <p className="-mt-2 text-xs text-muted">Showing {periodLabel} · {principalLabel}{search ? ` · filtered to "${search}"` : ""}</p> : null}
       {needsReport && state.response?.scoped ? <p className="-mt-2 text-xs text-muted">Your account is limited to its own team or principals, so these figures cover only those.</p> : null}
 
       {tab === "distributors" ? <DistributorReturnsSection months={months} /> : null}

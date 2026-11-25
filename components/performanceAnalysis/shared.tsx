@@ -132,11 +132,15 @@ export function SortableTable<T>({
   rowKey,
   maxHeight,
   rowClassName,
+  footer,
 }: {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T, index: number) => string;
   maxHeight?: number;
+  /** Total rows under the body, always in the given order whatever the sort. `cells` maps a column id to its content; `label` goes in the
+   *  first column unless `labelColumn` names another (a table that starts with a rank column puts it on the name column). */
+  footer?: { label: string; cells: Record<string, ReactNode>; labelColumn?: string }[];
   /** Extra classes for a row, e.g. to dim months outside the selected period. */
   rowClassName?: (row: T) => string | undefined;
 }) {
@@ -196,6 +200,23 @@ export function SortableTable<T>({
               </tr>
             ))}
           </tbody>
+          {footer && footer.length > 0 ? (
+            <tfoot className="sticky bottom-0 z-[1] bg-background-elevated font-semibold text-foreground">
+              {footer.map((row) => (
+                <tr key={row.label} className="border-t-2 border-border">
+                  {columns.map((column) => {
+                    const labelColumn = row.labelColumn ?? columns[0].id;
+                    const content = column.id === labelColumn ? row.label : row.cells[column.id];
+                    return (
+                      <td key={column.id} className={`whitespace-nowrap px-3 py-2 ${column.align === "left" ? "text-left" : "text-right"}`}>
+                        {content ?? ""}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tfoot>
+          ) : null}
         </table>
       </div>
     </div>
