@@ -52,6 +52,10 @@ export const SYNC_JOB_INFO: Record<SyncJobName, SyncJobInfo> = {
   "sap-items": { label: "Item master (SAP)" },
 };
 
+/** The jobs that read the SAP SQL Server: the ones run by the `sap-sync-worker` container (docker-compose.yml). The "SAP jobs"
+ *  switch on Admin > Data & sync turns exactly these on or off together. */
+export const SAP_SYNC_JOBS: readonly SyncJobName[] = ["sales", "sfa-sales", "purchases", "performance", "pl", "stock", "receivables", "sap-reps", "sap-items"];
+
 export function isSyncJobName(value: unknown): value is SyncJobName {
   return typeof value === "string" && (SYNC_JOB_NAMES as readonly string[]).includes(value);
 }

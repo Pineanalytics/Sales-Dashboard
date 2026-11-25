@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { SALES_RETURNS_BRANCH_LABELS } from "./salesReturnsControl";
 import { SYNC_JOB_INFO, type SyncJobName } from "./syncJobs";
+import { getScheduleStates } from "./syncSchedule";
 import { getLatestSyncRequests, getSyncJobRuns, SYNC_REQUEST_LOST_AFTER_MS, type SyncJobRunView, type SyncRunRequestView } from "./syncRunRequests";
 
 export interface SyncHealthRow {
@@ -19,6 +20,8 @@ export interface SyncHealthRow {
   activeRefresh?: "PENDING" | "RUNNING";
   /** The worker's own record of its latest run. A failure shows even while the data is still inside its freshness window. */
   jobRun?: { lastOk: boolean | null; lastError: string | null; lastFinishedAt: Date | null };
+  /** True when this job's scheduled runs are switched off on Admin > Data & sync. Its data is then expected to go stale; "Refresh now" still works. */
+  scheduledRunsOff?: boolean;
   /** A job that has not completed a run since the run record was introduced: neither fresh nor stale yet. */
   awaitingFirstRun?: boolean;
   // Set only for rows with a manual "Trigger now" option (currently just
@@ -89,13 +92,15 @@ export interface SyncHealthRow {
 
 /** The new run records are additive; if the schema push for them has not reached this database yet the
  *  panel must still render, just without "Refresh now" state. */
-async function loadWorkerRunState(): Promise<{ requests: Map<string, SyncRunRequestView>; runs: Map<string, SyncJobRunView> }> {
+async function loadWorkerRunState(): Promise<{ requests: Map<string, SyncRunRequestView>; runs: Map<string, SyncJobRunView>; off: Set<string> }> {
   try {
     const [requests, runs] = await Promise.all([getLatestSyncRequests(), getSyncJobRuns()]);
-    return { requests, runs };
+    // The switch table is newer than the run records; if it cannot be read, every job is shown as on.
+    const off = await getScheduleStates().then((states) => new Set([...states.entries()].filter(([, state]) => !state.enabled).map(([job]) => job))).catch(() => new Set<string>());
+    return { requests, runs, off };
   } catch (error) {
     console.error("[sync-health] worker run records unavailable:", error instanceof Error ? error.message : error);
-    return { requests: new Map(), runs: new Map() };
+    return { requests: new Map(), runs: new Map(), off: new Set() };
   }
 }
 
@@ -118,7 +123,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
     prisma.uklSalesExportTriggerRequest.findFirst({ where: { status: "COMPLETED" }, orderBy: { completedAt: "desc" }, select: { completedAt: true, resultSummary: true } }),
   ]);
 
-  const { requests: latestRequests, runs: jobRuns } = await loadWorkerRunState();
+  const { requests: latestRequests, runs: jobRuns, off: scheduleOff } = await loadWorkerRunState();
 
   /** Adds the worker job behind a row: the Refresh now button, its state, and the last run's outcome. */
   function withJob(base: SyncHealthRow, job: SyncJobName): SyncHealthRow {
@@ -130,6 +135,7 @@ export async function getSyncHealth(): Promise<SyncHealthRow[]> {
       job,
       heavyWarning: SYNC_JOB_INFO[job].heavyWarning,
       activeRefresh: active,
+      scheduledRunsOff: scheduleOff.has(job),
       jobRun: run ? { lastOk: run.lastOk, lastError: run.lastError, lastFinishedAt: run.lastFinishedAt } : undefined,
     };
   }

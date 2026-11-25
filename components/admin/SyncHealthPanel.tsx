@@ -6,6 +6,8 @@ import { SalesReturnsControlButton } from "@/components/admin/SalesReturnsContro
 import { TriggerEablSalesExportButton } from "@/components/admin/TriggerEablSalesExportButton";
 import { TriggerUklSalesExportButton } from "@/components/admin/TriggerUklSalesExportButton";
 import { RefreshSyncButton } from "@/components/admin/RefreshSyncButton";
+import { SapScheduleControl, ScheduleSwitch } from "@/components/admin/ScheduleSwitch";
+import { SAP_SYNC_JOBS } from "@/lib/syncJobs";
 import type { SyncHealthRow } from "@/lib/syncHealth";
 import type { DeploymentInfo } from "@/lib/deployment";
 
@@ -18,7 +20,10 @@ function formatLastUpdated(date: Date | null): string {
  *  client fetch needed. Lives on /admin/dataset since that's the operational
  *  home for "is the data behind this app actually current." */
 export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; deployment: DeploymentInfo }) {
-  const anyStale = rows.some((r) => r.isStale);
+  // A job whose scheduled runs are switched off is expected to go stale; it should not read as a fault.
+  const anyStale = rows.some((r) => r.isStale && !r.scheduledRunsOff);
+  const sapRows = rows.filter((r) => r.job && (SAP_SYNC_JOBS as readonly string[]).includes(r.job));
+  const sapOff = sapRows.filter((r) => r.scheduledRunsOff).length;
 
   return (
     <SectionCard
@@ -37,6 +42,7 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
         <div><span className="font-semibold text-foreground">Built</span><br />{deployment.builtAt ? new Date(deployment.builtAt).toLocaleString() : "Local / unknown"}</div>
         <div><span className="font-semibold text-foreground">Schema</span><br />{deployment.schemaFingerprint.slice(0, 12)}</div>
       </div>
+      {sapRows.length > 0 ? <SapScheduleControl total={sapRows.length} off={sapOff} /> : null}
       {/* Own wrapper rather than TableWrap: TableWrap renders its own <table>, and this one needs table-fixed widths. */}
       <div className="overflow-hidden rounded-2xl bg-surface shadow-[0_1px_3px_rgba(11,61,53,0.06)]">
         <div className="overflow-x-auto">
@@ -55,7 +61,7 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
             <Th className="!whitespace-normal !px-2 !py-2">Last updated</Th>
             <Th className="!whitespace-normal !px-2 !py-2">Expected by</Th>
             <Th align="center" className="!whitespace-normal !px-2 !py-2">Status</Th>
-            <Th className="!whitespace-normal !px-2 !py-2">Manual run</Th>
+            <Th className="!whitespace-normal !px-2 !py-2">Manual run &amp; schedule</Th>
           </Thead>
           <tbody>
             {rows.map((r) => (
@@ -77,7 +83,11 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2 leading-tight" title={r.expectedBy?.toLocaleString()}>{formatLastUpdated(r.expectedBy)}</Td>
                 <Td align="center" className="!whitespace-normal !px-2 !py-2">
-                  <Badge tier={r.awaitingFirstRun ? "neutral" : r.isStale ? "bad" : "good"}>{r.awaitingFirstRun ? "Awaiting first run" : r.isStale ? "Stale" : r.manualOnly ? "Ready" : "Fresh"}</Badge>
+                  {r.scheduledRunsOff ? (
+                    <Badge tier="warn">Paused</Badge>
+                  ) : (
+                    <Badge tier={r.awaitingFirstRun ? "neutral" : r.isStale ? "bad" : "good"}>{r.awaitingFirstRun ? "Awaiting first run" : r.isStale ? "Stale" : r.manualOnly ? "Ready" : "Fresh"}</Badge>
+                  )}
                 </Td>
                 <Td className="!whitespace-normal !px-2 !py-2">
                   {r.triggerDistributor ? (
@@ -86,7 +96,10 @@ export function SyncHealthPanel({ rows, deployment }: { rows: SyncHealthRow[]; d
                       <SalesReturnsControlButton distributor={r.triggerDistributor} control={r.salesReturnsControl} />
                     </div>
                   ) : r.job ? (
-                    <RefreshSyncButton job={r.job} label={r.label} heavyWarning={r.heavyWarning} initial={r.activeRefresh} />
+                    <>
+                      <RefreshSyncButton job={r.job} label={r.label} heavyWarning={r.heavyWarning} initial={r.activeRefresh} />
+                      <ScheduleSwitch job={r.job} label={r.label} off={r.scheduledRunsOff === true} />
+                    </>
                   ) : r.triggerEablSalesExport ? <TriggerEablSalesExportButton /> : r.triggerUklSalesExport ? <TriggerUklSalesExportButton /> : null}
                   {r.eablSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">Available: {formatLastUpdated(r.eablSalesExport.latestAvailableReportDate)} · File: {r.eablSalesExport.lastDeliveredFile ?? "—"} {r.eablSalesExport.deliveredLocation ? `(${r.eablSalesExport.deliveredLocation})` : ""}{r.eablSalesExport.lastError ? ` · Error: ${r.eablSalesExport.lastError}` : ""}</div>}
                   {r.uklSalesExport && <div className="mt-1 text-[10px] leading-tight text-muted">{r.uklSalesExport.claimedCount ? `${r.uklSalesExport.claimedCount} running` : ""}{r.uklSalesExport.claimedCount && r.uklSalesExport.pendingCount ? " · " : ""}{r.uklSalesExport.pendingCount ? `${r.uklSalesExport.pendingCount} queued` : ""}{!r.uklSalesExport.claimedCount && !r.uklSalesExport.pendingCount ? "No month queued." : ""}{r.uklSalesExport.lastSummary ? ` · Last: ${r.uklSalesExport.lastSummary}` : ""}</div>}
