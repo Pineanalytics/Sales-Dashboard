@@ -54,7 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dormant-stock", label: "Dormant OOS", icon: Archive20Regular },
   { href: "/order-360", label: "Order 360", icon: VehicleTruck20Regular },
   { href: "/principal-kpis", label: "Principal KPIs", icon: TargetArrow20Regular },
-  { href: "/sales-returns", label: "Sales & Returns", icon: ArrowSwap20Regular },
+  { href: "/sales-returns", label: "Credit Notes & Returns", icon: ArrowSwap20Regular },
   { href: "/reports", label: "Reports", icon: DocumentText20Regular },
 ];
 
