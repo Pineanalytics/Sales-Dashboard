@@ -1687,6 +1687,16 @@ model SyncJobStatus {
   updatedAt      DateTime  @updatedAt
 }
 
+// The on/off switch for a sync job's SCHEDULED runs (Admin > Data & sync). A job with no row here is on; a row with
+// enabled = false makes the worker skip that job's scheduled slots (and its run on start). "Refresh now" still works while
+// a job is off. Additive table: the worker treats a missing table as "all on", so a deploy cannot stop the syncs by itself.
+model SyncJobSchedule {
+  job       String   @id
+  enabled   Boolean  @default(true)
+  changedBy String?
+  updatedAt DateTime @updatedAt
+}
+
 // Monthly trend for Active Outlets: distinct outlets per Cost Centre, split
 // Primary/Secondary, RE-COUNTED per month — never derived by summing
 // ActiveOutlet rows across months (same "unique not repeated sums" rule

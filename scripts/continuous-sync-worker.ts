@@ -5,6 +5,7 @@
 // the dashboard continues serving the last verified local snapshot.
 import { spawn } from "node:child_process";
 import { claimSyncRequest, failOrphanedSyncRequests, finishSyncRequest, recordSyncJobRun } from "../lib/syncRunRequests";
+import { getDisabledJobs, pickDueJob } from "../lib/syncSchedule";
 import type { SyncJobName } from "../lib/syncJobs";
 
 type JobName = SyncJobName;
@@ -153,6 +154,10 @@ async function main() {
   if (orphaned > 0) console.log(`[worker] marked ${orphaned} manual run(s) left over from the previous process as failed.`);
   let nextManualPoll = 0;
   let manualFailures = 0;
+  // Jobs whose scheduled runs are switched off on Admin > Data & sync. Read with every poll below; if the database cannot be read
+  // (or the table is not there yet, a deploy before the schema push) the last known answer stands, and the start-up answer is "all on".
+  let disabled = new Set<JobName>();
+  let scheduleReadFailed = false;
 
   // A single source read per worker makes its CPU/DB impact predictable. The
   // live timestamps worker is isolated from Active Outlets and SAP, so its
@@ -163,6 +168,18 @@ async function main() {
     // A "Refresh now" from Admin > Data & sync goes first, between two scheduled runs (never during one,
     // so the one-source-read-at-a-time rule above still holds). The job's own schedule restarts from now.
     if (now >= nextManualPoll) {
+      try {
+        const next = await getDisabledJobs(selected.map((job) => job.name));
+        const paused = [...next].filter((name) => !disabled.has(name));
+        const resumed = [...disabled].filter((name) => !next.has(name));
+        if (paused.length > 0) console.log(`[worker] scheduled runs switched OFF for: ${paused.join(", ")}.`);
+        if (resumed.length > 0) console.log(`[worker] scheduled runs switched back ON for: ${resumed.join(", ")}.`);
+        disabled = next;
+        scheduleReadFailed = false;
+      } catch (error) {
+        if (!scheduleReadFailed) console.error(`[worker] cannot read the scheduled-run switches; keeping the last known state: ${brief(error)}`);
+        scheduleReadFailed = true;
+      }
       let claimed: Awaited<ReturnType<typeof claimSyncRequest>> = null;
       try {
         claimed = await claimSyncRequest(selected.map((job) => job.name));
@@ -188,7 +205,8 @@ async function main() {
       }
     }
 
-    const due = selected.find((job) => now >= (nextDue.get(job.name) ?? 0));
+    // A switched-off job is moved to its next slot as if it had run (so it also skips its run on start, and resumes at its next regular slot).
+    const { due } = pickDueJob(selected, nextDue, now, disabled, (job) => nextRunAt(job));
     if (!due) {
       const soonest = Math.min(nextManualPoll, ...selected.map((job) => nextDue.get(job.name) ?? now + 1000));
       await new Promise((resolve) => setTimeout(resolve, Math.max(250, Math.min(soonest - now, 1000))));

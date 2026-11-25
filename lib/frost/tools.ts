@@ -614,7 +614,7 @@ export const syncHealthTool = betaTool({
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   run: async () => {
     const rows = await getSyncHealth();
-    return JSON.stringify(rows.map((r) => ({ source: r.label, cadence: r.cadenceLabel, stale: r.isStale, lastUpdated: r.lastUpdated?.toISOString() ?? null })));
+    return JSON.stringify(rows.map((r) => ({ source: r.label, cadence: r.cadenceLabel, stale: r.isStale, scheduledRunsOff: r.scheduledRunsOff === true, lastUpdated: r.lastUpdated?.toISOString() ?? null })));
   },
 });
 
