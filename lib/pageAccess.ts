@@ -57,7 +57,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   "jp-adherence": "JP Adherence",
   "order-360": "Order 360",
   "principal-kpis": "Principal KPIs",
-  "sales-returns": "Sales & Returns",
+  "sales-returns": "Credit Notes & Returns",
   reports: "Reports",
 };
 
@@ -124,7 +124,7 @@ export const REPORT_MODULES: readonly ReportModule[] = [
   { id: "dormant-stock", label: "Dormant OOS", href: "/dormant-stock", reports: [{ key: "dormant-stock", label: "Dormant OOS" }] },
   { id: "order-360", label: "Order 360", href: "/order-360", reports: [{ key: "order-360", label: "Order 360" }] },
   { id: "principal-kpis", label: "Principal KPIs", href: "/principal-kpis", reports: [{ key: "principal-kpis", label: "Principal KPIs" }] },
-  { id: "sales-returns", label: "Sales & Returns", href: "/sales-returns", reports: [{ key: "sales-returns", label: "Sales & Returns" }] },
+  { id: "sales-returns", label: "Credit Notes & Returns", href: "/sales-returns", reports: [{ key: "sales-returns", label: "Credit Notes & Returns" }] },
   { id: "reports", label: "Reports", href: "/reports", reports: [{ key: "reports", label: "Report extracts" }] },
 ];
 

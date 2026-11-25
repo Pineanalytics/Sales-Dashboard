@@ -751,62 +751,78 @@ const order360Report: ReportDefinition = {
   },
 };
 
-interface SalesReturnsSummaryDto {
-  salesNet: number;
-  returnsNet: number;
-  netAfterReturns: number;
-  invoiceLineCount: number;
-  returnLineCount: number;
+interface CreditNotesReportDto {
+  report: null | {
+    kpi: { credit: number; invoiced: number; cnPct: number | null; cases: number; gpLost: number; creditLines: number; customers: number; items: number; creditChangePct: number | null };
+    principals: { p: string; credit: number; share: number; invoiced: number; cnPct: number | null; cases: number }[];
+    customers: { code: string; name: string; rep: string; credit: number; share: number; invoiced: number; cnPct: number | null }[];
+    items: { code: string; name: string; p: string; credit: number; share: number; cases: number; customers: number }[];
+    reps: { n: string; principal: string; credit: number; share: number; invoiced: number; cnPct: number | null; customers: number }[];
+  };
 }
-interface SalesReturnsRepRowDto {
-  salesRepCode: string;
-  salesRepName: string;
-  sales: number;
-  returns: number;
-  net: number;
-  lineCount: number;
+
+/** The months the period covers, as the YYYY-MM list the credit-notes API takes. */
+function creditNoteMonths(period: PeriodSelection): string[] {
+  return resolvePeriodMonths(period).map(({ year, monthIndex }) => `${year}-${String(monthIndex + 1).padStart(2, "0")}`);
 }
-interface SalesReturnsDocTypeRowDto {
-  documentType: string;
-  documentTypeDesc: string;
-  lineCount: number;
-  netSale: number;
+
+function creditNoteParams(ctx: Pick<ReportContext, "period" | "principalKey" | "periodLabel">): URLSearchParams {
+  const params = new URLSearchParams({ months: creditNoteMonths(ctx.period).join(","), label: ctx.periodLabel, principalLabel: ctx.principalKey ?? "All principals" });
+  if (ctx.principalKey) params.set("principals", normalizePrincipalKey(ctx.principalKey));
+  return params;
 }
 
 const salesReturnsReport: ReportDefinition = {
   key: "sales-returns",
-  label: "Sales & Returns",
-  description: "Sales vs. returns by rep and document type for the current period. Branch-level — no principal dimension in source data.",
+  label: "Credit Notes & Returns",
+  description: "SAP credit notes for the chosen period and principal, by principal, customer, item and sales rep, set against what was invoiced. Excel is the full workbook with every list; PDF is the summary.",
   pageKey: "sales-returns",
-  async build({ period, repFilter }) {
-    const bounds = dateBoundsForPeriod(period);
-    if (!bounds) return emptyReport("Sales & Returns");
-    const params = new URLSearchParams({ from: bounds.from.toISOString().slice(0, 10), to: bounds.to.toISOString().slice(0, 10) });
-    const res = await fetch(`/api/sales-returns?${params.toString()}`, { cache: "no-store" });
-    if (!res.ok) return emptyReport("Sales & Returns");
-    const body = (await res.json()) as { summary: SalesReturnsSummaryDto; byRep: SalesReturnsRepRowDto[]; byDocType: SalesReturnsDocTypeRowDto[] };
-    const byRep = body.byRep.filter((r) => matchesRep(r.salesRepName, repFilter));
+  fullExcelUrl(ctx) {
+    return `/api/credit-notes/export?${creditNoteParams(ctx).toString()}`;
+  },
+  async build(ctx) {
+    const title = `Credit Notes & Returns — ${ctx.periodLabel}`;
+    if (creditNoteMonths(ctx.period).length === 0) return emptyReport(title);
+    const params = creditNoteParams(ctx);
+    params.delete("label");
+    params.delete("principalLabel");
+    const res = await fetch(`/api/credit-notes?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return emptyReport(title);
+    const { report } = (await res.json()) as CreditNotesReportDto;
+    if (!report) return emptyReport(title);
+    const reps = report.reps.filter((r) => matchesRep(r.n, ctx.repFilter));
 
     return {
-      title: "Sales & Returns",
+      title,
       generatedAt: new Date(),
       summary: [
-        { label: "Sales (Net)", value: body.summary.salesNet.toLocaleString() },
-        { label: "Returns (Net)", value: body.summary.returnsNet.toLocaleString() },
-        { label: "Net After Returns", value: body.summary.netAfterReturns.toLocaleString() },
-        { label: "Invoice Lines", value: body.summary.invoiceLineCount.toLocaleString() },
-        { label: "Return Lines", value: body.summary.returnLineCount.toLocaleString() },
+        { label: "Credit Notes", value: Math.round(report.kpi.credit).toLocaleString() },
+        { label: "% of Invoiced", value: report.kpi.cnPct === null ? "—" : `${report.kpi.cnPct.toFixed(2)}%` },
+        { label: "Invoiced", value: Math.round(report.kpi.invoiced).toLocaleString() },
+        { label: "Cases Credited", value: Math.round(report.kpi.cases).toLocaleString() },
+        { label: "Customers Credited", value: report.kpi.customers.toLocaleString() },
+        { label: "Credit Lines", value: report.kpi.creditLines.toLocaleString() },
       ],
       sections: [
         {
-          title: "By Rep",
-          columns: ["Rep Code", "Rep Name", "Sales", "Returns", "Net", "Lines"],
-          rows: byRep.map((r) => [r.salesRepCode, r.salesRepName, round2(r.sales), round2(r.returns), round2(r.net), r.lineCount]),
+          title: "By Principal",
+          columns: ["Principal", "Credit Notes", "Share %", "Invoiced", "% of Invoiced", "Cases"],
+          rows: report.principals.map((r) => [r.p, round2(r.credit), round2(r.share), round2(r.invoiced), r.cnPct === null ? "" : round2(r.cnPct), Math.round(r.cases)]),
         },
         {
-          title: "By Document Type",
-          columns: ["Document Type", "Description", "Lines", "Net Sale"],
-          rows: body.byDocType.map((d) => [d.documentType, d.documentTypeDesc, d.lineCount, round2(d.netSale)]),
+          title: "Top Customers",
+          columns: ["Code", "Customer", "Main Rep", "Credit Notes", "Share %", "Invoiced", "% of Invoiced"],
+          rows: report.customers.slice(0, 25).map((r) => [r.code, r.name, r.rep, round2(r.credit), round2(r.share), round2(r.invoiced), r.cnPct === null ? "" : round2(r.cnPct)]),
+        },
+        {
+          title: "Top Items",
+          columns: ["Code", "Item", "Principal", "Credit Notes", "Share %", "Cases", "Customers"],
+          rows: report.items.slice(0, 25).map((r) => [r.code, r.name, r.p, round2(r.credit), round2(r.share), Math.round(r.cases), r.customers]),
+        },
+        {
+          title: "By Sales Rep",
+          columns: ["Rep", "Main Principal", "Credit Notes", "Share %", "Invoiced", "% of Invoiced", "Customers"],
+          rows: reps.map((r) => [r.n, r.principal, round2(r.credit), round2(r.share), round2(r.invoiced), r.cnPct === null ? "" : round2(r.cnPct), r.customers]),
         },
       ],
     };
