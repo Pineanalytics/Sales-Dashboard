@@ -1,4 +1,5 @@
-// SAP item master: every item (OITM) with its item group (OITB), manufacturer (OMRC), preferred vendor (OITM.CardCode -> OCRD) and its
+// SAP item master: every item (OITM) with its item group (OITB), manufacturer (OMRC), preferred vendor (OITM.CardCode -> OCRD), the
+// suppliers' own product codes (OITM.SuppCatNum and the Unilever, EABL and Mars item-code fields) and its
 // price on the first "Selling" and first "Purchase" price list (ITM1 / OPLN). SELECT only. The same query as the Product Master extract
 // (Product_Query.py) that used to be run by hand and saved to D:\SAP Extraction.
 import type sql from "mssql";
@@ -14,6 +15,7 @@ SELECT
     T0.OnHand, T0.IsCommited, T0.OnOrder,
     T0.AvgPrice, T0.LastPurPrc,
     T0.CardCode, T3.CardName,
+    T0.SuppCatNum, T0.U_UKLItemCode, T0.U_EABLItemCode, T0.U_ZrepCode,
     T0.ValidFor, T0.FrozenFor,
     T0.CreateDate, T0.UpdateDate,
     P1.Price AS SellingPrice, P1.Currency AS SellingCurrency,

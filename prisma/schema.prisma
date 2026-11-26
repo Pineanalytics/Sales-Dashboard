@@ -807,6 +807,10 @@ model SapItem {
   lastPurchasePrice     Float?
   preferredSupplierCode String?
   preferredSupplier     String?
+  supplierCatalogNo     String? // OITM.SuppCatNum
+  unileverItemCode      String? // OITM.U_UKLItemCode
+  eablItemCode          String? // OITM.U_EABLItemCode
+  marsZrepCode          String? // OITM.U_ZrepCode
   active                Boolean?
   frozen                Boolean?
   sapCreatedAt          DateTime? @db.Date

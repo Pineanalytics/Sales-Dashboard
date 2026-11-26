@@ -22,6 +22,10 @@ export interface SapItemMasterRow {
   LastPurPrc: number | null;
   CardCode: string | null;
   CardName: string | null;
+  SuppCatNum: string | null;
+  U_UKLItemCode: string | null;
+  U_EABLItemCode: string | null;
+  U_ZrepCode: string | null;
   ValidFor: string | null;
   FrozenFor: string | null;
   CreateDate: Date | null;
@@ -52,6 +56,10 @@ export interface SapItemRecord {
   lastPurchasePrice: number | null;
   preferredSupplierCode: string | null;
   preferredSupplier: string | null;
+  supplierCatalogNo: string | null;
+  unileverItemCode: string | null;
+  eablItemCode: string | null;
+  marsZrepCode: string | null;
   active: boolean | null;
   frozen: boolean | null;
   sapCreatedAt: Date | null;
@@ -112,6 +120,10 @@ export function buildSapItems(rows: SapItemMasterRow[], syncedAt: Date): SapItem
       lastPurchasePrice: num(r.LastPurPrc),
       preferredSupplierCode: text(r.CardCode),
       preferredSupplier: text(r.CardName),
+      supplierCatalogNo: text(r.SuppCatNum),
+      unileverItemCode: text(r.U_UKLItemCode),
+      eablItemCode: text(r.U_EABLItemCode),
+      marsZrepCode: text(r.U_ZrepCode),
       active: flag(r.ValidFor),
       frozen: flag(r.FrozenFor),
       sapCreatedAt: date(r.CreateDate),

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { SapItem } from "@prisma/client";
-import { parseFeedColumns, powerQueryScript, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_COLUMNS, PRODUCT_SUPPLIER_PREFIXES } from "@/lib/dataFeedScript";
+import { parseFeedColumns, powerQueryScript, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_CODE_COLUMNS, PRODUCT_SUPPLIER_COLUMNS, PRODUCT_SUPPLIER_PREFIXES } from "@/lib/dataFeedScript";
 import { productMasterCsv, type ProductMasterData } from "@/lib/productMasterFeed";
 import { buildSapItems, type SapItemMasterRow } from "@/lib/sapItemMaster";
 
 const sapRow = (over: Partial<SapItemMasterRow>): SapItemMasterRow => ({
   ItemCode: "MARS001", ItemName: "Snickers 50g", FrgnName: null, ItmsGrpCod: 101, ItmsGrpNam: "Confectionery", FirmCode: 3, FirmName: "-Select Manufacturer-",
   InvntryUom: "PCS", SalUnitMsr: "CTN", BuyUnitMsr: "CTN", NumInSale: 24, NumInBuy: 24, OnHand: 120, IsCommited: 10, OnOrder: 0, AvgPrice: 55.123456789,
-  LastPurPrc: 56, CardCode: "  ", CardName: null, ValidFor: "Y", FrozenFor: "N", CreateDate: new Date("2025-03-04T00:00:00Z"), UpdateDate: null,
+  LastPurPrc: 56, CardCode: "  ", CardName: null, SuppCatNum: null, U_UKLItemCode: null, U_EABLItemCode: null, U_ZrepCode: null, ValidFor: "Y", FrozenFor: "N", CreateDate: new Date("2025-03-04T00:00:00Z"), UpdateDate: null,
   SellingPrice: 70, SellingCurrency: "KES", PurchasePrice: null, PurchaseCurrency: null, ...over,
 });
 
@@ -43,6 +43,20 @@ describe("the Product Master feed", () => {
       "MARS001,Mars,'-Select Manufacturer-,55.123457,,,Y,2025-03-04",
       "HCM12,Highchem,'-Select Manufacturer-,,S-0230,2026-11-02,Y,2025-03-04",
     ]);
+  });
+
+  it("carries the suppliers' own product codes as text, in the feed and the script", () => {
+    const [item] = buildSapItems([sapRow({ SuppCatNum: " 0012-A ", U_UKLItemCode: "64972360", U_EABLItemCode: "  ", U_ZrepCode: "397657" })], new Date()) as unknown as SapItem[];
+    const data: ProductMasterData = { items: [item], principals: new Map(), lastReceipts: new Map(), syncedAt: null };
+    expect(productMasterCsv(data, ["Item Code", ...PRODUCT_SUPPLIER_CODE_COLUMNS]).split("\r\n")).toEqual([
+      "Item Code,Supplier Catalogue No,Unilever Item Code,EABL Item Code,Mars ZREP Code",
+      "MARS001,0012-A,64972360,,397657",
+    ]);
+    const script = powerQueryScript({ baseUrl: "https://pinefrostdb.com", feed: PRODUCT_MASTER_FEED, key: "pfk_abc" });
+    for (const column of PRODUCT_SUPPLIER_CODE_COLUMNS) {
+      expect(PRODUCT_MASTER_FEED.defaultColumns).toContain(column);
+      expect(script).toContain(`{"${column}", type text}`);
+    }
   });
 
   it("writes a script with no period, the supplier inputs requested and the prefix list embedded", () => {
