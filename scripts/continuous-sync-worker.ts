@@ -69,6 +69,12 @@ const jobs: Record<JobName, JobDefinition> = {
   "rep-directory": { name: "rep-directory", entry: "scripts/db-bridge/rep-directory/derive.ts", intervalEnv: "REP_DIRECTORY_INTERVAL_SECONDS", defaultSeconds: 1800 },
   // SAP's item master (a few thousand OITM rows, one short read) mirrored into SapItem for the Product Master data feed.
   "sap-items": { name: "sap-items", entry: "scripts/db-bridge/sap-items/sync.ts", intervalEnv: "SAP_ITEMS_INTERVAL_SECONDS", defaultSeconds: 1800 },
+  // Every SAP invoice and credit-note line (SalesLine), the raw data of the Customer extract: the current and previous month, about
+  // 200,000 lines, so once a day in the evening and never on start; a history load is a separate, approved manual run.
+  "sales-lines": { name: "sales-lines", entry: "scripts/db-bridge/sales-lines-sync.ts", intervalEnv: "SALES_LINES_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "SALES_LINES_DAILY_AT", runOnStartEnv: "SALES_LINES_RUN_ON_START", args: ["--months=2"], nodeOptions: "--max-old-space-size=800" },
+  // Links the invoice references of those lines to Pine, EABL DMS, Upfield and Leverage outlets (InvoiceOutlet), for the extract's
+  // channel, segment and territory. Once a day after the line sync, and never on start.
+  "customer-outlets": { name: "customer-outlets", entry: "scripts/db-bridge/customer-outlets/sync.ts", intervalEnv: "CUSTOMER_OUTLETS_INTERVAL_SECONDS", defaultSeconds: 86_400, dailyAtEnv: "CUSTOMER_OUTLETS_DAILY_AT", runOnStartEnv: "CUSTOMER_OUTLETS_RUN_ON_START", args: ["--months=2"] },
 };
 
 function intervalMs(job: JobDefinition): number {

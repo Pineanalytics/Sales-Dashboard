@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { getLiveBrandCustomerRows } from "@/lib/datasetStore";
-import { normalizePrincipalKey } from "@/lib/normalize";
-import { resolveScopeForSession } from "@/lib/teamLeaderScope";
-import { buildBrandExtract, buildCustomerExtract, combineExtracts, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
+import { buildBrandExtract, buildCustomerExtract, combineExtracts, LARGE_EXTRACT_RAW_ROWS, trimLargeExtract, type BrandCustomerExtract, type ExtractScope } from "@/lib/brandCustomerExtract";
+import { createCustomerLineExtract } from "@/lib/customerLineExtract";
+import { customerExtractAccess, fileSlug, requestPeriods } from "@/lib/customerExtractScope";
+import { countSalesLines, loadOutletDirectory, rankingLineBatches, salesLineBatches, salesLineCoverage } from "@/lib/salesLinesData";
 import { buildSfaCustomerExtract } from "@/lib/sfaCustomerExtract";
 import { missingSfaPeriods, onlyPrincipals } from "@/lib/sfaPortfolio";
 import { getDashboardPrincipals, getSfaOutletRows } from "@/lib/sfaPortfolioData";
@@ -18,26 +18,13 @@ export const dynamic = "force-dynamic";
 //
 // kind=all is the Reports page's one-workbook Customers & Brands download: the customer sheets, then the brand sheets.
 //
-// Brands: SAP item-level rows (the customer there is the SAP billing account). Customers: the SFA outlet the sales app
-// sold to, from the SFA-outlet tables; if any selected month is not loaded at outlet level it falls back to SAP
-// billing accounts and the Summary says so.
-
-interface MonthRef { year: string; monthIndex: number }
-
-function periods(request: NextRequest, name: string): MonthRef[] {
-  return request.nextUrl.searchParams.getAll(name).flatMap((value) => {
-    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value);
-    return match ? [{ year: match[1], monthIndex: Number(match[2]) - 1 }] : [];
-  });
-}
+// Brands: SAP item-level rows (the customer there is the SAP billing account). Customers: built from SAP invoice lines
+// (lib/customerLineExtract.ts: SFA customer ranking and the raw lines) when every selected month is held line by line.
+// Otherwise from the SFA-outlet tables, and failing that SAP billing accounts; the Summary says which.
 
 function label(request: NextRequest, name: string, fallback: string): string {
   const value = (request.nextUrl.searchParams.get(name) ?? "").trim().slice(0, 120);
   return value || fallback;
-}
-
-function fileSlug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 60) || "all";
 }
 
 /** Adds a line to an extract's Summary sheet. */
@@ -46,32 +33,37 @@ function withSummaryNote(extract: BrandCustomerExtract, note: [string, string]):
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
-  if (session.user.role !== "ADMIN" && !(session.user.allowedPages ?? []).includes("customers")) {
-    return NextResponse.json({ error: "You do not have access to Customers & Brands." }, { status: 403 });
-  }
+  const access = await customerExtractAccess(request);
+  if ("refusal" in access) return access.refusal;
+  const { inScope } = access;
 
   const kind = request.nextUrl.searchParams.get("kind");
   if (kind !== "brands" && kind !== "customers" && kind !== "all") return NextResponse.json({ error: "Choose the brands, customers or all (Customers & Brands) extract." }, { status: 400 });
-  const currentPeriods = periods(request, "period");
+  const currentPeriods = requestPeriods(request, "period");
   if (currentPeriods.length === 0) return NextResponse.json({ error: "Provide a selected period." }, { status: 400 });
   const priorYearPeriods = currentPeriods.map((p) => ({ year: String(Number(p.year) - 1), monthIndex: p.monthIndex }));
-
-  const requestedKeys = new Set(request.nextUrl.searchParams.getAll("principal").map(normalizePrincipalKey));
-  const scope = await resolveScopeForSession(session.user.role, session.user.teamLeaderId, session.user.allowedPrincipals, session.user.supervisorId);
-  const allowedKeys = scope ? new Set(scope.principals.map(normalizePrincipalKey)) : null;
-  const inScope = (principal: string) => {
-    const key = normalizePrincipalKey(principal);
-    return (!allowedKeys || allowedKeys.has(key)) && (requestedKeys.size === 0 || requestedKeys.has(key));
-  };
 
   try {
     const principalLabel = label(request, "principalLabel", "All principals");
     const periodLabel = label(request, "label", "Selected period");
     const extractScope: ExtractScope = { principalLabel, periodLabel, generatedAt: new Date() };
 
+    const lineExtract = async (dataAsOf: Date | null): Promise<BrandCustomerExtract> => {
+      // The same principals as the page: the dashboard's own, within the viewer's scope and the selection.
+      const principals = [...(await getDashboardPrincipals(currentPeriods))].filter(inScope);
+      const whole = (await countSalesLines(currentPeriods, principals)) <= LARGE_EXTRACT_RAW_ROWS;
+      const builder = createCustomerLineExtract({ rawRowLimit: LARGE_EXTRACT_RAW_ROWS, directory: await loadOutletDirectory() });
+      const batches = whole ? salesLineBatches(currentPeriods, principals) : rankingLineBatches(currentPeriods, principals);
+      for await (const batch of batches) builder.add(batch, whole);
+      return builder.finish(extractScope, dataAsOf);
+    };
     const customersExtract = async (): Promise<BrandCustomerExtract> => {
+      const coverage = await salesLineCoverage(currentPeriods);
+      if (coverage.missing.length === 0) return lineExtract(coverage.dataAsOf);
+      const extract = await outletExtract();
+      return withSummaryNote(extract, ["Raw invoice lines", `Not loaded yet for ${coverage.missing.join(", ")}, so this is the summarised layout without them.`]);
+    };
+    const outletExtract = async (): Promise<BrandCustomerExtract> => {
       const [sfaCurrent, sfaPrior, currentPrincipals, priorYearPrincipals] = await Promise.all([
         getSfaOutletRows(currentPeriods),
         getSfaOutletRows(priorYearPeriods),

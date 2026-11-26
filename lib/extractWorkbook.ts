@@ -15,7 +15,9 @@ const PERCENT = "0.0";
 /** Number format for a column, by its header. Percent columns hold the percentage itself (8.1 means 8.1%). */
 function formatFor(header: string): string | null {
   if (header.includes("%")) return PERCENT;
-  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue|Total Sales|Net Sales|Sales Per Call|Discounts|Credit Notes|Invoiced|GP Lost|Prior Period Credit Notes)/.test(header)) return MONEY;
+  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue|Total Sales|Net Sales|Sales Per Call|Discounts|Credit Notes|Invoiced|GP Lost|Prior Period Credit Notes|Sales Value|Sales Amount|Gross Sales|COGs|VAT Amount|Paid Amount|Sales per Customer|Top Customer Sales|Avg Monthly Sales)/.test(header)) return MONEY;
+  // A month column of the customer analysis ("Nov 2026") holds that month's sales.
+  if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/.test(header)) return MONEY;
   if (header.startsWith("Cases")) return VOLUME;
   return null;
 }
@@ -48,5 +50,6 @@ export function extractToXlsxBuffer(sheets: ExtractSheet[]): Buffer {
     });
     XLSX.utils.book_append_sheet(wb, ws, sheetName(sheet.name));
   }
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  // Compressed: a raw data sheet shrinks to about an eighth of its size.
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true }) as Buffer;
 }

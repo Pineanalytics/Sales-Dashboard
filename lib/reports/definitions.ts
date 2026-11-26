@@ -375,7 +375,7 @@ const pctCell = (n: number | null): string | number => (n === null ? "N/A" : rou
 const customersReport: ReportDefinition = {
   key: "customers",
   label: "Customers & Brands",
-  description: "Customer ranking and tiering, brands and products, and principals for the chosen period and principal. Excel is the full extract (SFA customer names, by month, brand, rep and billing account, with raw data); PDF is the summary.",
+  description: "Customer ranking and tiering, brands and products, and principals for the chosen period and principal. Excel is the full extract (top 50 and 80% customers, top customers by principal, channel, segment and territory, SFA customer rankings and raw invoice lines for a shorter selection, then the brand sheets); PDF is the summary.",
   pageKey: "customers",
   fullExcelUrl({ period, principalKey, periodLabel }) {
     const params = new URLSearchParams({ kind: "all", label: periodLabel, principalLabel: principalKey ?? "All principals" });

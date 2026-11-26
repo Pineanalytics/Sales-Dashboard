@@ -2714,6 +2714,75 @@ model SfaCustomerActual {
   @@index([syncToken])
 }
 
+// One row per non-cancelled SAP invoice / credit-note LINE: the raw data of the Customer extract, in the columns of the
+// desktop "SAP B1 Detailed Sales Extraction" tool. Quantities and amounts are signed (credit notes negative). Only what SAP
+// holds is stored; the SFA name split, cases, gross sales, COGs and gross profit are worked out on read (lib/salesLines.ts).
+// Written by scripts/db-bridge/sales-lines-sync.ts through /api/sales/upload-sales-lines.
+model SalesLine {
+  id                  String    @id @default(cuid())
+  docType             String // "INVOICE" | "CREDIT_NOTE"
+  docEntry            Int
+  lineNum             Int
+  docNum              String
+  docDate             DateTime  @db.Date
+  docStatus           String
+  printed             Boolean
+  seriesName          String?
+  cardCode            String
+  customerName        String // CardName, the SAP billing account
+  sfaName             String? // U_CustomerName exactly as SAP holds it
+  phone               String?
+  numAtCard           String?
+  remarks             String?
+  salesEmployee       String
+  principal           String // dashboard principal key, e.g. "Mars-Nairobi"
+  itemCode            String
+  itemName            String
+  quantity            Float
+  inventoryQty        Float
+  packSize            Float?
+  whsCode             String?
+  whsName             String?
+  priceBeforeDiscount Float?
+  price               Float?
+  discountPct         Float?
+  vatAmount           Float
+  salesAmount         Float
+  paidAmount          Float // the document's paid amount, repeated on each of its lines
+  unitCost            Float? // purchase price excluding VAT
+  createdBy           String?
+  creationDate        DateTime? @db.Date
+  costCentre1         String?
+  costCentre2         String?
+  costCentre3         String?
+  syncToken           String
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([docType, docEntry, lineNum])
+  @@index([docDate])
+  @@index([principal, docDate])
+}
+
+// The months SalesLine holds in full: written when a month's upload is finalised.
+model SalesLineMonth {
+  year       String
+  monthIndex Int
+  lineCount  Int
+  syncedAt   DateTime
+
+  @@id([year, monthIndex])
+}
+
+// Which SFA outlet a SAP invoice reference (NumAtCard) belongs to, looked up in the system that raised it: Pine orders and sales,
+// EABL DMS, Upfield DataEdge, or the Leverage reference that carries the outlet code. The outlet's channel, segment and territory
+// are read from OutletUniverse by (source, outletKey). Written by scripts/db-bridge/customer-outlets/sync.ts.
+model InvoiceOutlet {
+  ref        String   @id // NumAtCard, trimmed and in capitals
+  source     String // "PINE" | "LEVERAGE" | "EABL" | "UPFIELD"
+  outletKey  String
+  resolvedAt DateTime @default(now())
+}
+
 // Unified Active Outlet universe — one row per source x outlet x principal,
 // compiled from the three outlet sources so the Active Outlet module can
 // slice them together: Pine (ActiveOutlet, key = pine outlet id), Leverage
