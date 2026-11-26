@@ -106,6 +106,7 @@ export default async function CoachingInsightsPage({ searchParams }: { searchPar
               <Link href={`/coaching?${base.toString()}`} className="rounded-full px-4 py-2 text-muted hover:text-primary-blue">Workspace</Link>
               <span className="rounded-full bg-surface px-4 py-2 text-primary-blue shadow-sm">Modules</span>
               <Link href={`/coaching/reports?${base.toString()}`} className="rounded-full px-4 py-2 text-muted hover:text-primary-blue">Reporting</Link>
+              <Link href="/coaching/rep-sales" className="rounded-full px-4 py-2 text-muted hover:text-primary-blue">Rep sales</Link>
             </div>
             <a href={`/api/coaching/operations-report?${base.toString()}`} title="The whole coaching operation summarised: team leaders, reps, outlets, timestamps, exceptions and the full activity log" className="rounded-full border border-primary-blue px-4 py-2 text-sm font-semibold text-primary-blue hover:bg-accent-blue-soft">⬇ Operations report</a>
             <p className="text-xs text-muted">Synced {new Date(snapshot.generatedAt).toLocaleString("en-KE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
