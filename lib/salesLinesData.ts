@@ -45,7 +45,8 @@ export async function loadOutletDirectory(): Promise<OutletDirectory> {
 /** Puts on each line the outlet its invoice reference points to. */
 async function withOutlets<T extends { numAtCard: string | null }>(lines: T[]): Promise<(T & { outletId: string | null })[]> {
   const refs = [...new Set(lines.map((line) => normalizeReference(line.numAtCard)).filter(Boolean))];
-  const links = refs.length > 0 ? await prisma.invoiceOutlet.findMany({ where: { ref: { in: refs } }, select: { ref: true, source: true, outletKey: true } }) : [];
+  // One array value, not one per reference: the statement stays the same from batch to batch.
+  const links = refs.length > 0 ? await prisma.$queryRaw<{ ref: string; source: string; outletKey: string }[]>`SELECT ref, source, "outletKey" FROM "InvoiceOutlet" WHERE ref = ANY(${refs})` : [];
   const byRef = new Map(links.map((link) => [link.ref, outletId(link.source, link.outletKey)]));
   return lines.map((line) => ({ ...line, outletId: byRef.get(normalizeReference(line.numAtCard)) ?? null }));
 }

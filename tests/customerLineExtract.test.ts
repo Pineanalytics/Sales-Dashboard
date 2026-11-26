@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { Prisma } from "@prisma/client";
 
 const prismaMock = vi.hoisted(() => ({
   salesLine: { count: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
   salesLineMonth: { upsert: vi.fn(), findMany: vi.fn() },
-  invoiceOutlet: { findMany: vi.fn() },
   outletUniverse: { findMany: vi.fn() },
   salesRecord: { findMany: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 }));
 const authMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/db", () => ({ prisma: prismaMock }));
@@ -267,6 +268,22 @@ describe("POST /api/sales/upload-sales-lines", () => {
     expect(JSON.stringify(executeRaw.mock.calls[0])).toContain("run-token");
   });
 
+  it("sends the same statement with two values whatever the batch holds", async () => {
+    const executeRaw = vi.fn();
+    prismaMock.$transaction.mockImplementation(async (run: (tx: unknown) => Promise<void>) => run({ $executeRaw: executeRaw }));
+    await upload({ mode: "chunk", syncToken: "t", lines: [line({ unitCost: null })] });
+    await upload({ mode: "chunk", syncToken: "t", lines: [line(), line({ lineNum: 1, quantity: 1.5, sfaName: null }), line({ lineNum: 2 })] });
+    const [first, second] = executeRaw.mock.calls.map(([strings, ...values]) => Prisma.sql(strings, ...values));
+    expect(first.sql).toBe(second.sql);
+    expect(second.values).toHaveLength(2);
+    // Postgres reads each column from the JSON by name, with its own type.
+    expect(second.sql).toContain('"unitCost" double precision');
+    const sent = JSON.parse(second.values.find((value) => String(value).startsWith("[")) as string);
+    expect(sent).toHaveLength(3);
+    expect(sent[1]).toMatchObject({ lineNum: 1, quantity: 1.5, sfaName: null });
+    expect(typeof sent[1].id).toBe("string");
+  });
+
   it("marks a month held only when every line arrived, then prunes older lines", async () => {
     const finalize = { mode: "finalize", syncToken: "t", period: { year: "2026", monthIndex: 10 }, lineCount: 10 };
     prismaMock.salesLine.count.mockResolvedValue(9);
@@ -290,7 +307,7 @@ describe("GET /api/reports/customer-raw-lines", () => {
     authMock.mockResolvedValue({ user: { role: "ADMIN" } });
     prismaMock.salesRecord.findMany.mockResolvedValue([{ principal: "Mars-Nairobi" }, { principal: "Suntory-Nairobi" }]);
     prismaMock.outletUniverse.findMany.mockResolvedValue(outlets);
-    prismaMock.invoiceOutlet.findMany.mockResolvedValue([{ ref: "OI-5", source: "PINE", outletKey: "1" }]);
+    prismaMock.$queryRaw.mockResolvedValue([{ ref: "OI-5", source: "PINE", outletKey: "1" }]);
   });
 
   it("is refused without access", async () => {
