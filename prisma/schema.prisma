@@ -1751,6 +1751,9 @@ model RepCall {
   // least one product line in this outlet visit had no usable UOM, so reporting
   // must show it as unavailable rather than understate the visit.
   cases             Float?
+  // Product lines: the different products sold or ordered at this outlet that day (0 for a no-sale call). Feeds LPPC (lines per
+  // productive call). Null on rows saved before the bridge recorded it (filled by TIMESTAMPS_LINES_ONLY, see the timestamps bridge).
+  lines             Int?
   firstCallOfDay    DateTime
   lastCallOfDay     DateTime
   hoursInDay        Float

@@ -41,6 +41,8 @@ interface RepCallUploadRow {
   sales: number;
   qty: number;
   cases: number | null;
+  /** Product lines on the call. Absent from a sender that predates it: stored as null (not recorded). */
+  lines?: number | null;
   firstCallOfDay: string;
   lastCallOfDay: string;
   hoursInDay: number;
@@ -87,6 +89,7 @@ function isValidRow(row: unknown): row is RepCallUploadRow {
     typeof r.sales === "number" &&
     typeof r.qty === "number" &&
     (r.cases === null || typeof r.cases === "number") &&
+    (r.lines === undefined || r.lines === null || typeof r.lines === "number") &&
     typeof r.firstCallOfDay === "string" &&
     typeof r.lastCallOfDay === "string" &&
     typeof r.hoursInDay === "number" &&
@@ -98,14 +101,50 @@ function isValidRow(row: unknown): row is RepCallUploadRow {
 async function insertChunk(tx: Prisma.TransactionClient, rows: RepCallUploadRow[]) {
   const values = rows.map(
     (r) =>
-      Prisma.sql`(${randomUUID()}, ${new Date(r.date)}, ${r.employeeCode}, ${r.salesRep}, ${r.employeeGroup}, ${r.salesRole}, ${r.region}, ${r.callSequence}, ${new Date(r.callTime)}, ${r.callOutcome}, ${r.noSaleReason}, ${r.outletId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.costCentresBought}, ${r.intervalMins}, ${r.documents}, ${r.sales}, ${r.qty}, ${r.cases}, ${new Date(r.firstCallOfDay)}, ${new Date(r.lastCallOfDay)}, ${r.hoursInDay}, ${r.callsInDay}, ${r.productiveInDay}, now())`
+      Prisma.sql`(${randomUUID()}, ${new Date(r.date)}, ${r.employeeCode}, ${r.salesRep}, ${r.employeeGroup}, ${r.salesRole}, ${r.region}, ${r.callSequence}, ${new Date(r.callTime)}, ${r.callOutcome}, ${r.noSaleReason}, ${r.outletId}, ${r.outletName}, ${r.channel}, ${r.subChannel}, ${r.territory}, ${r.costCentresBought}, ${r.intervalMins}, ${r.documents}, ${r.sales}, ${r.qty}, ${r.cases}, ${r.lines ?? null}, ${new Date(r.firstCallOfDay)}, ${new Date(r.lastCallOfDay)}, ${r.hoursInDay}, ${r.callsInDay}, ${r.productiveInDay}, now())`
   );
 
   await tx.$executeRaw`
-    INSERT INTO "RepCall" (id, date, "employeeCode", "salesRep", "employeeGroup", "salesRole", region, "callSequence", "callTime", "callOutcome", "noSaleReason", "outletId", "outletName", channel, "subChannel", territory, "costCentresBought", "intervalMins", documents, sales, qty, cases, "firstCallOfDay", "lastCallOfDay", "hoursInDay", "callsInDay", "productiveInDay", "createdAt")
+    INSERT INTO "RepCall" (id, date, "employeeCode", "salesRep", "employeeGroup", "salesRole", region, "callSequence", "callTime", "callOutcome", "noSaleReason", "outletId", "outletName", channel, "subChannel", territory, "costCentresBought", "intervalMins", documents, sales, qty, cases, lines, "firstCallOfDay", "lastCallOfDay", "hoursInDay", "callsInDay", "productiveInDay", "createdAt")
     VALUES ${Prisma.join(values)}
     ON CONFLICT (date, "employeeCode", "outletId") DO NOTHING
   `;
+}
+
+interface LineCountRow {
+  date: string;
+  employeeCode: string;
+  outletId: string;
+  lines: number;
+}
+
+function isLineCountRow(row: unknown): row is LineCountRow {
+  if (typeof row !== "object" || row === null) return false;
+  const r = row as Record<string, unknown>;
+  return (
+    typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
+    typeof r.employeeCode === "string" &&
+    typeof r.outletId === "string" &&
+    typeof r.lines === "number" && Number.isInteger(r.lines) && r.lines >= 0
+  );
+}
+
+/** Fills RepCall.lines on calls already saved, and nothing else: no row is added or removed and no call, outcome or value changes,
+ *  so replaying old days can't restate them. */
+async function saveLineCounts(rows: LineCountRow[]): Promise<number> {
+  let updated = 0;
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const values = rows
+      .slice(i, i + CHUNK_SIZE)
+      .map((r) => Prisma.sql`(${r.date}::date, ${r.employeeCode}::text, ${r.outletId}::text, ${r.lines}::int)`);
+    updated += await prisma.$executeRaw`
+      UPDATE "RepCall" AS saved SET lines = counted.lines
+      FROM (VALUES ${Prisma.join(values)}) AS counted(date, employee_code, outlet_id, lines)
+      WHERE saved.date = counted.date AND saved."employeeCode" = counted.employee_code AND saved."outletId" = counted.outlet_id
+        AND saved."callOutcome" = 'Sale'
+    `;
+  }
+  return updated;
 }
 
 export async function POST(req: NextRequest) {
@@ -124,6 +163,23 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Expected a JSON body with a "calls" array.' }, { status: 400 });
+  }
+
+  const lineCounts = (body as { lineCounts?: unknown })?.lineCounts;
+  if (lineCounts !== undefined) {
+    if (!Array.isArray(lineCounts) || !lineCounts.every(isLineCountRow)) {
+      return NextResponse.json({ error: '"lineCounts" must be an array of { date, employeeCode, outletId, lines }.' }, { status: 400 });
+    }
+    try {
+      const updated = await saveLineCounts(lineCounts);
+      // A no-sale call has no product lines by definition: close those off for the same days, so only calls that sold stay unrecorded.
+      const days = [...new Set(lineCounts.map((r) => r.date))].map((date) => new Date(`${date}T00:00:00.000Z`));
+      if (days.length > 0) await prisma.repCall.updateMany({ where: { date: { in: days }, callOutcome: "No Sale", lines: null }, data: { lines: 0 } });
+      return NextResponse.json({ count: lineCounts.length, updated }, { status: 200 });
+    } catch (err) {
+      console.error("Failed to save RepCall line counts", err);
+      return NextResponse.json({ error: "Failed to save Timestamps line counts." }, { status: 500 });
+    }
   }
 
   const calls = (body as { calls?: unknown })?.calls;

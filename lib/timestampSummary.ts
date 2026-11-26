@@ -238,7 +238,7 @@ export function unmappedPrincipalsCte(monthRange: { start: Date; end: Date }, sc
 /** The reps a selected principal covers, worked out once per request instead of once per call row: rostered reps whose own roster
  * principal is the selected one or whose Team Leader has an active assignment on it, and unrostered reps whose inferred principal
  * (unmappedPrincipalsCte) is the selected one. The aggregate queries then filter calls by this list. */
-async function principalEmployeeCodes(principalKey: string, monthRange: { start: Date; end: Date }, scope: TeamLeaderScope | null): Promise<string[]> {
+export async function principalEmployeeCodes(principalKey: string, monthRange: { start: Date; end: Date }, scope: TeamLeaderScope | null): Promise<string[]> {
   const [rostered, unrostered] = await Promise.all([
     prisma.$queryRaw<{ employeeCode: string }[]>(Prisma.sql`
       SELECT em."employeeCode" AS "employeeCode"

@@ -39,8 +39,9 @@ export function GlobalFilterBar() {
   // system, principal, month, date, Team Leader, rep and role filters sit
   // together. Keeping this shared bar there would duplicate the principal
   // control and waste a row.
-  const isTimestampsTab = pathname === "/coverage" && coverageActiveTab === "time-in-trade";
-  if (!dataset || isTimestampsTab) return null;
+  // The Call analysis tab likewise has its own dates and principal filter.
+  const hasOwnFilters = pathname === "/coverage" && (coverageActiveTab === "time-in-trade" || coverageActiveTab === "call-analysis");
+  if (!dataset || hasOwnFilters) return null;
 
   return (
     <div className="sticky top-[72px] md:top-[84px] z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 md:px-8 py-3">
@@ -55,7 +56,7 @@ export function GlobalFilterBar() {
             InlineReportExport instead of this generic bar. JP Adherence (now
             Coverage's "jp-adherence" tab) keeps using this shared bar, same
             as it did on its old standalone route. */}
-        {salesRangeActive || (pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "universe-analysis" || coverageActiveTab === "time-in-trade")) ? null : (
+        {salesRangeActive || (pathname === "/coverage" && (coverageActiveTab === "active-outlets" || coverageActiveTab === "universe-analysis")) ? null : (
           <InlineReportExport
             reportKey={pathname === "/coverage" && coverageActiveTab === "jp-adherence" ? "jp-adherence" : pageKeyForPathname(pathname) ?? ""}
             allowedPages={user?.allowedPages ?? []}

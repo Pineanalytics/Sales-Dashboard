@@ -2,13 +2,14 @@
 
 import { useEffect, useState, type ComponentType } from "react";
 import { useSearchParams } from "next/navigation";
-import { BuildingShop20Regular, CalendarCheckmark20Regular, DataBarVertical20Regular, DataTrending20Regular, PeopleTeam20Regular, Timer20Regular } from "@fluentui/react-icons";
+import { BuildingShop20Regular, CalendarCheckmark20Regular, ClipboardDataBar20Regular, DataBarVertical20Regular, DataTrending20Regular, PeopleTeam20Regular, Timer20Regular } from "@fluentui/react-icons";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from "recharts";
 import type { ViewProps } from "./types";
 import { ActiveOutletsView } from "./ActiveOutletsView";
 import { UniverseAnalysisView } from "./UniverseAnalysisView";
 import { JPAdherenceView } from "./JPAdherenceView";
 import { TimestampsModuleView } from "./TimestampsModuleView";
+import { CallAnalysisView } from "./CallAnalysisView";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { KpiGrid, SectionCard, ChartGrid } from "@/components/ui/KpiGrid";
 import { Badge } from "@/components/ui/Badge";
@@ -33,18 +34,20 @@ const TOP_N_REPS = 12;
 
 const ROLE_LABEL: Record<RoleCategory, string> = { primary: "Primary", secondary: "Secondary", other: "Other" };
 
-type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade";
+type CoveragePanel = "overview" | "reps" | "active-outlets" | "universe-analysis" | "jp-adherence" | "time-in-trade" | "call-analysis";
 
 // Each tab shows only when its report is granted (lib/pageAccess.ts's Coverage module): the overview and rep tabs are
-// "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps. The description
-// is the tab's hover/screen-reader text: the bar itself stays one line so the report below keeps the screen.
-const PANEL_TABS: { key: CoveragePanel; label: string; description: string; pageKey: PageKey; icon: ComponentType<{ className?: string }> }[] = [
+// "coverage", the universe analysis is built on the active outlets, and time in trade on the timestamps. The call analysis
+// shows both rep times and coverage, so it needs both. The description is the tab's hover/screen-reader text: the bar itself
+// stays one line so the report below keeps the screen.
+const PANEL_TABS: { key: CoveragePanel; label: string; description: string; pageKey: PageKey; alsoNeeds?: PageKey; icon: ComponentType<{ className?: string }> }[] = [
   { key: "overview", label: "Overview", description: "Targets, coverage and strike rate", pageKey: "coverage", icon: DataBarVertical20Regular },
   { key: "reps", label: "Rep performance", description: "Rep-level coverage and productivity", pageKey: "coverage", icon: PeopleTeam20Regular },
   { key: "active-outlets", label: "Active Outlets", description: "Distinct buying outlets by principal", pageKey: "active-outlets", icon: BuildingShop20Regular },
   { key: "universe-analysis", label: "Universe analysis", description: "Strike rate, reach, scorecards and opportunities on the active universe", pageKey: "active-outlets", icon: DataTrending20Regular },
   { key: "jp-adherence", label: "JP Adherence", description: "Journey-plan and PJP ownership adherence", pageKey: "jp-adherence", icon: CalendarCheckmark20Regular },
   { key: "time-in-trade", label: "Time in Trade", description: "Timestamps, rep performance and start/close time by system", pageKey: "timestamps", icon: Timer20Regular },
+  { key: "call-analysis", label: "Call analysis", description: "Times, coverage, productivity, LPPC and drop size by day, month, rep and principal", pageKey: "coverage", alsoNeeds: "timestamps", icon: ClipboardDataBar20Regular },
 ];
 
 function isCoveragePanel(value: string | null): value is CoveragePanel {
@@ -71,7 +74,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
   const user = useCurrentUser();
-  const visibleTabs = PANEL_TABS.filter((tab) => canSeeReport(user?.role, user?.allowedPages ?? [], tab.pageKey));
+  const visibleTabs = PANEL_TABS.filter((tab) => [tab.pageKey, tab.alsoNeeds].every((key) => !key || canSeeReport(user?.role, user?.allowedPages ?? [], key)));
   const setCoverageActiveTab = useDashboardStore((s) => s.setCoverageActiveTab);
   const [selectedRole, setSelectedRole] = useState<RoleCategory>("primary");
   const [requestedPanel, setActivePanel] = useState<CoveragePanel>(panelFromParam(initialTab) ?? "overview");
@@ -271,6 +274,7 @@ export function CoverageView({ dataset, selectedPrincipalKey, period }: ViewProp
       {activePanel === "universe-analysis" ? <UniverseAnalysisView /> : null}
       {activePanel === "jp-adherence" ? <JPAdherenceView /> : null}
       {activePanel === "time-in-trade" ? <TimestampsModuleView /> : null}
+      {activePanel === "call-analysis" ? <CallAnalysisView /> : null}
 
       {activePanel === "overview" || activePanel === "reps" ? (
       <>
