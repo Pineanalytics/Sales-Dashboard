@@ -73,26 +73,31 @@ const NAIROBI_OFFSET = Prisma.sql`INTERVAL '3 hours'`;
 const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000;
 const UPFIELD_REP_EXPRESSION = Prisma.sql`REGEXP_REPLACE(BTRIM(fsr), '\\s+', ' ', 'g')`;
 
-// Same absolute/inferred-principal resolution as lib/timestampSummary.ts's
-// sourceQuery/inferredPrincipalJoin (kept as an independent copy rather than
-// exported/shared — that module's version is entangled with a specific
-// selected-principal filter and TeamLeaderScope, neither of which applies
-// here, where every principal is wanted at once, unfiltered).
-const PINE_PRINCIPAL_JOIN = Prisma.sql`
-  LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
-  LEFT JOIN LATERAL (
-    SELECT BTRIM(cost_centre."value") AS principal
-    FROM "RepCall" history
-    CROSS JOIN LATERAL unnest(string_to_array(history."costCentresBought", ',')) AS cost_centre("value")
-    WHERE em.id IS NULL
-      AND history."employeeCode" = r."employeeCode"
-      AND history."callOutcome" = 'Sale'
-      AND BTRIM(cost_centre."value") <> ''
-    GROUP BY BTRIM(cost_centre."value")
-    ORDER BY COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
-    LIMIT 1
-  ) inferred ON true
-`;
+// Same absolute/inferred-principal resolution as lib/timestampSummary.ts (kept as an independent copy: that module's version is tied
+// to a selected-principal filter and TeamLeaderScope, neither of which applies here, where every principal is wanted at once). The
+// inferred principal (for a rep with no Employee Roaster row: the cost centre on most of their sale calls across all history, ties to
+// the most recent, then by name) is worked out once per such rep in the window. It used to be a LATERAL subquery run for every call
+// row, re-reading that rep's whole history each time.
+function pinePrincipalJoin(start: Date, end: Date): Prisma.Sql {
+  return Prisma.sql`
+    LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+    LEFT JOIN (
+      SELECT DISTINCT ON (history."employeeCode") history."employeeCode" AS "employeeCode", BTRIM(cost_centre."value") AS principal
+      FROM "RepCall" history
+      CROSS JOIN LATERAL unnest(string_to_array(history."costCentresBought", ',')) AS cost_centre("value")
+      WHERE history."callOutcome" = 'Sale'
+        AND BTRIM(cost_centre."value") <> ''
+        AND history."employeeCode" IN (
+          SELECT DISTINCT window_call."employeeCode"
+          FROM "RepCall" window_call
+          LEFT JOIN "EmployeeMaster" rostered ON rostered."employeeCode" = window_call."employeeCode"
+          WHERE window_call.date >= ${start} AND window_call.date < ${end} AND rostered.id IS NULL
+        )
+      GROUP BY history."employeeCode", BTRIM(cost_centre."value")
+      ORDER BY history."employeeCode", COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
+    ) inferred ON em.id IS NULL AND inferred."employeeCode" = r."employeeCode"
+  `;
+}
 const PINE_PRINCIPAL_EXPRESSION = Prisma.sql`COALESCE(NULLIF(BTRIM(em."absolutePrincipal"), ''), inferred.principal, 'Unmapped')`;
 
 function utcMidnight(year: number, monthIndex: number, day = 1): Date {
@@ -181,7 +186,7 @@ async function pineRepDayRows(start: Date, end: Date, roleFilter: TimeInTradeRol
       MIN("firstCallOfDay") AS "startTime", MAX("lastCallOfDay") AS "closeTime",
       COUNT(*)::bigint AS visits, COUNT(*) FILTER (WHERE "callOutcome" = 'Sale')::bigint AS productive
     FROM "RepCall" r
-    ${PINE_PRINCIPAL_JOIN}
+    ${pinePrincipalJoin(start, end)}
     WHERE r.date >= ${start} AND r.date < ${end} ${pineRoleClause(roleFilter)} ${scopeClause(scope)}
     GROUP BY date, r."employeeCode", ${PINE_PRINCIPAL_EXPRESSION}`);
   return rows.map((r) => ({
@@ -199,7 +204,7 @@ async function pineOutletRows(start: Date, end: Date, roleFilter: TimeInTradeRol
   const rows = await prisma.$queryRaw<{ date: Date; principal: string; outletKey: string }[]>(Prisma.sql`
     SELECT DISTINCT date, ${PINE_PRINCIPAL_EXPRESSION} AS principal, "outletId" AS "outletKey"
     FROM "RepCall" r
-    ${PINE_PRINCIPAL_JOIN}
+    ${pinePrincipalJoin(start, end)}
     WHERE r.date >= ${start} AND r.date < ${end} ${pineRoleClause(roleFilter)} ${scopeClause(scope)}`);
   return rows.map((r) => ({ date: r.date, principalKey: normalizePrincipalKey(r.principal), outletKey: r.outletKey }));
 }
