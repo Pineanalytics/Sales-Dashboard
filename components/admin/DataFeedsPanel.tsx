@@ -56,7 +56,7 @@ export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
   return (
     <AdminCard
       title={<>Live data feeds <AdminBadge>{active.length} active key{active.length === 1 ? "" : "s"}</AdminBadge></>}
-      description="Let an Excel workbook (for example the Outlet Master or the Product Master on SharePoint) pull data straight from the dashboard and refresh itself. Each key works for one feed; revoke it and every workbook using it stops refreshing."
+      description="Let an Excel workbook (for example the Outlet Master, the Product Master or the Unilever product list on SharePoint) pull data straight from the dashboard and refresh itself. Each key works for one feed; revoke it and every workbook using it stops refreshing."
     >
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
         <div className="flex flex-col gap-3">
@@ -88,7 +88,7 @@ export function DataFeedsPanel({ keys }: { keys: FeedKeyRow[] }) {
                 </select>
               </label>
             ) : (
-              <p className="self-end pb-2 text-[12px] text-muted">No period: always the whole list, as of the last SAP sync.</p>
+              <p className="self-end pb-2 text-[12px] text-muted">{feed.noPeriodNote ?? "No period: always the whole list."}</p>
             )}
           </div>
           <p className="text-xs text-muted">{feed.description} Columns: {feed.defaultColumns.map((column) => feed.defaultRenames[column] ?? column).join(", ")}.</p>
