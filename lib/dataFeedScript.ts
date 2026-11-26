@@ -17,6 +17,8 @@ export interface DataFeedDefinition {
   timeColumns?: string[];
   /** The feed's default period; "" for a feed with no period (a master-data snapshot). */
   defaultPeriod: string;
+  /** For a feed with no period: what one pull returns, shown on Admin > Data & sync instead of a period picker. */
+  noPeriodNote?: string;
   /** Empty for a feed with no period. */
   periods: { value: string; label: string }[];
   /** Every column the server can serve, when the list is client-safe (the outlet feed's lives with its extract). */
@@ -200,6 +202,7 @@ export const PRODUCT_MASTER_FEED: DataFeedDefinition = {
   periods: [],
   servedColumns: PRODUCT_FEED_COLUMNS,
   prefixSuppliers: PRODUCT_SUPPLIER_PREFIXES,
+  noPeriodNote: "No period: always the whole list, as of the last SAP sync.",
 };
 
 /** Every column the EABL timestamp feed serves, in its default order (the server builds them in lib/eablTimestampFeed.ts). */
@@ -262,7 +265,43 @@ export const EABL_TIMESTAMPS_FEED: DataFeedDefinition = {
   servedColumns: EABL_TIMESTAMP_COLUMNS,
 };
 
-export const DATA_FEEDS: DataFeedDefinition[] = [OUTLET_MASTER_FEED, PRODUCT_MASTER_FEED, EABL_TIMESTAMPS_FEED];
+/** Every column the Unilever product list serves, in its default order (the server builds them in lib/unileverProductList.ts). */
+export const UNILEVER_PRODUCT_COLUMNS = [
+  "SKU Code",
+  "SKU Description",
+  "Category",
+  "Brand",
+  "Pieces per Case",
+  "List Price per Case",
+  "List Price per Piece",
+  "In Assortment",
+  "Status",
+  "Branches",
+  "First Sold",
+  "Last Sold",
+  "Pieces Sold (90 days)",
+  "Net Sales (90 days)",
+  "Outlets (90 days)",
+];
+
+/** Unilever's own product list, from Centegy (Unilever's field sales system) as the Sales & Returns sync stores it, not from SAP: Unilever's SKU
+ *  codes with their description, category, brand, case size and list price, and how each sold in the last 90 days. */
+export const UNILEVER_PRODUCTS_FEED: DataFeedDefinition = {
+  id: "unilever-products",
+  label: "Unilever Product List (Centegy)",
+  description:
+    "Every Unilever SKU Centegy has sold through Pinefrost, plus the Unilever assortment list: Unilever's SKU code, description, category, brand, pieces per case and list price (Centegy's own product and price tables, as of each SKU's latest sale), the branches selling it, first and last sale, and the last 90 days' pieces, net sales (after returns) and outlets.",
+  defaultColumns: UNILEVER_PRODUCT_COLUMNS,
+  defaultRenames: {},
+  numberColumns: ["Pieces per Case", "List Price per Case", "List Price per Piece", "Pieces Sold (90 days)", "Net Sales (90 days)", "Outlets (90 days)"],
+  dateColumns: ["First Sold", "Last Sold"],
+  defaultPeriod: "",
+  periods: [],
+  servedColumns: UNILEVER_PRODUCT_COLUMNS,
+  noPeriodNote: "No period: always the whole list, as of the last Sales & Returns (Centegy) sync; the sales columns cover the last 90 days.",
+};
+
+export const DATA_FEEDS: DataFeedDefinition[] = [OUTLET_MASTER_FEED, PRODUCT_MASTER_FEED, EABL_TIMESTAMPS_FEED, UNILEVER_PRODUCTS_FEED];
 
 export function dataFeedById(id: string): DataFeedDefinition | null {
   return DATA_FEEDS.find((feed) => feed.id === id) ?? null;

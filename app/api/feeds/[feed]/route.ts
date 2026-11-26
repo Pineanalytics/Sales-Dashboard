@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dataFeedById, EABL_TIMESTAMP_COLUMNS, EABL_TIMESTAMPS_FEED, OUTLET_MASTER_FEED, parseFeedColumns, PRODUCT_FEED_COLUMNS, PRODUCT_MASTER_FEED, PRODUCT_SUPPLIER_COLUMNS } from "@/lib/dataFeedScript";
+import {
+  dataFeedById,
+  EABL_TIMESTAMP_COLUMNS,
+  EABL_TIMESTAMPS_FEED,
+  OUTLET_MASTER_FEED,
+  parseFeedColumns,
+  PRODUCT_FEED_COLUMNS,
+  PRODUCT_MASTER_FEED,
+  PRODUCT_SUPPLIER_COLUMNS,
+  UNILEVER_PRODUCT_COLUMNS,
+  UNILEVER_PRODUCTS_FEED,
+} from "@/lib/dataFeedScript";
 import { eablTimestampCsv, loadEablTimestampRows, resolveEablTimestampPeriod } from "@/lib/eablTimestampFeed";
 import { verifyFeedKey } from "@/lib/dataFeeds";
 import { oneAtATime } from "@/lib/outletUniverse/exportQueue";
@@ -7,6 +18,7 @@ import { loadFrequencyReport, resolveFrequencyPeriod, type FrequencyReport } fro
 import { frequencyCsvColumns, OUTLET_COLUMNS } from "@/lib/outletUniverse/frequencyExport";
 import { parseOutletFilters } from "@/lib/outletUniverse/query";
 import { loadProductMasterData, productMasterCsv, type ProductMasterData } from "@/lib/productMasterFeed";
+import { loadUnileverProducts, unileverProductCsv, unileverSalesWindow, type UnileverProductData } from "@/lib/unileverProductList";
 
 export const runtime = "nodejs";
 
@@ -43,6 +55,18 @@ async function eablTimestampData(period: ReturnType<typeof resolveEablTimestampP
   return data;
 }
 
+let unileverCache: { at: number; data: UnileverProductData } | null = null;
+
+/** The Unilever product list, reused for ten minutes (it reads every synced Centegy sales line); rebuilt when the Nairobi day rolls, so the
+ *  90-day window never lags a day. */
+async function unileverProductData(): Promise<UnileverProductData> {
+  const today = unileverSalesWindow().asOf;
+  if (unileverCache && unileverCache.data.asOf === today && Date.now() - unileverCache.at < CACHE_MS) return unileverCache.data;
+  const data = await oneAtATime(() => loadUnileverProducts());
+  if (data.rows.length > 0) unileverCache = { at: Date.now(), data };
+  return data;
+}
+
 let productCache: { at: number; data: ProductMasterData } | null = null;
 
 async function productMasterData(): Promise<ProductMasterData> {
@@ -59,7 +83,9 @@ async function productMasterData(): Promise<ProductMasterData> {
  *  - outlet-master: the Active Outlets coverage-frequency extract for the whole company (one row per shop that bought in the period), for
  *    ?period=last6 (rolling six months, the default) or year (year to date).
  *  - product-master: SAP's item master (SapItem, refreshed by the sap-items job every 30 minutes), one row per item, no period.
- *  - eabl-timestamps: every EABL DMS call (EablCall) in ?period=last30 (default), month, last90 or ytd, one row per customer visit with check-in/out. */
+ *  - eabl-timestamps: every EABL DMS call (EablCall) in ?period=last30 (default), month, last90 or ytd, one row per customer visit with check-in/out.
+ *  - unilever-products: Unilever's own SKU list from Centegy as the Sales & Returns sync stores it (lib/unileverProductList.ts), one row per SKU,
+ *    no period; its sales columns cover the last 90 days. */
 export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[feed]">) {
   const { feed: feedId } = await context.params;
   const feed = dataFeedById(feedId);
@@ -103,6 +129,18 @@ export async function GET(req: NextRequest, context: RouteContext<"/api/feeds/[f
           "Cache-Control": "private, no-store",
           "X-Feed-Generated-At": (data.syncedAt ?? new Date()).toISOString(),
           "X-Feed-Rows": String(data.items.length),
+        },
+      });
+    }
+    if (feed.id === UNILEVER_PRODUCTS_FEED.id) {
+      const columns = parseFeedColumns(params.get("columns"), UNILEVER_PRODUCT_COLUMNS, feed.defaultColumns);
+      const data = await unileverProductData();
+      return new NextResponse(unileverProductCsv(data, columns), {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Cache-Control": "private, no-store",
+          "X-Feed-Period": `Sales columns: ${data.windowStart.toISOString().slice(0, 10)} to ${data.asOf}`,
+          "X-Feed-Rows": String(data.rows.length),
         },
       });
     }
