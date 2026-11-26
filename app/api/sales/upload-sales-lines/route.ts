@@ -48,26 +48,29 @@ function isLine(value: unknown): value is SalesLineRecord {
 
 const COLUMNS = Object.keys(FIELD_CHECKS) as (keyof SalesLineRecord)[];
 const KEY_COLUMNS = new Set<string>(["docType", "docEntry", "lineNum"]);
-const quoted = (name: string) => Prisma.raw(`"${name}"`);
 
-// Every value is cast to its column's type: a batch in which a nullable column is empty on every line would otherwise be typed as text.
 const DATE_COLUMNS = new Set<string>(["docDate", "creationDate"]);
 const INTEGER_COLUMNS = new Set<string>(["docEntry", "lineNum"]);
 const FLOAT_COLUMNS = new Set<string>(["quantity", "inventoryQty", "packSize", "priceBeforeDiscount", "price", "discountPct", "vatAmount", "salesAmount", "paidAmount", "unitCost"]);
-const castOf = (column: string) => Prisma.raw(DATE_COLUMNS.has(column) ? "date" : INTEGER_COLUMNS.has(column) ? "integer" : FLOAT_COLUMNS.has(column) ? "double precision" : column === "printed" ? "boolean" : "text");
+const typeOf = (column: string) => (DATE_COLUMNS.has(column) ? "date" : INTEGER_COLUMNS.has(column) ? "integer" : FLOAT_COLUMNS.has(column) ? "double precision" : column === "printed" ? "boolean" : "text");
 
+const raw = (parts: string[]) => Prisma.raw(parts.join(", "));
+const COLUMN_LIST = raw(COLUMNS.map((column) => `"${column}"`));
+const SELECT_LIST = raw(COLUMNS.map((column) => `line."${column}"`));
+const RECORD_SHAPE = raw(["id text", ...COLUMNS.map((column) => `"${column}" ${typeOf(column)}`)]);
+const UPDATE_LIST = raw(COLUMNS.filter((column) => !KEY_COLUMNS.has(column)).map((column) => `"${column}" = EXCLUDED."${column}"`));
+
+/** A batch goes to the database as one JSON value, so the statement is the same text with the same two values whatever the batch
+ *  holds. One value per cell made a new, very large prepared statement for nearly every batch; the database kept them all and the
+ *  server ran out of memory during a history load. */
 async function upsertLines(db: Prisma.TransactionClient, rows: SalesLineRecord[], token: string) {
-  const columns = Prisma.join(COLUMNS.map(quoted));
-  const updates = Prisma.join(COLUMNS.filter((column) => !KEY_COLUMNS.has(column)).map((column) => Prisma.raw(`"${column}" = EXCLUDED."${column}"`)));
   for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-    const values = rows.slice(i, i + INSERT_BATCH).map((row) => {
-      const cells = COLUMNS.map((column) => Prisma.sql`${row[column]}::${castOf(column)}`);
-      return Prisma.sql`(${randomUUID()}, ${Prisma.join(cells)}, ${token}, now())`;
-    });
+    const batch = JSON.stringify(rows.slice(i, i + INSERT_BATCH).map((row) => ({ id: randomUUID(), ...row })));
     await db.$executeRaw`
-      INSERT INTO "SalesLine" (id, ${columns}, "syncToken", "updatedAt")
-      VALUES ${Prisma.join(values)}
-      ON CONFLICT ("docType", "docEntry", "lineNum") DO UPDATE SET ${updates}, "syncToken" = EXCLUDED."syncToken", "updatedAt" = now()
+      INSERT INTO "SalesLine" (id, ${COLUMN_LIST}, "syncToken", "updatedAt")
+      SELECT line.id, ${SELECT_LIST}, ${token}, now()
+      FROM jsonb_to_recordset(${batch}::jsonb) AS line(${RECORD_SHAPE})
+      ON CONFLICT ("docType", "docEntry", "lineNum") DO UPDATE SET ${UPDATE_LIST}, "syncToken" = EXCLUDED."syncToken", "updatedAt" = now()
     `;
   }
 }
