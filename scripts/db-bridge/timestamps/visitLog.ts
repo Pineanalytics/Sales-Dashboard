@@ -1,5 +1,5 @@
 // Pine's visit log (pine.users_stats): a row each time a rep opens an outlet in the field app. Sales, orders and no-sales only
-// say when something was recorded; a rep's day often starts earlier, at an outlet where nothing is saved until later or at all.
+// say when something was recorded; a rep's day often starts earlier and ends later, at outlets where nothing is saved then or at all.
 //
 // Two things about the log:
 //  - us_date keeps a 12-hour clock with no AM/PM (nothing after 12:59 is ever stored). Rows are written as they happen, so their
@@ -15,8 +15,10 @@ export interface VisitLogRow {
   logged: string;
 }
 
-/** The earliest time of day a log entry counts as a visit. Entries before it are the app being used at night, not a call. */
+/** The hours of the day in which a log entry counts as a visit, both ends included. Outside them it is the app being used at
+ *  night, not a call. */
 export const EARLIEST_VISIT_MINUTES = 6 * 60;
+export const LATEST_VISIT_MINUTES = 20 * 60;
 
 /** A past day with no noon step and fewer rows than this can't be told apart as morning or afternoon, so it isn't used. */
 export const MIN_ROWS_FOR_ONE_HALF = 20;
@@ -67,16 +69,26 @@ export function resolveVisitTimes(rows: VisitLogRow[]): VisitTime[] {
 
 export const repDayKey = (date: string, userId: string) => `${date}|${userId}`;
 
-/** Each rep's first visit of each day, from EARLIEST_VISIT_MINUTES on. */
-export function firstVisits(rows: VisitLogRow[]): Map<string, Date> {
-  const first = new Map<string, Date>();
+export interface VisitSpan {
+  first: Date;
+  last: Date;
+}
+
+/** Each rep's first and last visit of each day, counting visits from EARLIEST_VISIT_MINUTES to LATEST_VISIT_MINUTES. */
+export function visitSpans(rows: VisitLogRow[]): Map<string, VisitSpan> {
+  const spans = new Map<string, VisitSpan>();
   for (const visit of resolveVisitTimes(rows)) {
-    if (visit.time.getUTCHours() * 60 + visit.time.getUTCMinutes() < EARLIEST_VISIT_MINUTES) continue;
+    const seconds = visit.time.getUTCHours() * 3600 + visit.time.getUTCMinutes() * 60 + visit.time.getUTCSeconds();
+    if (seconds < EARLIEST_VISIT_MINUTES * 60 || seconds > LATEST_VISIT_MINUTES * 60) continue;
     const key = repDayKey(visit.date, visit.userId);
-    const have = first.get(key);
-    if (!have || visit.time < have) first.set(key, visit.time);
+    const have = spans.get(key);
+    if (!have) spans.set(key, { first: visit.time, last: visit.time });
+    else {
+      if (visit.time < have.first) have.first = visit.time;
+      if (visit.time > have.last) have.last = visit.time;
+    }
   }
-  return first;
+  return spans;
 }
 
 // The log is indexed on its id only, so a date filter alone reads the whole table. Rows are read from a recent id instead, far

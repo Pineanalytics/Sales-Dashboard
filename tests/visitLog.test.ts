@@ -4,7 +4,7 @@ const prismaMock = vi.hoisted(() => ({ $executeRaw: vi.fn() }));
 vi.mock("@/lib/db", () => ({ prisma: prismaMock }));
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
 
-import { fetchVisitLog, firstVisits, resolveVisitTimes, type VisitLogRow } from "@/scripts/db-bridge/timestamps/visitLog";
+import { fetchVisitLog, resolveVisitTimes, visitSpans, type VisitLogRow } from "@/scripts/db-bridge/timestamps/visitLog";
 import { buildRepCalls } from "@/scripts/db-bridge/active-outlets/transform";
 import type { OutletRow, UserRow } from "@/scripts/db-bridge/active-outlets/query";
 import { POST } from "@/app/api/timestamps/upload/route";
@@ -44,33 +44,46 @@ describe("working the 12-hour visit log back to 24 hours", () => {
   });
 });
 
-describe("first visits", () => {
-  it("takes each rep's earliest from 6 AM, leaving out night-time app use", () => {
-    const first = firstVisits([row("01:12:00"), row("05:59:59", "v"), row("06:00:00", "v"), row("09:09:22"), row("10:00:00"), row("02:00:00", "w")]);
-    expect(clockOf(first.get("2026-11-25|u")!)).toBe("09:09:22");
-    expect(clockOf(first.get("2026-11-25|v")!)).toBe("06:00:00");
-    expect(clockOf(first.get("2026-11-25|w")!)).toBe("14:00:00");
+describe("first and last visits", () => {
+  it("takes each rep's earliest and latest between 6 AM and 8 PM, leaving out night-time app use", () => {
+    const spans = visitSpans([
+      row("01:12:00"), row("05:59:59", "v"), row("06:00:00", "v"), row("09:09:22"), row("10:00:00"),
+      row("12:00:00", "x"), row("02:00:00", "w"), row("05:04:40"), row("08:00:00", "v"), row("08:00:01"), row("10:02:59"),
+    ]);
+    const span = (user: string) => [clockOf(spans.get(`2026-11-25|${user}`)!.first), clockOf(spans.get(`2026-11-25|${user}`)!.last)];
+    expect(span("u")).toEqual(["09:09:22", "17:04:40"]); // 8:00:01 PM and 10 PM are left out
+    expect(span("v")).toEqual(["06:00:00", "20:00:00"]); // both ends count
+    expect(span("w")).toEqual(["14:00:00", "14:00:00"]);
+  });
+
+  it("leaves out a rep whose only visits fall outside those hours", () => {
+    expect(visitSpans([row("05:00:00"), row("12:30:00", "v"), row("09:00:00")]).has("2026-11-25|u")).toBe(false);
   });
 });
 
-describe("the start of a rep's day", () => {
+describe("the start and close of a rep's day", () => {
   const outlets = [{ id: "o", name: "Shop", subChannel: "Retailers", sourceChannel: "", territory: "Nairobi", latitude: null, longitude: null, pjpUserId: null, pjpRepName: null, pjpRepGroup: null, pjpRegion: null }] as OutletRow[];
   const users = [{ id: "u", employee: "Asha", userGroup: "DSR", region: "Nairobi" }] as UserRow[];
-  const noSale = (clock: string) => ({ visitId: clock, visitTime: new Date(`2026-11-25T${clock}Z`), userId: "u", customerId: "o", noSaleReason: null });
-  const build = (visit?: string) => buildRepCalls([], [noSale("10:40:53")], outlets, users, visit ? new Map([["2026-11-25|u", new Date(`2026-11-25T${visit}Z`)]]) : undefined)[0];
+  const at = (clock: string) => new Date(`2026-11-25T${clock}Z`);
+  const noSale = { visitId: "n", visitTime: at("10:40:53"), userId: "u", customerId: "o", noSaleReason: null };
+  const build = (visit?: [string, string]) =>
+    buildRepCalls([], [noSale], outlets, users, visit ? new Map([["2026-11-25|u", { first: at(visit[0]), last: at(visit[1]) }]]) : undefined)[0];
 
-  it("moves back to an earlier first visit, with the hours to match and the call unchanged", () => {
-    const call = build("09:10:53");
-    expect(clockOf(call.firstCallOfDay)).toBe("09:10:53");
-    expect(clockOf(call.lastCallOfDay)).toBe("10:40:53");
-    expect(call.hoursInDay).toBe(1.5);
+  it("widens to the first and last visit, with the hours to match and the call unchanged", () => {
+    const call = build(["09:10:53", "17:10:53"]);
+    expect([clockOf(call.firstCallOfDay), clockOf(call.lastCallOfDay)]).toEqual(["09:10:53", "17:10:53"]);
+    expect(call.hoursInDay).toBe(8);
     expect(clockOf(call.callTime)).toBe("10:40:53");
     expect(call.callsInDay).toBe(1);
   });
 
-  it("stays at the first record when the log has nothing earlier", () => {
+  it("keeps a record that is earlier or later than the visits", () => {
     expect(clockOf(build().firstCallOfDay)).toBe("10:40:53");
-    expect(clockOf(build("11:00:00").firstCallOfDay)).toBe("10:40:53");
+    expect(clockOf(build().lastCallOfDay)).toBe("10:40:53");
+    const early = build(["09:00:00", "10:00:00"]);
+    expect([clockOf(early.firstCallOfDay), clockOf(early.lastCallOfDay)]).toEqual(["09:00:00", "10:40:53"]);
+    const late = build(["11:00:00", "12:00:00"]);
+    expect([clockOf(late.firstCallOfDay), clockOf(late.lastCallOfDay)]).toEqual(["10:40:53", "12:00:00"]);
   });
 });
 
@@ -95,26 +108,35 @@ describe("reading the log from Pine", () => {
   });
 });
 
-describe("the upload's day-start mode", () => {
+describe("the upload's day-visit mode", () => {
   const send = (body: unknown) => {
     process.env.UPLOAD_API_KEY = "test-key";
     return POST(new Request("http://x/api/timestamps/upload", { method: "POST", headers: { "x-upload-api-key": "test-key" }, body: JSON.stringify(body) }) as never);
   };
 
-  it("only moves saved starts earlier, sending the wall-clock time unconverted", async () => {
+  it("only widens saved days, sending the wall-clock times unconverted", async () => {
     prismaMock.$executeRaw.mockResolvedValue(3);
-    const response = await send({ dayStarts: [{ date: "2026-11-25", employeeCode: "u", firstVisit: "2026-11-25T09:09:22.000Z" }] });
+    const response = await send({ dayVisits: [{ date: "2026-11-25", employeeCode: "u", firstVisit: "2026-11-25T09:09:22.000Z", lastVisit: "2026-11-25T17:04:40.000Z" }] });
     expect(await response.json()).toEqual({ count: 1, updated: 3 });
     const [strings, values] = prismaMock.$executeRaw.mock.calls[0] as [string[], { values: unknown[] }];
     const sql = strings.join(" ");
-    expect(sql).toContain('saved."firstCallOfDay" > counted.first_visit');
+    expect(sql).toContain('LEAST(saved."firstCallOfDay", counted.first_visit)');
+    expect(sql).toContain('GREATEST(saved."lastCallOfDay", counted.last_visit)');
     expect(sql).not.toMatch(/DELETE|INSERT/);
-    expect(values.values).toEqual(["2026-11-25", "u", "2026-11-25T09:09:22"]);
+    expect(values.values).toEqual(["2026-11-25", "u", "2026-11-25T09:09:22", "2026-11-25T17:04:40"]);
   });
 
-  it("refuses a visit on another day or a malformed time", async () => {
-    for (const firstVisit of ["2026-11-24T09:00:00.000Z", "2026-11-25", "2026-11-25T09:00:00+03:00"]) {
-      expect((await send({ dayStarts: [{ date: "2026-11-25", employeeCode: "u", firstVisit }] })).status, firstVisit).toBe(400);
+  it("refuses a visit on another day, a malformed time or a close before the start", async () => {
+    const good = { date: "2026-11-25", employeeCode: "u", firstVisit: "2026-11-25T09:00:00.000Z", lastVisit: "2026-11-25T17:00:00.000Z" };
+    for (const bad of [
+      { firstVisit: "2026-11-24T09:00:00.000Z" },
+      { lastVisit: "2026-11-26T09:00:00.000Z" },
+      { firstVisit: "2026-11-25" },
+      { lastVisit: "2026-11-25T17:00:00+03:00" },
+      { lastVisit: undefined },
+      { lastVisit: "2026-11-25T08:00:00.000Z" },
+    ]) {
+      expect((await send({ dayVisits: [{ ...good, ...bad }] })).status, JSON.stringify(bad)).toBe(400);
     }
     expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
   });

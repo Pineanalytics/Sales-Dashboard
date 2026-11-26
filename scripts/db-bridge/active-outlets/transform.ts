@@ -467,9 +467,10 @@ export function buildRepCalls(
   noSaleVisits: NoSaleVisitRow[],
   outlets: OutletRow[],
   users: UserRow[],
-  /** Each rep's first visit of the day from Pine's visit log, keyed "date|userId" (timestamps/visitLog.ts). A day starts at the
-   *  earlier of that and the first sale, order or no-sale; calls and their own times are unchanged. */
-  firstVisits: ReadonlyMap<string, Date> = new Map()
+  /** Each rep's first and last visit of the day from Pine's visit log, keyed "date|userId" (timestamps/visitLog.ts). A day starts
+   *  at the earlier of the first visit and the first sale, order or no-sale, and ends at the later of the last visit and the last
+   *  of those; calls and their own times are unchanged. */
+  visits: ReadonlyMap<string, { first: Date; last: Date }> = new Map()
 ): RepCallRow[] {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -582,9 +583,10 @@ export function buildRepCalls(
       .sort((a, b) => a.callTime.getTime() - b.callTime.getTime());
 
     const firstRecord = dayAggs.reduce((first, agg) => (agg.firstActivityTime < first ? agg.firstActivityTime : first), dayAggs[0].firstActivityTime);
-    const firstVisit = firstVisits.get(`${dayAggs[0].dateKey}|${dayAggs[0].userId}`);
-    const firstCallOfDay = firstVisit && firstVisit < firstRecord ? firstVisit : firstRecord;
-    const lastCallOfDay = dayAggs.reduce((last, agg) => (agg.lastActivityTime > last ? agg.lastActivityTime : last), dayAggs[0].lastActivityTime);
+    const lastRecord = dayAggs.reduce((last, agg) => (agg.lastActivityTime > last ? agg.lastActivityTime : last), dayAggs[0].lastActivityTime);
+    const visited = visits.get(`${dayAggs[0].dateKey}|${dayAggs[0].userId}`);
+    const firstCallOfDay = visited && visited.first < firstRecord ? visited.first : firstRecord;
+    const lastCallOfDay = visited && visited.last > lastRecord ? visited.last : lastRecord;
     const hoursInDay = Math.round(((lastCallOfDay.getTime() - firstCallOfDay.getTime()) / 3600000) * 100) / 100;
     const callsInDay = withTime.length;
     const productiveInDay = withTime.filter((w) => w.agg.documents.size > 0).length;
