@@ -807,6 +807,7 @@ model SapItem {
   lastPurchasePrice     Float?
   preferredSupplierCode String?
   preferredSupplier     String?
+  supplierProductCode   String? // the supplier's code, from the OITM field its brand uses (lib/sapItemMaster.ts)
   active                Boolean?
   frozen                Boolean?
   sapCreatedAt          DateTime? @db.Date

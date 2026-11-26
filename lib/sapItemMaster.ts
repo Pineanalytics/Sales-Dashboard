@@ -22,6 +22,11 @@ export interface SapItemMasterRow {
   LastPurPrc: number | null;
   CardCode: string | null;
   CardName: string | null;
+  SuppCatNum: string | null;
+  SWW: string | null;
+  U_UKLItemCode: string | null;
+  U_EABLItemCode: string | null;
+  U_ZrepCode: string | null;
   ValidFor: string | null;
   FrozenFor: string | null;
   CreateDate: Date | null;
@@ -52,6 +57,7 @@ export interface SapItemRecord {
   lastPurchasePrice: number | null;
   preferredSupplierCode: string | null;
   preferredSupplier: string | null;
+  supplierProductCode: string | null;
   active: boolean | null;
   frozen: boolean | null;
   sapCreatedAt: Date | null;
@@ -85,9 +91,42 @@ const date = (value: Date | string | null | undefined): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
+type ProductCodeField = "SuppCatNum" | "SWW" | "FrgnName" | "U_UKLItemCode" | "U_EABLItemCode" | "U_ZrepCode";
+
+/** Where SAP holds each brand's own product code, by the letters that start the item code; the first field with a code wins. SuppCatNum,
+ *  SAP's standard field for it, is read first for every item. Set from SAP's item master on 26 Nov 2026: a prefix not listed holds
+ *  nothing but SAP's own item codes in these fields. KMFY reads Foreign Name first because its U_UKLItemCode repeats across products. */
+export const PRODUCT_CODE_FIELDS: Record<string, ProductCodeField[]> = {
+  UKL: ["U_UKLItemCode", "SWW"],
+  KMFY: ["FrgnName", "U_UKLItemCode"],
+  TR: ["U_UKLItemCode"],
+  UDV: ["U_EABLItemCode"],
+  KBL: ["U_EABLItemCode"],
+  MARS: ["U_ZrepCode"],
+  UP: ["SWW"],
+  MOV: ["SWW"],
+  TPL: ["FrgnName", "SWW"],
+  BIC: ["FrgnName"],
+  DEL: ["FrgnName"],
+  SUN: ["FrgnName"],
+  JUB: ["FrgnName"],
+};
+
+/** The supplier's product code for one item, or null. A value that is one of SAP's own item codes (often copied into these fields) or
+ *  only zeros is not a supplier's code. `sapCodes` holds every SAP item code in capitals. */
+export function supplierProductCode(row: SapItemMasterRow, sapCodes: ReadonlySet<string>): string | null {
+  const prefix = /^[A-Z]*/.exec(text(row.ItemCode)?.toUpperCase() ?? "")?.[0] ?? "";
+  for (const field of ["SuppCatNum" as const, ...(PRODUCT_CODE_FIELDS[prefix] ?? [])]) {
+    const value = text(row[field]);
+    if (value && !sapCodes.has(value.toUpperCase()) && !/^0+$/.test(value)) return value;
+  }
+  return null;
+}
+
 /** Maps the SAP rows to SapItem records: trimmed text (blank -> null), SAP's Y/N flags as booleans, one record per item code (the first
  *  wins if SAP ever returned a code twice, e.g. through a duplicated price list). Rows without an item code are dropped. */
 export function buildSapItems(rows: SapItemMasterRow[], syncedAt: Date): SapItemRecord[] {
+  const sapCodes = new Set(rows.map((r) => text(r.ItemCode)?.toUpperCase() ?? ""));
   const byCode = new Map<string, SapItemRecord>();
   for (const r of rows) {
     const itemCode = text(r.ItemCode);
@@ -112,6 +151,7 @@ export function buildSapItems(rows: SapItemMasterRow[], syncedAt: Date): SapItem
       lastPurchasePrice: num(r.LastPurPrc),
       preferredSupplierCode: text(r.CardCode),
       preferredSupplier: text(r.CardName),
+      supplierProductCode: supplierProductCode(r, sapCodes),
       active: flag(r.ValidFor),
       frozen: flag(r.FrozenFor),
       sapCreatedAt: date(r.CreateDate),

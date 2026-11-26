@@ -132,6 +132,7 @@ export const PRODUCT_FEED_COLUMNS = [
   "Last Purchase Price",
   "Preferred Supplier Code",
   "Preferred Supplier",
+  "Supplier Product Code",
   "Last Received Supplier Code",
   "Last Received Supplier",
   "Last Received Date",
@@ -151,7 +152,7 @@ export const PRODUCT_MASTER_FEED: DataFeedDefinition = {
   id: "product-master",
   label: "Product Master",
   description:
-    "Every SAP item with its group, manufacturer, units, stock, costs and prices (SAP item master, refreshed every 30 minutes), plus the dashboard principal and a supplier code: SAP's preferred supplier, else the item-code prefix list in the script, else the supplier of its last goods receipt.",
+    "Every SAP item with its group, manufacturer, units, stock, costs and prices (SAP item master, refreshed every 30 minutes), plus the supplier's product code (from the SAP item field each brand uses; blank where SAP has none), the dashboard principal and a supplier code: SAP's preferred supplier, else the item-code prefix list in the script, else the supplier of its last goods receipt.",
   defaultColumns: [
     "Item Code",
     "Item Name",
@@ -164,6 +165,7 @@ export const PRODUCT_MASTER_FEED: DataFeedDefinition = {
     "Supplier Code",
     "Supplier",
     "Supplier Code Source",
+    "Supplier Product Code",
     "Inventory UOM",
     "Sales UOM",
     "Purchase UOM",

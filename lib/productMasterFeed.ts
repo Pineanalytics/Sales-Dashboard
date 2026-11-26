@@ -52,6 +52,7 @@ function columnValue(column: string, item: SapItem, data: ProductMasterData): Ce
     case "Last Purchase Price": return n(item.lastPurchasePrice);
     case "Preferred Supplier Code": return t(item.preferredSupplierCode);
     case "Preferred Supplier": return t(item.preferredSupplier);
+    case "Supplier Product Code": return t(item.supplierProductCode);
     case "Last Received Supplier Code": return receipt?.supplierCode ?? "";
     case "Last Received Supplier": return receipt?.supplierName ?? "";
     case "Last Received Date": return ymd(receipt?.docDate);
