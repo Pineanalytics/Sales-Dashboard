@@ -375,11 +375,13 @@ function listNames(names: string[]): string {
 export function trimLargeExtract(extract: BrandCustomerExtract, limit = LARGE_EXTRACT_RAW_ROWS): BrandCustomerExtract {
   if (extract.rawRowCount <= limit) return extract;
   const dropped = extract.sheets.filter((sheet) => ROW_LEVEL_SHEETS.has(sheet.name)).map((sheet) => sheet.name);
+  // The invoice-line extract's raw data is also a download of its own, at any size.
+  const csvHint = dropped.includes("Raw Data") && extract.sheets.some((sheet) => sheet.name === "Principal Concentration") ? " The customer invoice lines also download from Customers & Brands as Raw data (CSV)." : "";
   const sheets = extract.sheets
     .filter((sheet) => !ROW_LEVEL_SHEETS.has(sheet.name))
     .map((sheet) =>
-      sheet.name === "Summary"
-        ? { ...sheet, rows: [...sheet.rows, [], ["Not included", `${listNames(dropped)}: this selection has ${extract.rawRowCount.toLocaleString("en-US")} raw rows, over the ${limit.toLocaleString("en-US")} limit. Choose one or more principals, or a shorter period, to get them.`]] }
+      sheet.name === "Summary" && dropped.length > 0
+        ? { ...sheet, rows: [...sheet.rows, [], ["Not included", `${listNames(dropped)}: this selection has ${extract.rawRowCount.toLocaleString("en-US")} raw rows, over the ${limit.toLocaleString("en-US")} limit. Choose one or more principals, or a shorter period, to get them.${csvHint}`]] }
         : sheet
     );
   return { ...extract, sheets };

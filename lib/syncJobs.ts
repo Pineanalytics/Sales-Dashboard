@@ -21,6 +21,8 @@ export const SYNC_JOB_NAMES = [
   "pine-reps",
   "rep-directory",
   "sap-items",
+  "sales-lines",
+  "customer-outlets",
 ] as const;
 
 export type SyncJobName = (typeof SYNC_JOB_NAMES)[number];
@@ -50,11 +52,13 @@ export const SYNC_JOB_INFO: Record<SyncJobName, SyncJobInfo> = {
   "pine-reps": { label: "Rep directory: Pine users" },
   "rep-directory": { label: "Rep directory: Leverage, DataEdge, EABL" },
   "sap-items": { label: "Item master (SAP)" },
+  "sales-lines": { label: "Invoice lines for the customer extract (SAP)", heavyWarning: "This reads every SAP invoice line of the current and previous month (about 200,000)." },
+  "customer-outlets": { label: "Customer outlets (channel and territory)" },
 };
 
 /** The jobs that read the SAP SQL Server: the ones run by the `sap-sync-worker` container (docker-compose.yml). The "SAP jobs"
  *  switch on Admin > Data & sync turns exactly these on or off together. */
-export const SAP_SYNC_JOBS: readonly SyncJobName[] = ["sales", "sfa-sales", "purchases", "performance", "pl", "stock", "receivables", "sap-reps", "sap-items"];
+export const SAP_SYNC_JOBS: readonly SyncJobName[] = ["sales", "sfa-sales", "purchases", "performance", "pl", "stock", "receivables", "sap-reps", "sap-items", "sales-lines"];
 
 export function isSyncJobName(value: unknown): value is SyncJobName {
   return typeof value === "string" && (SYNC_JOB_NAMES as readonly string[]).includes(value);
@@ -62,6 +66,6 @@ export function isSyncJobName(value: unknown): value is SyncJobName {
 
 /** The jobs that have no row of their own in Sync Health (their data tables have no usable freshness
  *  column), so the panel adds one for them from the worker's own run record. */
-export const SYNC_JOBS_WITHOUT_HEALTH_ROW: readonly SyncJobName[] = ["sfa-sales", "purchases", "coverage", "mars-kpis", "eabl", "eabl-customers", "performance", "sap-reps", "pine-reps", "rep-directory", "sap-items"];
+export const SYNC_JOBS_WITHOUT_HEALTH_ROW: readonly SyncJobName[] = ["sfa-sales", "purchases", "coverage", "mars-kpis", "eabl", "eabl-customers", "performance", "sap-reps", "pine-reps", "rep-directory", "sap-items", "sales-lines", "customer-outlets"];
 
 export type SyncRunState = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";

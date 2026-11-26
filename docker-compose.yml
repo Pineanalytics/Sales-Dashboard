@@ -142,7 +142,7 @@ services:
       # The worker and API share this private Docker network; keep bridge
       # uploads server-to-server rather than traversing the public proxy.
       PL_BRIDGE_APP_URL: http://pinefrost-analytics-app:3000
-      CONTINUOUS_SYNC_JOBS: active-outlets
+      CONTINUOUS_SYNC_JOBS: active-outlets,customer-outlets
       # Incremental passes keep the dashboard current hourly. The bridge
       # itself promotes one pass to a bounded full safety refresh about every
       # 22 hours, so this does not turn into an hourly YTD rebuild. Running on
@@ -150,6 +150,10 @@ services:
       # dashboard stale until the following day.
       ACTIVE_OUTLETS_INTERVAL_SECONDS: 3600
       ACTIVE_OUTLETS_RUN_ON_START: "true"
+      # Customer outlets: links the day's invoice references to outlets, after the 21:30 invoice-line sync. This container
+      # runs on Nairobi time. Not run on start.
+      CUSTOMER_OUTLETS_DAILY_AT: "22:15"
+      CUSTOMER_OUTLETS_RUN_ON_START: "false"
       TZ: Africa/Nairobi
     cpus: 0.75
     mem_limit: 1024m
@@ -237,7 +241,7 @@ services:
       PL_BRIDGE_APP_URL: https://pinefrostdb.com
       SQLBRIDGE_SQL_SERVER: 127.0.0.1
       SQLBRIDGE_SQL_PORT: 14333
-      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables,sap-reps,sap-items
+      CONTINUOUS_SYNC_JOBS: sales,sfa-sales,purchases,performance,pl,stock,receivables,sap-reps,sap-items,sales-lines
       # Every SAP job runs every 30 minutes (stock was 15, sales 10, SFA sales and purchases 60): each pass reads from SAP
       # for 20-60 seconds at over 100% CPU on the shared 4-core VPS, and the jobs run one at a time. Admin > Data & sync has
       # a "Refresh now" button on every row for a catch-up between slots (the worker polls for those every 10 seconds).
@@ -257,6 +261,10 @@ services:
       RECEIVABLES_INTERVAL_SECONDS: 1800
       # Rep directory: SAP's salesperson master (OSLP, a few hundred rows).
       SAP_REPS_INTERVAL_SECONDS: 1800
+      # Invoice lines for the customer extract's raw data: the current and previous month once a day (container clock is UTC, so
+      # 18:30 here is 21:30 Nairobi). Not run on start.
+      SALES_LINES_DAILY_AT: "18:30"
+      SALES_LINES_RUN_ON_START: "false"
     cpus: 0.75
     mem_limit: 1024m
 

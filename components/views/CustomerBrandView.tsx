@@ -71,7 +71,8 @@ export function CustomerBrandView({ portfolio, selectedPrincipalKey, period, lat
           <p className="text-xs text-muted-strong">{selectedPrincipalKey ?? "All principals"} · {period.kind} {period.year}{period.month ? ` through ${period.month}` : ""}{view === "customers" ? (isSfa ? " · Customers are SFA outlets" : " · Customers are SAP billing accounts") : ""}</p>
         </div>
         <div className="flex flex-wrap items-start justify-end gap-2">
-          <BrandCustomerExtractButton kind={view} />
+          <BrandCustomerExtractButton key={view} kind={view} />
+          {view === "customers" ? <BrandCustomerExtractButton kind="customerRaw" /> : null}
           <div className="inline-flex rounded-full bg-background-elevated p-0.5">
             <button onClick={() => setView("customers")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "customers" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Customer analysis</button>
             <button onClick={() => setView("brands")} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${view === "brands" ? "bg-secondary-blue text-white" : "text-muted-strong"}`}>Brands & products</button>

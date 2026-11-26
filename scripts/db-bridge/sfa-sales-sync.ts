@@ -20,7 +20,8 @@ try {
 
 import { loadConfigFromEnv } from "./sql";
 import { loadProducts, loadWarehouses } from "./reference/loadFromDb";
-import { sfaMonthLabel, syncSfaMonth, type SfaMonth } from "./sfa/syncMonth";
+import { sfaMonthLabel, syncSfaMonth } from "./sfa/syncMonth";
+import { monthRange } from "./sfa/monthRange";
 import type { ProductRow } from "./reference/loadFromDb";
 import type { WarehouseRow } from "./transform/buildMonthlySales";
 
@@ -28,42 +29,11 @@ const DEFAULT_APP_URL = "https://pinefrostdb.com";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
-const option = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
-
-function monthRange(asOf: Date): SfaMonth[] {
-  const current: SfaMonth = { year: asOf.getUTCFullYear(), monthIndex: asOf.getUTCMonth() };
-  const parse = (value: string): SfaMonth => {
-    const match = /^(\d{4})-(\d{2})$/.exec(value);
-    if (!match) throw new Error(`Expected YYYY-MM, got "${value}".`);
-    return { year: Number(match[1]), monthIndex: Number(match[2]) - 1 };
-  };
-  let start = current;
-  let end = current;
-  if (flag("backfill")) start = { year: current.year, monthIndex: 0 };
-  else if (option("months")) {
-    const count = Number(option("months"));
-    if (!Number.isInteger(count) || count < 1 || count > 24) throw new Error("--months must be 1-24.");
-    const d = new Date(Date.UTC(current.year, current.monthIndex - (count - 1), 1));
-    start = { year: d.getUTCFullYear(), monthIndex: d.getUTCMonth() };
-  }
-  if (option("from")) start = parse(option("from")!);
-  if (option("to")) end = parse(option("to")!);
-
-  const months: SfaMonth[] = [];
-  let y = start.year;
-  let m = start.monthIndex;
-  while (y < end.year || (y === end.year && m <= end.monthIndex)) {
-    months.push({ year: y, monthIndex: m });
-    m += 1;
-    if (m > 11) { m = 0; y += 1; }
-  }
-  return months;
-}
 
 async function main() {
   const dryRun = flag("dry-run");
   const asOf = new Date();
-  const months = monthRange(asOf);
+  const months = monthRange(args, asOf);
   const config = loadConfigFromEnv();
   const apiKey = process.env.UPLOAD_API_KEY ?? "";
   if (!dryRun && !apiKey) throw new Error("Missing UPLOAD_API_KEY — set it in .env.");

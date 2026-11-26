@@ -26,7 +26,7 @@ beforeEach(() => {
 
 describe("which jobs the SAP switch covers", () => {
   it("is every job that the SAP worker supervises, and nothing from Pine", () => {
-    expect([...SAP_SYNC_JOBS].sort()).toEqual(["performance", "pl", "purchases", "receivables", "sales", "sap-items", "sap-reps", "sfa-sales", "stock"]);
+    expect([...SAP_SYNC_JOBS].sort()).toEqual(["performance", "pl", "purchases", "receivables", "sales", "sales-lines", "sap-items", "sap-reps", "sfa-sales", "stock"]);
     for (const job of SAP_SYNC_JOBS) expect(SYNC_JOB_INFO[job].label).toBeTruthy();
   });
 });
