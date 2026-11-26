@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
-import { kenyaWorkingDayClause, principalScopedSalesRole, teamLeaderPrincipalMatchClause, timestampPrincipalKey } from "@/lib/timestampSummary";
+import { kenyaWorkingDayClause, principalScopedSalesRole, teamLeaderPrincipalMatchClause, timestampPrincipalKey, unmappedPrincipalsCte } from "@/lib/timestampSummary";
 
 describe("principalScopedSalesRole", () => {
   it("uses the same normalized key as the global principal selector", () => {
@@ -61,5 +61,24 @@ describe("teamLeaderPrincipalMatchClause", () => {
     expect(clause.sql).toContain("tla.active");
     expect(clause.sql).toContain('tl.id = em."teamLeaderId" OR tl.name = em."teamLeader"');
     expect(clause.values).toEqual(["millyfruits"]);
+  });
+});
+
+describe("unmappedPrincipalsCte", () => {
+  it("works out an unrostered rep's principal once per rep, not once per call row", () => {
+    const window = { start: new Date("2026-11-01T00:00:00Z"), end: new Date("2026-12-01T00:00:00Z") };
+    const sql = unmappedPrincipalsCte(window, null).sql;
+    expect(sql).toContain("unmapped AS (");
+    expect(sql).toContain("em.id IS NULL");
+    expect(sql).toContain('SELECT DISTINCT ON (history."employeeCode")');
+    expect(sql).toContain('JOIN unmapped u ON u."employeeCode" = history."employeeCode"');
+    expect(sql).toContain('ORDER BY history."employeeCode", COUNT(*) DESC, MAX(history.date) DESC');
+    expect(sql).not.toContain("LIMIT 1");
+  });
+
+  it("keeps the session's scope", () => {
+    const window = { start: new Date("2026-11-01T00:00:00Z"), end: new Date("2026-12-01T00:00:00Z") };
+    const scoped = unmappedPrincipalsCte(window, { teamLeaderId: "tl", supervisorId: null, teamLeaderIds: ["tl"], principals: [], employeeCodes: ["E1", "E2"], normalizedNames: new Set() });
+    expect(scoped.values).toEqual(expect.arrayContaining(["E1", "E2"]));
   });
 });

@@ -209,23 +209,49 @@ export function teamLeaderPrincipalMatchClause(principalKey: string): Prisma.Sql
   `;
 }
 
-/** A historical fallback for a true Employee Roaster gap only. Rostered reps
- * always use absolutePrincipal, including mornings before their first sale. */
-function inferredPrincipalJoin(): Prisma.Sql {
+/** A historical fallback for a true Employee Roaster gap only (rostered reps always use absolutePrincipal, including mornings before
+ * their first sale). Two CTEs: `unmapped`, the reps with calls in the window and no Employee Roaster row (with their name and call
+ * count), and `inferred`, each such rep's principal: the cost centre on most of their sale calls across all history, ties to the most
+ * recent, then by name. Worked out once per rep. It used to be a LATERAL subquery evaluated for every call row, re-reading the rep's
+ * whole history each time, which made every Timestamps load slow and a principal-filtered one time out. Exported for tests. */
+export function unmappedPrincipalsCte(monthRange: { start: Date; end: Date }, scope: TeamLeaderScope | null, extraWhere: Prisma.Sql = EMPTY_SQL): Prisma.Sql {
   return Prisma.sql`
-    LEFT JOIN LATERAL (
-      SELECT BTRIM(cost_centre."value") AS principal
+    unmapped AS (
+      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", COUNT(*)::integer AS "callsThisMonth"
+      FROM "RepCall" r
+      LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
+      WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND em.id IS NULL ${extraWhere} ${scopeClause(scope)}
+      GROUP BY r."employeeCode"
+    ),
+    inferred AS (
+      SELECT DISTINCT ON (history."employeeCode") history."employeeCode" AS "employeeCode", BTRIM(cost_centre."value") AS principal
       FROM "RepCall" history
+      JOIN unmapped u ON u."employeeCode" = history."employeeCode"
       CROSS JOIN LATERAL unnest(string_to_array(history."costCentresBought", ',')) AS cost_centre("value")
-      WHERE em.id IS NULL
-        AND history."employeeCode" = r."employeeCode"
-        AND history."callOutcome" = 'Sale'
-        AND BTRIM(cost_centre."value") <> ''
-      GROUP BY BTRIM(cost_centre."value")
-      ORDER BY COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
-      LIMIT 1
-    ) inferred ON true
+      WHERE history."callOutcome" = 'Sale' AND BTRIM(cost_centre."value") <> ''
+      GROUP BY history."employeeCode", BTRIM(cost_centre."value")
+      ORDER BY history."employeeCode", COUNT(*) DESC, MAX(history.date) DESC, BTRIM(cost_centre."value") ASC
+    )
   `;
+}
+
+/** The reps a selected principal covers, worked out once per request instead of once per call row: rostered reps whose own roster
+ * principal is the selected one or whose Team Leader has an active assignment on it, and unrostered reps whose inferred principal
+ * (unmappedPrincipalsCte) is the selected one. The aggregate queries then filter calls by this list. */
+async function principalEmployeeCodes(principalKey: string, monthRange: { start: Date; end: Date }, scope: TeamLeaderScope | null): Promise<string[]> {
+  const [rostered, unrostered] = await Promise.all([
+    prisma.$queryRaw<{ employeeCode: string }[]>(Prisma.sql`
+      SELECT em."employeeCode" AS "employeeCode"
+      FROM "EmployeeMaster" em
+      WHERE ${absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`)} OR ${teamLeaderPrincipalMatchClause(principalKey)}
+    `),
+    prisma.$queryRaw<{ employeeCode: string }[]>(Prisma.sql`
+      WITH ${unmappedPrincipalsCte(monthRange, scope)}
+      SELECT inferred."employeeCode" AS "employeeCode" FROM inferred
+      WHERE ${absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`)}
+    `),
+  ]);
+  return [...new Set([...rostered, ...unrostered].map((row) => row.employeeCode))];
 }
 
 /** Scope restriction shared by every query below, factored out so the
@@ -268,14 +294,14 @@ export function scopeClause(scope: TeamLeaderScope | null): Prisma.Sql {
 // (components/views/timestamps/TimestampsPineView.tsx's
 // buildRepMonthlyAverages, for hoursInDay/first-last-call/avgIntervalMins),
 // which filters by lib/kenyaBusinessCalendar.ts's isKenyaWorkingDay itself.
-function sourceQuery(
+async function sourceQuery(
   monthRange: { start: Date; end: Date },
   scope: TeamLeaderScope | null,
   principalKey: string | null
-): { from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql } {
+): Promise<{ from: Prisma.Sql; baseWhere: Prisma.Sql; salesRole: Prisma.Sql }> {
   const { start, end } = monthRange;
   const teamClause = scopeClause(scope);
-  const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode" ${principalKey ? inferredPrincipalJoin() : EMPTY_SQL}`;
+  const from = Prisma.sql`FROM "RepCall" r LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"`;
   const salesRole = Prisma.sql`COALESCE(NULLIF(BTRIM(em."salesRole"), ''), r."salesRole")`;
 
   if (!principalKey) {
@@ -291,12 +317,13 @@ function sourceQuery(
   // cost-centre, so a first call with no sale stays). A rep with no roster row, hence no principal or Team Leader to read,
   // correctly falls out of any one specific-principal filter (genuinely unknown, not guessable), but stays visible in the
   // unfiltered view above and in the General Team Leader bucket below.
-  const absolutePrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`em."absolutePrincipal"`);
-  const teamLeaderMatch = teamLeaderPrincipalMatchClause(principalKey);
-  const inferredPrincipalMatch = absolutePrincipalMatchClause(principalKey, Prisma.sql`inferred.principal`);
+  // The rule is per rep (roster principal, Team Leader assignment, or inferred principal), so the reps are resolved once
+  // (principalEmployeeCodes) and calls filtered by that list.
+  const codes = await principalEmployeeCodes(principalKey, monthRange, scope);
+  const principalClause = codes.length > 0 ? Prisma.sql`AND r."employeeCode" IN (${Prisma.join(codes)})` : Prisma.sql`AND false`;
   return {
     from,
-    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) AND (${absolutePrincipalMatch} OR ${teamLeaderMatch} OR (em.id IS NULL AND ${inferredPrincipalMatch})) ${teamClause}`,
+    baseWhere: Prisma.sql`WHERE r.date >= ${start} AND r.date < ${end} AND COALESCE(em.active, true) ${principalClause} ${teamClause}`,
     salesRole,
   };
 }
@@ -373,7 +400,7 @@ export async function getTimestampSummary(
   filters: TimestampFilters
 ): Promise<TimestampSummaryData> {
   const monthRange = resolveMonthWindow(now, filters.month);
-  const { from, baseWhere, salesRole } = sourceQuery(monthRange, scope, filters.principalKey);
+  const { from, baseWhere, salesRole } = await sourceQuery(monthRange, scope, filters.principalKey);
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
@@ -459,12 +486,10 @@ export async function getTimestampSummary(
     // only, so it doesn't disappear the moment someone filters to a single
     // date. See UnmappedTimestampEmployee's own comment for why this exists.
     prisma.$queryRaw<UnmappedRow[]>(Prisma.sql`
-      SELECT r."employeeCode" AS "employeeCode", MAX(r."salesRep") AS "salesRep", COUNT(*)::integer AS "callsThisMonth", MAX(inferred.principal) AS "inferredPrincipal"
-      FROM "RepCall" r
-      LEFT JOIN "EmployeeMaster" em ON em."employeeCode" = r."employeeCode"
-      ${inferredPrincipalJoin()}
-      WHERE r.date >= ${monthRange.start} AND r.date < ${monthRange.end} AND ${kenyaWorkingDayClause(Prisma.sql`r.date::date`, monthRange)} AND em.id IS NULL ${scopeClause(scope)}
-      GROUP BY r."employeeCode"
+      WITH ${unmappedPrincipalsCte(monthRange, scope, Prisma.sql`AND ${kenyaWorkingDayClause(Prisma.sql`r.date::date`, monthRange)}`)}
+      SELECT u."employeeCode" AS "employeeCode", u."salesRep" AS "salesRep", u."callsThisMonth" AS "callsThisMonth", inferred.principal AS "inferredPrincipal"
+      FROM unmapped u
+      LEFT JOIN inferred ON inferred."employeeCode" = u."employeeCode"
       ORDER BY "callsThisMonth" DESC
     `),
   ]);
@@ -532,7 +557,7 @@ export async function getTimestampRepDetail(
   if (!filters.employeeCode) return { rep: null, overall: emptyStats(), dailyTrend: [], weeklyTrend: [], visits: [] };
 
   const monthRange = resolveMonthWindow(now, filters.month);
-  const { from, baseWhere, salesRole } = sourceQuery(monthRange, scope, filters.principalKey);
+  const { from, baseWhere, salesRole } = await sourceQuery(monthRange, scope, filters.principalKey);
   const dateClause = selectedDateClause(filters);
   const repClause = selectedRepClause(filters);
   const regionClause = selectedRegionClause(filters);
