@@ -21,7 +21,7 @@ import {
 } from "../active-outlets/query";
 import { buildRepCalls, collapseToPurchaseEvents, countCallLines } from "../active-outlets/transform";
 import { loadPrincipals } from "../reference/loadFromDb";
-import { fetchVisitLog, firstVisits } from "./visitLog";
+import { fetchVisitLog, visitSpans } from "./visitLog";
 import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -159,23 +159,23 @@ async function backfillLineCounts(config: ReturnType<typeof loadCoverageConfigFr
 /** The Nairobi day of an instant, as the visit log writes it. */
 const nairobiDay = (value: Date) => nairobiCalendarDay(value).toISOString().slice(0, 10);
 
-/** TIMESTAMPS_STARTS_ONLY=1 with TIMESTAMPS_BACKFILL_FROM: moves the start of each saved rep-day back to the rep's first logged
- *  visit where that is earlier. Replaces no rows, changes no call, and moves no watermark. */
-async function backfillDayStarts(config: ReturnType<typeof loadCoverageConfigFromEnv>, apiKey: string, appUrl: string, startDay: string, endDay: string) {
+/** TIMESTAMPS_VISITS_ONLY=1 with TIMESTAMPS_BACKFILL_FROM: widens each saved rep-day to the rep's first and last logged visit,
+ *  where those are earlier or later. Replaces no rows, changes no call, and moves no watermark. */
+async function backfillDayVisits(config: ReturnType<typeof loadCoverageConfigFromEnv>, apiKey: string, appUrl: string, startDay: string, endDay: string) {
   const log = await withCoverageConnection(config, (conn) => fetchVisitLog(conn, startDay, endDay));
-  const dayStarts = [...firstVisits(log)].map(([key, time]) => {
+  const dayVisits = [...visitSpans(log)].map(([key, span]) => {
     const [date, employeeCode] = key.split("|");
-    return { date, employeeCode, firstVisit: time.toISOString() };
+    return { date, employeeCode, firstVisit: span.first.toISOString(), lastVisit: span.last.toISOString() };
   });
-  console.log(`[timestamps] Visit log ${startDay} to ${endDay}: ${log.length} rows, ${dayStarts.length} rep-days with a visit.`);
+  console.log(`[timestamps] Visit log ${startDay} to ${endDay}: ${log.length} rows, ${dayVisits.length} rep-days with a visit.`);
   let updated = 0;
-  for (const batch of chunk(dayStarts, BATCH_SIZE)) {
+  for (const batch of chunk(dayVisits, BATCH_SIZE)) {
     if (batch.length === 0) continue;
-    const result = await postJson(appUrl, apiKey, "/api/timestamps/upload", { dayStarts: batch });
-    if (!result.ok) throw new Error(`Day-start upload failed: ${result.status} ${JSON.stringify(result.body)}`);
+    const result = await postJson(appUrl, apiKey, "/api/timestamps/upload", { dayVisits: batch });
+    if (!result.ok) throw new Error(`Day-visit upload failed: ${result.status} ${JSON.stringify(result.body)}`);
     updated += Number((result.body as { updated?: number }).updated ?? 0);
   }
-  console.log(`[timestamps] Day starts done: ${dayStarts.length} sent, ${updated} saved calls moved to an earlier start.`);
+  console.log(`[timestamps] Day visits done: ${dayVisits.length} sent, ${updated} saved calls given an earlier start or a later close.`);
 }
 
 async function main() {
@@ -187,9 +187,9 @@ async function main() {
   const now = new Date();
   const { start, end, nextDay, isBackfill } = syncWindow(now);
 
-  if (process.env.TIMESTAMPS_STARTS_ONLY === "1") {
-    if (!isBackfill) throw new Error("TIMESTAMPS_STARTS_ONLY needs TIMESTAMPS_BACKFILL_FROM=YYYY-MM-DD.");
-    await backfillDayStarts(config, apiKey, appUrl, start.toISOString().slice(0, 10), nextDay.toISOString().slice(0, 10));
+  if (process.env.TIMESTAMPS_VISITS_ONLY === "1") {
+    if (!isBackfill) throw new Error("TIMESTAMPS_VISITS_ONLY needs TIMESTAMPS_BACKFILL_FROM=YYYY-MM-DD.");
+    await backfillDayVisits(config, apiKey, appUrl, start.toISOString().slice(0, 10), nextDay.toISOString().slice(0, 10));
     return;
   }
 
@@ -204,9 +204,9 @@ async function main() {
     const factLines = await fetchFactLines(conn, start, end);
     const noSaleColumns = await resolveNoSalesColumns(conn);
     const noSaleVisits = noSaleColumns ? await fetchNoSaleVisits(conn, noSaleColumns, start, nextDay) : [];
-    // When the day started. Without the log the calls are still right, so a failure here doesn't stop the sync.
+    // When the day started and ended. Without the log the calls are still right, so a failure here doesn't stop the sync.
     const visitLog = await fetchVisitLog(conn, nairobiDay(start), nextDay.toISOString().slice(0, 10)).catch((error: Error) => {
-      console.log("[timestamps] Could not read the visit log; days start at the first sale, order or no-sale.", error.message);
+      console.log("[timestamps] Could not read the visit log; days run from the first to the last sale, order or no-sale.", error.message);
       return [];
     });
 
@@ -243,7 +243,7 @@ async function main() {
     console.log("[timestamps] Could not load principal enrichment; continuing without cost-centre labels.", (error as Error).message);
   }
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
-  const callRows = buildRepCalls(events, noSaleVisits, outlets, users, firstVisits(visitLog));
+  const callRows = buildRepCalls(events, noSaleVisits, outlets, users, visitSpans(visitLog));
   console.log(`[timestamps] Collapsed to ${events.length} purchase events and built ${callRows.length} call rows.`);
   if (unmatchedSkuCount > 0) {
     console.log(`[timestamps] NOTE: ${unmatchedSkuCount} purchase/SKU lines had no resolvable Cost Centre but remain productive calls.`);
