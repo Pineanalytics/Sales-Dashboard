@@ -19,7 +19,7 @@ import {
   fetchUsersByIds,
   resolveNoSalesColumns,
 } from "../active-outlets/query";
-import { buildRepCalls, collapseToPurchaseEvents } from "../active-outlets/transform";
+import { buildRepCalls, collapseToPurchaseEvents, countCallLines } from "../active-outlets/transform";
 import { loadPrincipals } from "../reference/loadFromDb";
 import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 
@@ -133,6 +133,28 @@ async function setSyncState(appUrl: string, apiKey: string, completedAt: Date): 
   if (!result.ok) throw new Error(`Failed to update sync state: ${result.status} ${JSON.stringify(result.body)}`);
 }
 
+/** TIMESTAMPS_LINES_ONLY=1 with TIMESTAMPS_BACKFILL_FROM: reads Pine's sale and order lines a week at a time and fills only the
+ *  product-line count on calls already saved. Unlike a plain backfill it replaces no rows and moves no watermark. */
+async function backfillLineCounts(config: ReturnType<typeof loadCoverageConfigFromEnv>, apiKey: string, appUrl: string, start: Date, end: Date) {
+  const WINDOW_MS = 7 * 86400000;
+  let sent = 0;
+  let updated = 0;
+  for (let from = start; from < end; from = new Date(from.getTime() + WINDOW_MS)) {
+    const to = new Date(Math.min(from.getTime() + WINDOW_MS, end.getTime()));
+    const factLines = await withCoverageConnection(config, (conn) => fetchFactLines(conn, from, to));
+    const counts = countCallLines(factLines);
+    for (const batch of chunk(counts, BATCH_SIZE)) {
+      if (batch.length === 0) continue;
+      const result = await postJson(appUrl, apiKey, "/api/timestamps/upload", { lineCounts: batch });
+      if (!result.ok) throw new Error(`Line-count upload failed: ${result.status} ${JSON.stringify(result.body)}`);
+      sent += batch.length;
+      updated += Number((result.body as { updated?: number }).updated ?? 0);
+    }
+    console.log(`[timestamps] Lines ${from.toISOString().slice(0, 10)} to ${to.toISOString().slice(0, 10)}: ${factLines.length} source lines, ${counts.length} calls with products.`);
+  }
+  console.log(`[timestamps] Line counts done: ${sent} sent, ${updated} saved calls updated.`);
+}
+
 async function main() {
   if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1) throw new Error("TIMESTAMPS_BATCH_SIZE must be a positive integer.");
   const config = loadCoverageConfigFromEnv();
@@ -141,6 +163,12 @@ async function main() {
   const appUrl = process.env.PL_BRIDGE_APP_URL || DEFAULT_APP_URL;
   const now = new Date();
   const { start, end, nextDay, isBackfill } = syncWindow(now);
+
+  if (process.env.TIMESTAMPS_LINES_ONLY === "1") {
+    if (!isBackfill) throw new Error("TIMESTAMPS_LINES_ONLY needs TIMESTAMPS_BACKFILL_FROM=YYYY-MM-DD.");
+    await backfillLineCounts(config, apiKey, appUrl, start, end);
+    return;
+  }
 
   console.log(`[timestamps] Connecting to ${config.host}/${config.database} (${isBackfill ? "backfill" : `rolling ${ROLLING_WINDOW_DAYS}-day`} window ${start.toISOString()} - ${end.toISOString()})...`);
   const { factLines, noSaleColumns, noSaleVisits, outlets, users, products } = await withCoverageConnection(config, async (conn) => {

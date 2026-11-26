@@ -125,6 +125,33 @@ export interface PurchaseEvent {
   revenue: number;
   qty: number;
   cases: number | null;
+  /** The different products on this event: what a call's product lines are counted from. */
+  itemIds: string[];
+}
+
+export interface CallLineCount {
+  date: string; // YYYY-MM-DD
+  employeeCode: string;
+  outletId: string;
+  lines: number;
+}
+
+/** Product lines per call (rep x outlet x day) straight from the source lines: the different products with a positive sale or order
+ *  quantity and price, the same lines collapseToPurchaseEvents keeps. Used to fill RepCall.lines on calls saved without it. */
+export function countCallLines(lines: FactLineRow[]): CallLineCount[] {
+  const items = new Map<string, { date: string; employeeCode: string; outletId: string; ids: Set<string> }>();
+  for (const line of lines) {
+    if (!(line.qty > 0 && line.unitPrice > 0)) continue;
+    const date = line.purchaseTime.toISOString().slice(0, 10);
+    const key = `${date}|${line.userId}|${line.customerId}`;
+    let entry = items.get(key);
+    if (!entry) {
+      entry = { date, employeeCode: line.userId, outletId: line.customerId, ids: new Set() };
+      items.set(key, entry);
+    }
+    entry.ids.add(line.itemId);
+  }
+  return [...items.values()].map(({ ids, ...call }) => ({ ...call, lines: ids.size }));
 }
 
 function monthKey(date: Date): string {
@@ -170,6 +197,7 @@ export function collapseToPurchaseEvents(
     revenue: number;
     qty: number;
     cases: number | null;
+    itemId: string;
   }
   const lineEvents: LineEvent[] = [];
   let unmatchedSkuCount = 0;
@@ -197,6 +225,7 @@ export function collapseToPurchaseEvents(
       revenue: Math.round(line.qty * line.unitPrice * 100) / 100,
       qty: line.qty,
       cases: product?.unitsPerCase ? line.qty / product.unitsPerCase : null,
+      itemId: line.itemId,
     });
   }
 
@@ -229,6 +258,7 @@ export function collapseToPurchaseEvents(
       revenue: group.reduce((s, g) => s + g.revenue, 0),
       qty: group.reduce((s, g) => s + g.qty, 0),
       cases: group.every((g) => g.cases !== null) ? group.reduce((s, g) => s + (g.cases ?? 0), 0) : null,
+      itemIds: [...new Set(group.map((g) => g.itemId))],
     });
   }
 
@@ -424,6 +454,7 @@ export interface RepCallRow {
   sales: number;
   qty: number;
   cases: number | null;
+  lines: number;
   firstCallOfDay: Date;
   lastCallOfDay: Date;
   hoursInDay: number;
@@ -455,6 +486,7 @@ export function buildRepCalls(
     cases: number;
     hasUnknownCases: boolean;
     costCentres: Set<string>;
+    itemIds: Set<string>;
     noSaleReason: string | null;
   }
   const byKey = new Map<string, CallAgg>();
@@ -483,6 +515,7 @@ export function buildRepCalls(
         cases: 0,
         hasUnknownCases: false,
         costCentres: new Set(),
+        itemIds: new Set(),
         noSaleReason: null,
       };
       byKey.set(k, agg);
@@ -496,6 +529,7 @@ export function buildRepCalls(
     if (e.cases === null) agg.hasUnknownCases = true;
     else agg.cases += e.cases;
     if (e.costCentre !== null) agg.costCentres.add(e.costCentre);
+    for (const itemId of e.itemIds) agg.itemIds.add(itemId);
   }
 
   for (const v of noSaleVisits) {
@@ -518,6 +552,7 @@ export function buildRepCalls(
         cases: 0,
         hasUnknownCases: false,
         costCentres: new Set(),
+        itemIds: new Set(),
         noSaleReason: v.noSaleReason,
       };
       byKey.set(k, agg);
@@ -584,6 +619,7 @@ export function buildRepCalls(
         sales: Math.round(w.agg.sales * 100) / 100,
         qty: w.agg.qty,
         cases: outcome === "Sale" && !w.agg.hasUnknownCases ? Math.round(w.agg.cases * 100) / 100 : outcome === "No Sale" ? 0 : null,
+        lines: w.agg.itemIds.size,
         firstCallOfDay,
         lastCallOfDay,
         hoursInDay,
