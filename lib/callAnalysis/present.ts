@@ -72,6 +72,8 @@ export const DEFINITIONS: readonly [string, string][] = [
   ["Drop size (KES)", "Sales value per productive call. Pine's value is sales and orders, as on the Timestamps report."],
   ["Drop size (cases)", "Cases per productive call, from the calls whose cases are known (Pine and Leverage)."],
   ["Start and close", "Average first and last activity of a rep's day, over working days. Late start: after 9:30 AM."],
+  ["Start (Pine)", "The first outlet the rep opened in the Pine app from 6:00 AM, or the first sale, order or no-sale if earlier. Close is the last sale, order or no-sale."],
+  ["Start (other systems)", "Upfield and Leverage record only transactions, so their day starts at the first one."],
 ];
 
 const COLUMNS = [

@@ -147,6 +147,42 @@ async function saveLineCounts(rows: LineCountRow[]): Promise<number> {
   return updated;
 }
 
+interface DayStartRow {
+  date: string;
+  employeeCode: string;
+  firstVisit: string;
+}
+
+function isDayStartRow(row: unknown): row is DayStartRow {
+  if (typeof row !== "object" || row === null) return false;
+  const r = row as Record<string, unknown>;
+  return (
+    typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
+    typeof r.employeeCode === "string" &&
+    typeof r.firstVisit === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(r.firstVisit) && r.firstVisit.startsWith(`${r.date}T`)
+  );
+}
+
+/** Moves the start of saved rep-days back to an earlier first visit, with the hours in the day to match. It only ever moves a
+ *  start earlier, so repeating it changes nothing, and no row is added or removed. */
+async function saveDayStarts(rows: DayStartRow[]): Promise<number> {
+  let updated = 0;
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const values = rows
+      .slice(i, i + CHUNK_SIZE)
+      // The wall-clock text, without the "Z": call times are stored as written, so no time-zone conversion may touch it.
+      .map((r) => Prisma.sql`(${r.date}::date, ${r.employeeCode}::text, ${r.firstVisit.slice(0, 19)}::timestamp)`);
+    updated += await prisma.$executeRaw`
+      UPDATE "RepCall" AS saved
+      SET "firstCallOfDay" = counted.first_visit,
+          "hoursInDay" = ROUND((EXTRACT(EPOCH FROM (saved."lastCallOfDay" - counted.first_visit)) / 3600)::numeric, 2)
+      FROM (VALUES ${Prisma.join(values)}) AS counted(date, employee_code, first_visit)
+      WHERE saved.date = counted.date AND saved."employeeCode" = counted.employee_code AND saved."firstCallOfDay" > counted.first_visit
+    `;
+  }
+  return updated;
+}
+
 export async function POST(req: NextRequest) {
   if (!hasValidApiKey(req)) {
     const session = await auth();
@@ -163,6 +199,19 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Expected a JSON body with a "calls" array.' }, { status: 400 });
+  }
+
+  const dayStarts = (body as { dayStarts?: unknown })?.dayStarts;
+  if (dayStarts !== undefined) {
+    if (!Array.isArray(dayStarts) || !dayStarts.every(isDayStartRow)) {
+      return NextResponse.json({ error: '"dayStarts" must be an array of { date, employeeCode, firstVisit } with firstVisit on that date.' }, { status: 400 });
+    }
+    try {
+      return NextResponse.json({ count: dayStarts.length, updated: await saveDayStarts(dayStarts) }, { status: 200 });
+    } catch (err) {
+      console.error("Failed to save RepCall day starts", err);
+      return NextResponse.json({ error: "Failed to save Timestamps day starts." }, { status: 500 });
+    }
   }
 
   const lineCounts = (body as { lineCounts?: unknown })?.lineCounts;

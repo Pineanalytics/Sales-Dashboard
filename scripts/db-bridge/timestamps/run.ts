@@ -21,6 +21,7 @@ import {
 } from "../active-outlets/query";
 import { buildRepCalls, collapseToPurchaseEvents, countCallLines } from "../active-outlets/transform";
 import { loadPrincipals } from "../reference/loadFromDb";
+import { fetchVisitLog, firstVisits } from "./visitLog";
 import { TIMESTAMPS_RETENTION_MONTHS } from "../../../lib/timeManagement";
 
 const DEFAULT_APP_URL = "https://pinefrostdb.com";
@@ -155,6 +156,28 @@ async function backfillLineCounts(config: ReturnType<typeof loadCoverageConfigFr
   console.log(`[timestamps] Line counts done: ${sent} sent, ${updated} saved calls updated.`);
 }
 
+/** The Nairobi day of an instant, as the visit log writes it. */
+const nairobiDay = (value: Date) => nairobiCalendarDay(value).toISOString().slice(0, 10);
+
+/** TIMESTAMPS_STARTS_ONLY=1 with TIMESTAMPS_BACKFILL_FROM: moves the start of each saved rep-day back to the rep's first logged
+ *  visit where that is earlier. Replaces no rows, changes no call, and moves no watermark. */
+async function backfillDayStarts(config: ReturnType<typeof loadCoverageConfigFromEnv>, apiKey: string, appUrl: string, startDay: string, endDay: string) {
+  const log = await withCoverageConnection(config, (conn) => fetchVisitLog(conn, startDay, endDay));
+  const dayStarts = [...firstVisits(log)].map(([key, time]) => {
+    const [date, employeeCode] = key.split("|");
+    return { date, employeeCode, firstVisit: time.toISOString() };
+  });
+  console.log(`[timestamps] Visit log ${startDay} to ${endDay}: ${log.length} rows, ${dayStarts.length} rep-days with a visit.`);
+  let updated = 0;
+  for (const batch of chunk(dayStarts, BATCH_SIZE)) {
+    if (batch.length === 0) continue;
+    const result = await postJson(appUrl, apiKey, "/api/timestamps/upload", { dayStarts: batch });
+    if (!result.ok) throw new Error(`Day-start upload failed: ${result.status} ${JSON.stringify(result.body)}`);
+    updated += Number((result.body as { updated?: number }).updated ?? 0);
+  }
+  console.log(`[timestamps] Day starts done: ${dayStarts.length} sent, ${updated} saved calls moved to an earlier start.`);
+}
+
 async function main() {
   if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1) throw new Error("TIMESTAMPS_BATCH_SIZE must be a positive integer.");
   const config = loadCoverageConfigFromEnv();
@@ -164,6 +187,12 @@ async function main() {
   const now = new Date();
   const { start, end, nextDay, isBackfill } = syncWindow(now);
 
+  if (process.env.TIMESTAMPS_STARTS_ONLY === "1") {
+    if (!isBackfill) throw new Error("TIMESTAMPS_STARTS_ONLY needs TIMESTAMPS_BACKFILL_FROM=YYYY-MM-DD.");
+    await backfillDayStarts(config, apiKey, appUrl, start.toISOString().slice(0, 10), nextDay.toISOString().slice(0, 10));
+    return;
+  }
+
   if (process.env.TIMESTAMPS_LINES_ONLY === "1") {
     if (!isBackfill) throw new Error("TIMESTAMPS_LINES_ONLY needs TIMESTAMPS_BACKFILL_FROM=YYYY-MM-DD.");
     await backfillLineCounts(config, apiKey, appUrl, start, end);
@@ -171,10 +200,15 @@ async function main() {
   }
 
   console.log(`[timestamps] Connecting to ${config.host}/${config.database} (${isBackfill ? "backfill" : `rolling ${ROLLING_WINDOW_DAYS}-day`} window ${start.toISOString()} - ${end.toISOString()})...`);
-  const { factLines, noSaleColumns, noSaleVisits, outlets, users, products } = await withCoverageConnection(config, async (conn) => {
+  const { factLines, noSaleColumns, noSaleVisits, visitLog, outlets, users, products } = await withCoverageConnection(config, async (conn) => {
     const factLines = await fetchFactLines(conn, start, end);
     const noSaleColumns = await resolveNoSalesColumns(conn);
     const noSaleVisits = noSaleColumns ? await fetchNoSaleVisits(conn, noSaleColumns, start, nextDay) : [];
+    // When the day started. Without the log the calls are still right, so a failure here doesn't stop the sync.
+    const visitLog = await fetchVisitLog(conn, nairobiDay(start), nextDay.toISOString().slice(0, 10)).catch((error: Error) => {
+      console.log("[timestamps] Could not read the visit log; days start at the first sale, order or no-sale.", error.message);
+      return [];
+    });
 
     const outletIds = [...factLines.map((row) => row.customerId), ...noSaleVisits.map((row) => row.customerId)];
     const userIds = [...factLines.map((row) => row.userId), ...noSaleVisits.map((row) => row.userId)];
@@ -184,7 +218,7 @@ async function main() {
       fetchUsersByIds(conn, userIds),
       fetchProductsByIds(conn, productIds),
     ]);
-    return { factLines, noSaleColumns, noSaleVisits, outlets, users, products };
+    return { factLines, noSaleColumns, noSaleVisits, visitLog, outlets, users, products };
   });
 
   console.log(`[timestamps] Fetched ${factLines.length} sale/order lines and ${noSaleVisits.length} no-sale visits.`);
@@ -209,7 +243,7 @@ async function main() {
     console.log("[timestamps] Could not load principal enrichment; continuing without cost-centre labels.", (error as Error).message);
   }
   const { events, unmatchedSkuCount } = collapseToPurchaseEvents(factLines, outlets, users, products, principalsData);
-  const callRows = buildRepCalls(events, noSaleVisits, outlets, users);
+  const callRows = buildRepCalls(events, noSaleVisits, outlets, users, firstVisits(visitLog));
   console.log(`[timestamps] Collapsed to ${events.length} purchase events and built ${callRows.length} call rows.`);
   if (unmatchedSkuCount > 0) {
     console.log(`[timestamps] NOTE: ${unmatchedSkuCount} purchase/SKU lines had no resolvable Cost Centre but remain productive calls.`);

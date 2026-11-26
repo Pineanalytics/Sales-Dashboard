@@ -466,7 +466,10 @@ export function buildRepCalls(
   monthEvents: PurchaseEvent[],
   noSaleVisits: NoSaleVisitRow[],
   outlets: OutletRow[],
-  users: UserRow[]
+  users: UserRow[],
+  /** Each rep's first visit of the day from Pine's visit log, keyed "date|userId" (timestamps/visitLog.ts). A day starts at the
+   *  earlier of that and the first sale, order or no-sale; calls and their own times are unchanged. */
+  firstVisits: ReadonlyMap<string, Date> = new Map()
 ): RepCallRow[] {
   const outletById = new Map(outlets.map((o) => [o.id, o]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -578,7 +581,9 @@ export function buildRepCalls(
       .map((agg) => ({ agg, callTime: agg.firstActivityTime }))
       .sort((a, b) => a.callTime.getTime() - b.callTime.getTime());
 
-    const firstCallOfDay = dayAggs.reduce((first, agg) => (agg.firstActivityTime < first ? agg.firstActivityTime : first), dayAggs[0].firstActivityTime);
+    const firstRecord = dayAggs.reduce((first, agg) => (agg.firstActivityTime < first ? agg.firstActivityTime : first), dayAggs[0].firstActivityTime);
+    const firstVisit = firstVisits.get(`${dayAggs[0].dateKey}|${dayAggs[0].userId}`);
+    const firstCallOfDay = firstVisit && firstVisit < firstRecord ? firstVisit : firstRecord;
     const lastCallOfDay = dayAggs.reduce((last, agg) => (agg.lastActivityTime > last ? agg.lastActivityTime : last), dayAggs[0].lastActivityTime);
     const hoursInDay = Math.round(((lastCallOfDay.getTime() - firstCallOfDay.getTime()) / 3600000) * 100) / 100;
     const callsInDay = withTime.length;
