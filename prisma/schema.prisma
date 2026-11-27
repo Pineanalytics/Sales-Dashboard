@@ -2755,6 +2755,11 @@ model SalesLine {
   costCentre1         String?
   costCentre2         String?
   costCentre3         String?
+  // The terms on the document itself (OINV/ORIN GroupNum -> OCTG), which can differ from the account's term today, and the
+  // date it falls due. Null on a month last read before these were added.
+  paymentTerm         String?
+  paymentTermDays     Int?
+  dueDate             DateTime? @db.Date
   syncToken           String
   updatedAt           DateTime  @updatedAt
 

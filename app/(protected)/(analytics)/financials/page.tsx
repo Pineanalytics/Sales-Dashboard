@@ -22,6 +22,7 @@ const TABS: FinancialsTab[] = [
   "total-outstanding",
   "ageing-trend",
   "global-ageing",
+  "trading-terms",
   "finance-presentation",
 ];
 

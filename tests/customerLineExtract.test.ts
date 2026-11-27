@@ -32,7 +32,7 @@ function line(over: Partial<LinkedLine<SalesLineRecord>> = {}): LinkedLine<Sales
     docType: "INVOICE", docEntry: 1, lineNum: 0, docNum: "1001", docDate: "2026-11-05", docStatus: "O", printed: true, seriesName: "INV", cardCode: "Van-09", customerName: "Van 9 - PIGEON",
     sfaName: "Jebbs Supermarket (0703655088)", phone: null, numAtCard: null, remarks: null, salesEmployee: "Amina", principal: "Mars-Nairobi", itemCode: "MARS1", itemName: "Galaxy", quantity: 24, inventoryQty: 24, packSize: 12,
     whsCode: "01", whsName: "Main", priceBeforeDiscount: 100, price: 95, discountPct: 5, vatAmount: 364.8, salesAmount: 2280, paidAmount: 0, unitCost: 80, createdBy: "clerk", creationDate: "2026-11-05",
-    costCentre1: "Mars", costCentre2: null, costCentre3: null, ...over,
+    costCentre1: "Mars", costCentre2: null, costCentre3: null, paymentTerm: "14 Days", paymentTermDays: 14, dueDate: "2026-11-19", ...over,
   };
 }
 
@@ -236,8 +236,14 @@ describe("the SAP read", () => {
     const mapped = toSalesDetailLine({
       DocType: "INVOICE", DocEntry: 5, LineNum: 0, DocNum: 77, DocDate: new Date("2026-11-02T00:00:00Z"), DocStatus: "C", Printed: "N", SeriesName: "A", CardCode: "C1", CardName: " Shop ", SfaName: "  ", Phone: null, NumAtCard: null, Comments: null,
       SalesEmployee: "Amina", ItemCode: "X1", ItemName: null, Quantity: 3, InventoryQty: 3, PackSize: 0, WhsCode: "01", WhsName: "Main", PriceBefDi: 10, Price: 10, DiscPrcnt: 0, VatSum: 4.8, SalesAmount: 30, PaidSum: 0, UnitCost: null, CreatedBy: null, CreateDate: null, OcrCode: "", OcrCode2: null, OcrCode3: null,
+      PaymentTerm: " 14 Days ", PaymentTermDays: 14, DocDueDate: new Date("2026-11-16T00:00:00Z"),
     });
     expect(mapped).toMatchObject({ docNum: "77", docDate: "2026-11-02", printed: false, customerName: "Shop", sfaName: null, packSize: null, costCentre1: null, itemName: "(Unspecified product)" });
+    expect(mapped).toMatchObject({ paymentTerm: "14 Days", paymentTermDays: 14, dueDate: "2026-11-16" });
+  });
+
+  it("reads each document's own payment term", () => {
+    expect(SALES_DETAIL_SQL.match(/LEFT JOIN OCTG T10 ON T10\.GroupNum = T0\.GroupNum/g)).toHaveLength(2);
   });
 
   it("reads the months asked for", () => {
@@ -324,7 +330,7 @@ describe("GET /api/reports/customer-raw-lines", () => {
 
   it("streams the header and every line of the selected principals", async () => {
     prismaMock.salesLineMonth.findMany.mockResolvedValue([{ year: "2026", monthIndex: 10, syncedAt: new Date() }]);
-    prismaMock.salesLine.findMany.mockResolvedValue([{ ...line({ numAtCard: "oi-5" }), id: "a", docDate: new Date("2026-11-05T00:00:00Z"), creationDate: null }]);
+    prismaMock.salesLine.findMany.mockResolvedValue([{ ...line({ numAtCard: "oi-5" }), id: "a", docDate: new Date("2026-11-05T00:00:00Z"), creationDate: null, dueDate: new Date("2026-11-19T00:00:00Z") }]);
     const response = await get("period=2026-11&principal=mars");
     const text = await response.text();
     expect(response.headers.get("Content-Type")).toContain("text/csv");

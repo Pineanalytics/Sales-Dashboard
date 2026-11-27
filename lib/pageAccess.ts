@@ -115,7 +115,7 @@ export const REPORT_MODULES: readonly ReportModule[] = [
     label: "Financials",
     href: "/financials",
     reports: [
-      { key: "receivables", label: "Receivables & ageing", detail: "Credit exposure, open items, debtors, ageing trend, global ageing" },
+      { key: "receivables", label: "Receivables & ageing", detail: "Credit exposure, open items, debtors, ageing trend, global ageing, trading terms" },
       { key: "profitability", label: "Profitability", detail: "Profitability and sales performance by principal" },
       { key: "finance-presentation", label: "Finance presentation", detail: "Comes with Profitability" },
     ],
