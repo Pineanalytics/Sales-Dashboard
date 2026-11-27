@@ -1,5 +1,6 @@
 // Every non-cancelled SAP invoice and credit-note LINE, with the fields of the desktop "SAP B1 Detailed Sales Extraction"
-// tool: header, billing account, U_CustomerName, item, warehouse, prices, paid amount, purchase price and cost centres.
+// tool: header, billing account, U_CustomerName, item, warehouse, prices, paid amount, purchase price and cost centres
+// (plus the document's payment term and due date, which that tool does not carry).
 // Sales amount (including the StockSum rule), signs and the sales-employee fallback (document, then line, then document
 // owner) are that tool's. Read-only SELECT; callers pass a bounded window (one month at a time) to keep memory in check.
 import sql from "mssql";
@@ -43,6 +44,9 @@ interface SalesDetailRecord {
   OcrCode: string | null;
   OcrCode2: string | null;
   OcrCode3: string | null;
+  PaymentTerm: string | null;
+  PaymentTermDays: number | null;
+  DocDueDate: Date | null;
 }
 
 const NO_REP = "'-No Sales Employee-'";
@@ -68,7 +72,10 @@ function documentSelect(docType: "INVOICE" | "CREDIT_NOTE"): string {
           T2.NumInBuy AS PackSize, T1.WhsCode, T3.WhsName, T1.PriceBefDi, T1.Price,
           ${sign}T1.DiscPrcnt AS DiscPrcnt, ${sign}T1.VatSum AS VatSum,
           ${SALES_AMOUNT[docType]} AS SalesAmount,
-          T0.PaidSum, PL.PurchasePrice AS UnitCost, T4.U_NAME AS CreatedBy, T0.CreateDate, T1.OcrCode, T1.OcrCode2, T1.OcrCode3
+          T0.PaidSum, PL.PurchasePrice AS UnitCost, T4.U_NAME AS CreatedBy, T0.CreateDate, T1.OcrCode, T1.OcrCode2, T1.OcrCode3,
+          T10.PymntGroup AS PaymentTerm,
+          CASE WHEN T10.GroupNum IS NULL THEN NULL ELSE ISNULL(T10.ExtraDays, 0) + ISNULL(T10.ExtraMonth, 0) * 30 END AS PaymentTermDays,
+          T0.DocDueDate
       FROM ${header} T0
       INNER JOIN ${line} T1 ON T0.DocEntry = T1.DocEntry
       INNER JOIN OITM T2 ON T2.ItemCode = T1.ItemCode
@@ -80,6 +87,7 @@ function documentSelect(docType: "INVOICE" | "CREDIT_NOTE"): string {
       LEFT JOIN OSLP T8 ON T8.SlpCode = T1.SlpCode
       LEFT JOIN OHEM T9 ON T9.empID = T0.OwnerCode
       LEFT JOIN PurchasePrices PL ON PL.ItemCode = T1.ItemCode
+      LEFT JOIN OCTG T10 ON T10.GroupNum = T0.GroupNum
       WHERE T0.CANCELED = 'N' AND T0.TaxDate BETWEEN @StartDate AND @EndDate`;
 }
 
@@ -135,6 +143,9 @@ export function toSalesDetailLine(r: SalesDetailRecord): SapSalesDetailLine {
     costCentre1: text(r.OcrCode),
     costCentre2: text(r.OcrCode2),
     costCentre3: text(r.OcrCode3),
+    paymentTerm: text(r.PaymentTerm),
+    paymentTermDays: num(r.PaymentTermDays),
+    dueDate: r.DocDueDate ? ymd(r.DocDueDate) : null,
   };
 }
 

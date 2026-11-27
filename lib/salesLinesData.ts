@@ -71,7 +71,7 @@ export async function* salesLineBatches(periods: MonthRef[], principals: string[
   for (;;) {
     const rows = await prisma.salesLine.findMany({ where, ...page(cursor) });
     if (rows.length === 0) return;
-    yield withOutlets(rows.map((row) => ({ ...row, docType: row.docType as SalesLineRecord["docType"], docDate: ymd(row.docDate), creationDate: row.creationDate ? ymd(row.creationDate) : null })));
+    yield withOutlets(rows.map((row) => ({ ...row, docType: row.docType as SalesLineRecord["docType"], docDate: ymd(row.docDate), creationDate: row.creationDate ? ymd(row.creationDate) : null, dueDate: row.dueDate ? ymd(row.dueDate) : null })));
     if (rows.length < BATCH) return;
     cursor = rows[rows.length - 1].id;
   }

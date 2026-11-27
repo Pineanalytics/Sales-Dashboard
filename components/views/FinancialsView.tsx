@@ -20,6 +20,7 @@ import { SalesPerformanceTab } from "@/components/financials/SalesPerformanceTab
 import { TotalOutstandingTab } from "@/components/financials/TotalOutstandingTab";
 import { AgeingTrendTab } from "@/components/financials/AgeingTrendTab";
 import { GlobalAgeingTab } from "@/components/financials/GlobalAgeingTab";
+import { TradingTermsTab } from "@/components/financials/TradingTermsTab";
 import { FinancePresentationView, type FinancePresentationProps } from "./FinancePresentationView";
 
 export type FinancialsTab =
@@ -31,6 +32,7 @@ export type FinancialsTab =
   | "total-outstanding"
   | "ageing-trend"
   | "global-ageing"
+  | "trading-terms"
   | "finance-presentation";
 
 type Props = {
@@ -63,6 +65,7 @@ const TABS: { id: FinancialsTab; label: string; receivables?: boolean; profitabi
   { id: "total-outstanding", label: "Debtors & Total Outstanding", receivables: true },
   { id: "ageing-trend", label: "Ageing Trend", receivables: true },
   { id: "global-ageing", label: "Global Ageing", receivables: true },
+  { id: "trading-terms", label: "Trading Terms", receivables: true },
   { id: "finance-presentation", label: "Finance Presentation", presentation: true },
 ];
 
@@ -204,6 +207,7 @@ export function FinancialsView({
         {activeTab === "total-outstanding" && receivables && <TotalOutstandingTab receivables={receivables} debtAttribution={debtAttribution} />}
         {activeTab === "ageing-trend" && <AgeingTrendTab ageingTrend={ageingTrend} year={ageingYear} month={ageingMonth} />}
         {activeTab === "global-ageing" && <GlobalAgeingTab />}
+        {activeTab === "trading-terms" && <TradingTermsTab />}
         {activeTab === "finance-presentation" && <FinancePresentationView {...presentation} debtAttribution={debtAttribution} />}
       </div>
     </div>

@@ -43,6 +43,9 @@ export interface SalesLineRecord {
   costCentre1: string | null;
   costCentre2: string | null;
   costCentre3: string | null;
+  paymentTerm: string | null; // the document's SAP payment term, e.g. "14 Days"
+  paymentTermDays: number | null;
+  dueDate: string | null; // YYYY-MM-DD
 }
 
 export type CustomerRefRemarks = "Original" | "Prefilled";

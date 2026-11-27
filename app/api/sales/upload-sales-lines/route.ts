@@ -38,6 +38,7 @@ const FIELD_CHECKS: { [K in keyof SalesLineRecord]: (value: unknown) => boolean 
   whsCode: orNull(isString), whsName: orNull(isString), priceBeforeDiscount: orNull(isNum), price: orNull(isNum), discountPct: orNull(isNum),
   vatAmount: isNum, salesAmount: isNum, paidAmount: isNum, unitCost: orNull(isNum), createdBy: orNull(isString), creationDate: orNull(isDay),
   costCentre1: orNull(isString), costCentre2: orNull(isString), costCentre3: orNull(isString),
+  paymentTerm: orNull(isString), paymentTermDays: orNull((v): v is number => Number.isInteger(v)), dueDate: orNull(isDay),
 };
 
 function isLine(value: unknown): value is SalesLineRecord {
@@ -49,8 +50,8 @@ function isLine(value: unknown): value is SalesLineRecord {
 const COLUMNS = Object.keys(FIELD_CHECKS) as (keyof SalesLineRecord)[];
 const KEY_COLUMNS = new Set<string>(["docType", "docEntry", "lineNum"]);
 
-const DATE_COLUMNS = new Set<string>(["docDate", "creationDate"]);
-const INTEGER_COLUMNS = new Set<string>(["docEntry", "lineNum"]);
+const DATE_COLUMNS = new Set<string>(["docDate", "creationDate", "dueDate"]);
+const INTEGER_COLUMNS = new Set<string>(["docEntry", "lineNum", "paymentTermDays"]);
 const FLOAT_COLUMNS = new Set<string>(["quantity", "inventoryQty", "packSize", "priceBeforeDiscount", "price", "discountPct", "vatAmount", "salesAmount", "paidAmount", "unitCost"]);
 const typeOf = (column: string) => (DATE_COLUMNS.has(column) ? "date" : INTEGER_COLUMNS.has(column) ? "integer" : FLOAT_COLUMNS.has(column) ? "double precision" : column === "printed" ? "boolean" : "text");
 
