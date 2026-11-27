@@ -2,6 +2,7 @@
 // run to tens of thousands of rows, which is too heavy to assemble in the browser.
 import * as XLSX from "xlsx";
 import type { ExtractSheet } from "./brandCustomerExtract";
+import { REASONS } from "./creditNotes/reasons";
 
 /** Excel caps sheet names at 31 characters and forbids \ / ? * [ ]. */
 function sheetName(name: string): string {
@@ -11,11 +12,14 @@ function sheetName(name: string): string {
 const MONEY = "#,##0.00";
 const VOLUME = "#,##0.0";
 const PERCENT = "0.0";
+/** The credit-note reason columns hold the value credited for that reason. */
+const REASON_COLUMNS = new Set<string>(REASONS.map((reason) => reason.label));
 
 /** Number format for a column, by its header. Percent columns hold the percentage itself (8.1 means 8.1%). */
 function formatFor(header: string): string | null {
   if (header.includes("%")) return PERCENT;
-  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue|Total Sales|Net Sales|Sales Per Call|Discounts|Credit Notes|Invoiced|GP Lost|Prior Period Credit Notes|Sales Value|Sales Amount|Gross Sales|COGs|VAT Amount|Paid Amount|Sales per Customer|Top Customer Sales|Avg Monthly Sales|Cash Sales|Credit Sales|Sales Not Recorded|Their sales|Customer Sales|Account Credit Limit|Account Outstanding)/.test(header)) return MONEY;
+  if (/^(Revenue|Gross Profit|Prior-Year Revenue|Avg Monthly Revenue|Total Sales|Net Sales|Sales Per Call|Discounts|Credit Notes|Invoiced|GP Lost|Prior Period Credit Notes|Sales Value|Sales Amount|Gross Sales|COGs|VAT Amount|Paid Amount|Sales per Customer|Top Customer Sales|Avg Monthly Sales|Cash Sales|Credit Sales|Sales Not Recorded|Their sales|Customer Sales|Account Credit Limit|Account Outstanding|Value Without Reason)/.test(header)) return MONEY;
+  if (REASON_COLUMNS.has(header)) return MONEY;
   // A month column of the customer analysis ("Nov 2026") holds that month's sales.
   if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/.test(header)) return MONEY;
   if (header.startsWith("Cases")) return VOLUME;
