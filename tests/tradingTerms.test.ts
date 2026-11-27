@@ -102,6 +102,27 @@ describe("the trading terms report", () => {
     expect(note[1]).toContain("STOCK LOST BY STAFF");
   });
 
+  it("keeps a shop's sale billed to a principal's account as the shop's, but leaves a stock loss out under any name", () => {
+    const { summary, sheets: build } = buildTradingTerms(monthRows, [
+      row({ sfaName: "Betterdeal Wholesalers", customerName: "BIDCO AFRICA LIMITED.", cardCode: "C-7" }),
+      row({ sfaName: "John (driver)", customerName: "Stock Lost by Staff", cardCode: "C-9", sales: 20 }),
+      row({ sfaName: null, customerName: "BIDCO AFRICA LIMITED.", cardCode: "C-7", sales: 0 }),
+    ], accounts);
+    expect(records(sheet(build(scope), "Top 80% Customers")).map((r) => r.Customer)).toEqual(["BETTERDEAL WHOLESALERS"]);
+    // A name left out with nothing against it is not listed.
+    expect(summary.leftOut).toEqual([{ customer: "STOCK LOST BY STAFF", sales: 20 }]);
+  });
+
+  it("gives the same answer whatever order sales that cancel out are added in", () => {
+    // 0.1 + 0.2 - 0.3 leaves a remainder above zero; 0.1 - 0.3 + 0.2 leaves none.
+    const returned = [0.1, 0.2, -0.3].map((sales) => row({ principal: "Unilever-Nairobi", paymentTerm: "COD", sales }));
+    for (const order of [returned, [returned[0], returned[2], returned[1]]]) {
+      const { summary } = buildTradingTerms(monthRows, [row({ sales: 500 }), ...order], accounts);
+      expect(summary.differingCustomers).toBe(0);
+      expect(summary.principals.find((p) => p.principal === "Unilever")).toMatchObject({ cashCustomers: 0, topCustomers: 0 });
+    }
+  });
+
   it("writes every customer's terms with every principal as CSV", () => {
     const lines = [...report.csv()];
     expect(lines[0].startsWith("Customer,Customer Rank,In Top 80%")).toBe(true);

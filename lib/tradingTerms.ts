@@ -19,9 +19,21 @@ export function termClass(term: string | null): TermClass {
 /** A term's name as shown: SAP writes its default as "- Cash Basic -", whose dashes a spreadsheet would read as a formula. */
 export const termName = (term: string | null) => term?.replace(/^[\s-]+|[\s-]+$/g, "") || "Not recorded";
 
-/** Accounts that carry sales but are not customers: left out of the customer rankings, listed separately. */
-const NOT_A_CUSTOMER = [/^stock lost/i, /^mars wrigley confectionery/i, /^bidco africa/i];
-export const isNotACustomer = (name: string) => NOT_A_CUSTOMER.some((pattern) => pattern.test(name.trim()));
+/** Sales and credit notes that cancel out leave a remainder like 0.00000000000000006, and which side of zero it falls
+ *  depends on the order they were added in. Only a cent or more counts. */
+const inCents = (value: number) => Math.round(value * 100);
+const positive = (value: number) => inCents(value) > 0;
+
+/** Names that carry sales but are not customers: left out of the customer rankings, listed separately. A stock-loss account
+ *  is left out whatever name is on the sale; a principal's own name only where it is the customer, because a shop's sale
+ *  billed to that account is still the shop's. */
+const STOCK_LOSS = /^stock lost/i;
+const PRINCIPAL_ITSELF = [/^mars wrigley confectionery/i, /^bidco africa/i];
+/** The name to list a sale under when it is left out of the rankings, else null. */
+export function leftOutAs(customer: string, accountName: string): string | null {
+  if (STOCK_LOSS.test(accountName.trim())) return accountName.trim().toUpperCase();
+  return STOCK_LOSS.test(customer) || PRINCIPAL_ITSELF.some((pattern) => pattern.test(customer)) ? customer : null;
+}
 
 /** Net sales of one principal in one month on one term. */
 export interface TermMonthRow {
@@ -98,7 +110,7 @@ function addHolding(holding: Holding, row: TermCustomerRow) {
   if ((row.lastInvoice ?? "") > holding.lastInvoice) holding.lastInvoice = row.lastInvoice ?? "";
 }
 
-const bySales = <T extends { sales: number }>(map: Map<string, T>) => [...map.entries()].sort((a, b) => b[1].sales - a[1].sales || a[0].localeCompare(b[0]));
+const bySales = <T extends { sales: number }>(map: Map<string, T>) => [...map.entries()].sort((a, b) => inCents(b[1].sales) - inCents(a[1].sales) || a[0].localeCompare(b[0]));
 /** The term (or account) carrying most of the sales. */
 const mainOf = <T extends { sales: number }>(map: Map<string, T>): [string, T] => bySales(map)[0];
 
@@ -146,7 +158,7 @@ const SPLIT_COLUMNS = ["Net Sales", "Cash Sales", "Credit Sales", "Sales Not Rec
 const splitCells = (s: Split): ExtractCell[] => [r2(s.sales), r2(s.cash), r2(s.credit), r2(s.unrecorded), pct(s.cash, s.sales), pct(s.credit, s.sales), pct(s.unrecorded, s.sales)];
 
 const termList = (holding: Holding) => bySales(holding.terms).map(([name, term]) => `${name}${holding.terms.size > 1 && holding.sales > 0 ? ` ${Math.round((term.sales / holding.sales) * 100)}%` : ""}`).join(", ");
-const cashOrCredit = (holding: Holding) => (holding.cash > 0 && holding.credit > 0 ? "Both" : termClass(mainOf(holding.terms)[0] === "Not recorded" ? null : mainOf(holding.terms)[0]));
+const cashOrCredit = (holding: Holding) => (positive(holding.cash) && positive(holding.credit) ? "Both" : termClass(mainOf(holding.terms)[0] === "Not recorded" ? null : mainOf(holding.terms)[0]));
 
 interface Customer {
   key: string;
@@ -165,14 +177,14 @@ interface Ranked {
 }
 
 function rank(list: { customer: Customer; holding: Holding }[]): Ranked[] {
-  const sorted = [...list].sort((a, b) => b.holding.sales - a.holding.sales || a.customer.key.localeCompare(b.customer.key));
+  const sorted = [...list].sort((a, b) => inCents(b.holding.sales) - inCents(a.holding.sales) || a.customer.key.localeCompare(b.customer.key));
   const total = sorted.reduce((sum, entry) => sum + entry.holding.sales, 0);
   let cumulative = 0;
   return sorted.map((entry, index) => {
     const share = total ? entry.holding.sales / total : 0;
     const before = cumulative;
     cumulative += share;
-    return { ...entry, rank: index + 1, share, cumulative, top: total > 0 && entry.holding.sales > 0 && before < 0.8 };
+    return { ...entry, rank: index + 1, share, cumulative, top: positive(total) && positive(entry.holding.sales) && before < 0.8 };
   });
 }
 
@@ -192,8 +204,9 @@ export function buildTradingTerms(monthRows: TermMonthRow[], customerRows: TermC
     term.sales += row.sales;
     term.customers.add(key);
     termTotals.set(name, term);
-    if (isNotACustomer(row.customerName) || isNotACustomer(key)) {
-      leftOut.set(key, (leftOut.get(key) ?? 0) + row.sales);
+    const excluded = leftOutAs(key, row.customerName);
+    if (excluded) {
+      leftOut.set(excluded, (leftOut.get(excluded) ?? 0) + row.sales);
       continue;
     }
     let customer = customers.get(key);
@@ -235,7 +248,7 @@ export function buildTradingTerms(monthRows: TermMonthRow[], customerRows: TermC
     orderedFamilies.map(([family]) => [family, rank([...customers.values()].flatMap((customer) => (customer.principals.has(family) ? [{ customer, holding: customer.principals.get(family)! }] : [])))])
   );
   // A principal the customer only returned goods to says nothing about the terms it buys on.
-  const differs = (customer: Customer) => new Set([...customer.principals.values()].filter((holding) => holding.sales > 0).map((holding) => mainOf(holding.terms)[0])).size > 1;
+  const differs = (customer: Customer) => new Set([...customer.principals.values()].filter((holding) => positive(holding.sales)).map((holding) => mainOf(holding.terms)[0])).size > 1;
   const differing = ranked.filter((entry) => differs(entry.customer));
 
   const summary: TradingTermsSummary = {
@@ -249,8 +262,8 @@ export function buildTradingTerms(monthRows: TermMonthRow[], customerRows: TermC
         credit: split.credit,
         unrecorded: split.unrecorded,
         customers: list.length,
-        cashCustomers: list.filter((entry) => entry.holding.cash > 0).length,
-        creditCustomers: list.filter((entry) => entry.holding.credit > 0).length,
+        cashCustomers: list.filter((entry) => positive(entry.holding.cash)).length,
+        creditCustomers: list.filter((entry) => positive(entry.holding.credit)).length,
         topCustomers: list.filter((entry) => entry.top).length,
       };
     }),
@@ -260,7 +273,7 @@ export function buildTradingTerms(monthRows: TermMonthRow[], customerRows: TermC
     topSales: topList.reduce((sum, entry) => sum + entry.holding.sales, 0),
     differingCustomers: differing.length,
     differingSales: differing.reduce((sum, entry) => sum + entry.holding.sales, 0),
-    leftOut: [...leftOut.entries()].map(([customer, sales]) => ({ customer, sales })).sort((a, b) => b.sales - a.sales),
+    leftOut: [...leftOut.entries()].filter(([, sales]) => inCents(sales) !== 0).map(([customer, sales]) => ({ customer, sales })).sort((a, b) => b.sales - a.sales),
   };
 
   const daysAllowed = (holding: Holding): ExtractCell => (holding.datedValue > 0 ? r1(holding.dayValue / holding.datedValue) : "");
@@ -316,7 +329,7 @@ export function buildTradingTerms(monthRows: TermMonthRow[], customerRows: TermC
 
     const principalColumns = ["Principal", ...SPLIT_COLUMNS, "Customers", "Customers on Cash Terms", "Customers on Credit Terms", "Customers Making 80%"];
     const principalRows = summary.principals.map((p): ExtractCell[] => [p.principal, ...splitCells(p), p.customers, p.cashCustomers, p.creditCustomers, p.topCustomers]);
-    principalRows.push(["Total", ...splitCells(total), summary.customers, ranked.filter((e) => e.holding.cash > 0).length, ranked.filter((e) => e.holding.credit > 0).length, summary.topCustomers]);
+    principalRows.push(["Total", ...splitCells(total), summary.customers, ranked.filter((e) => positive(e.holding.cash)).length, ranked.filter((e) => positive(e.holding.credit)).length, summary.topCustomers]);
 
     const monthly = (label: string, byMonth: Map<string, Split>, whole: Split): ExtractCell[] => [
       label,
