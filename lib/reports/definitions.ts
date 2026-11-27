@@ -775,7 +775,7 @@ function creditNoteParams(ctx: Pick<ReportContext, "period" | "principalKey" | "
 const salesReturnsReport: ReportDefinition = {
   key: "sales-returns",
   label: "Credit Notes & Returns",
-  description: "SAP credit notes for the chosen period and principal, by principal, customer, item and sales rep, set against what was invoiced. Excel is the full workbook with every list; PDF is the summary.",
+  description: "SAP credit notes for the chosen period and principal, by principal, customer, item and sales rep, set against what was invoiced. Excel is the full workbook with every list and the reason typed on each credit note; PDF is the summary.",
   pageKey: "sales-returns",
   fullExcelUrl(ctx) {
     return `/api/credit-notes/export?${creditNoteParams(ctx).toString()}`;

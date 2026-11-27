@@ -35,7 +35,7 @@ function ShareBar({ share }: { share: number }) {
   );
 }
 
-export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditNotesTab, "overview" | "distributors">; report: CreditNotesPayload; onFilter: (value: string) => void }) {
+export function EntitySections({ tab, report, onFilter }: { tab: Exclude<CreditNotesTab, "overview" | "reasons" | "distributors">; report: CreditNotesPayload; onFilter: (value: string) => void }) {
   const comparison = report.priorScope.length > 0 ? "Change" : "Change (n/a)";
 
   if (tab === "principals") {

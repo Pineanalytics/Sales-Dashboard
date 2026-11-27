@@ -13,9 +13,11 @@ import { Panel } from "@/components/performanceAnalysis/shared";
 import { DistributorReturnsSection } from "./DistributorReturnsSection";
 import { EntitySections } from "./EntitySections";
 import { OverviewSection } from "./OverviewSection";
+import { ReasonsSection } from "./ReasonsSection";
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "reasons", label: "Reasons" },
   { id: "principals", label: "Principals" },
   { id: "items", label: "Items" },
   { id: "customers", label: "Customers" },
@@ -67,6 +69,8 @@ export function CreditNotesView() {
 
   // The distributor (DMS) tab runs on its own source; the SAP report does not need to load while it is open.
   const needsReport = tab !== "distributors";
+  // The reasons tab loads its own figures; the headline report still loads so the export button knows there is something to export.
+  const showReport = needsReport && tab !== "reasons";
   useEffect(() => {
     if (!query || !needsReport) return;
     const controller = new AbortController();
@@ -175,20 +179,21 @@ export function CreditNotesView() {
       {needsReport && state.response?.scoped ? <p className="-mt-2 text-xs text-muted">Your account is limited to its own team or principals, so these figures cover only those.</p> : null}
 
       {tab === "distributors" ? <DistributorReturnsSection months={months} /> : null}
+      {tab === "reasons" ? <ReasonsSection query={query} /> : null}
 
-      {needsReport && state.error ? (
+      {showReport && state.error ? (
         <Panel>
           <p className="py-6 text-center text-sm text-red-600">{state.error}</p>
         </Panel>
       ) : null}
 
-      {needsReport && !state.response && !state.error ? (
+      {showReport && !state.response && !state.error ? (
         <Panel>
           <p className="py-10 text-center text-sm text-muted">Loading the report…</p>
         </Panel>
       ) : null}
 
-      {needsReport && state.response && !hasData && !loading ? (
+      {showReport && state.response && !hasData && !loading ? (
         <Panel>
           <p className="py-10 text-center text-sm text-muted">
             {meta ? "No SAP invoices or credit notes match this period, principal selection and search." : "The SAP document lines have not been built yet. They refresh once a day from SAP."}
@@ -196,13 +201,13 @@ export function CreditNotesView() {
         </Panel>
       ) : null}
 
-      {needsReport && report && hasData ? (
+      {showReport && report && hasData ? (
         <div className={`flex flex-col gap-6 transition-opacity ${loading ? "pointer-events-none opacity-50" : ""}`} aria-busy={loading}>
           {tab === "overview" ? <OverviewSection report={report} onOpen={setTab} /> : <EntitySections tab={tab} report={report} onFilter={(text) => setSearchInput(text)} />}
 
           <footer className="border-t border-border pt-4 text-[13px] text-muted">
             Source: SAP Business One invoices and credit notes (excl. VAT), {report.kpi.creditLines.toLocaleString("en-US")} credit-note lines in this selection. Credit notes are shown as positive amounts and
-            the rate is credit notes as a share of what was invoiced over the same period and slice. Credit notes cover returns, damages and price corrections; SAP does not separate them on the line.
+            the rate is credit notes as a share of what was invoiced over the same period and slice. Credit notes cover returns, damages and price corrections; the Reasons tab shows why, from what was typed on each one.
             {report.priorScope.length > 0 ? " Change compares with the equal-length period just before." : " The earlier period is not in the stored SAP lines, so no comparison is shown."}
             {meta ? ` SAP read as of ${meta.asOf}.` : ""}
           </footer>

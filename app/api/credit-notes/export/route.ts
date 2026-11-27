@@ -5,6 +5,8 @@ import { creditNotesAccessFor, lineScopeFrom } from "@/lib/creditNotes/scope";
 import { parseCreditNotesParams } from "@/lib/creditNotes/request";
 import { buildCreditNotesReport } from "@/lib/creditNotes/store";
 import { buildCreditNotesSheets } from "@/lib/creditNotes/workbook";
+import { buildCreditNoteReasons } from "@/lib/creditNotes/reasonsStore";
+import { buildReasonSheets } from "@/lib/creditNotes/reasonsWorkbook";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +42,11 @@ export async function GET(req: NextRequest) {
     const periodLabel = label(params, "label", months.length === 1 ? months[0] : `${months[0]} to ${months[months.length - 1]}`);
     const principalLabel = label(params, "principalLabel", principalKeys.length === 0 ? "All principals" : principalKeys.join(", "));
     const generatedAt = new Date();
-    const body = extractToXlsxBuffer(buildCreditNotesSheets(report, meta, { periodLabel, principalLabel, query, generatedAt, scoped: scope !== null }));
+    const reasons = await buildCreditNoteReasons({ months, principalKeys, query, scope, full: true });
+    const body = extractToXlsxBuffer([
+      ...buildCreditNotesSheets(report, meta, { periodLabel, principalLabel, query, generatedAt, scoped: scope !== null }),
+      ...buildReasonSheets(reasons.report, reasons.missingMonths),
+    ]);
     const filename = `credit-notes-returns-${fileSlug(principalLabel)}-${fileSlug(periodLabel)}-${generatedAt.toISOString().slice(0, 10)}.xlsx`;
     return new NextResponse(new Uint8Array(body), {
       status: 200,
