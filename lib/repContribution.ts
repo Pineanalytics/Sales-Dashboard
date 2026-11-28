@@ -11,11 +11,6 @@ import { prisma } from "@/lib/db";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
 
-function weekdayIndex(date: Date): number | null {
-  const day = date.getUTCDay();
-  return day >= 1 && day <= 5 ? day - 1 : null; // 0=Mon..4=Fri, null for Sat/Sun
-}
-
 export interface RepContributionResult {
   principalCount: number;
   repCount: number;
@@ -233,7 +228,7 @@ export function computeWeekdayWeights(detailCounts: number[], dailyCounts: numbe
   return EVEN_WEEKDAY_SPLIT;
 }
 
-/** Weekday (Mon-Fri) visit-count histogram for one rep, normalized to sum 1.
+/** Weekday (Mon-Fri) visit-count histogram per rep, normalized to sum 1.
  *  Both layers now read RepCall (Timestamps' own live data) instead of the
  *  retired JPAdherenceDetail/JPAdherenceDaily tables. Layer 1: productive
  *  (callOutcome='Sale') calls in the trailing WEEKDAY_WEIGHT_LOOKBACK_DAYS —
@@ -241,35 +236,35 @@ export function computeWeekdayWeights(detailCounts: number[], dailyCounts: numbe
  *  trailing-~7-day persisted window. Layer 2: every RepCall row for the rep
  *  (unbounded beyond RepCall's own 3-month retention) — deeper history,
  *  coarser signal, same role as the old Daily-sourced layer. See
- *  computeWeekdayWeights for the fallback logic itself. */
-async function weekdayWeightsForRep(employeeCode: string): Promise<number[]> {
+ *  computeWeekdayWeights for the fallback logic itself.
+ *  All reps in one query: per rep and Mon-Fri weekday, the productive calls in the lookback (Layer 1) and every call on record (Layer 2).
+ *  RepCall.date is a UTC timestamp, so ISODOW 1-5 is getUTCDay's Monday-Friday. Used to be one or two queries per rep (the second reading
+ *  the rep's whole history), for every rep on every roster save. */
+async function weekdayWeightsForReps(employeeCodes: string[]): Promise<Map<string, number[]>> {
+  const codes = [...new Set(employeeCodes)];
+  const result = new Map<string, number[]>();
+  if (codes.length === 0) return result;
   const lookbackStart = new Date(Date.now() - WEEKDAY_WEIGHT_LOOKBACK_DAYS * 86400000);
-  const detailRows = await prisma.repCall.findMany({
-    where: { employeeCode, callOutcome: "Sale", date: { gte: lookbackStart } },
-    select: { date: true },
-  });
-  const detailCounts = [0, 0, 0, 0, 0];
-  for (const r of detailRows) {
-    const idx = weekdayIndex(r.date);
-    if (idx !== null) detailCounts[idx] += 1;
+  const rows = await prisma.$queryRaw<{ employeeCode: string; dow: number; detail: number; daily: number }[]>(Prisma.sql`
+    SELECT "employeeCode", EXTRACT(ISODOW FROM date)::integer AS dow,
+      COUNT(*) FILTER (WHERE "callOutcome" = 'Sale' AND date >= ${lookbackStart})::integer AS detail,
+      COUNT(*)::integer AS daily
+    FROM "RepCall"
+    WHERE "employeeCode" IN (${Prisma.join(codes)}) AND EXTRACT(ISODOW FROM date) BETWEEN 1 AND 5
+    GROUP BY 1, 2
+  `);
+  const counts = new Map<string, { detail: number[]; daily: number[] }>();
+  for (const row of rows) {
+    const entry = counts.get(row.employeeCode) ?? { detail: [0, 0, 0, 0, 0], daily: [0, 0, 0, 0, 0] };
+    entry.detail[row.dow - 1] += row.detail;
+    entry.daily[row.dow - 1] += row.daily;
+    counts.set(row.employeeCode, entry);
   }
-
-  const detailTotal = detailCounts.reduce((s, c) => s + c, 0);
-  if (detailTotal >= MIN_DETAIL_VISITS_FOR_LAYER_1) {
-    return computeWeekdayWeights(detailCounts, [0, 0, 0, 0, 0]);
+  for (const code of codes) {
+    const entry = counts.get(code);
+    result.set(code, entry ? computeWeekdayWeights(entry.detail, entry.daily) : EVEN_WEEKDAY_SPLIT);
   }
-
-  const dailyRows = await prisma.repCall.findMany({
-    where: { employeeCode },
-    select: { date: true },
-  });
-  const dailyCounts = [0, 0, 0, 0, 0];
-  for (const r of dailyRows) {
-    const idx = weekdayIndex(r.date);
-    if (idx !== null) dailyCounts[idx] += 1;
-  }
-
-  return computeWeekdayWeights(detailCounts, dailyCounts);
+  return result;
 }
 
 export interface DailyTargetResult {
@@ -356,7 +351,7 @@ export function normalizeRepShares(shares: number[]): number[] {
  *  grid: splits each Weekly figure across its assigned reps (their Contribution
  *  % relative to each other, so a leader's daily targets add up to their weekly
  *  figure: normalizeRepShares) then across that week's Mon-Fri (weekdayDatesForWeek,
- *  weekdayWeightsForRep). Full
+ *  weekdayWeightsForReps). Full
  *  replace — cheap, since the grid window is bounded (~13 weeks x a handful of
  *  team-leader/principal pairs), and correctness matters more than incremental
  *  update complexity here. */
@@ -390,13 +385,10 @@ export async function recomputeDailyTargets(): Promise<DailyTargetResult> {
   const shareByPrincipalRep = new Map<string, number>();
   for (const c of contributions) shareByPrincipalRep.set(`${c.principal}|${c.employeeCode}`, c.sharePct);
 
-  const weightCache = new Map<string, number[]>();
+  // Every rep's weekday weights in one grouped read (weekdayWeightsForReps), not one or two queries per rep.
+  const weightsByRep = await weekdayWeightsForReps(assignments.map((a) => a.employeeCode));
   async function getWeights(employeeCode: string): Promise<number[]> {
-    const cached = weightCache.get(employeeCode);
-    if (cached) return cached;
-    const weights = await weekdayWeightsForRep(employeeCode);
-    weightCache.set(employeeCode, weights);
-    return weights;
+    return weightsByRep.get(employeeCode) ?? EVEN_WEEKDAY_SPLIT;
   }
 
   const toCreate: Prisma.DailyTargetCreateManyInput[] = [];
