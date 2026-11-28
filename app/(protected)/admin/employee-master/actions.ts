@@ -3,9 +3,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { getKnownPrincipals, getKnownSapSalesReps } from "@/lib/adminReference";
-import { recomputeDailyTargets, recomputeRepContribution } from "@/lib/repContribution";
+import { getKnownPrincipals, getKnownSapSalesRepsFresh } from "@/lib/adminReference";
+import { rebuildTargetsAfterResponse } from "@/lib/derivedRecompute";
 import { resolveEmployeeIdentities } from "@/lib/employeeIdentity";
+import { moveRepToTeamLeader } from "@/lib/rosterMove";
 
 const PAGE = "/admin/employee-master";
 
@@ -33,10 +34,11 @@ async function assertCanEditEmployee(editor: Awaited<ReturnType<typeof requireRo
   if (!assignment) redirect(`${PAGE}?error=${encodeURIComponent("You can only update reps assigned to your own roster.")}`);
 }
 
+/** After a roster change: fills any rep's missing home Team Leader now (quick, and the roster shows it), and rebuilds contribution shares and
+ *  daily targets after the response (lib/derivedRecompute.ts), so the save returns straight away. */
 async function recomputeDerived() {
-  await recomputeRepContribution();
-  await recomputeDailyTargets();
   await resolveEmployeeIdentities();
+  rebuildTargetsAfterResponse();
 }
 
 export async function saveEmployeeMasterAction(formData: FormData) {
@@ -46,13 +48,15 @@ export async function saveEmployeeMasterAction(formData: FormData) {
   const sapName = value(formData, "sapName") || pineName;
   const absolutePrincipal = value(formData, "absolutePrincipal");
   const salesRole = value(formData, "salesRole") || "Primary Sales";
-  const teamLeaderName = editor.isAdmin ? value(formData, "teamLeader") : editor.teamLeader!.name;
   const existing = employeeCode ? await prisma.employeeMaster.findUnique({ where: { employeeCode } }) : null;
+  // Only an admin chooses the Team Leader. A Team Leader amending a rep keeps the rep where they are (the form has no Team Leader field for
+  // them); a rep a Team Leader adds goes onto their own roster.
+  const teamLeaderName = editor.isAdmin ? value(formData, "teamLeader") : existing?.teamLeader || editor.teamLeader!.name;
 
   if (!employeeCode || !pineName || !absolutePrincipal || !teamLeaderName) {
     redirect(`${PAGE}?error=${encodeURIComponent("Employee code, Pine name, absolute principal, and Team Leader are required.")}`);
   }
-  const [knownPrincipals, knownSapNames] = await Promise.all([getKnownPrincipals(), getKnownSapSalesReps()]);
+  const [knownPrincipals, knownSapNames] = await Promise.all([getKnownPrincipals(), getKnownSapSalesRepsFresh()]);
   if (!knownPrincipals.includes(absolutePrincipal)) {
     redirect(`${PAGE}?error=${encodeURIComponent("Choose an available principal from the list.")}`);
   }
@@ -62,12 +66,30 @@ export async function saveEmployeeMasterAction(formData: FormData) {
   if (existing) await assertCanEditEmployee(editor, employeeCode);
 
   if (existing) {
+    // The rep's home Team Leader is the linked one (teamLeaderId), which is what the roster shows; the name is only a fallback.
+    const target = editor.isAdmin ? await prisma.teamLeader.findUnique({ where: { name: teamLeaderName }, select: { id: true, name: true } }) : null;
+    if (editor.isAdmin && !target) redirect(`${PAGE}?error=${encodeURIComponent("Choose a valid Team Leader.")}`);
+    const homeId = existing.teamLeaderId ?? (existing.teamLeader ? (await prisma.teamLeader.findUnique({ where: { name: existing.teamLeader }, select: { id: true } }))?.id ?? null : null);
+    const moving = Boolean(target && target.id !== homeId);
+
     await prisma.employeeMaster.update({
       where: { employeeCode },
-      data: { pineName, sapName, absolutePrincipal, salesRole, teamLeader: teamLeaderName },
+      data: { pineName, sapName, absolutePrincipal, salesRole, ...(editor.isAdmin && target ? { teamLeader: target.name } : {}) },
     });
-    await recomputeDerived();
-    redirect(`${PAGE}?success=${encodeURIComponent(`Updated ${pineName}.`)}`);
+    let moveNote = "";
+    if (moving && target) {
+      try {
+        const move = await moveRepToTeamLeader({ employeeCode, toTeamLeaderName: target.name, userEmail: editor.user.email ?? "admin" });
+        moveNote = ` Moved to ${move.toTeamLeader}${move.fromTeamLeader ? ` from ${move.fromTeamLeader}` : ""}.`;
+      } catch (error) {
+        console.error(`Failed to move ${employeeCode} to ${target.name}`, error);
+        redirect(`${PAGE}?error=${encodeURIComponent(`Saved ${pineName}, but could not move them to ${target.name}. Try again.`)}`);
+      }
+    }
+    // A name-only change touches nothing the derived data reads; anything else (SAP name, principal, role, Team Leader) does.
+    const affectsDerived = moving || existing.sapName !== sapName || existing.absolutePrincipal !== absolutePrincipal || existing.salesRole !== salesRole;
+    if (affectsDerived) await recomputeDerived();
+    redirect(`${PAGE}?success=${encodeURIComponent(`Updated ${pineName}.${moveNote}`)}`);
   }
 
   const teamLeader = await prisma.teamLeader.findUnique({ where: { name: teamLeaderName }, select: { id: true, name: true } });
